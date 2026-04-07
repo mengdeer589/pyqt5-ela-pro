@@ -1,0 +1,10 @@
+/benchmark_setdata.py
+/gen_test_data.py
+/ElaWidgetTools-main/
+/.venv/
+__pycache__/
+*.pyc
+*.pyo
+/PyQt/
+/PyQt-SiliconUI/
+/PyQt/.github/
