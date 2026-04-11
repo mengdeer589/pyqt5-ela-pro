@@ -1,0 +1,58 @@
+"""
+SVG 图标数据模型。
+"""
+
+from PyQt5.QtCore import QModelIndex, QAbstractListModel, Qt
+
+
+class EsIconModel(QAbstractListModel):
+    """SVG 图标数据模型，用于图标浏览器。"""
+
+    def __init__(self, icon_names: list[str] = None, parent=None):
+        super().__init__(parent)
+        self._icon_names = icon_names or []
+        self._row_count = len(self._icon_names)
+        self._p_is_search_mode = False
+        self._search_key_list = []
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        return self._row_count
+
+    def setSearchKeyList(self, search_key_list: list):
+        self.beginResetModel()
+        self._search_key_list = search_key_list
+        if self._p_is_search_mode:
+            self._row_count = len(self._search_key_list)
+        else:
+            self._row_count = len(self._icon_names)
+        self.endResetModel()
+
+    def getSearchKeyList(self) -> list:
+        return self._search_key_list
+
+    def setIsSearchMode(self, is_search_mode: bool):
+        self._p_is_search_mode = is_search_mode
+
+    def getIsSearchMode(self) -> bool:
+        return self._p_is_search_mode
+
+    def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
+        if role == Qt.DisplayRole:
+            if not self._p_is_search_mode:
+                if index.row() >= len(self._icon_names):
+                    return None
+                return self._icon_names[index.row()]
+            else:
+                if index.row() >= len(self._search_key_list):
+                    return None
+                return self._search_key_list[index.row()]
+        return None
+
+    def getIconNameFromModelIndex(self, index: QModelIndex) -> str:
+        if self._p_is_search_mode:
+            if index.row() < len(self._search_key_list):
+                return self._search_key_list[index.row()]
+        else:
+            if index.row() < len(self._icon_names):
+                return self._icon_names[index.row()]
+        return ""

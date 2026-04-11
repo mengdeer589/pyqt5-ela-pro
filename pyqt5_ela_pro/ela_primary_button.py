@@ -1,0 +1,335 @@
+"""
+主要按钮组件。
+
+使用 Primary 主题色的按钮，与 ElaToggleButton ON 状态外观一致。
+继承自 ElaPushButton，支持图标、点击事件等所有功能。
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+from PyQt5.QtCore import Qt, QRect, QRectF, QSize
+from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen, QFont
+from PyQt5.QtWidgets import QWidget
+
+from PyQt5ElaWidgetTools import (
+    eTheme,
+    ElaThemeType,
+    ElaPushButton,
+    ElaIcon,
+    ElaIconType,
+    ElaToolButton,
+)
+
+
+class ElaToolBtn(ElaToolButton):
+    """工具按钮。
+
+    继承自 ElaToolButton，支持图标和文字水平排列。
+    图标支持主题切换，自动更新颜色。
+    外观与 ElaPushButton 一致，支持圆角背景。
+
+    :param parent: 父控件
+    :param text: 按钮文本
+    :param icon: 图标名称
+    :param iconSize: 图标大小，默认 16
+
+    Example::
+
+        btn = ElaToolBtn(parent, text="设置", icon=ElaIconType.IconName.Gear)
+    """
+
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        text: Optional[str] = None,
+        icon: Optional[ElaIconType.IconName] = None,
+        iconSize: int = 16,
+    ) -> None:
+        super().__init__(parent)
+        self._border_radius = 3
+        self._icon_name: Optional[ElaIconType.IconName] = None
+        self._icon_size = iconSize
+        self.setFixedHeight(38)
+        if text:
+            self.setText(text)
+        if icon:
+            self.setElaIcon(icon, iconSize)
+        self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        eTheme.themeModeChanged.connect(self._onThemeModeChanged)
+
+    def _onThemeModeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
+        self.update()
+
+    def _getCurrentBgColor(self) -> QColor:
+        mode = eTheme.getThemeMode()
+        if not self.isEnabled():
+            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicDisable)
+        if self.isDown():
+            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicPress)
+        if self.underMouse():
+            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicHover)
+        return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase)
+
+    def _getCurrentTextColor(self) -> QColor:
+        mode = eTheme.getThemeMode()
+        if not self.isEnabled():
+            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextDisable)
+        return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
+
+    def _getBorderColor(self) -> QColor:
+        mode = eTheme.getThemeMode()
+        if mode == ElaThemeType.ThemeMode.Light:
+            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorder)
+        return QColor(0, 0, 0, 0)
+
+    def setElaIcon(self, iconName: ElaIconType.IconName, iconSize: int = 16) -> None:
+        """设置图标。
+
+        :param iconName: 图标名称
+        :param iconSize: 图标大小，默认 16
+        """
+        self._icon_name = iconName
+        self._icon_size = iconSize
+        self.setIconSize(QSize(iconSize, iconSize))
+        self._updateIconColor()
+        self.update()
+
+    def _updateIconColor(self) -> None:
+        if self._icon_name is not None:
+            text_color = self._getCurrentTextColor()
+            icon = ElaIcon.getInstance().getElaIcon(self._icon_name, text_color)
+            self.setIcon(icon)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+
+        shadow_border = 3
+        rect = QRect(
+            shadow_border,
+            shadow_border,
+            self.width() - 2 * shadow_border,
+            self.height() - 2 * shadow_border,
+        )
+
+        bg_color = self._getCurrentBgColor()
+        text_color = self._getCurrentTextColor()
+        border_color = self._getBorderColor()
+
+        painter.setPen(border_color)
+        painter.setBrush(bg_color)
+        painter.drawRoundedRect(rect, self._border_radius, self._border_radius)
+
+        if self._icon_name is not None:
+            icon_size = QSize(self._icon_size, self._icon_size)
+            spacing = 8
+            content_height = self.height() - 2 * shadow_border
+            icon_y = shadow_border + (content_height - icon_size.height()) // 2
+
+            fm = self.fontMetrics()
+            text_width = fm.horizontalAdvance(self.text())
+            total_content_width = icon_size.width() + spacing + text_width
+            start_x = (
+                shadow_border
+                + (self.width() - 2 * shadow_border - total_content_width) // 2
+            )
+
+            icon_rect = QRect(
+                start_x,
+                icon_y,
+                icon_size.width(),
+                icon_size.height(),
+            )
+
+            text_rect = QRect(
+                icon_rect.right() + spacing,
+                shadow_border,
+                text_width,
+                content_height,
+            )
+            icon = ElaIcon.getInstance().getElaIcon(self._icon_name, text_color)
+            painter.drawPixmap(icon_rect, icon.pixmap(icon_size))
+        else:
+            text_rect = rect
+
+        painter.setPen(text_color)
+        painter.setFont(self.font())
+        painter.drawText(
+            text_rect,
+            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter,
+            self.text(),
+        )
+
+
+class ElaPrimaryBtn(ElaPushButton):
+    """主要按钮。
+
+    使用 Primary 主题色的按钮，外观与 ElaToggleButton ON 状态一致。
+    支持图标、点击事件等 ElaPushButton 所有功能。
+
+    :param parent: 父控件
+    :param text: 按钮文本
+    :param icon: 图标名称
+    :param iconSize: 图标大小，默认 16
+
+    Example::
+
+        btn = ElaPrimaryBtn(parent, text="提交", icon=ElaIconType.IconName.FloppyDisk)
+        btn.clicked.connect(lambda: print("点击"))
+    """
+
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        text: Optional[str] = None,
+        icon: Optional[ElaIconType.IconName] = None,
+        iconSize: int = 16,
+    ) -> None:
+        super().__init__(parent)
+
+        self._border_radius = 3
+        self._icon_name: Optional[ElaIconType.IconName] = None
+        self._icon_size = 16
+
+        if text is not None:
+            self.setText(text)
+        if icon is not None:
+            self.setElaIcon(icon, iconSize)
+
+    def setElaIcon(self, iconName: ElaIconType.IconName, iconSize: int = 16) -> None:
+        """设置图标。
+
+        :param iconName: 图标名称
+        :param iconSize: 图标大小，默认 16
+        """
+        self._icon_name = iconName
+        self._icon_size = iconSize
+        self.setIconSize(QSize(iconSize, iconSize))
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+
+        shadow_border = 3
+        rect = QRect(
+            shadow_border,
+            shadow_border,
+            self.width() - 2 * shadow_border,
+            self.height() - 2 * shadow_border,
+        )
+
+        bg_color = self._getCurrentBgColor()
+        text_color = self._getCurrentTextColor()
+
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(rect), self._border_radius, self._border_radius)
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(bg_color)
+        painter.drawPath(path)
+
+        if self._icon_name is not None:
+            icon_size = QSize(self._icon_size, self._icon_size)
+            spacing = 8
+            content_height = self.height() - 2 * shadow_border
+            icon_y = shadow_border + (content_height - icon_size.height()) // 2
+
+            fm = self.fontMetrics()
+            text_width = fm.horizontalAdvance(self.text())
+            total_content_width = icon_size.width() + spacing + text_width
+            start_x = (
+                shadow_border
+                + (self.width() - 2 * shadow_border - total_content_width) // 2
+            )
+
+            icon_rect = QRect(
+                start_x,
+                icon_y,
+                icon_size.width(),
+                icon_size.height(),
+            )
+
+            text_rect = QRect(
+                icon_rect.right() + spacing,
+                shadow_border,
+                text_width,
+                content_height,
+            )
+            icon = ElaIcon.getInstance().getElaIcon(self._icon_name, text_color)
+            painter.drawPixmap(icon_rect, icon.pixmap(icon_size))
+        else:
+            text_rect = rect
+
+        painter.setPen(text_color)
+        painter.setFont(self.font())
+        painter.drawText(
+            text_rect,
+            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter,
+            self.text(),
+        )
+
+    def setBorderRadius(self, radius: int) -> None:
+        """设置圆角大小。
+
+        :param radius: 圆角半径
+        """
+        self._border_radius = radius
+        self.update()
+
+    def borderRadius(self) -> int:
+        """返回圆角大小。
+
+        :return: 圆角半径
+        """
+        return self._border_radius
+
+    def _getPrimaryColor(self) -> QColor:
+        current_theme = eTheme.getThemeMode()
+        return eTheme.getThemeColor(
+            current_theme, ElaThemeType.ThemeColor.PrimaryNormal
+        )
+
+    def _getPrimaryHoverColor(self) -> QColor:
+        current_theme = eTheme.getThemeMode()
+        return eTheme.getThemeColor(current_theme, ElaThemeType.ThemeColor.PrimaryHover)
+
+    def _getPrimaryPressColor(self) -> QColor:
+        current_theme = eTheme.getThemeMode()
+        return eTheme.getThemeColor(current_theme, ElaThemeType.ThemeColor.PrimaryPress)
+
+    def _getDisableColor(self) -> QColor:
+        current_theme = eTheme.getThemeMode()
+        return eTheme.getThemeColor(current_theme, ElaThemeType.ThemeColor.BasicDisable)
+
+    def _getTextColor(self) -> QColor:
+        current_theme = eTheme.getThemeMode()
+        return eTheme.getThemeColor(
+            current_theme, ElaThemeType.ThemeColor.BasicTextInvert
+        )
+
+    def _getDisableTextColor(self) -> QColor:
+        current_theme = eTheme.getThemeMode()
+        return eTheme.getThemeColor(
+            current_theme, ElaThemeType.ThemeColor.BasicTextDisable
+        )
+
+    def _getCurrentBgColor(self) -> QColor:
+        if not self.isEnabled():
+            return self._getDisableColor()
+        if self.isDown():
+            return self._getPrimaryPressColor()
+        if self.underMouse():
+            return self._getPrimaryHoverColor()
+        return self._getPrimaryColor()
+
+    def _getCurrentTextColor(self) -> QColor:
+        if not self.isEnabled():
+            return self._getDisableTextColor()
+        return self._getTextColor()

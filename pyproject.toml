@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pyqt5-ela-pro"
+version = "1.0.0"
+description = "PyQt5 extension widgets based on PyQt5ElaWidgetTools"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+keywords = ["pyqt5", "widgets", "gui", "extension"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: GUI Development",
+]
+dependencies = [
+    "PyQt5>=5.15.0",
+    "PyQt5-ElaWidgetTools>=0.8.0",
+    "pypinyin>=0.50.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/pyqt5-ela-pro"
+Documentation = "https://github.com/yourusername/pyqt5-ela-pro#readme"
+Repository = "https://github.com/yourusername/pyqt5-ela-pro"
+Issues = "https://github.com/yourusername/pyqt5-ela-pro/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pyqt5_ela_pro*"]
+
+[tool.setuptools.package-data]
+pyqt5_ela_pro = ["py.typed", "icons/*.svg", "icons/*.png", "icons/*.ico", "icons/packages/*.icons", "example/resource/images/*"]
+
+[tool.uv]
+required-environments="sys_platform == 'win32' and platform_machine == 'AMD64'"
