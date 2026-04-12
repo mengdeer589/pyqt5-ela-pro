@@ -11,12 +11,12 @@ from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaIconType
 from pyqt5_ela_pro import (
     ThemeWidget,
     ElaCapsuleLineEdit,
-    ElaCapsuleComboBox,
-    ElaCapsuleMultiComboBox,
-    ElaCapsuleSearchableComboBox,
-    ElaCapsuleSearchableMultiComboBox,
-    ElaSearchableComboBox,
-    ElaSearchableMultiComboBox,
+    ElaTagBox,
+    ElaTagMultiBox,
+    ElaTagSearchBox,
+    ElaTagSearchMultiBox,
+    ElaSearchBox,
+    ElaSearchMultiBox,
     ElaLongPressBtn,
     ElaPrimaryBtn,
     ElaToolBtn,
@@ -106,16 +106,16 @@ class FormButtonPage(ExamplePage):
 
     def _demoCapsuleComboBox(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("02. ela_ext - ElaCapsuleComboBox 具名组合框")
+            self._createSectionHeader("02. ela_ext - ElaTagBox 具名组合框")
         )
         self._addInfoText("带有标题标签的组合框，只读模式", parent_layout)
         combo_layout = QHBoxLayout()
         combo_layout.setSpacing(15)
-        combo_readonly = ElaCapsuleComboBox(self, title="语言")
+        combo_readonly = ElaTagBox(self, title="语言")
         combo_readonly.setFixedWidth(200)
         combo_readonly.addItems(["Python", "C++", "JavaScript", "Rust", "Go"])
         combo_layout.addWidget(combo_readonly)
-        combo_disabled = ElaCapsuleComboBox(self, title="禁用")
+        combo_disabled = ElaTagBox(self, title="禁用")
         combo_disabled.setFixedWidth(200)
         combo_disabled.setEnabled(False)
         combo_disabled.addItems(["Python", "C++", "JavaScript"])
@@ -126,14 +126,12 @@ class FormButtonPage(ExamplePage):
 
     def _demoCapsuleMultiCombo(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader(
-                "03. ela_ext - ElaCapsuleMultiComboBox 具名多选组合框"
-            )
+            self._createSectionHeader("03. ela_ext - ElaTagMultiBox 具名多选组合框")
         )
         self._addInfoText("带有标题标签的多选组合框，支持多选功能", parent_layout)
         combo_layout = QHBoxLayout()
         combo_layout.setSpacing(15)
-        multi_combo = ElaCapsuleMultiComboBox(self, title="语言")
+        multi_combo = ElaTagMultiBox(self, title="语言")
         multi_combo.setFixedWidth(300)
         items = ["Python", "C++", "JavaScript", "Rust", "Go", "TypeScript"]
         multi_combo.addItems(items)
@@ -146,11 +144,11 @@ class FormButtonPage(ExamplePage):
     def _demoCapsuleSearchableCombo(self, parent_layout):
         parent_layout.addWidget(
             self._createSectionHeader(
-                "04. pyqt5_ela_pro - ElaCapsuleSearchableComboBox 具名可搜索组合框"
+                "04. pyqt5_ela_pro - ElaTagSearchBox 具名可搜索组合框"
             )
         )
         self._addInfoText("带有标题标签的可搜索组合框，支持中文拼音搜索", parent_layout)
-        search_combo = ElaCapsuleSearchableComboBox(self, title="语言")
+        search_combo = ElaTagSearchBox(self, title="语言")
         items = [
             "Python",
             "JavaScript",
@@ -175,7 +173,7 @@ class FormButtonPage(ExamplePage):
     def _demoCapsuleSearchableMultiCombo(self, parent_layout):
         parent_layout.addWidget(
             self._createSectionHeader(
-                "05. pyqt5_ela_pro - ElaCapsuleSearchableMultiComboBox 具名可搜索多选下拉框"
+                "05. pyqt5_ela_pro - ElaTagSearchMultiBox 具名可搜索多选下拉框"
             )
         )
         self._addInfoText(
@@ -183,7 +181,7 @@ class FormButtonPage(ExamplePage):
         )
         combo_layout = QHBoxLayout()
         combo_layout.setSpacing(15)
-        searchable_multi_combo = ElaCapsuleSearchableMultiComboBox(self, title="语言")
+        searchable_multi_combo = ElaTagSearchMultiBox(self, title="语言")
         searchable_multi_combo.setFixedWidth(300)
         items = [
             "Python",
@@ -206,12 +204,10 @@ class FormButtonPage(ExamplePage):
 
     def _demoSearchableCombo(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader(
-                "08. pyqt5_ela_pro - ElaSearchableComboBox 可搜索组合框"
-            )
+            self._createSectionHeader("08. pyqt5_ela_pro - ElaSearchBox 可搜索组合框")
         )
         self._addInfoText("可搜索组合框组件", parent_layout)
-        search_combo = ElaSearchableComboBox(self)
+        search_combo = ElaSearchBox(self)
         items = [
             "Python",
             "JavaScript",
@@ -233,13 +229,13 @@ class FormButtonPage(ExamplePage):
     def _demoSearchableMultiCombo(self, parent_layout):
         parent_layout.addWidget(
             self._createSectionHeader(
-                "09. pyqt5_ela_pro - ElaSearchableMultiComboBox 可搜索多选下拉框"
+                "09. pyqt5_ela_pro - ElaSearchMultiBox 可搜索多选下拉框"
             )
         )
         self._addInfoText("可搜索多选下拉框组件，支持中文拼音搜索", parent_layout)
         combo_layout = QHBoxLayout()
         combo_layout.setSpacing(15)
-        searchable_multi_combo = ElaSearchableMultiComboBox(self)
+        searchable_multi_combo = ElaSearchMultiBox(self)
         searchable_multi_combo.setFixedWidth(300)
         items = [
             "Python",

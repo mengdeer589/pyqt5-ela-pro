@@ -8,3 +8,6 @@ __pycache__/
 /PyQt/
 /PyQt-SiliconUI/
 /PyQt/.github/
+/build/
+/dist/
+/ela_ext.egg-info/

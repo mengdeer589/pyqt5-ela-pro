@@ -48,6 +48,7 @@ Issues = "https://github.com/yourusername/pyqt5-ela-pro/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
+exclude = ["ElaWidgetTools*", "PyQt*", "PyQt-Fluent*", "PyQt-SiliconUI*", "build*", "dist*", "*.egg-info"]
 include = ["pyqt5_ela_pro*"]
 
 [tool.setuptools.package-data]

@@ -90,7 +90,7 @@ class ElaSearchProxyModel(QSortFilterProxyModel):
         return self._keyword in text.lower() or self._keyword in pinyin_str
 
 
-class ElaSearchableMultiComboBox(ElaMultiSelectComboBox):
+class ElaSearchMultiBox(ElaMultiSelectComboBox):
     """可搜索多选下拉框。
 
     基于 ``ElaMultiSelectComboBox`` 扩展，在弹出列表顶部增加了一个搜索框，
@@ -266,7 +266,7 @@ class ElaSearchableMultiComboBox(ElaMultiSelectComboBox):
         super().deleteLater()
 
 
-class ElaSearchableComboBox(ElaComboBox):
+class ElaSearchBox(ElaComboBox):
     """可搜索下拉框。
 
     基于标准 ``ElaComboBox`` 扩展，在弹出列表顶部增加了一个搜索框，

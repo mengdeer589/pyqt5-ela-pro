@@ -15,8 +15,8 @@ from .table_view import ElaDataTable
 from .scrollable_menu import ElaScrollableMenu
 
 from .combo_box import (
-    ElaSearchableComboBox,
-    ElaSearchableMultiComboBox,
+    ElaSearchBox,
+    ElaSearchMultiBox,
 )
 
 from .tooltips import (
@@ -45,13 +45,13 @@ from .ela_capsule_line_edit import ElaCapsuleLineEdit
 
 from .ela_primary_button import ElaPrimaryBtn, ElaToolBtn
 
-from .ela_capsule_combo_box import ElaCapsuleComboBox
+from .ela_tag_box import ElaTagBox
 
-from .ela_capsule_multi_combo_box import ElaCapsuleMultiComboBox
+from .ela_tag_multi_box import ElaTagMultiBox
 
-from .ela_capsule_searchable_combo_box import ElaCapsuleSearchableComboBox
+from .ela_tag_search_box import ElaTagSearchBox
 
-from .ela_capsule_searchable_multi_combo_box import ElaCapsuleSearchableMultiComboBox
+from .ela_tag_search_multi_box import ElaTagSearchMultiBox
 
 from .ela_trend_chart import ElaTrendChart
 
@@ -73,8 +73,8 @@ __all__ = [
     "ThemeWidget",
     "ElaDataTable",
     "ElaScrollableMenu",
-    "ElaSearchableComboBox",
-    "ElaSearchableMultiComboBox",
+    "ElaSearchBox",
+    "ElaSearchMultiBox",
     "ElaToolTipPosition",
     "ToolTip",
     "set_tooltip",
@@ -94,10 +94,10 @@ __all__ = [
     "ElaCapsuleLineEdit",
     "ElaPrimaryBtn",
     "ElaToolBtn",
-    "ElaCapsuleComboBox",
-    "ElaCapsuleMultiComboBox",
-    "ElaCapsuleSearchableComboBox",
-    "ElaCapsuleSearchableMultiComboBox",
+    "ElaTagBox",
+    "ElaTagMultiBox",
+    "ElaTagSearchBox",
+    "ElaTagSearchMultiBox",
     "ElaTrendChart",
     "ElaDrawer",
     "ElaDrawerPosition",

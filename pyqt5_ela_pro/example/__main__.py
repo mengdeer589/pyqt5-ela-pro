@@ -19,6 +19,7 @@ from pyqt5_ela_pro.example import (
     TableChartPage,
     DrawerTooltipPage,
     AnimationIconPage,
+    ComboBoxPage,
 )
 
 
@@ -33,6 +34,7 @@ class ExampleWindow(ElaWindow):
 
         self.addPageNode("基础组件", BasicContainerPage(self))
         self.addPageNode("表单与按钮", FormButtonPage(self))
+        self.addPageNode("下拉框组件", ComboBoxPage(self))
         self.addPageNode("表格与图表", TableChartPage(self))
         self.addPageNode("抽屉与提示", DrawerTooltipPage(self))
         self.addPageNode("动画与图标", AnimationIconPage(self))
