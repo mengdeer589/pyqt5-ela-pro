@@ -7,12 +7,12 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Literal
 
 from PyQt5.QtGui import QPalette
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout
-from PyQt5ElaWidgetTools import eTheme, ElaThemeType
-from typing import Literal
+from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaMessageBar, ElaMessageBarType
+
 
 class ThemeWidget(QWidget):
     """自动适应主题变化的 ``QWidget`` 基类。
@@ -61,13 +61,62 @@ class ThemeWidget(QWidget):
                 pass
             self._themeConnection = None
         super().deleteLater()
-    def create_lay(self, lay_type:Literal['h','v'],parent:QWidget|None= None)->QHBoxLayout|QVBoxLayout:
+
+    def create_lay(
+        self,
+        lay_type: Literal["h", "v"],
+        parent: QWidget | None = None,
+    ) -> QHBoxLayout | QVBoxLayout:
+        """创建布局。
+
+        :param lay_type: 布局类型，'h' 水平布局，'v' 垂直布局
+        :param parent: 父控件，默认为 self
+        :return: 创建的布局对象
+        """
         if parent is None:
-            parent=self
-        if lay_type=='h':
-            lay=QHBoxLayout(parent)
+            parent = self
+        if lay_type == "h":
+            lay = QHBoxLayout(parent)
         else:
-            lay=QVBoxLayout(parent)
-        lay.setContentsMargins(0,0,0,0)
+            lay = QVBoxLayout(parent)
+        lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
         return lay
+
+    def alert(
+        self,
+        message: str,
+        level: Literal[-2, -1, 0, 1] = 0,
+        title: str = "提示",
+        duration: int = 3000,
+        position: Literal[
+            "Top",
+            "Left",
+            "Bottom",
+            "Right",
+            "TopRight",
+            "TopLeft",
+            "BottomRight",
+            "BottomLeft",
+        ] = "TopRight",
+        parent: QWidget = None,
+    ) -> None:
+        """显示提示消息条。
+
+        :param message: 消息内容
+        :param level: 消息级别，-2=错误，-1=警告，0=信息，1=成功
+        :param title: 消息标题
+        :param duration: 显示时长（毫秒）
+        :param position: 显示位置
+        :param parent: 父控件，用于消息条定位
+        """
+        _message_map = {
+            -2: "error",
+            -1: "warning",
+            0: "information",
+            1: "success",
+        }
+        message_type = _message_map.get(level, "information")
+        func = getattr(ElaMessageBar, message_type)
+        position_policy = getattr(ElaMessageBarType.PositionPolicy, position)
+        func(position_policy, title, message, duration, parent)
