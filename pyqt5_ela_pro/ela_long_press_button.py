@@ -143,7 +143,8 @@ class ElaLongPressBtn(ElaPushButton):
         return self._progress
 
     def _stepLength(self) -> float:
-        return (1 - self._progress) / 16 + 0.001
+        steps = self._duration / 16.0
+        return 1.0 / steps if steps >= 1 else 1.0
 
     def _onMousePressed(self) -> None:
         new_progress = min(1.0, self._progress + self._stepLength())

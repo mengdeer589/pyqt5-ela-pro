@@ -285,9 +285,7 @@ class TableChartPage(ExamplePage):
         return data
 
     def _onChartPointClicked(self, name: str, x: float, y: float):
-        from PyQt5.QtWidgets import QMessageBox
-
-        QMessageBox.information(self, "点击", f"{name}\nx={x:.2f}, y={y:.2f}")
+        print(f"点击: {name}, x={x:.2f}, y={y:.2f}")
 
     def _onRefreshChartData(self):
         if not self._trendChart:

@@ -6,20 +6,15 @@
 - PyQt5ElaWidgetTools: 按钮组件
 """
 
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QMessageBox, QLineEdit
+from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLineEdit
 from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaIconType
 from pyqt5_ela_pro import (
     ThemeWidget,
     ElaCapsuleLineEdit,
-    ElaTagBox,
-    ElaTagMultiBox,
-    ElaTagSearchBox,
-    ElaTagSearchMultiBox,
-    ElaSearchBox,
-    ElaSearchMultiBox,
     ElaLongPressBtn,
     ElaPrimaryBtn,
     ElaToolBtn,
+    ElaMessageDialog,
 )
 from .base_page import ExamplePage
 
@@ -41,17 +36,12 @@ class FormButtonPage(ExamplePage):
 
     def _demoForm(self, parent_layout):
         self._demoCapsuleLineEdit(parent_layout)
-        self._demoCapsuleComboBox(parent_layout)
-        self._demoCapsuleMultiCombo(parent_layout)
-        self._demoCapsuleSearchableCombo(parent_layout)
-        self._demoCapsuleSearchableMultiCombo(parent_layout)
-        self._demoSearchableCombo(parent_layout)
-        self._demoSearchableMultiCombo(parent_layout)
 
     def _demoButton(self, parent_layout):
         self._demoPrimaryButton(parent_layout)
         self._demoLongPressButton(parent_layout)
         self._demoToolButtonExt(parent_layout)
+        self._demoMessageDialog(parent_layout)
 
     def _addInfoText(self, text, parent_layout):
         info = ElaText(text, self)
@@ -104,161 +94,9 @@ class FormButtonPage(ExamplePage):
         if self._passwordEdit:
             self._passwordEdit.clearError()
 
-    def _demoCapsuleComboBox(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("02. ela_ext - ElaTagBox 具名组合框")
-        )
-        self._addInfoText("带有标题标签的组合框，只读模式", parent_layout)
-        combo_layout = QHBoxLayout()
-        combo_layout.setSpacing(15)
-        combo_readonly = ElaTagBox(self, title="语言")
-        combo_readonly.setFixedWidth(200)
-        combo_readonly.addItems(["Python", "C++", "JavaScript", "Rust", "Go"])
-        combo_layout.addWidget(combo_readonly)
-        combo_disabled = ElaTagBox(self, title="禁用")
-        combo_disabled.setFixedWidth(200)
-        combo_disabled.setEnabled(False)
-        combo_disabled.addItems(["Python", "C++", "JavaScript"])
-        combo_layout.addWidget(combo_disabled)
-        combo_layout.addStretch()
-        parent_layout.addLayout(combo_layout)
-        parent_layout.addSpacing(20)
-
-    def _demoCapsuleMultiCombo(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("03. ela_ext - ElaTagMultiBox 具名多选组合框")
-        )
-        self._addInfoText("带有标题标签的多选组合框，支持多选功能", parent_layout)
-        combo_layout = QHBoxLayout()
-        combo_layout.setSpacing(15)
-        multi_combo = ElaTagMultiBox(self, title="语言")
-        multi_combo.setFixedWidth(300)
-        items = ["Python", "C++", "JavaScript", "Rust", "Go", "TypeScript"]
-        multi_combo.addItems(items)
-        multi_combo.setCurrentSelection(["Python", "C++"])
-        combo_layout.addWidget(multi_combo)
-        combo_layout.addStretch()
-        parent_layout.addLayout(combo_layout)
-        parent_layout.addSpacing(20)
-
-    def _demoCapsuleSearchableCombo(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "04. pyqt5_ela_pro - ElaTagSearchBox 具名可搜索组合框"
-            )
-        )
-        self._addInfoText("带有标题标签的可搜索组合框，支持中文拼音搜索", parent_layout)
-        search_combo = ElaTagSearchBox(self, title="语言")
-        items = [
-            "Python",
-            "JavaScript",
-            "C++",
-            "Java",
-            "Go",
-            "Rust",
-            "TypeScript",
-            "Swift",
-            "Kotlin",
-            "Ruby",
-            "PHP",
-            "C#",
-            "上海",
-            "北京",
-            "深圳",
-        ]
-        search_combo.addItems(items)
-        parent_layout.addWidget(search_combo)
-        parent_layout.addSpacing(20)
-
-    def _demoCapsuleSearchableMultiCombo(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "05. pyqt5_ela_pro - ElaTagSearchMultiBox 具名可搜索多选下拉框"
-            )
-        )
-        self._addInfoText(
-            "带有标题标签的可搜索多选下拉框，支持中文拼音搜索", parent_layout
-        )
-        combo_layout = QHBoxLayout()
-        combo_layout.setSpacing(15)
-        searchable_multi_combo = ElaTagSearchMultiBox(self, title="语言")
-        searchable_multi_combo.setFixedWidth(300)
-        items = [
-            "Python",
-            "JavaScript",
-            "C++",
-            "Java",
-            "Go",
-            "Rust",
-            "TypeScript",
-            "上海",
-            "北京",
-            "深圳",
-        ]
-        searchable_multi_combo.addItems(items)
-        searchable_multi_combo.setCurrentSelection(["Python", "上海"])
-        combo_layout.addWidget(searchable_multi_combo)
-        combo_layout.addStretch()
-        parent_layout.addLayout(combo_layout)
-        parent_layout.addSpacing(20)
-
-    def _demoSearchableCombo(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("08. pyqt5_ela_pro - ElaSearchBox 可搜索组合框")
-        )
-        self._addInfoText("可搜索组合框组件", parent_layout)
-        search_combo = ElaSearchBox(self)
-        items = [
-            "Python",
-            "JavaScript",
-            "C++",
-            "Java",
-            "Go",
-            "Rust",
-            "TypeScript",
-            "Swift",
-            "Kotlin",
-            "Ruby",
-            "PHP",
-            "C#",
-        ]
-        search_combo.addItems(items)
-        parent_layout.addWidget(search_combo)
-        parent_layout.addSpacing(20)
-
-    def _demoSearchableMultiCombo(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "09. pyqt5_ela_pro - ElaSearchMultiBox 可搜索多选下拉框"
-            )
-        )
-        self._addInfoText("可搜索多选下拉框组件，支持中文拼音搜索", parent_layout)
-        combo_layout = QHBoxLayout()
-        combo_layout.setSpacing(15)
-        searchable_multi_combo = ElaSearchMultiBox(self)
-        searchable_multi_combo.setFixedWidth(300)
-        items = [
-            "Python",
-            "JavaScript",
-            "C++",
-            "Java",
-            "Go",
-            "Rust",
-            "TypeScript",
-            "上海",
-            "北京",
-            "深圳",
-        ]
-        searchable_multi_combo.addItems(items)
-        searchable_multi_combo.setCurrentSelection(["Python", "上海"])
-        combo_layout.addWidget(searchable_multi_combo)
-        combo_layout.addStretch()
-        parent_layout.addLayout(combo_layout)
-        parent_layout.addSpacing(20)
-
     def _demoPrimaryButton(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("01. PyQt5ElaWidgetTools - ElaPushButton 按钮")
+            self._createSectionHeader("02. PyQt5ElaWidgetTools - ElaPushButton 按钮")
         )
         self._addInfoText("按钮组件", parent_layout)
         btn_layout = QHBoxLayout()
@@ -266,7 +104,7 @@ class FormButtonPage(ExamplePage):
         primary_btn = ElaPushButton("按钮", self)
         primary_btn.setFixedWidth(120)
         primary_btn.clicked.connect(
-            lambda: QMessageBox.information(self, "提示", "按钮 clicked")
+            lambda: ElaMessageDialog.show(self, "提示", "按钮 clicked")
         )
         btn_layout.addWidget(primary_btn)
         primary_btn_disabled = ElaPushButton("禁用", self)
@@ -279,7 +117,7 @@ class FormButtonPage(ExamplePage):
 
     def _demoLongPressButton(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("01. ela_ext - ElaPrimaryBtn 主要按钮")
+            self._createSectionHeader("02. ela_ext - ElaPrimaryBtn 主要按钮")
         )
         self._addInfoText(
             "使用 Primary 主题色的按钮，与 ElaToggleButton ON 状态外观一致",
@@ -290,9 +128,7 @@ class FormButtonPage(ExamplePage):
         primary_btn = ElaPrimaryBtn(self)
         primary_btn.setText("主要按钮")
         primary_btn.setFixedWidth(120)
-        primary_btn.clicked.connect(
-            lambda: QMessageBox.information(self, "提示", "ElaPrimaryBtn clicked")
-        )
+        primary_btn.clicked.connect(lambda: print("ElaPrimaryBtn clicked"))
         btn_layout.addWidget(primary_btn)
         primary_btn_icon = ElaPrimaryBtn(self)
         primary_btn_icon.setText("带图标")
@@ -309,7 +145,7 @@ class FormButtonPage(ExamplePage):
         parent_layout.addSpacing(20)
 
         parent_layout.addWidget(
-            self._createSectionHeader("02. ela_ext - ElaLongPressBtn 长按按钮")
+            self._createSectionHeader("03. ela_ext - ElaLongPressBtn 长按按钮")
         )
         self._addInfoText(
             "按住按钮一段时间后才能触发点击事件，适合危险操作防误触", parent_layout
@@ -339,11 +175,11 @@ class FormButtonPage(ExamplePage):
             self._longPressBtn.setText(f"长按 {ms / 1000:.1f} 秒")
 
     def _onLongPressTriggered(self):
-        QMessageBox.information(self, "提示", "长按触发成功！")
+        print("长按触发成功！")
 
     def _demoToolButtonExt(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("03. ela_ext - ElaToolBtn 图标文字并排按钮")
+            self._createSectionHeader("04. ela_ext - ElaToolBtn 图标文字并排按钮")
         )
         self._addInfoText(
             "ToolButton 样式设置为文字在图标旁边，适合工具栏使用", parent_layout
@@ -354,17 +190,13 @@ class FormButtonPage(ExamplePage):
         tool_btn.setText("保存")
         tool_btn.setFixedWidth(100)
         tool_btn.setElaIcon(ElaIconType.IconName.FloppyDisk)
-        tool_btn.clicked.connect(
-            lambda: QMessageBox.information(self, "提示", "保存 clicked")
-        )
+        tool_btn.clicked.connect(lambda: print("保存 clicked"))
         btn_layout.addWidget(tool_btn)
         tool_btn_icon = ElaToolBtn(self)
         tool_btn_icon.setText("编辑")
         tool_btn_icon.setFixedWidth(100)
         tool_btn_icon.setElaIcon(ElaIconType.IconName.Pencil)
-        tool_btn_icon.clicked.connect(
-            lambda: QMessageBox.information(self, "提示", "编辑 clicked")
-        )
+        tool_btn_icon.clicked.connect(lambda: print("编辑 clicked"))
         btn_layout.addWidget(tool_btn_icon)
         tool_btn_disabled = ElaToolBtn(self)
         tool_btn_disabled.setText("禁用")
@@ -374,3 +206,34 @@ class FormButtonPage(ExamplePage):
         btn_layout.addStretch()
         parent_layout.addLayout(btn_layout)
         parent_layout.addSpacing(20)
+
+    def _demoMessageDialog(self, parent_layout):
+        parent_layout.addWidget(
+            self._createSectionHeader("05. pyqt5_ela_pro - ElaMessageDialog 消息对话框")
+        )
+        self._addInfoText(
+            "简化的消息对话框接口，使用 ElaText 组件渲染内容", parent_layout
+        )
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+        info_btn = ElaPushButton("显示消息", self)
+        info_btn.setFixedWidth(100)
+        info_btn.clicked.connect(self._onShowMessageDialog)
+        btn_layout.addWidget(info_btn)
+        btn_layout.addStretch()
+        parent_layout.addLayout(btn_layout)
+        parent_layout.addSpacing(20)
+
+    def _onShowMessageDialog(self):
+        result = ElaMessageDialog.show(
+            self,
+            title="提示",
+            message="确定要退出应用程序吗？此操作不可撤销。",
+            middleText="稍后提醒",
+        )
+        if result == 0:
+            print("您点击了取消按钮")
+        elif result == 1:
+            print("您点击了确定按钮")
+        elif result == 2:
+            print("您点击了稍后提醒按钮")

@@ -29,6 +29,8 @@ from .tooltips import (
 
 from .dialog_base import ElaDialogBase
 
+from .message_dialog import ElaMessageDialog
+
 from .parquet_table import ElaParquetTable
 
 from .splash_screen import ElaSplashScreen
@@ -81,6 +83,7 @@ __all__ = [
     "remove_tooltip",
     "StateToolTip",
     "ElaDialogBase",
+    "ElaMessageDialog",
     "ElaParquetTable",
     "ElaSplashScreen",
     "fade_in",
