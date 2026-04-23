@@ -43,7 +43,7 @@ from .office_viewer import ElaWordViewer, ElaExcelViewer, ElaPowerPointViewer
 
 from .ela_long_press_button import ElaLongPressBtn
 
-from .ela_capsule_line_edit import ElaCapsuleLineEdit
+from .ela_tag_line_edit import ElaTagLineEdit
 
 from .ela_primary_button import ElaPrimaryBtn, ElaToolBtn
 
@@ -104,7 +104,7 @@ __all__ = [
     "ElaExcelViewer",
     "ElaPowerPointViewer",
     "ElaLongPressBtn",
-    "ElaCapsuleLineEdit",
+    "ElaTagLineEdit",
     "ElaPrimaryBtn",
     "ElaToolBtn",
     "ElaTagBox",

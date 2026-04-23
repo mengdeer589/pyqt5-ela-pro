@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import QWidget
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaLineEdit, ElaThemeColor
 
 
-class ElaCapsuleLineEdit(ElaLineEdit):
+class ElaTagLineEdit(ElaLineEdit):
     """具名输入框。
 
     带有标题标签的输入框，标题显示在输入框左侧。
@@ -26,7 +26,7 @@ class ElaCapsuleLineEdit(ElaLineEdit):
 
     Example::
 
-        edit = CapsuleLineEdit(parent, title="用户名")
+        edit = ElaTagLineEdit(parent, title="用户名")
         edit.setText("admin")
     """
 

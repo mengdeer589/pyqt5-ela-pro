@@ -361,8 +361,7 @@ class AnimationIconPage(ExamplePage):
         for name, text, theme_color in svg_buttons:
             btn = ElaSvgIconButton(
                 text,
-                name,
-                loader,
+                icon_name=name,
                 theme_color=theme_color,
                 parent=self,
             )
@@ -401,8 +400,7 @@ class AnimationIconPage(ExamplePage):
         for name, text, theme_color in theme_buttons:
             btn = ElaSvgButton(
                 text,
-                name,
-                loader,
+                icon_name=name,
                 theme_color=theme_color,
                 parent=self,
             )

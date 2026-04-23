@@ -11,7 +11,7 @@ from PyQt5.QtCore import QTimer
 from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaIconType
 from pyqt5_ela_pro import (
     ThemeWidget,
-    ElaCapsuleLineEdit,
+    ElaTagLineEdit,
     ElaLongPressBtn,
     ElaPrimaryBtn,
     ElaToolBtn,
@@ -39,7 +39,7 @@ class FormButtonPage(ExamplePage):
         self._demoButton(main_layout)
 
     def _demoForm(self, parent_layout):
-        self._demoCapsuleLineEdit(parent_layout)
+        self._demoTagLineEdit(parent_layout)
 
     def _demoButton(self, parent_layout):
         self._demoPrimaryButton(parent_layout)
@@ -54,24 +54,24 @@ class FormButtonPage(ExamplePage):
         info.setTextPixelSize(14)
         parent_layout.addWidget(info)
 
-    def _demoCapsuleLineEdit(self, parent_layout):
+    def _demoTagLineEdit(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("01. ela_ext - ElaCapsuleLineEdit 具名输入框")
+            self._createSectionHeader("01. pyqt5_ela_pro - ElaTagLineEdit 具名输入框")
         )
         self._addInfoText(
             "带有标题标签的输入框组件，支持主题适配和错误状态", parent_layout
         )
         edit_layout = QVBoxLayout()
         edit_layout.setSpacing(15)
-        self._nameEdit = ElaCapsuleLineEdit(self, title="用户名")
+        self._nameEdit = ElaTagLineEdit(self, title="用户名")
         self._nameEdit.setFixedWidth(300)
         self._nameEdit.setText("admin")
         edit_layout.addWidget(self._nameEdit)
-        self._passwordEdit = ElaCapsuleLineEdit(self, title="密码")
+        self._passwordEdit = ElaTagLineEdit(self, title="密码")
         self._passwordEdit.setFixedWidth(300)
         self._passwordEdit.setEchoMode(QLineEdit.Password)
         edit_layout.addWidget(self._passwordEdit)
-        email_edit = ElaCapsuleLineEdit(self, title="邮箱")
+        email_edit = ElaTagLineEdit(self, title="邮箱")
         email_edit.setFixedWidth(300)
         email_edit.setText("test@example.com")
         edit_layout.addWidget(email_edit)

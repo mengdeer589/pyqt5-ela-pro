@@ -142,12 +142,15 @@ class ElaProgressButton(ElaPushButton):
             painter.restore()
 
             if self.isEnabled():
-                text_color = self.getLightTextColor()
+                current_theme = eTheme.getThemeMode()
+                text_color = (
+                    self.getLightTextColor()
+                    if current_theme == ElaThemeType.ThemeMode.Light
+                    else self.getDarkTextColor()
+                )
             else:
-                from PyQt5ElaWidgetTools import ElaThemeColor, ElaThemeType as ET
-
-                text_color = ElaThemeColor(
-                    eTheme.getThemeMode(), ET.ThemeColor.BasicTextDisable
+                text_color = eTheme.getThemeColor(
+                    eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicTextDisable
                 )
             painter.setPen(text_color)
             painter.drawText(foreground_rect, Qt.AlignmentFlag.AlignCenter, self.text())

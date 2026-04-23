@@ -214,9 +214,9 @@ _svgIconLoader: Optional[ElaSvgIconLoader] = None
 class _ElaSvgButtonBase(QPushButton):
     """SVG 图标按钮基类，包含共用绘制逻辑"""
 
-    _iconName: str
+    _iconName: Optional[str] = None
     _svgIconLoader: ElaSvgIconLoader
-    _themeColor: ElaThemeType.ThemeColor
+    _themeColor: Optional[ElaThemeType.ThemeColor] = None
     _iconSize: int
     _borderRadius: int
     _shadowBorderWidth: int = 3
@@ -224,15 +224,14 @@ class _ElaSvgButtonBase(QPushButton):
     def __init__(
         self,
         text: str,
-        icon_name: str,
-        icon_loader: ElaSvgIconLoader,
-        theme_color: ElaThemeType.ThemeColor,
-        size: int,
+        icon_name: Optional[str] = None,
+        theme_color: Optional[ElaThemeType.ThemeColor] = None,
+        size: int = 20,
         parent=None,
     ):
         super().__init__(text, parent)
         self._iconName = icon_name
-        self._svgIconLoader = icon_loader
+        self._svgIconLoader = svgIconLoader()
         self._themeColor = theme_color
         self._iconSize = size
         self._borderRadius = 3
@@ -271,7 +270,8 @@ class _ElaSvgButtonBase(QPushButton):
         mode = eTheme.getThemeMode()
         if not self.isEnabled():
             return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextDisable)
-        return eTheme.getThemeColor(mode, self._themeColor)
+        theme_color = self._themeColor if self._themeColor is not None else ElaThemeType.ThemeColor.PrimaryNormal
+        return eTheme.getThemeColor(mode, theme_color)
 
     def _getIconColorStr(self, text_color: QColor) -> str:
         icon_color_str = text_color.name()
@@ -311,30 +311,33 @@ class _ElaSvgButtonBase(QPushButton):
         text_width = fm.horizontalAdvance(self.text())
         icon_size = QSize(self._iconSize, self._iconSize)
         spacing = 4
-        total_content_width = icon_size.width() + spacing + text_width
-        start_x = (
-            shadow_border
-            + (self.width() - 2 * shadow_border - total_content_width) // 2
-        )
         content_height = self.height() - 2 * shadow_border
-        icon_y = shadow_border + (content_height - icon_size.height()) // 2
         text_y = shadow_border
 
-        icon_rect = QRect(start_x, icon_y, icon_size.width(), icon_size.height())
-        text_rect = QRect(
-            start_x + icon_size.width() + spacing,
-            text_y,
-            text_width,
-            content_height,
-        )
-
-        icon_color_str = self._getIconColorStr(text_color)
-        icon = self._svgIconLoader.getIcon(
-            self._iconName,
-            size=self._iconSize,
-            color=icon_color_str,
-        )
-        painter.drawPixmap(icon_rect, icon.pixmap(icon_size))
+        if self._iconName:
+            total_content_width = icon_size.width() + spacing + text_width
+            start_x = (
+                shadow_border
+                + (self.width() - 2 * shadow_border - total_content_width) // 2
+            )
+            icon_y = shadow_border + (content_height - icon_size.height()) // 2
+            icon_rect = QRect(start_x, icon_y, icon_size.width(), icon_size.height())
+            text_rect = QRect(
+                start_x + icon_size.width() + spacing,
+                text_y,
+                text_width,
+                content_height,
+            )
+            icon_color_str = self._getIconColorStr(text_color)
+            icon = self._svgIconLoader.getIcon(
+                self._iconName,
+                size=self._iconSize,
+                color=icon_color_str,
+            )
+            painter.drawPixmap(icon_rect, icon.pixmap(icon_size))
+        else:
+            start_x = shadow_border + (self.width() - 2 * shadow_border - text_width) // 2
+            text_rect = QRect(start_x, text_y, text_width, content_height)
 
         painter.setPen(text_color)
         painter.setFont(self.font())
@@ -362,21 +365,16 @@ class ElaSvgButton(_ElaSvgButtonBase):
     外观与 ElaPushButton 一致，支持鼠标悬浮效果。
 
     :param text: 按钮文本
-    :param icon_name: 图标名称（如 "ic_fluent_zoom_out_regular"）
-    :param icon_loader: ElaSvgIconLoader 实例
-    :param theme_color: ElaThemeType.ThemeColor 主题色类型
+    :param icon_name: 图标名称（如 "ic_fluent_zoom_out_regular"），可选
+    :param theme_color: ElaThemeType.ThemeColor 主题色类型，可选，默认 PrimaryNormal
     :param size: 图标尺寸，默认 20
     :param parent: 父控件
 
     Example::
 
-        loader = ElaSvgIconLoader()
-        loader.loadFromPackage("fluent_ui_icon_regular.icons")
-
         btn = ElaSvgButton(
             "搜索",
-            "ic_fluent_zoom_out_regular",
-            loader,
+            icon_name="ic_fluent_zoom_out_regular",
             theme_color=ElaThemeType.ThemeColor.PrimaryNormal,
         )
     """
@@ -384,13 +382,12 @@ class ElaSvgButton(_ElaSvgButtonBase):
     def __init__(
         self,
         text: str,
-        icon_name: str,
-        icon_loader: ElaSvgIconLoader,
-        theme_color: ElaThemeType.ThemeColor = ElaThemeType.ThemeColor.PrimaryNormal,
+        icon_name: Optional[str] = None,
+        theme_color: Optional[ElaThemeType.ThemeColor] = None,
         size: int = 20,
         parent: Optional[QWidget] = None,
     ) -> None:
-        super().__init__(text, icon_name, icon_loader, theme_color, size, parent)
+        super().__init__(text, icon_name, theme_color, size, parent)
         self.setIconSize(QSize(size, size))
         fm = self.fontMetrics()
         text_width = fm.horizontalAdvance(self.text())
@@ -422,21 +419,16 @@ class ElaSvgIconButton(_ElaSvgButtonBase):
     支持主题切换，自动更新图标颜色。
 
     :param text: 按钮文本
-    :param icon_name: 图标名称（如 "ic_fluent_zoom_out_regular"）
-    :param icon_loader: ElaSvgIconLoader 实例
-    :param theme_color: ElaThemeType.ThemeColor 主题色类型
+    :param icon_name: 图标名称（如 "ic_fluent_zoom_out_regular"），可选
+    :param theme_color: ElaThemeType.ThemeColor 主题色类型，可选，默认 PrimaryNormal
     :param size: 图标尺寸，默认 16
     :param parent: 父控件
 
     Example::
 
-        loader = ElaSvgIconLoader()
-        loader.loadFromPackage("fluent_ui_icon_regular.icons")
-
         btn = ElaSvgIconButton(
             "搜索",
-            "ic_fluent_zoom_out_regular",
-            loader,
+            icon_name="ic_fluent_zoom_out_regular",
             theme_color=ElaThemeType.ThemeColor.PrimaryNormal,
         )
     """
@@ -444,13 +436,12 @@ class ElaSvgIconButton(_ElaSvgButtonBase):
     def __init__(
         self,
         text: str,
-        icon_name: str,
-        icon_loader: ElaSvgIconLoader,
-        theme_color: ElaThemeType.ThemeColor = ElaThemeType.ThemeColor.PrimaryNormal,
+        icon_name: Optional[str] = None,
+        theme_color: Optional[ElaThemeType.ThemeColor] = None,
         size: int = 16,
         parent: Optional[QWidget] = None,
     ) -> None:
-        super().__init__(text, icon_name, icon_loader, theme_color, size, parent)
+        super().__init__(text, icon_name, theme_color, size, parent)
         self.setFixedHeight(38)
         fm = self.fontMetrics()
         text_width = fm.horizontalAdvance(text)
