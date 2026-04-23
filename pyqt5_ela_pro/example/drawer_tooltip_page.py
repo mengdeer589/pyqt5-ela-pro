@@ -93,7 +93,7 @@ class DrawerTooltipPage(ExamplePage):
 
     def _demoToolTip(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("01. ela_ext - ToolTip 工具提示")
+            self._createSectionHeader("02. ela_ext - ToolTip 工具提示")
         )
         self._addInfoText("鼠标悬停在按钮上查看提示", parent_layout)
         btn_layout = QHBoxLayout()
@@ -118,7 +118,7 @@ class DrawerTooltipPage(ExamplePage):
 
     def _demoStateTooltip(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("02. ela_ext - StateToolTip 状态提示")
+            self._createSectionHeader("03. ela_ext - StateToolTip 状态提示")
         )
         self._addInfoText("显示加载状态、成功/失败状态的提示", parent_layout)
         btn_layout = QHBoxLayout()

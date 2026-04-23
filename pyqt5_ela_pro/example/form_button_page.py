@@ -7,6 +7,7 @@
 """
 
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLineEdit
+from PyQt5.QtCore import QTimer
 from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaIconType
 from pyqt5_ela_pro import (
     ThemeWidget,
@@ -15,6 +16,9 @@ from pyqt5_ela_pro import (
     ElaPrimaryBtn,
     ElaToolBtn,
     ElaMessageDialog,
+    ElaProgressButton,
+    ElaNotifyPopup,
+    show_notify,
 )
 from .base_page import ExamplePage
 
@@ -40,6 +44,8 @@ class FormButtonPage(ExamplePage):
     def _demoButton(self, parent_layout):
         self._demoPrimaryButton(parent_layout)
         self._demoLongPressButton(parent_layout)
+        self._demoProgressButton(parent_layout)
+        self._demoNotifyPopup(parent_layout)
         self._demoToolButtonExt(parent_layout)
         self._demoMessageDialog(parent_layout)
 
@@ -117,7 +123,7 @@ class FormButtonPage(ExamplePage):
 
     def _demoLongPressButton(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("02. ela_ext - ElaPrimaryBtn 主要按钮")
+            self._createSectionHeader("03. ela_ext - ElaPrimaryBtn 主要按钮")
         )
         self._addInfoText(
             "使用 Primary 主题色的按钮，与 ElaToggleButton ON 状态外观一致",
@@ -145,7 +151,7 @@ class FormButtonPage(ExamplePage):
         parent_layout.addSpacing(20)
 
         parent_layout.addWidget(
-            self._createSectionHeader("03. ela_ext - ElaLongPressBtn 长按按钮")
+            self._createSectionHeader("04. ela_ext - ElaLongPressBtn 长按按钮")
         )
         self._addInfoText(
             "按住按钮一段时间后才能触发点击事件，适合危险操作防误触", parent_layout
@@ -177,9 +183,62 @@ class FormButtonPage(ExamplePage):
     def _onLongPressTriggered(self):
         print("长按触发成功！")
 
+    def _onProgressTimerToggle(self):
+        if self._progressTimer.isActive():
+            self._progressTimer.stop()
+            self._progressTimerBtn.setText("启动定时更新")
+        else:
+            self._progressBtn.setProgress(0)
+            self._progressTimer.start()
+            self._progressTimerBtn.setText("停止定时更新")
+
+    def _onProgressTimerTick(self):
+        current = self._progressBtn.getProgress()
+        if current >= 100:
+            self._progressTimer.stop()
+            self._progressTimerBtn.setText("启动定时更新")
+        else:
+            self._progressBtn.setProgress(current + 10)
+
+    def _demoProgressButton(self, parent_layout):
+        parent_layout.addWidget(
+            self._createSectionHeader("05. pyqt5_ela_pro - ElaProgressButton 进度按钮")
+        )
+        self._addInfoText(
+            "显示进度的按钮组件，通过 setProgress() 设置进度 (0-100)", parent_layout
+        )
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+        self._progressBtn = ElaProgressButton(self)
+        self._progressBtn.setText("下载")
+        self._progressBtn.setFixedWidth(120)
+        btn_layout.addWidget(self._progressBtn)
+        for percent in [0, 25, 50, 75, 100]:
+            btn = ElaPushButton(f"{percent}%", self)
+            btn.setFixedWidth(50)
+            btn.clicked.connect(
+                lambda checked, p=percent: self._progressBtn.setProgress(p)
+            )
+            btn_layout.addWidget(btn)
+        btn_layout.addStretch()
+        parent_layout.addLayout(btn_layout)
+
+        auto_layout = QHBoxLayout()
+        auto_layout.setSpacing(15)
+        self._progressTimerBtn = ElaPushButton("启动定时更新", self)
+        self._progressTimerBtn.setFixedWidth(100)
+        self._progressTimerBtn.clicked.connect(self._onProgressTimerToggle)
+        auto_layout.addWidget(self._progressTimerBtn)
+        self._progressTimer = QTimer(self)
+        self._progressTimer.setInterval(1000)
+        self._progressTimer.timeout.connect(self._onProgressTimerTick)
+        auto_layout.addStretch()
+        parent_layout.addLayout(auto_layout)
+        parent_layout.addSpacing(20)
+
     def _demoToolButtonExt(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("04. ela_ext - ElaToolBtn 图标文字并排按钮")
+            self._createSectionHeader("06. ela_ext - ElaToolBtn 图标文字并排按钮")
         )
         self._addInfoText(
             "ToolButton 样式设置为文字在图标旁边，适合工具栏使用", parent_layout
@@ -209,7 +268,7 @@ class FormButtonPage(ExamplePage):
 
     def _demoMessageDialog(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("05. pyqt5_ela_pro - ElaMessageDialog 消息对话框")
+            self._createSectionHeader("07. pyqt5_ela_pro - ElaMessageDialog 消息对话框")
         )
         self._addInfoText(
             "简化的消息对话框接口，使用 ElaText 组件渲染内容", parent_layout
@@ -237,3 +296,28 @@ class FormButtonPage(ExamplePage):
             print("您点击了确定按钮")
         elif result == 2:
             print("您点击了稍后提醒按钮")
+
+    def _demoNotifyPopup(self, parent_layout):
+        parent_layout.addWidget(
+            self._createSectionHeader("08. pyqt5_ela_pro - ElaNotifyPopup 通知弹窗")
+        )
+        self._addInfoText(
+            "右下角通知弹窗，从屏幕边缘滑入，支持自动关闭和鼠标悬停保持",
+            parent_layout,
+        )
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+        show_btn = ElaPushButton("显示通知", self)
+        show_btn.setFixedWidth(100)
+        show_btn.clicked.connect(self._onShowNotify)
+        btn_layout.addWidget(show_btn)
+        btn_layout.addStretch()
+        parent_layout.addLayout(btn_layout)
+        parent_layout.addSpacing(20)
+
+    def _onShowNotify(self):
+        show_notify(
+            title="提示",
+            content="这是一条通知信息，用于提醒用户某些重要事项。",
+            timeout=10000,
+        )

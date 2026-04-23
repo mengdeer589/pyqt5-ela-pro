@@ -50,6 +50,7 @@ def fade_in(widget: QWidget, duration: int = 1000) -> None:
             _animation_registry.pop(key, None)
 
     animation.finished.connect(_cleanup)
+    widget.destroyed.connect(lambda: _animation_registry.pop(key, None) if key in _animation_registry and _animation_registry.get(key) is animation else None)
     _animation_registry[key] = animation
     animation.start()
 
@@ -86,6 +87,7 @@ def fade_out(
             safe_call(on_finished)
 
     animation.finished.connect(_on_finished)
+    widget.destroyed.connect(lambda: _animation_registry.pop(key, None) if key in _animation_registry and _animation_registry.get(key) is animation else None)
     _animation_registry[key] = animation
     animation.start()
 

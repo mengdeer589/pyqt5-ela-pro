@@ -9,6 +9,8 @@ from .combo_box_page import ComboBoxPage
 from .table_chart_page import TableChartPage
 from .drawer_tooltip_page import DrawerTooltipPage
 from .animation_icon_page import AnimationIconPage
+from .window_embedder_page import WindowEmbedderPage
+from .application_page import ApplicationComponentsPage
 
 __all__ = [
     "ExamplePage",
@@ -18,4 +20,6 @@ __all__ = [
     "TableChartPage",
     "DrawerTooltipPage",
     "AnimationIconPage",
+    "WindowEmbedderPage",
+    "ApplicationComponentsPage",
 ]

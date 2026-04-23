@@ -25,9 +25,7 @@ from PyQt5ElaWidgetTools import (
     ElaSlider,
     ElaCalendar,
     ElaCalendarPicker,
-    ElaComboBox,
     ElaLCDNumber,
-    ElaMultiSelectComboBox,
     ElaCheckBox,
     ElaRadioButton,
     ElaToggleSwitch,
@@ -70,7 +68,7 @@ from PyQt5ElaWidgetTools import (
     ElaSuggestBox,
     ElaToolButton,
 )
-from pyqt5_ela_pro import ThemeWidget
+from pyqt5_ela_pro import ThemeWidget, create_ela_splitter, ElaSplitter
 from .base_page import ExamplePage, _res
 
 
@@ -109,8 +107,6 @@ class BasicContainerPage(ExamplePage):
         self._demoSlider(parent_layout)
         self._demoCalendar(parent_layout)
         self._demoCalendarPicker(parent_layout)
-        self._demoComboBox(parent_layout)
-        self._demoMultiSelectComboBox(parent_layout)
         self._demoLCDNumber(parent_layout)
 
     def _demoBasic(self, parent_layout):
@@ -134,6 +130,7 @@ class BasicContainerPage(ExamplePage):
     def _demoContainer(self, parent_layout):
         self._demoDrawerArea(parent_layout)
         self._demoScrollArea(parent_layout)
+        self._demoSplitter(parent_layout)
         self._demoTreeView(parent_layout)
         self._demoTableView(parent_layout)
         self._demoListView(parent_layout)
@@ -279,51 +276,10 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addLayout(picker_layout)
         parent_layout.addSpacing(20)
 
-    def _demoComboBox(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("08. PyQt5ElaWidgetTools - ElaComboBox 下拉框")
-        )
-        self._addInfoText("下拉框组件，支持 activated 信号反馈选中变化", parent_layout)
-        combo_layout = QHBoxLayout()
-        combo_layout.setSpacing(15)
-        self._combo = ElaComboBox(self)
-        self._combo.addItems(["Python", "C++", "JavaScript", "Rust", "Go"])
-        self._combo.setFixedWidth(150)
-        self._combo.activated.connect(self._onComboActivated)
-        combo_layout.addWidget(self._combo)
-        self._comboValueLabel = ElaText("当前: Python", self)
-        self._comboValueLabel.setTextPixelSize(14)
-        combo_layout.addWidget(self._comboValueLabel)
-        combo_layout.addStretch()
-        parent_layout.addLayout(combo_layout)
-        parent_layout.addSpacing(20)
-
-    def _onComboActivated(self, index):
-        items = ["Python", "C++", "JavaScript", "Rust", "Go"]
-        self._comboValueLabel.setText(f"当前: {items[index]}")
-
-    def _demoMultiSelectComboBox(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "09. PyQt5ElaWidgetTools - ElaMultiSelectComboBox 多选下拉框"
-            )
-        )
-        self._addInfoText("多选下拉框组件", parent_layout)
-        combo_layout = QHBoxLayout()
-        combo_layout.setSpacing(15)
-        multi_combo = ElaMultiSelectComboBox(self)
-        items = ["Python", "JavaScript", "C++", "Java", "Go", "Rust", "TypeScript"]
-        multi_combo.addItems(items)
-        multi_combo.setCurrentSelection(["Python", "C++"])
-        combo_layout.addWidget(multi_combo)
-        combo_layout.addStretch()
-        parent_layout.addLayout(combo_layout)
-        parent_layout.addSpacing(20)
-
     def _demoLCDNumber(self, parent_layout):
         parent_layout.addWidget(
             self._createSectionHeader(
-                "11. PyQt5ElaWidgetTools - ElaLCDNumber LCD数字显示"
+                "08. PyQt5ElaWidgetTools - ElaLCDNumber LCD数字显示"
             )
         )
         self._addInfoText(
@@ -672,6 +628,45 @@ class BasicContainerPage(ExamplePage):
         scroll_layout.addStretch()
         scroll_area.setWidget(scroll_content)
         parent_layout.addWidget(scroll_area)
+        parent_layout.addSpacing(20)
+
+    def _demoSplitter(self, parent_layout):
+        parent_layout.addWidget(
+            self._createSectionHeader("04. pyqt5_ela_pro - ElaSplitter 分隔器")
+        )
+        self._addInfoText(
+            "ELA 主题风格的分割器，支持水平和垂直方向，自动响应主题切换",
+            parent_layout,
+        )
+        self._addInfoText(
+            "create_ela_splitter(widgets, orientation, handleThickness) 函数创建",
+            parent_layout,
+        )
+
+        widget1 = ThemeWidget(self)
+        widget1.setMinimumSize(50, 50)
+        layout1 = QVBoxLayout(widget1)
+        text1 = ElaText("面板 1", widget1)
+        text1.setAlignment(Qt.AlignCenter)
+        layout1.addWidget(text1)
+
+        widget2 = ThemeWidget(self)
+        widget2.setMinimumSize(50, 50)
+        layout2 = QVBoxLayout(widget2)
+        text2 = ElaText("面板 2", widget2)
+        text2.setAlignment(Qt.AlignCenter)
+        layout2.addWidget(text2)
+
+        widget3 = ThemeWidget(self)
+        widget3.setMinimumSize(50, 50)
+        layout3 = QVBoxLayout(widget3)
+        text3 = ElaText("面板 3", widget3)
+        text3.setAlignment(Qt.AlignCenter)
+        layout3.addWidget(text3)
+
+        splitter = create_ela_splitter([widget1, widget2, widget3], Qt.Horizontal)
+        splitter.setMinimumHeight(80)
+        parent_layout.addWidget(splitter)
         parent_layout.addSpacing(20)
 
     def _demoTreeView(self, parent_layout):

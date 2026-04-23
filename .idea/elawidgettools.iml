@@ -10,6 +10,7 @@
       <excludeFolder url="file://$MODULE_DIR$/PyQt-SiliconUI" />
       <excludeFolder url="file://$MODULE_DIR$/build" />
       <excludeFolder url="file://$MODULE_DIR$/dist" />
+      <excludeFolder url="file://$MODULE_DIR$/Supermium" />
     </content>
     <orderEntry type="jdk" jdkName="uv (elawidgettools)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

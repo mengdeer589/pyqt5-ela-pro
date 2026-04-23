@@ -6,7 +6,7 @@
 - PyQt5ElaWidgetTools: 图标组件
 """
 
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QListView, QDialog
+from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QListView, QWidget
 from PyQt5.QtCore import Qt, QModelIndex
 from PyQt5ElaWidgetTools import (
     ElaText,
@@ -23,6 +23,7 @@ from pyqt5_ela_pro import (
     fade_out,
     ElaAnimatedMixin,
     shake_window,
+    ElaDialogBase,
 )
 from pyqt5_ela_pro.svg_icon import (
     ElaSvgIconLoader,
@@ -36,29 +37,27 @@ from .es_icon_model import EsIconModel
 from .es_icon_delegate import EsIconDelegate
 
 
-class _AnimatedDemoDialog(ElaAnimatedMixin, QDialog):
+class _AnimatedDemoDialog(ElaAnimatedMixin, ElaDialogBase):
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("ElaAnimatedMixin 演示")
-        self.resize(300, 200)
-        layout = QVBoxLayout(self)
+        super().__init__("ElaAnimatedMixin 演示", parent)
+        content_widget = QWidget(self)
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(0, 10, 0, 0)
         info = ElaText(
             "通过 ElaAnimatedMixin 继承获得 fade_in() / fade_out()\n对话框自身拥有动画方法",
-            self,
+            content_widget,
         )
         info.setTextPixelSize(14)
-        layout.addWidget(info)
+        content_layout.addWidget(info)
         btn_layout = QHBoxLayout()
-        close_btn = ElaPushButton("淡出并关闭", self)
-        close_btn.setFixedWidth(120)
-        close_btn.clicked.connect(lambda: self.fade_out(on_finished=self.close))
-        btn_layout.addWidget(close_btn)
-        shake_btn = ElaPushButton("抖动", self)
+        btn_layout.addStretch()
+        shake_btn = ElaPushButton("抖动", content_widget)
         shake_btn.setFixedWidth(80)
         shake_btn.clicked.connect(self.shake)
         btn_layout.addWidget(shake_btn)
-        btn_layout.addStretch()
-        layout.addLayout(btn_layout)
+        content_layout.addLayout(btn_layout)
+        self.setParamWidget(content_widget)
+        self.setFixedHeight(300)
         self.fade_in()
 
     def shake(self):
@@ -332,7 +331,7 @@ class AnimationIconPage(ExamplePage):
     def _demoEsButton(self, parent_layout):
         parent_layout.addWidget(
             self._createSectionHeader(
-                "01. ela_ext - ElaSvgIconButton 基础 SVG 图标按钮"
+                "02. ela_ext - ElaSvgIconButton 基础 SVG 图标按钮"
             )
         )
         self._addInfoText(
@@ -375,7 +374,7 @@ class AnimationIconPage(ExamplePage):
 
     def _demoEsSvgButton(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("02. ela_ext - ElaSvgButton 悬浮/点击主题色效果")
+            self._createSectionHeader("03. ela_ext - ElaSvgButton 悬浮/点击主题色效果")
         )
         self._addInfoText("鼠标悬浮和点击时显示半透明主题色背景效果", parent_layout)
         parent_layout.addSpacing(10)

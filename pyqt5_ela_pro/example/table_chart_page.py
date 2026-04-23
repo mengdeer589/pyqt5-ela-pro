@@ -232,7 +232,7 @@ class TableChartPage(ExamplePage):
 
     def _demoTrendChart(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("01. ela_ext - ElaTrendChart 趋势图")
+            self._createSectionHeader("02. ela_ext - ElaTrendChart 趋势图")
         )
         self._addInfoText(
             "支持多曲线绘制、主题切换、网格线显示、交互式指示器", parent_layout

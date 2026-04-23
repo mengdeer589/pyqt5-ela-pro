@@ -68,6 +68,16 @@ from .svg_icon import (
     svgIconLoader,
 )
 
+from .window_embedder import ElaWindowEmbedder
+
+from .browser_embedder import ElaBrowserEmbedder
+
+from .splitter import ElaSplitter, create_ela_splitter
+
+from .ela_progress_button import ElaProgressButton
+
+from .notify_popup import ElaNotifyPopup, show_notify
+
 
 __all__ = [
     "__version__",
@@ -110,4 +120,11 @@ __all__ = [
     "ElaSvgButton",
     "ElaSvgIconButton",
     "svgIconLoader",
+    "ElaWindowEmbedder",
+    "ElaBrowserEmbedder",
+    "ElaSplitter",
+    "create_ela_splitter",
+    "ElaProgressButton",
+    "ElaNotifyPopup",
+    "show_notify",
 ]

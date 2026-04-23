@@ -64,7 +64,7 @@ class ThemeWidget(QWidget):
 
     def create_lay(
         self,
-        lay_type: Literal["h", "v"],
+        lay_type: Literal["h", "v"]='h',
         parent: QWidget | None = None,
     ) -> QHBoxLayout | QVBoxLayout:
         """创建布局。
