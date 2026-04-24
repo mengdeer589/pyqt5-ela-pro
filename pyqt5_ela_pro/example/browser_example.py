@@ -38,6 +38,7 @@ class BrowserDemoWindow(ElaWindow):
         self.setUserInfoCardTitle("浏览器演示")
         self.setUserInfoCardSubTitle("PyQt5ElaWidgetTools")
 
+
         central = QWidget(self)
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
@@ -64,7 +65,7 @@ class BrowserDemoWindow(ElaWindow):
         reload_btn.clicked.connect(self._reload)
         url_layout.addWidget(reload_btn)
 
-        js_btn = QPushButton("获取标题")
+        js_btn = QPushButton("执行JS")
         js_btn.clicked.connect(self._run_js)
         url_layout.addWidget(js_btn)
 
@@ -91,8 +92,6 @@ class BrowserDemoWindow(ElaWindow):
         self._log_output.setFixedHeight(80)
         layout.addWidget(self._log_output)
 
-        self._browser_widget.load_started.connect(lambda: self._log("页面开始加载"))
-        self._browser_widget.load_finished.connect(lambda: self._log("页面加载完成"))
         self._browser_widget.window_embedded.connect(lambda h: self._log(f"窗口已嵌入: 0x{h:X}"))
         self._browser_widget.window_released.connect(lambda h: self._log(f"窗口已释放: 0x{h:X}"))
         self._browser_widget.embed_error.connect(lambda m: self._log(f"嵌入错误: {m}"))
@@ -120,8 +119,8 @@ class BrowserDemoWindow(ElaWindow):
         self._browser_widget.reload()
 
     def _run_js(self):
-        result = self._browser_widget.run_js("document.title")
-        self._log(f"页面标题: {result}")
+        self._log("执行JS: document.title")
+        self._browser_widget.run_js("document.title")
 
     def _toggle_theme(self):
         current = eTheme.getThemeMode()

@@ -18,6 +18,8 @@ import win32api
 import win32con
 import win32gui
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
+
+from ._internal import catch_error
 from PyQt5.QtGui import QWindow
 from PyQt5.QtWidgets import QWidget
 
@@ -422,6 +424,7 @@ class ElaWindowEmbedder(QWidget):
 
         super().wheelEvent(event)
 
+    @catch_error
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
 
@@ -445,20 +448,17 @@ class ElaWindowEmbedder(QWidget):
 
         hwnd = self._embedded_info.get("hwnd")
         if hwnd:
-            try:
-                win32gui.SetWindowPos(
-                    hwnd,
-                    0,
-                    0,
-                    0,
-                    width,
-                    height,
-                    win32con.SWP_NOZORDER
-                    | win32con.SWP_NOACTIVATE
-                    | win32con.SWP_NOMOVE,
-                )
-            except Exception:
-                pass
+            win32gui.SetWindowPos(
+                hwnd,
+                0,
+                0,
+                0,
+                width,
+                height,
+                win32con.SWP_NOZORDER
+                | win32con.SWP_NOACTIVATE
+                | win32con.SWP_NOMOVE,
+            )
 
     def closeEvent(self, event) -> None:
         if self._embedded_info:
