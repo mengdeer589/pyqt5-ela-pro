@@ -105,50 +105,59 @@ class ElaProgressButton(ElaPushButton):
         super().deleteLater()
 
     def paintEvent(self, event) -> None:
-        super().paintEvent(event)
-        if self._progress > 0:
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-            painter.save()
+        if self._progress <= 0:
+            super().paintEvent(event)
+            return
 
-            shadow_border = 3
-            foreground_rect = QRect(
-                shadow_border,
-                shadow_border,
-                self.width() - 2 * shadow_border,
-                self.height() - 2 * shadow_border,
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+
+        shadow_border = 3
+        rect = QRect(
+            shadow_border,
+            shadow_border,
+            self.width() - 2 * shadow_border,
+            self.height() - 2 * shadow_border,
+        )
+
+        mode = eTheme.getThemeMode()
+
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(rect), 3, 3)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase))
+        painter.drawPath(path)
+
+        painter.save()
+        painter.setClipPath(path)
+
+        if self._progress < 1.0:
+            p = self._progress
+            gradient = QLinearGradient(rect.topLeft(), rect.topRight())
+            gradient.setColorAt(0, self._progress_color)
+            gradient.setColorAt(p, self._progress_color)
+            gradient.setColorAt(min(p + 0.001, 1.0), QColor(0, 0, 0, 0))
+            gradient.setColorAt(1, QColor(0, 0, 0, 0))
+            painter.fillRect(rect, gradient)
+        else:
+            painter.fillRect(rect, self._progress_color)
+
+        painter.restore()
+
+        if self.isEnabled():
+            if mode == ElaThemeType.ThemeMode.Light:
+                text_color = eTheme.getThemeColor(
+                    mode, ElaThemeType.ThemeColor.BasicText
+                )
+            else:
+                text_color = eTheme.getThemeColor(
+                    mode, ElaThemeType.ThemeColor.BasicText
+                )
+        else:
+            text_color = eTheme.getThemeColor(
+                mode, ElaThemeType.ThemeColor.BasicTextDisable
             )
-
-            p = min(self._progress, 1.0)
-
-            path = QPainterPath()
-            path.addRoundedRect(QRectF(foreground_rect), 3, 3)
-            painter.setClipPath(path)
-
-            if p >= 1.0:
-                painter.fillRect(foreground_rect, self._progress_color)
-            else:
-                gradient = QLinearGradient(
-                    foreground_rect.topLeft(), foreground_rect.topRight()
-                )
-                gradient.setColorAt(0, self._progress_color)
-                gradient.setColorAt(p, self._progress_color)
-                gradient.setColorAt(min(p + 0.001, 1.0), QColor(0, 0, 0, 0))
-                gradient.setColorAt(1, QColor(0, 0, 0, 0))
-                painter.fillRect(foreground_rect, gradient)
-
-            painter.restore()
-
-        if self._progress > 0:
-            if self.isEnabled():
-                text_color = eTheme.getThemeColor(
-                    eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicTextInvert
-                )
-            else:
-                text_color = eTheme.getThemeColor(
-                    eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicTextDisable
-                )
-            painter.setPen(text_color)
-            painter.drawText(foreground_rect, Qt.AlignmentFlag.AlignCenter, self.text())
+        painter.setPen(text_color)
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.text())

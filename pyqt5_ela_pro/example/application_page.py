@@ -131,7 +131,7 @@ class ApplicationComponentsPage(ExamplePage):
             width=500,
             height=350,
         )
-        splash.create(QApplication.instance())
+        splash.show()
         splash.showMessage("正在加载组件...")
         import time
 

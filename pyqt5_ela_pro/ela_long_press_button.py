@@ -186,48 +186,51 @@ class ElaLongPressBtn(ElaPushButton):
         self._go_backwards_timer.start()
 
     def paintEvent(self, event) -> None:
-        super().paintEvent(event)
-        if self._progress > 0:
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-            painter.save()
+        if self._progress <= 0:
+            super().paintEvent(event)
+            return
 
-            shadow_border = 3
-            foreground_rect = QRect(
-                shadow_border,
-                shadow_border,
-                self.width() - 2 * shadow_border,
-                self.height() - 2 * shadow_border,
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+
+        shadow_border = 3
+        rect = QRect(
+            shadow_border,
+            shadow_border,
+            self.width() - 2 * shadow_border,
+            self.height() - 2 * shadow_border,
+        )
+
+        mode = eTheme.getThemeMode()
+
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(rect), 3, 3)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase))
+        painter.drawPath(path)
+
+        painter.save()
+        painter.setClipPath(path)
+
+        p = min(self._progress, 1.0)
+        gradient = QLinearGradient(rect.topLeft(), rect.topRight())
+        gradient.setColorAt(0, self._progress_color)
+        gradient.setColorAt(p, self._progress_color)
+        gradient.setColorAt(min(p + 0.001, 1.0), QColor(0, 0, 0, 0))
+        gradient.setColorAt(1, QColor(0, 0, 0, 0))
+        painter.fillRect(rect, gradient)
+
+        painter.restore()
+
+        if self.isEnabled():
+            text_color = eTheme.getThemeColor(
+                mode, ElaThemeType.ThemeColor.BasicText
             )
-
-            p = min(self._progress, 1.0)
-            gradient = QLinearGradient(
-                foreground_rect.topLeft(), foreground_rect.topRight()
+        else:
+            text_color = eTheme.getThemeColor(
+                mode, ElaThemeType.ThemeColor.BasicTextDisable
             )
-            gradient.setColorAt(0, self._progress_color)
-            gradient.setColorAt(p, self._progress_color)
-            gradient.setColorAt(min(p + 0.001, 1.0), QColor(0, 0, 0, 0))
-            gradient.setColorAt(1, QColor(0, 0, 0, 0))
-
-            path = QPainterPath()
-            path.addRoundedRect(QRectF(foreground_rect), 3, 3)
-            painter.setClipPath(path)
-            painter.fillRect(foreground_rect, gradient)
-
-            painter.setCompositionMode(
-                QPainter.CompositionMode.CompositionMode_SourceOver
-            )
-            painter.setFont(self.font())
-            if self.isEnabled():
-                text_color = eTheme.getThemeColor(
-                    eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicTextInvert
-                )
-            else:
-                text_color = eTheme.getThemeColor(
-                    eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicTextDisable
-                )
-            painter.setPen(text_color)
-            painter.drawText(foreground_rect, Qt.AlignmentFlag.AlignCenter, self.text())
-            painter.restore()
+        painter.setPen(text_color)
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.text())
