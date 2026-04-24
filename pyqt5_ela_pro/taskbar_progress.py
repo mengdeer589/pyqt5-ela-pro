@@ -8,7 +8,6 @@ Windows 任务栏进度条组件。
 
 from __future__ import annotations
 
-import logging
 import sys
 
 from typing import Optional
@@ -16,9 +15,6 @@ from typing import Optional
 from PyQt5.QtCore import pyqtSignal, QObject
 from PyQt5.QtWidgets import QWidget
 from PyQt5.QtWinExtras import QWinTaskbarButton, QWinTaskbarProgress
-
-
-logger = logging.getLogger(__name__)
 
 
 class ElaTaskbarProgress(QObject):
@@ -67,11 +63,6 @@ class ElaTaskbarProgress(QObject):
             return
 
         if not self._is_win_extras_available():
-            logger.warning(
-                "TaskbarProgress: QWinTaskbarButton is not available "
-                "(non-Windows platform or missing QtWinExtras). "
-                "All methods will be no-op."
-            )
             return
 
         self._button = QWinTaskbarButton(self._window)
@@ -82,9 +73,11 @@ class ElaTaskbarProgress(QObject):
         if wh is not None:
             self._button.setWindow(wh)
             self._attached = True
+        else:
+            self._window.windowHandleChanged.connect(self._on_window_handle_created)
 
     def _is_win_extras_available(self) -> bool:
-        return QWinTaskbarButton is not None
+        return QWinTaskbarButton is not None and callable(QWinTaskbarButton)
 
     @property
     def value(self) -> int:

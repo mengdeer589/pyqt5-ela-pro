@@ -112,17 +112,12 @@ class ElaNotifyPopup(QWidget):
         )
 
     def _get_screen_geometry(self):
-        desktop = self._get_desktop()
-        if desktop:
-            return desktop.availableGeometry()
         from PyQt5.QtWidgets import QApplication
 
-        return QApplication.primaryScreen().availableGeometry()
-
-    def _get_desktop(self):
-        from PyQt5.QtWidgets import QApplication
-
-        return QApplication.instance().desktop()
+        screen = QApplication.primaryScreen()
+        if screen:
+            return screen.availableGeometry()
+        return QApplication.instance().desktop().availableGeometry()
 
     def show(self, title: str = "", content: str = "", timeout: int = -1) -> None:
         if title:

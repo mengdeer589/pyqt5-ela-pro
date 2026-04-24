@@ -220,18 +220,13 @@ class ElaLongPressBtn(ElaPushButton):
                 QPainter.CompositionMode.CompositionMode_SourceOver
             )
             painter.setFont(self.font())
-            current_theme = eTheme.getThemeMode()
             if self.isEnabled():
-                text_color = (
-                    self.getLightTextColor()
-                    if current_theme == ElaThemeType.ThemeMode.Light
-                    else self.getDarkTextColor()
+                text_color = eTheme.getThemeColor(
+                    eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicTextInvert
                 )
             else:
-                from PyQt5ElaWidgetTools import ElaThemeColor, ElaThemeType as ET
-
-                text_color = ElaThemeColor(
-                    current_theme, ET.ThemeColor.BasicTextDisable
+                text_color = eTheme.getThemeColor(
+                    eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicTextDisable
                 )
             painter.setPen(text_color)
             painter.drawText(foreground_rect, Qt.AlignmentFlag.AlignCenter, self.text())

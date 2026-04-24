@@ -23,6 +23,64 @@ from PyQt5ElaWidgetTools import (
 )
 
 
+def _draw_button_content(
+    painter: QPainter,
+    text: str,
+    icon_name,
+    icon_size: int,
+    shadow_border: int,
+    widget_width: int,
+    widget_height: int,
+    text_color: QColor,
+    icon_getter,
+) -> QRect:
+    """绘制按钮图标和文字布局。
+
+    :return: 文字区域 QRect
+    """
+    if icon_name is not None:
+        icon_sz = QSize(icon_size, icon_size)
+        spacing = 8
+        content_height = widget_height - 2 * shadow_border
+
+        fm = painter.fontMetrics()
+        text_width = fm.horizontalAdvance(text)
+        total_content_width = icon_sz.width() + spacing + text_width
+        start_x = (
+            shadow_border
+            + (widget_width - 2 * shadow_border - total_content_width) // 2
+        )
+
+        icon_y = shadow_border + (content_height - icon_sz.height()) // 2
+        icon_rect = QRect(start_x, icon_y, icon_sz.width(), icon_sz.height())
+
+        text_rect = QRect(
+            icon_rect.right() + spacing,
+            shadow_border,
+            text_width,
+            content_height,
+        )
+        icon = icon_getter(icon_name, text_color)
+        painter.drawPixmap(icon_rect, icon.pixmap(icon_sz))
+    else:
+        rect = QRect(
+            shadow_border,
+            shadow_border,
+            widget_width - 2 * shadow_border,
+            widget_height - 2 * shadow_border,
+        )
+        text_rect = rect
+
+    painter.setPen(text_color)
+    painter.setFont(painter.font())
+    painter.drawText(
+        text_rect,
+        Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter,
+        text,
+    )
+    return text_rect
+
+
 class ElaToolBtn(ElaToolButton):
     """工具按钮。
 
@@ -124,44 +182,19 @@ class ElaToolBtn(ElaToolButton):
         painter.setBrush(bg_color)
         painter.drawRoundedRect(rect, self._border_radius, self._border_radius)
 
-        if self._icon_name is not None:
-            icon_size = QSize(self._icon_size, self._icon_size)
-            spacing = 8
-            content_height = self.height() - 2 * shadow_border
-            icon_y = shadow_border + (content_height - icon_size.height()) // 2
+        def _icon_getter(icon_name, color):
+            return ElaIcon.getInstance().getElaIcon(icon_name, color)
 
-            fm = self.fontMetrics()
-            text_width = fm.horizontalAdvance(self.text())
-            total_content_width = icon_size.width() + spacing + text_width
-            start_x = (
-                shadow_border
-                + (self.width() - 2 * shadow_border - total_content_width) // 2
-            )
-
-            icon_rect = QRect(
-                start_x,
-                icon_y,
-                icon_size.width(),
-                icon_size.height(),
-            )
-
-            text_rect = QRect(
-                icon_rect.right() + spacing,
-                shadow_border,
-                text_width,
-                content_height,
-            )
-            icon = ElaIcon.getInstance().getElaIcon(self._icon_name, text_color)
-            painter.drawPixmap(icon_rect, icon.pixmap(icon_size))
-        else:
-            text_rect = rect
-
-        painter.setPen(text_color)
-        painter.setFont(self.font())
-        painter.drawText(
-            text_rect,
-            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter,
+        _draw_button_content(
+            painter,
             self.text(),
+            self._icon_name,
+            self._icon_size,
+            shadow_border,
+            self.width(),
+            self.height(),
+            text_color,
+            _icon_getter,
         )
 
 
@@ -235,44 +268,19 @@ class ElaPrimaryBtn(ElaPushButton):
         painter.setBrush(bg_color)
         painter.drawPath(path)
 
-        if self._icon_name is not None:
-            icon_size = QSize(self._icon_size, self._icon_size)
-            spacing = 8
-            content_height = self.height() - 2 * shadow_border
-            icon_y = shadow_border + (content_height - icon_size.height()) // 2
+        def _icon_getter(icon_name, color):
+            return ElaIcon.getInstance().getElaIcon(icon_name, color)
 
-            fm = self.fontMetrics()
-            text_width = fm.horizontalAdvance(self.text())
-            total_content_width = icon_size.width() + spacing + text_width
-            start_x = (
-                shadow_border
-                + (self.width() - 2 * shadow_border - total_content_width) // 2
-            )
-
-            icon_rect = QRect(
-                start_x,
-                icon_y,
-                icon_size.width(),
-                icon_size.height(),
-            )
-
-            text_rect = QRect(
-                icon_rect.right() + spacing,
-                shadow_border,
-                text_width,
-                content_height,
-            )
-            icon = ElaIcon.getInstance().getElaIcon(self._icon_name, text_color)
-            painter.drawPixmap(icon_rect, icon.pixmap(icon_size))
-        else:
-            text_rect = rect
-
-        painter.setPen(text_color)
-        painter.setFont(self.font())
-        painter.drawText(
-            text_rect,
-            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter,
+        _draw_button_content(
+            painter,
             self.text(),
+            self._icon_name,
+            self._icon_size,
+            shadow_border,
+            self.width(),
+            self.height(),
+            text_color,
+            _icon_getter,
         )
 
     def setBorderRadius(self, radius: int) -> None:

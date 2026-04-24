@@ -337,20 +337,25 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                 self._poll_failure_callback()
             return
 
-        try:
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{self._debug_port}/json", timeout=2
-            ) as resp:
-                targets = json.loads(resp.read())
+        import threading
+
+        def _check():
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{self._debug_port}/json", timeout=2
+                ) as resp:
+                    targets = json.loads(resp.read())
                 if targets:
                     debugger_url = targets[0]["webSocketDebuggerUrl"]
                     success_cb = self._poll_success_callback
                     self._cancel_poll()
                     if success_cb:
-                        success_cb(debugger_url)
-                    return
-        except Exception:
-            pass
+                        from PyQt5.QtCore import QTimer
+                        QTimer.singleShot(0, lambda: success_cb(debugger_url))
+            except Exception:
+                pass
+
+        threading.Thread(target=_check, daemon=True).start()
 
     def _cancel_poll(self) -> None:
         """取消轮询，清理定时器"""

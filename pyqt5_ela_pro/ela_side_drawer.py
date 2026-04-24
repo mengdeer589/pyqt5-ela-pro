@@ -212,7 +212,7 @@ class ElaDrawer(QWidget):
                 self._drawer_size,
             )
 
-    def setContentWidget(self, widget: QWidget) -> "ElaSideDrawer":
+    def setContentWidget(self, widget: QWidget) -> "ElaDrawer":
         if self._content_widget:
             self._main_layout.removeWidget(self._content_widget)
         self._content_widget = widget

@@ -283,7 +283,7 @@ class ElaParquetTable(ThemeWidget):
         self._total_rows = 0
         self._column_stats_cache: dict[str, dict] = {}
         self._lf = pl.scan_parquet(parquet_path)
-        self._total_rows = len(self._lf.collect())  # type: ignore
+        self._total_rows = self._lf.select(pl.len()).collect().item()  # type: ignore
 
         self._setup_ui()
 
@@ -369,12 +369,18 @@ class ElaParquetTable(ThemeWidget):
         if not isinstance(dtype, numeric_types):
             return None
 
-        col_data = self._lf.select(pl.col(column_name)).collect()
-
+        stats_df = (
+            self._lf.select(
+                pl.col(column_name).min().alias("min"),
+                pl.col(column_name).max().alias("max"),
+                pl.col(column_name).last().alias("last"),
+            )
+            .collect()
+        )
         return {
-            "min": col_data[column_name].min(),
-            "max": col_data[column_name].max(),
-            "last": col_data.tail(1)[column_name][0],
+            "min": stats_df["min"][0],
+            "max": stats_df["max"][0],
+            "last": stats_df["last"][0],
         }
 
     def goToPage(self, page: int) -> None:
@@ -425,7 +431,7 @@ class ElaParquetTable(ThemeWidget):
             raise FileNotFoundError(f"Parquet file not found: {parquet_path}")
         self._parquet_path = parquet_path
         self._lf = pl.scan_parquet(parquet_path)
-        self._total_rows = len(self._lf.collect())  # type: ignore
+        self._total_rows = self._lf.select(pl.len()).collect().item()  # type: ignore
         self._current_page = 1
         self._column_stats_cache.clear()
         self._info_bar.clear_info()

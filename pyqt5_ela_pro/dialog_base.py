@@ -81,8 +81,10 @@ class ElaDialogBase(ElaContentDialog):
         :param widget: 内容 widget。
         :type widget: QWidget
         """
-        if self._paramLay.count() > 2:
-            self._paramLay.takeAt(2).widget().deleteLater()
+        while self._paramLay.count() > 2:
+            item = self._paramLay.takeAt(2)
+            if item and item.widget():
+                item.widget().deleteLater()
         self._paramLay.addWidget(widget)
 
     def _middleBtnClicked(self) -> None:

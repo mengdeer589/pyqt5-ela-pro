@@ -43,6 +43,43 @@ COMBO_BOX_ARROW_HEIGHT: int = 6
 COMBO_BOX_TEXT_MARGIN: int = 5
 
 
+def _build_search_widget(
+    text_changed_callback,
+) -> tuple[QWidget, QLineEdit]:
+    """创建弹窗内搜索框组件。
+
+    :return: (searchWidget, searchEdit)
+    """
+    search_widget = QWidget()
+    search_widget.setObjectName("SearchWidget")
+    search_widget.setFixedHeight(40)
+
+    search_layout = QVBoxLayout(search_widget)
+    search_layout.setContentsMargins(6, 6, 6, 2)
+    search_layout.setSpacing(0)
+
+    search_edit = QLineEdit()
+    search_edit.setPlaceholderText("搜索...")
+    search_edit.setFixedHeight(28)
+    search_edit.textChanged.connect(text_changed_callback)
+    _apply_search_edit_palette(search_edit)
+    search_layout.addWidget(search_edit)
+
+    return search_widget, search_edit
+
+
+def _apply_search_edit_palette(search_edit: QLineEdit) -> None:
+    """应用主题颜色到搜索框。"""
+    theme_mode = eTheme.getThemeMode()
+    palette = search_edit.palette()
+    palette.setColor(QPalette.Text, eTheme.getThemeColor(theme_mode, 13))
+    palette.setColor(
+        QPalette.PlaceholderText,
+        QColor(0, 0, 0, 128) if theme_mode == 0 else QColor(186, 186, 186),
+    )
+    search_edit.setPalette(palette)
+
+
 class ElaSearchProxyModel(QSortFilterProxyModel):
     """支持拼音首字母过滤的代理模型。
 
@@ -181,34 +218,17 @@ class ElaSearchMultiBox(ElaMultiSelectComboBox):
         if layout is None:
             return
 
-        self._searchWidget = QWidget()
-        self._searchWidget.setObjectName("SearchWidget")
-        self._searchWidget.setFixedHeight(40)
-
-        search_layout = QVBoxLayout(self._searchWidget)
-        search_layout.setContentsMargins(6, 6, 6, 2)
-        search_layout.setSpacing(0)
-
-        self._searchEdit = QLineEdit()
-        self._searchEdit.setPlaceholderText("搜索...")
-        self._searchEdit.setFixedHeight(28)
-        self._searchEdit.textChanged.connect(self._onSearchTextChanged)
-        self._applySearchEditPalette()
-        search_layout.addWidget(self._searchEdit)
+        self._searchWidget, self._searchEdit = _build_search_widget(
+            self._onSearchTextChanged
+        )
 
         if isinstance(layout, QBoxLayout):
             layout.insertWidget(0, self._searchWidget)
 
     def _applySearchEditPalette(self) -> None:
         """应用主题颜色到搜索框。"""
-        theme_mode = eTheme.getThemeMode()
-        palette = self._searchEdit.palette()
-        palette.setColor(QPalette.Text, eTheme.getThemeColor(theme_mode, 13))
-        palette.setColor(
-            QPalette.PlaceholderText,
-            QColor(0, 0, 0, 128) if theme_mode == 0 else QColor(186, 186, 186),
-        )
-        self._searchEdit.setPalette(palette)
+        if self._searchEdit:
+            _apply_search_edit_palette(self._searchEdit)
 
     def _onSearchTextChanged(self, text: str) -> None:
         """搜索框文本变化时过滤项目。
@@ -300,7 +320,10 @@ class ElaSearchBox(ElaComboBox):
         :type userData: Any
         """
         self._allItems.append((text, userData))
-        self._sourceModel.setStringList([item[0] for item in self._allItems])
+        self._sourceModel.insertRow(self._sourceModel.rowCount())
+        self._sourceModel.setData(
+            self._sourceModel.index(self._sourceModel.rowCount() - 1, 0), text
+        )
 
     def addItems(self, texts: list[str]) -> None:  # type: ignore[override]
         """批量添加选项。
@@ -359,34 +382,17 @@ class ElaSearchBox(ElaComboBox):
         if layout is None:
             return
 
-        self._searchWidget = QWidget()
-        self._searchWidget.setObjectName("SearchWidget")
-        self._searchWidget.setFixedHeight(40)
-
-        search_layout = QVBoxLayout(self._searchWidget)
-        search_layout.setContentsMargins(6, 6, 6, 2)
-        search_layout.setSpacing(0)
-
-        self._searchEdit = QLineEdit()
-        self._searchEdit.setPlaceholderText("搜索...")
-        self._searchEdit.setFixedHeight(28)
-        self._searchEdit.textChanged.connect(self._onSearchTextChanged)
-        self._applySearchEditPalette()
-        search_layout.addWidget(self._searchEdit)
+        self._searchWidget, self._searchEdit = _build_search_widget(
+            self._onSearchTextChanged
+        )
 
         if isinstance(layout, QBoxLayout):
             layout.insertWidget(0, self._searchWidget)
 
     def _applySearchEditPalette(self) -> None:
         """应用主题颜色到搜索框。"""
-        theme_mode = eTheme.getThemeMode()
-        palette = self._searchEdit.palette()
-        palette.setColor(QPalette.Text, eTheme.getThemeColor(theme_mode, 13))
-        palette.setColor(
-            QPalette.PlaceholderText,
-            QColor(0, 0, 0, 128) if theme_mode == 0 else QColor(186, 186, 186),
-        )
-        self._searchEdit.setPalette(palette)
+        if self._searchEdit:
+            _apply_search_edit_palette(self._searchEdit)
 
     def _onSearchTextChanged(self, text: str) -> None:
         """搜索框文本变化时更新过滤关键词。

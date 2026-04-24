@@ -40,8 +40,10 @@ from PyQt5ElaWidgetTools import (
     ElaMultiSelectComboBox,
 )
 
+from .ela_tag_box import _TagBoxThemeMixin
 
-class ElaTagMultiBox(ElaMultiSelectComboBox):
+
+class ElaTagMultiBox(_TagBoxThemeMixin, ElaMultiSelectComboBox):
     """具名多选下拉框。
 
     带有标题标签的多选下拉框，标题在左侧，值在右侧。
@@ -69,6 +71,7 @@ class ElaTagMultiBox(ElaMultiSelectComboBox):
         self._title_font_size = 13
         self._expand_mark_width: float = 0.0
         self._expand_icon_rotate: float = 0.0
+        self._currentSelection: list[str] = []
 
         self._mark_animation = QPropertyAnimation(self, b"expandMarkWidth")
         self._mark_animation.setDuration(300)
@@ -147,41 +150,6 @@ class ElaTagMultiBox(ElaMultiSelectComboBox):
         :return: 标题文字
         """
         return self._title_text
-
-    def _getTitleColor(self) -> QColor:
-        if not self.isEnabled():
-            return eTheme.getThemeColor(
-                eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicTextDisable
-            )
-        return eTheme.getThemeColor(
-            eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicText
-        )
-
-    def _getBackgroundColor(self) -> QColor:
-        current_theme = eTheme.getThemeMode()
-        if not self.isEnabled():
-            return eTheme.getThemeColor(
-                current_theme, ElaThemeType.ThemeColor.BasicDisable
-            )
-        if self.hasFocus():
-            return eTheme.getThemeColor(
-                current_theme, ElaThemeType.ThemeColor.DialogBase
-            )
-        if self.underMouse():
-            return eTheme.getThemeColor(
-                current_theme, ElaThemeType.ThemeColor.BasicHover
-            )
-        return eTheme.getThemeColor(current_theme, ElaThemeType.ThemeColor.BasicBase)
-
-    def _getBorderColor(self) -> QColor:
-        if self.hasFocus():
-            return eTheme.getThemeColor(
-                eTheme.getThemeMode(), ElaThemeType.ThemeColor.PrimaryNormal
-            )
-        current_theme = eTheme.getThemeMode()
-        return eTheme.getThemeColor(
-            current_theme, ElaThemeType.ThemeColor.BasicBaseLine
-        )
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)

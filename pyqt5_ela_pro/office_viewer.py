@@ -14,7 +14,7 @@ from typing import Optional
 from PyQt5.QAxContainer import QAxWidget
 from PyQt5.QtWidgets import QMessageBox, QSizePolicy, QWidget
 
-from pyqt5_ela_pro import ThemeWidget
+from .widget_base import ThemeWidget
 
 _MS_WORD_PROGIDS = ["Word.Application"]
 _WPS_WORD_PROGIDS = ["KWps.Application", "WPS.Application"]

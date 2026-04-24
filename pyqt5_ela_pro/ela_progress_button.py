@@ -141,12 +141,10 @@ class ElaProgressButton(ElaPushButton):
 
             painter.restore()
 
+        if self._progress > 0:
             if self.isEnabled():
-                current_theme = eTheme.getThemeMode()
-                text_color = (
-                    self.getLightTextColor()
-                    if current_theme == ElaThemeType.ThemeMode.Light
-                    else self.getDarkTextColor()
+                text_color = eTheme.getThemeColor(
+                    eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicTextInvert
                 )
             else:
                 text_color = eTheme.getThemeColor(

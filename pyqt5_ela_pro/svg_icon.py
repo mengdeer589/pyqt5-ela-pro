@@ -280,8 +280,6 @@ class _ElaSvgButtonBase(QPushButton):
         return icon_color_str
 
     def paintEvent(self, event) -> None:
-        from PyQt5.QtGui import QPainter, QPainterPath
-
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -351,11 +349,12 @@ class _ElaSvgButtonBase(QPushButton):
         self._borderRadius = radius
         self.update()
 
-    def __del__(self):
+    def deleteLater(self) -> None:
         try:
             eTheme.themeModeChanged.disconnect(self._onThemeModeChanged)
-        except Exception:
+        except (TypeError, RuntimeError):
             pass
+        super().deleteLater()
 
 
 class ElaSvgButton(_ElaSvgButtonBase):

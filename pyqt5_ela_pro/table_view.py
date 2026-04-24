@@ -108,15 +108,9 @@ class _LoadThread(QThread):
     finished = pyqtSignal(list)
 
     def __init__(self, rows: list) -> None:
-        """初始化后台加载线程。
-
-        :param rows: 行数据列表。
-        :type rows: list
-        """
         super().__init__()
         self._rows = rows
         self._isCanceled = False
-        self._isFinished = False
 
     def cancel(self) -> None:
         """将线程标记为已取消。``finished`` 信号将不会被发射。"""
@@ -125,8 +119,8 @@ class _LoadThread(QThread):
     def run(self) -> None:
         """执行加载操作。若未取消则发射 ``finished`` 信号。"""
         if not self._isCanceled:
-            self._isFinished = True
             self.finished.emit(list(self._rows))
+        self._isCanceled = False
 
 
 class ElaDataTable(ElaTableView):

@@ -86,7 +86,7 @@ class ThemeWidget(QWidget):
     def alert(
         self,
         message: str,
-        level: Literal[-2, -1, 0, 1] = 0,
+        level: Literal["error", "warning", "information", "success"] = "information",
         title: str = "提示",
         duration: int = 3000,
         position: Literal[
@@ -99,24 +99,17 @@ class ThemeWidget(QWidget):
             "BottomRight",
             "BottomLeft",
         ] = "TopRight",
-        parent: QWidget = None,
+        parent: Optional[QWidget] = None,
     ) -> None:
         """显示提示消息条。
 
         :param message: 消息内容
-        :param level: 消息级别，-2=错误，-1=警告，0=信息，1=成功
+        :param level: 消息级别，支持 "error" / "warning" / "information" / "success"
         :param title: 消息标题
         :param duration: 显示时长（毫秒）
         :param position: 显示位置
         :param parent: 父控件，用于消息条定位
         """
-        _message_map = {
-            -2: "error",
-            -1: "warning",
-            0: "information",
-            1: "success",
-        }
-        message_type = _message_map.get(level, "information")
-        func = getattr(ElaMessageBar, message_type)
+        func = getattr(ElaMessageBar, level)
         position_policy = getattr(ElaMessageBarType.PositionPolicy, position)
         func(position_policy, title, message, duration, parent)

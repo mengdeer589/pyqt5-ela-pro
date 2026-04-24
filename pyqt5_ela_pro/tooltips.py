@@ -117,7 +117,7 @@ class ToolTip(QWidget):
         self._label = QLabel(text, self)
         self._label.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
-        font = QFont("Microsoft YaHei", 12)
+        font = QFont()
         font.setPixelSize(12)
         self._label.setFont(font)
 

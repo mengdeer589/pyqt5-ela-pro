@@ -6,11 +6,13 @@
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap, QPainter, QColor, QFont, QLinearGradient
-from PyQt5.QtWidgets import QSplashScreen
+from PyQt5.QtWidgets import QSplashScreen, QApplication
 
 
-class ElaSplashScreen:
+class ElaSplashScreen(QSplashScreen):
     """启动画面组件。
+
+    继承自 QSplashScreen，支持渐变背景、标题、副标题和加载进度显示。
 
     :param title: 标题文本。
     :type title: str
@@ -33,26 +35,16 @@ class ElaSplashScreen:
         self._subtitle = subtitle
         self._width = width
         self._height = height
-        self._splash = None
-        self._app = None
-
-    def create(self, app):
-        """创建并显示启动画面。
-
-        :param app: QApplication 实例。
-        :type app: QApplication
-        :return: QSplashScreen 实例。
-        """
-        self._app = app
         pixmap = self._createPixmap()
-        self._splash = QSplashScreen(
+        super().__init__(
             pixmap,
-            Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint,  # type: ignore
+            Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint,
         )
-        self._splash.setFont(QFont("Microsoft YaHei", 11))
-        self._splash.show()
-        self._app.processEvents()
-        return self._splash
+
+    def show(self) -> None:
+        """显示启动画面。"""
+        super().show()
+        QApplication.instance().processEvents()
 
     def _createPixmap(self) -> QPixmap:
         """创建启动画面背景图。
@@ -73,7 +65,9 @@ class ElaSplashScreen:
         painter.drawRoundedRect(0, 0, self._width, self._height, 0, 0)
 
         painter.setPen(QColor(255, 255, 255))
-        titleFont = QFont("Microsoft YaHei", 28, QFont.Bold)
+        titleFont = QFont()
+        titleFont.setPointSize(28)
+        titleFont.setBold(True)
         painter.setFont(titleFont)
         painter.drawText(
             pixmap.rect().adjusted(0, 80, 0, -120),
@@ -81,7 +75,8 @@ class ElaSplashScreen:
             self._title,
         )
 
-        subtitleFont = QFont("Microsoft YaHei", 14)
+        subtitleFont = QFont()
+        subtitleFont.setPointSize(14)
         painter.setFont(subtitleFont)
         painter.drawText(
             pixmap.rect().adjusted(0, 150, 0, -80),
@@ -110,27 +105,17 @@ class ElaSplashScreen:
         :param message: 要显示的消息文本。
         :type message: str
         """
-        if self._splash:
-            self._splash.showMessage(
-                message,
-                Qt.AlignBottom | Qt.AlignCenter,  # type: ignore[unresolved-attribute]
-                QColor(255, 255, 255),
-            )
-            if self._app:
-                self._app.processEvents()
+        super().showMessage(
+            message,
+            Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignCenter,
+            QColor(255, 255, 255),
+        )
+        QApplication.instance().processEvents()
 
     def finish(self, widget) -> None:
         """关闭启动画面。
 
         :param widget: 目标窗口，关闭后显示该窗口。
         """
-        if self._splash:
-            self._splash.finish(widget)
-            self._splash.close()
-            self._splash = None
-
-    def close(self) -> None:
-        """关闭启动画面。"""
-        if self._splash:
-            self._splash.close()
-            self._splash = None
+        super().finish(widget)
+        self.close()

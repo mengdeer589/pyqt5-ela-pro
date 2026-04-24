@@ -22,6 +22,8 @@ from pyqt5_ela_pro.example import (
     ComboBoxPage,
     WindowEmbedderPage,
     ApplicationComponentsPage,
+    AdvancedComponentsPage,
+    GraphicsComponentsPage,
 )
 
 
@@ -42,13 +44,12 @@ class ExampleWindow(ElaWindow):
         self.addPageNode("动画与图标", AnimationIconPage(self))
         self.addPageNode("窗口嵌入", WindowEmbedderPage(self))
         self.addPageNode("ela 应用级组件", ApplicationComponentsPage(self))
+        self.addPageNode("高级组件", AdvancedComponentsPage(self))
+        self.addPageNode("图形组件", GraphicsComponentsPage(self))
 
 
 if __name__ == "__main__":
-    try:
-        QT_VERSION_STR = "5.14.0"
-    except Exception:
-        QT_VERSION_STR = "6.8.3"
+    from PyQt5.QtCore import QT_VERSION_STR
 
     if QT_VERSION_STR < "6.0.0":
         QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)

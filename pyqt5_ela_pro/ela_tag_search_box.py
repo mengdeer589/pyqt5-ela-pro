@@ -34,9 +34,10 @@ from PyQt5.QtWidgets import QWidget, QStyleOptionComboBox, QStylePainter
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIcon, ElaIconType
 
 from .combo_box import ElaSearchBox
+from .ela_tag_box import _TagBoxThemeMixin
 
 
-class ElaTagSearchBox(ElaSearchBox):
+class ElaTagSearchBox(_TagBoxThemeMixin, ElaSearchBox):
     """具名可搜索下拉框。
 
     带有标题标签的可搜索下拉框，支持汉字拼音首字母搜索。
@@ -137,41 +138,6 @@ class ElaTagSearchBox(ElaSearchBox):
 
     def _onCurrentIndexChanged(self, index: int) -> None:
         self.update()
-
-    def _getTitleColor(self) -> QColor:
-        if not self.isEnabled():
-            return eTheme.getThemeColor(
-                eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicTextDisable
-            )
-        return eTheme.getThemeColor(
-            eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicText
-        )
-
-    def _getBackgroundColor(self) -> QColor:
-        current_theme = eTheme.getThemeMode()
-        if not self.isEnabled():
-            return eTheme.getThemeColor(
-                current_theme, ElaThemeType.ThemeColor.BasicDisable
-            )
-        if self.hasFocus():
-            return eTheme.getThemeColor(
-                current_theme, ElaThemeType.ThemeColor.DialogBase
-            )
-        if self.underMouse():
-            return eTheme.getThemeColor(
-                current_theme, ElaThemeType.ThemeColor.BasicHover
-            )
-        return eTheme.getThemeColor(current_theme, ElaThemeType.ThemeColor.BasicBase)
-
-    def _getBorderColor(self) -> QColor:
-        if self.hasFocus():
-            return eTheme.getThemeColor(
-                eTheme.getThemeMode(), ElaThemeType.ThemeColor.PrimaryNormal
-            )
-        current_theme = eTheme.getThemeMode()
-        return eTheme.getThemeColor(
-            current_theme, ElaThemeType.ThemeColor.BasicBaseLine
-        )
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
