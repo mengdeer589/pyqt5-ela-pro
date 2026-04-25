@@ -602,8 +602,9 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                 win32gui.ShowWindow(self._target_hwnd, win32con.SW_HIDE)
                 win32gui.SetParent(self._target_hwnd, self._original_parent)
                 if self._original_style is not None:
+                    style_no_visible = self._original_style & ~win32con.WS_VISIBLE
                     win32gui.SetWindowLong(
-                        self._target_hwnd, win32con.GWL_STYLE, self._original_style
+                        self._target_hwnd, win32con.GWL_STYLE, style_no_visible
                     )
                 if self._original_exstyle is not None:
                     win32gui.SetWindowLong(
@@ -617,7 +618,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                         self._original_rect[1],
                         self._original_rect[2] - self._original_rect[0],
                         self._original_rect[3] - self._original_rect[1],
-                        0,
+                        win32con.SWP_HIDEWINDOW | win32con.SWP_NOACTIVATE | win32con.SWP_NOZORDER,
                     )
             except Exception as e:
                 self._log(f"还原窗口状态失败: {e}", 30)
