@@ -24,6 +24,7 @@ from pyqt5_ela_pro.example import (
     ApplicationComponentsPage,
     AdvancedComponentsPage,
     GraphicsComponentsPage,
+    BrowserExamplePage,
 )
 
 
@@ -46,6 +47,7 @@ class ExampleWindow(ElaWindow):
         self.addPageNode("ela 应用级组件", ApplicationComponentsPage(self))
         self.addPageNode("高级组件", AdvancedComponentsPage(self))
         self.addPageNode("图形组件", GraphicsComponentsPage(self))
+        self.addPageNode("浏览器嵌入", BrowserExamplePage(self))
 
 
 if __name__ == "__main__":

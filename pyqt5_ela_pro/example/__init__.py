@@ -10,6 +10,7 @@ from .table_chart_page import TableChartPage
 from .drawer_tooltip_page import DrawerTooltipPage
 from .animation_icon_page import AnimationIconPage
 from .window_embedder_page import WindowEmbedderPage
+from .browser_example import BrowserExamplePage
 from .application_page import ApplicationComponentsPage
 from .advanced_page import AdvancedComponentsPage
 from .graphics_page import GraphicsComponentsPage
@@ -23,6 +24,7 @@ __all__ = [
     "DrawerTooltipPage",
     "AnimationIconPage",
     "WindowEmbedderPage",
+    "BrowserExamplePage",
     "ApplicationComponentsPage",
     "AdvancedComponentsPage",
     "GraphicsComponentsPage",
