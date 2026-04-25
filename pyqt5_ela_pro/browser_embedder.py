@@ -20,11 +20,11 @@ from __future__ import annotations
 import json
 import multiprocessing
 import time
-import urllib.request
 from pathlib import Path
 from typing import Optional, Any, Callable
 
-from PyQt5.QtCore import pyqtSignal, QTimer, QObject, QEventLoop, QUrl
+from PyQt5.QtCore import pyqtSignal, QTimer, QObject, QUrl
+from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PyQt5.QtWebSockets import QWebSocket
 from PyQt5.QtWidgets import QWidget
 
@@ -51,73 +51,68 @@ def _run_browser_process(command: list, pid_shared) -> None:
 
 
 class _BrowserController(QObject):
-    """CDP WebSocket 客户端（内部类）"""
+    """CDP WebSocket 客户端（内部类）- 信号驱动版本"""
+
+    cdp_ready = pyqtSignal()
+    error_occurred = pyqtSignal(str)
 
     def __init__(
         self,
-        debugger_url: Optional[str] = None,
-        debug_port: int = 9222,
+        debugger_url: str,
         timeout: float = 5.0,
         log_func: Optional[Callable[[str, int], None]] = None,
     ):
         super().__init__()
         self._debugger_url = debugger_url
-        self._debug_port = debug_port
         self._timeout = timeout
         self._log_func = log_func
         self._ws: Optional[QWebSocket] = None
         self._message_id: int = 0
         self._callbacks: dict[int, Callable] = {}
-        self._pending_results: dict[int, Any] = {}
-        self._event_loop: Optional[QEventLoop] = None
+        self._result_timers: dict[int, QTimer] = {}
+        self._connect_timer: Optional[QTimer] = None
         self._running: bool = False
         self._load_started_callback: Optional[Callable] = None
         self._load_finished_callback: Optional[Callable] = None
-
-        if not debugger_url and debug_port:
-            self._debugger_url = self._get_debugger_url()
 
     def _log(self, message: str, level: int = 30) -> None:
         if self._log_func:
             self._log_func(message, level)
 
-    def _get_debugger_url(self, timeout: float = 10) -> str:
-        start = time.time()
-        while time.time() - start < timeout:
-            try:
-                with urllib.request.urlopen(
-                    f"http://127.0.0.1:{self._debug_port}/json", timeout=2
-                ) as resp:
-                    targets = json.loads(resp.read())
-                    if targets:
-                        return targets[0]["webSocketDebuggerUrl"]
-            except Exception:
-                pass
-            time.sleep(0.5)
-        raise RuntimeError(f"无法连接到调试端口 {self._debug_port}")
-
     def connect(self) -> None:
+        """启动 WebSocket 连接（非阻塞）"""
         self._ws = QWebSocket()
         self._ws.error.connect(self._on_error)
         self._ws.textMessageReceived.connect(self._on_text_message)
+        self._ws.connected.connect(self._on_connected)
 
-        loop = QEventLoop()
-        timer = QTimer()
-        timer.setSingleShot(True)
-        timer.timeout.connect(loop.quit)
-        self._ws.connected.connect(loop.quit)
+        self._connect_timer = QTimer(self)
+        self._connect_timer.setSingleShot(True)
+        self._connect_timer.timeout.connect(self._on_connect_timeout)
+        self._connect_timer.start(10000)
+
         self._ws.open(QUrl(self._debugger_url))
-        timer.start(10000)
-        loop.exec_()
-        timer.stop()
 
+    def _on_connected(self) -> None:
+        self._log("CDP WebSocket 已连接", 20)
+        self._connect_timer.stop()
         self._running = True
         self.send_command("Page.enable")
+        self.cdp_ready.emit()
 
-    def _on_error(self, error):
+    def _on_connect_timeout(self) -> None:
+        self._log("CDP WebSocket 连接超时", 30)
+        self.error_occurred.emit("WebSocket 连接超时")
+        self._running = False
+        if self._ws:
+            self._ws.close()
+            self._ws = None
+
+    def _on_error(self, error) -> None:
         self._log(f"WebSocket 错误: {error}", 30)
-        if self._event_loop and self._event_loop.isRunning():
-            self._event_loop.quit()
+        self.error_occurred.emit(str(error))
+        if self._connect_timer:
+            self._connect_timer.stop()
 
     def _on_text_message(self, message: str) -> None:
         try:
@@ -129,11 +124,13 @@ class _BrowserController(QObject):
         if "id" in data:
             msg_id = data["id"]
             result = data.get("result")
-            self._pending_results[msg_id] = result
             if msg_id in self._callbacks:
-                self._callbacks.pop(msg_id)()
-            if self._event_loop and self._event_loop.isRunning():
-                self._event_loop.quit()
+                cb = self._callbacks.pop(msg_id)
+                cb(result)
+            if msg_id in self._result_timers:
+                self._result_timers[msg_id].stop()
+                self._result_timers[msg_id].deleteLater()
+                del self._result_timers[msg_id]
         else:
             method = data.get("method")
             params = data.get("params", {})
@@ -155,7 +152,16 @@ class _BrowserController(QObject):
     def set_load_finished_callback(self, callback: Callable) -> None:
         self._load_finished_callback = callback
 
-    def send_command(self, method: str, params: Optional[dict] = None) -> Any:
+    def send_command(
+        self, method: str, params: Optional[dict] = None, callback: Optional[Callable[[Any], None]] = None
+    ) -> int:
+        """发送 CDP 命令（非阻塞）
+
+        :param method: 方法名
+        :param params: 参数
+        :param callback: 可选回调，收到响应时调用
+        :returns: 消息 ID
+        """
         msg_id = self._message_id
         self._message_id += 1
 
@@ -163,46 +169,64 @@ class _BrowserController(QObject):
         if params:
             cmd["params"] = params
 
-        self._event_loop = QEventLoop()
-        timer = QTimer()
-        timer.setSingleShot(True)
-        timer.timeout.connect(self._event_loop.quit)
-        timer.start(int(self._timeout * 1000))
+        if callback:
+            self._callbacks[msg_id] = callback
+
+        if callback and self._timeout > 0:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(lambda: self._on_command_timeout(msg_id))
+            timer.start(int(self._timeout * 1000))
+            self._result_timers[msg_id] = timer
 
         self._ws.sendTextMessage(json.dumps(cmd))
-        self._event_loop.exec_()
-        timer.stop()
-        self._event_loop = None
+        return msg_id
 
-        return self._pending_results.pop(msg_id, None)
+    def _on_command_timeout(self, msg_id: int) -> None:
+        self._log(f"命令 {msg_id} 超时", 30)
+        self._callbacks.pop(msg_id, None)
+        timer = self._result_timers.pop(msg_id, None)
+        if timer:
+            timer.deleteLater()
 
-    def run_js(self, script: str) -> Any:
-        """执行 JavaScript 代码
+    def run_js(self, script: str, callback: Optional[Callable[[Any], None]] = None) -> int:
+        """执行 JavaScript 代码（非阻塞）
 
         :param script: JavaScript 代码
-        :returns: 执行结果
+        :param callback: 可选回调
+        :returns: 消息 ID
         """
         return self.send_command(
-            "Runtime.evaluate", {"expression": script, "returnByValue": True}
+            "Runtime.evaluate", {"expression": script, "returnByValue": True}, callback=callback
         )
 
-    def navigate(self, url: str) -> Any:
-        """导航到指定 URL
+    def navigate(self, url: str, callback: Optional[Callable[[Any], None]] = None) -> int:
+        """导航到指定 URL（非阻塞）
 
         :param url: 目标 URL
-        :returns: 执行结果
+        :param callback: 可选回调
+        :returns: 消息 ID
         """
-        return self.send_command("Page.navigate", {"url": url})
+        return self.send_command("Page.navigate", {"url": url}, callback=callback)
 
-    def reload(self) -> Any:
-        """刷新页面
+    def reload(self, callback: Optional[Callable[[Any], None]] = None) -> int:
+        """刷新页面（非阻塞）
 
-        :returns: 执行结果
+        :param callback: 可选回调
+        :returns: 消息 ID
         """
-        return self.send_command("Page.reload")
+        return self.send_command("Page.reload", callback=callback)
 
     def close(self) -> None:
         self._running = False
+        if self._connect_timer:
+            self._connect_timer.stop()
+            self._connect_timer = None
+        for timer in self._result_timers.values():
+            timer.stop()
+            timer.deleteLater()
+        self._result_timers.clear()
+        self._callbacks.clear()
         if self._ws:
             self._ws.close()
             self._ws = None
@@ -239,6 +263,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
     load_started = pyqtSignal()
     load_finished = pyqtSignal()
     log_message = pyqtSignal(str, int)
+    embed_completed = pyqtSignal(bool)
 
     _debug_port_counter = 9222
     _instances: set = set()
@@ -283,7 +308,13 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._original_exstyle: Optional[int] = None
         self._original_rect: Optional[tuple] = None
         self._pending_window_title: Optional[str] = None
+        self._pending_connect_cdp: bool = False
         self._browser_embed_timer: Optional[QTimer] = None
+        self._network_mgr: Optional[QNetworkAccessManager] = None
+        self._debug_url_timer: Optional[QTimer] = None
+        self._debug_url_retries: int = 0
+        self._debug_url_max_retries: int = 0
+        self._debug_url_callback: Optional[Callable] = None
 
     @staticmethod
     def _check_dependencies() -> None:
@@ -301,14 +332,16 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             )
 
     def embed(self, url: str, window_title: str, connect_cdp: bool = True) -> None:
-        """嵌入浏览器并导航到指定 URL
+        """嵌入浏览器并导航到指定 URL（非阻塞）
 
         :param url: 目标 URL
         :param window_title: 浏览器窗口标题（必须指定，用于查找窗口）
         :param connect_cdp: 是否连接 CDP（用于页面加载监控）
+            CDP 连接会在窗口嵌入成功后自动启动，完成后触发 embed_completed 信号
 
         使用示例:
             browser.embed("http://example.com", window_title="MyBrowser")
+            browser.embed_completed.connect(lambda ok: print("嵌入完成" if ok else "失败"))
         """
         if self._embedded_info is not None:
             self._log("已有嵌入窗口，请先调用 release()", 30)
@@ -319,11 +352,9 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             return
 
         self._pending_window_title = window_title
+        self._pending_connect_cdp = connect_cdp
         self._start_browser_process(url)
         self._start_embed_timer(window_title)
-
-        if connect_cdp:
-            self._connect_cdp()
 
     def _start_browser_process(self, url: str) -> None:
         cache_dir = Path.cwd() / "runtime" / "cache" / f"browser_{self._debug_port}"
@@ -377,6 +408,10 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                 self._browser_embed_timer.stop()
             self._pending_window_title = None
             self._embed_hwnd(hwnd)
+            if self._pending_connect_cdp:
+                self._start_cdp_connection()
+            else:
+                self.embed_completed.emit(True)
 
     def _embed_hwnd(self, hwnd: int) -> None:
         self._target_hwnd = hwnd
@@ -391,60 +426,124 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
 
         self._try_embed_once(hwnd)
 
-    def _get_debugger_url(self, timeout: float = 10) -> str:
-        start = time.time()
-        while time.time() - start < timeout:
-            try:
-                with urllib.request.urlopen(
-                    f"http://127.0.0.1:{self._debug_port}/json", timeout=2
-                ) as resp:
-                    targets = json.loads(resp.read())
-                    if targets:
-                        return targets[0]["webSocketDebuggerUrl"]
-            except Exception:
-                pass
-            time.sleep(0.5)
-        raise RuntimeError(f"无法连接到调试端口 {self._debug_port}")
-
     def _log(self, message: str, level: int = 30) -> None:
         self.log_message.emit(message, level)
 
-    def _connect_cdp(self) -> None:
-        QTimer.singleShot(0, self._do_connect_cdp)
+    # ---- 异步 CDP 连接 ----
 
-    def _do_connect_cdp(self) -> None:
+    def _start_cdp_connection(self) -> None:
+        """启动 CDP 连接流程（非阻塞）"""
+        self._start_debug_url_polling(self._on_debugger_url_obtained)
+
+    def _start_debug_url_polling(
+        self, callback: Callable[[str], None], timeout: float = 15
+    ) -> None:
+        """通过 QTimer + QNetworkAccessManager 异步轮询调试 URL"""
+        self._debug_url_callback = callback
+        self._debug_url_retries = 0
+        self._debug_url_max_retries = int(timeout / 0.5)
+
+        self._network_mgr = QNetworkAccessManager(self)
+        self._network_mgr.finished.connect(self._on_debug_url_response)
+
+        self._debug_url_timer = QTimer(self)
+        self._debug_url_timer.setSingleShot(True)
+        self._debug_url_timer.timeout.connect(self._do_debug_url_request)
+
+        self._do_debug_url_request()
+
+    def _do_debug_url_request(self) -> None:
+        if self._debug_url_retries >= self._debug_url_max_retries:
+            self._log("获取调试 URL 超时", 40)
+            self.embed_completed.emit(False)
+            self._cleanup_debug_url_polling()
+            return
+
+        url = QUrl(f"http://127.0.0.1:{self._debug_port}/json")
+        self._network_mgr.get(QNetworkRequest(url))
+        self._debug_url_retries += 1
+
+    def _on_debug_url_response(self, reply: QNetworkReply) -> None:
+        if reply.error():
+            self._log(f"CDP 调试端口尚未就绪: {reply.errorString()}", 10)
+            self._debug_url_timer.start(500)
+            reply.deleteLater()
+            return
+
         try:
-            debugger_url = self._get_debugger_url()
-            self._controller = _BrowserController(debugger_url=debugger_url, log_func=self._log)
-            self._controller.set_load_started_callback(lambda: self.load_started.emit())
-            self._controller.set_load_finished_callback(
-                lambda: self.load_finished.emit()
-            )
-            self._controller.connect()
+            data = json.loads(bytes(reply.readAll()).decode())
+            if data:
+                debugger_url = data[0].get("webSocketDebuggerUrl")
+                if debugger_url:
+                    cb = self._debug_url_callback
+                    self._cleanup_debug_url_polling()
+                    if cb:
+                        cb(debugger_url)
+                    reply.deleteLater()
+                    return
         except Exception as e:
-            self._log(f"CDP 连接失败: {e}", 40)
+            self._log(f"CDP 调试端口响应解析失败: {e}", 20)
 
-    def reload(self) -> None:
-        """刷新当前页面"""
+        self._debug_url_timer.start(500)
+        reply.deleteLater()
+
+    def _cleanup_debug_url_polling(self) -> None:
+        if self._debug_url_timer:
+            self._debug_url_timer.stop()
+            self._debug_url_timer.deleteLater()
+            self._debug_url_timer = None
+        if self._network_mgr:
+            self._network_mgr.finished.disconnect()
+            self._network_mgr.deleteLater()
+            self._network_mgr = None
+        self._debug_url_callback = None
+
+    def _on_debugger_url_obtained(self, debugger_url: str) -> None:
+        self._controller = _BrowserController(
+            debugger_url=debugger_url, log_func=self._log
+        )
+        self._controller.set_load_started_callback(lambda: self.load_started.emit())
+        self._controller.set_load_finished_callback(
+            lambda: self.load_finished.emit()
+        )
+        self._controller.cdp_ready.connect(self._on_cdp_ready)
+        self._controller.error_occurred.connect(self._on_cdp_error)
+        self._controller.connect()
+
+    def _on_cdp_ready(self) -> None:
+        self._log("CDP 连接就绪", 20)
+        self.embed_completed.emit(True)
+
+    def _on_cdp_error(self, error: str) -> None:
+        self._log(f"CDP 连接失败: {error}", 40)
+        self.embed_completed.emit(False)
+
+    def reload(self, callback: Optional[Callable[[Any], None]] = None) -> None:
+        """刷新当前页面（非阻塞）
+
+        :param callback: 可选回调，刷新完成时调用
+        """
         if self._controller:
-            self._controller.reload()
+            self._controller.reload(callback=callback)
 
-    def navigate(self, url: str) -> None:
-        """导航到指定 URL
+    def navigate(self, url: str, callback: Optional[Callable[[Any], None]] = None) -> None:
+        """导航到指定 URL（非阻塞）
 
         :param url: 目标 URL
+        :param callback: 可选回调，导航完成时调用
         """
         if self._controller:
-            self._controller.navigate(url)
+            self._controller.navigate(url, callback=callback)
 
-    def run_js(self, script: str) -> Any:
-        """执行 JavaScript 代码
+    def run_js(self, script: str, callback: Optional[Callable[[Any], None]] = None) -> Optional[int]:
+        """执行 JavaScript 代码（非阻塞）
 
         :param script: JavaScript 代码
-        :returns: 执行结果
+        :param callback: 可选回调，收到执行结果时调用
+        :returns: 消息 ID（调试用），或 None（CDP未就绪）
         """
         if self._controller:
-            return self._controller.run_js(script)
+            return self._controller.run_js(script, callback=callback)
         return None
 
     def _cleanup_browser(self) -> None:
@@ -468,6 +567,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             self._browser_embed_timer.stop()
             self._browser_embed_timer = None
         self._pending_window_title = None
+        self._cleanup_debug_url_polling()
 
         if self._target_hwnd:
             try:

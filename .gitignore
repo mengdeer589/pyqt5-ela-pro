@@ -13,3 +13,10 @@ __pycache__/
 /ela_ext.egg-info/
 /Supermium/
 /pyqt5_ela_pro/example/runtime/
+/runtime/
+*.egg-info/
+.opencode/
+BROWSER_CRASh_REPORT.md
+test_*
+20260424/
+window_embedder.py

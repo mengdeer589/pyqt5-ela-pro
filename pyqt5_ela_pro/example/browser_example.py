@@ -106,10 +106,20 @@ class BrowserDemoWindow(ElaWindow):
         self._browser_widget.window_embedded.connect(lambda h: self._log(f"窗口已嵌入: 0x{h:X}"))
         self._browser_widget.window_released.connect(lambda h: self._log(f"窗口已释放: 0x{h:X}"))
         self._browser_widget.embed_error.connect(lambda m: self._log(f"嵌入错误: {m}"))
+        self._browser_widget.embed_completed.connect(self._on_embed_completed)
+        self._browser_widget.load_started.connect(lambda: self._log("页面加载中..."))
+        self._browser_widget.load_finished.connect(lambda: self._log("页面加载完成"))
+        self._browser_widget.log_message.connect(self._log)
 
     def _log(self, msg):
         self._log_output.append(msg)
         self._status_label.setText(f"状态: {msg[:20]}...")
+
+    def _on_embed_completed(self, ok: bool):
+        if ok:
+            self._log("CDP 连接就绪，导航/刷新/JS 已可用")
+        else:
+            self._log("CDP 连接失败")
 
     def _embed_browser(self):
         url = self._url_input.toPlainText().strip()
