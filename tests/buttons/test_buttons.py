@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QWidget
 
-from pyqt5_ela_pro.ela_primary_button import ElaPrimaryButton as ElaPrimaryBtn, ElaToolButton as ElaToolBtn
+from pyqt5_ela_pro.ela_primary_button import ElaPrimaryButton as ElaPrimaryBtn, ElaThemeToolButton as ElaToolBtn
 from pyqt5_ela_pro.ela_long_press_button import ElaLongPressButton as ElaLongPressBtn
 from pyqt5_ela_pro.ela_progress_button import ElaProgressButton
 
@@ -172,10 +172,10 @@ class TestElaLongPressBtn:
         btn.deleteLater()
 
     def test_progress_color_initially_set(self):
-        """Test progressColor returns a QColor."""
+        """Test getProgressColor returns a QColor."""
         btn = ElaLongPressBtn()
 
-        assert btn.progressColor() is not None
+        assert btn.getProgressColor() is not None
 
         btn.deleteLater()
 
@@ -220,7 +220,7 @@ class TestElaProgressButton:
         """Test progress button accepts custom color."""
         from PyQt5.QtGui import QColor
 
-        btn = ElaProgressButton(progressColor=QColor(255, 0, 0))
+        btn = ElaProgressButton(getProgressColor=QColor(255, 0, 0))
 
         assert btn._custom_progress_color is True
 

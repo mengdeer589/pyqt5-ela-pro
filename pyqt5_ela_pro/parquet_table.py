@@ -297,7 +297,7 @@ class ElaParquetTable(ThemeWidget):
             parent=self,
         )
 
-        self._main_lay = self.create_lay("v", self)
+        self._main_lay = self.createLayout("v", self)
         self._main_lay.addWidget(self._table, 1)
         self._main_lay.addWidget(self._info_bar, 0)
         self._main_lay.addWidget(self._pager, 0)

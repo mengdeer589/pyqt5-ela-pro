@@ -13,7 +13,7 @@ from PyQt5.QtCore import pyqtSignal, QTimer, Qt, QRect, QRectF, QPoint, QSize
 from PyQt5.QtGui import QColor, QPainter, QLinearGradient, QPainterPath, QFontMetrics, QPaintEvent, QMouseEvent
 from PyQt5.QtWidgets import QWidget
 
-from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaPushButton
+from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaPushButton, ElaIcon, ElaIconType
 
 
 class ElaLongPressButton(ElaPushButton):
@@ -102,8 +102,6 @@ class ElaLongPressButton(ElaPushButton):
         :param iconName: 图标名称
         :param iconSize: 图标大小，默认 16
         """
-        from PyQt5ElaWidgetTools import ElaIcon, ElaIconType
-
         self._icon_name = iconName
         self._icon_size = iconSize
         self.setIcon(ElaIcon.getInstance().getElaIcon(iconName, QColor(255, 255, 255)))
@@ -127,7 +125,7 @@ class ElaLongPressButton(ElaPushButton):
         self._go_backwards_timer.stop()
         super().deleteLater()
 
-    def progressColor(self) -> QColor:
+    def getProgressColor(self) -> QColor:
         """返回进度条填充颜色。
 
         :return: 进度条颜色

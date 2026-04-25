@@ -43,7 +43,7 @@ from .ela_long_press_button import ElaLongPressButton
 
 from .ela_tag_line_edit import ElaTagLineEdit
 
-from .ela_primary_button import ElaPrimaryButton, ElaToolButton
+from .ela_primary_button import ElaPrimaryButton, ElaThemeToolButton
 
 from .ela_tag_box import ElaTagBox
 
@@ -104,7 +104,7 @@ __all__ = [
     "ElaLongPressButton",
     "ElaTagLineEdit",
     "ElaPrimaryButton",
-    "ElaToolButton",
+    "ElaThemeToolButton",
     "ElaTagBox",
     "ElaTagMultiBox",
     "ElaTagSearchBox",

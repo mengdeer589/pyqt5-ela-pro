@@ -64,20 +64,20 @@ class ThemeWidget(QWidget):
             self._themeConnection = None
         super().deleteLater()
 
-    def create_lay(
+    def createLayout(
         self,
-        lay_type: Literal["h", "v"]='h',
+        layoutType: Literal["h", "v"]='h',
         parent: QWidget | None = None,
     ) -> QHBoxLayout | QVBoxLayout:
         """创建布局。
 
-        :param lay_type: 布局类型，'h' 水平布局，'v' 垂直布局
+        :param layoutType: 布局类型，'h' 水平布局，'v' 垂直布局
         :param parent: 父控件，默认为 self
         :return: 创建的布局对象
         """
         if parent is None:
             parent = self
-        if lay_type == "h":
+        if layoutType == "h":
             lay = QHBoxLayout(parent)
         else:
             lay = QVBoxLayout(parent)

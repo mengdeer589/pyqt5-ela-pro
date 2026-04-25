@@ -14,7 +14,7 @@ from pyqt5_ela_pro import (
     ElaTagLineEdit,
     ElaLongPressButton,
     ElaPrimaryButton,
-    ElaToolButton,
+    ElaThemeToolButton,
     ElaMessageDialog,
     ElaProgressButton,
     ElaNotifyPopup,
@@ -238,26 +238,26 @@ class FormButtonPage(ExamplePage):
 
     def _demoToolButtonExt(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("06. ela_ext - ElaToolButton 图标文字并排按钮")
+            self._createSectionHeader("06. ela_ext - ElaThemeToolButton 图标文字并排按钮")
         )
         self._addInfoText(
             "ToolButton 样式设置为文字在图标旁边，适合工具栏使用", parent_layout
         )
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(15)
-        tool_btn = ElaToolButton(parent=self)
+        tool_btn = ElaThemeToolButton(parent=self)
         tool_btn.setText("保存")
         tool_btn.setFixedWidth(100)
         tool_btn.setElaIcon(ElaIconType.IconName.FloppyDisk)
         tool_btn.clicked.connect(lambda: print("保存 clicked"))
         btn_layout.addWidget(tool_btn)
-        tool_btn_icon = ElaToolButton(parent=self)
+        tool_btn_icon = ElaThemeToolButton(parent=self)
         tool_btn_icon.setText("编辑")
         tool_btn_icon.setFixedWidth(100)
         tool_btn_icon.setElaIcon(ElaIconType.IconName.Pencil)
         tool_btn_icon.clicked.connect(lambda: print("编辑 clicked"))
         btn_layout.addWidget(tool_btn_icon)
-        tool_btn_disabled = ElaToolButton(parent=self)
+        tool_btn_disabled = ElaThemeToolButton(parent=self)
         tool_btn_disabled.setText("禁用")
         tool_btn_disabled.setFixedWidth(100)
         tool_btn_disabled.setEnabled(False)

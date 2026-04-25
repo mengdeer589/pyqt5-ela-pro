@@ -100,17 +100,17 @@ class DrawerTooltipPage(ExamplePage):
         btn_layout.setSpacing(15)
         btn1 = ElaPushButton("保存", self)
         btn1.setFixedWidth(100)
-        set_tooltip(btn1, "保存当前内容", position=ElaToolTipPosition.BOTTOM)
+        set_tooltip(btn1, "保存当前内容", position=ElaToolTipPosition.Bottom)
         btn_layout.addWidget(btn1)
         btn2 = ElaPushButton("删除", self)
         btn2.setFixedWidth(100)
         set_tooltip(
-            btn2, "删除选中项目\n（此操作不可撤销）", position=ElaToolTipPosition.RIGHT
+            btn2, "删除选中项目\n（此操作不可撤销）", position=ElaToolTipPosition.Right
         )
         btn_layout.addWidget(btn2)
         btn3 = ElaPushButton("关于", self)
         btn3.setFixedWidth(100)
-        set_tooltip(btn3, "关于本软件 v1.0.0", position=ElaToolTipPosition.TOP)
+        set_tooltip(btn3, "关于本软件 v1.0.0", position=ElaToolTipPosition.Top)
         btn_layout.addWidget(btn3)
         btn_layout.addStretch()
         parent_layout.addLayout(btn_layout)

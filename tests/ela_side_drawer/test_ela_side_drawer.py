@@ -152,8 +152,8 @@ class TestElaDrawer:
         parent = QWidget()
         drawer = ElaDrawer(parent)
 
-        assert hasattr(drawer, 'showed')
-        assert callable(drawer.showed)
+        assert hasattr(drawer, 'opened')
+        assert callable(drawer.opened)
 
         parent.deleteLater()
         drawer.deleteLater()

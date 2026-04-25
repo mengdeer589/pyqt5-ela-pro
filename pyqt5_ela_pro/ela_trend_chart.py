@@ -611,7 +611,7 @@ class ElaTrendChart(QWidget):
         if self._legend_visible:
             self._drawLegend(painter, chart)
 
-    def save_to_png(self, filepath: str) -> bool:
+    def saveToPng(self, filepath: str) -> bool:
         """导出为 PNG 图片。
 
         :param filepath: 保存路径
@@ -620,7 +620,7 @@ class ElaTrendChart(QWidget):
         pixmap = self.grab()
         return pixmap.save(filepath, "PNG")
 
-    def save_to_svg(self, filepath: str) -> bool:
+    def saveToSvg(self, filepath: str) -> bool:
         """导出为 SVG 矢量图。
 
         :param filepath: 保存路径

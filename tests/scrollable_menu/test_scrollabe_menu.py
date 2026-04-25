@@ -22,9 +22,9 @@ class TestElaScrollableMenu:
         """Test menu initializes with scroll area and widget."""
         menu = ElaScrollableMenu()
 
-        assert hasattr(menu, "scroll_area")
-        assert hasattr(menu, "scroll_widget")
-        assert hasattr(menu, "scroll_layout")
+        assert hasattr(menu, "scrollArea")
+        assert hasattr(menu, "scrollWidget")
+        assert hasattr(menu, "scrollLayout")
         assert menu.minimumHeight() == SCROLLABLE_MENU_MIN_HEIGHT
 
         menu.deleteLater()
@@ -44,7 +44,7 @@ class TestElaScrollableMenu:
 
         menu.addWidgetAction(widget)
 
-        assert menu.scroll_layout.count() > 0
+        assert menu.scrollLayout.count() > 0
 
         widget.deleteLater()
         menu.deleteLater()
@@ -57,11 +57,11 @@ class TestElaScrollableMenu:
         menu.addWidgetAction(QWidget())
         menu.addWidgetAction(QWidget())
 
-        initial_count = menu.scroll_layout.count()
+        initial_count = menu.scrollLayout.count()
 
         menu.clearMenu()
 
-        assert menu.scroll_layout.count() == 0
+        assert menu.scrollLayout.count() == 0
 
         menu.deleteLater()
 

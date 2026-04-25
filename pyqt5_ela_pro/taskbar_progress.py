@@ -27,11 +27,11 @@ class ElaTaskbarProgress(QObject):
         from pyqt5_ela_pro import TaskbarProgress
 
         tb = TaskbarProgress(my_window)
-        tb.set_range(0, 100)
-        tb.set_value(0)
+        tb.setRange(0, 100)
+        tb.setValue(0)
         tb.show()
         for i in range(100):
-            tb.set_value(i)
+            tb.setValue(i)
             # ...
         tb.hide()
 
@@ -39,10 +39,10 @@ class ElaTaskbarProgress(QObject):
     :type window: QWidget
     """
 
-    value_changed = pyqtSignal(int)
-    paused_changed = pyqtSignal(bool)
-    stopped_changed = pyqtSignal(bool)
-    visibility_changed = pyqtSignal(bool)
+    valueChanged = pyqtSignal(int)
+    pausedChanged = pyqtSignal(bool)
+    stoppedChanged = pyqtSignal(bool)
+    visibilityChanged = pyqtSignal(bool)
 
     def __init__(self, window: QWidget) -> None:
         super().__init__(window)
@@ -53,10 +53,10 @@ class ElaTaskbarProgress(QObject):
 
     def _connect_signals(self) -> None:
         if self._progress is not None:
-            self._progress.valueChanged.connect(self.value_changed)
-            self._progress.pausedChanged.connect(self.paused_changed)
-            self._progress.stoppedChanged.connect(self.stopped_changed)
-            self._progress.visibilityChanged.connect(self.visibility_changed)
+            self._progress.valueChanged.connect(self.valueChanged)
+            self._progress.pausedChanged.connect(self.pausedChanged)
+            self._progress.stoppedChanged.connect(self.stoppedChanged)
+            self._progress.visibilityChanged.connect(self.visibilityChanged)
 
     def _ensure_attached(self) -> None:
         if self._attached or self._window is None:
@@ -98,24 +98,24 @@ class ElaTaskbarProgress(QObject):
         return self._progress.maximum()
 
     @property
-    def is_paused(self) -> bool:
+    def isPaused(self) -> bool:
         if self._progress is None:
             return False
         return self._progress.isPaused()
 
     @property
-    def is_visible(self) -> bool:
+    def isVisible(self) -> bool:
         if self._progress is None:
             return False
         return self._progress.isVisible()
 
     @property
-    def is_stopped(self) -> bool:
+    def isStopped(self) -> bool:
         if self._progress is None:
             return False
         return self._progress.isStopped()
 
-    def set_range(self, min_val: int, max_val: int) -> None:
+    def setRange(self, min_val: int, max_val: int) -> None:
         """设置进度条范围。
 
         :param min_val: 最小值
@@ -125,7 +125,7 @@ class ElaTaskbarProgress(QObject):
         if self._progress is not None:
             self._progress.setRange(min_val, max_val)
 
-    def set_value(self, value: int) -> None:
+    def setValue(self, value: int) -> None:
         """设置进度条当前值。
 
         :param value: 当前值

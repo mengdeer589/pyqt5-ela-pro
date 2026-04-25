@@ -123,7 +123,7 @@ class ElaDrawer(QWidget):
     """
 
     closed = pyqtSignal()
-    showed = pyqtSignal()
+    opened = pyqtSignal()
 
     def __init__(
         self,
@@ -280,7 +280,7 @@ class ElaDrawer(QWidget):
         self._dim_anim.setEndValue(1)
         self._dim_anim.start()
 
-        self.showed.emit()
+        self.opened.emit()
 
     def closeDrawer(self) -> None:
         if not self._is_opened:

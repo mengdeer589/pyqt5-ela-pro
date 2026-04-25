@@ -46,44 +46,44 @@ class ElaScrollableMenu(ElaMenu):
     :type parent: QWidget, optional
 
     Attributes:
-        scroll_area: 提供滚动功能的 ``ElaScrollArea`` 实例。
-        scroll_widget: 位于滚动区域内部的内容容器 widget。
-        scroll_layout: 管理子组件的 ``QVBoxLayout`` 实例。
+        scrollArea: 提供滚动功能的 ``ElaScrollArea`` 实例。
+        scrollWidget: 位于滚动区域内部的内容容器 widget。
+        scrollLayout: 管理子组件的 ``QVBoxLayout`` 实例。
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
         self._themeConnection: Any = None
 
-        self.scroll_area = ElaScrollArea(self)
-        self.scroll_widget = QWidget()
-        self.scroll_widget.setObjectName("menu_scroll_widget")
+        self.scrollArea = ElaScrollArea(self)
+        self.scrollWidget = QWidget()
+        self.scrollWidget.setObjectName("menu_scrollWidget")
         initial_bg = (
             SCROLLABLE_MENU_DARK_BG_COLOR
             if eTheme.getThemeMode() == ElaThemeType.ThemeMode.Dark
             else SCROLLABLE_MENU_LIGHT_BG_COLOR
         )
-        self.scroll_widget.setStyleSheet(
-            f"#menu_scroll_widget {{ background-color:{initial_bg}; }}"
+        self.scrollWidget.setStyleSheet(
+            f"#menu_scrollWidget {{ background-color:{initial_bg}; }}"
         )
-        self.scroll_layout = QVBoxLayout(self.scroll_widget)
-        self.scroll_layout.setSpacing(SCROLLABLE_MENU_LAYOUT_SPACING)
-        self.scroll_layout.setContentsMargins(*SCROLLABLE_MENU_LAYOUT_MARGINS)
-        self.scroll_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.scrollLayout = QVBoxLayout(self.scrollWidget)
+        self.scrollLayout.setSpacing(SCROLLABLE_MENU_LAYOUT_SPACING)
+        self.scrollLayout.setContentsMargins(*SCROLLABLE_MENU_LAYOUT_MARGINS)
+        self.scrollLayout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.setMinimumHeight(SCROLLABLE_MENU_MIN_HEIGHT)
 
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setWidget(self.scroll_widget)
-        self.scroll_area.setVerticalScrollBarPolicy(
+        self.scrollArea.setWidgetResizable(True)
+        self.scrollArea.setWidget(self.scrollWidget)
+        self.scrollArea.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
-        self.scroll_area.setHorizontalScrollBarPolicy(
+        self.scrollArea.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
-        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scrollArea.setFrameShape(QFrame.Shape.NoFrame)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(self.scroll_area)
+        layout.addWidget(self.scrollArea)
         layout.setContentsMargins(0, 0, 0, 0)
         self._themeConnection = eTheme.themeModeChanged.connect(self._change_stylesheet)
 
@@ -103,28 +103,28 @@ class ElaScrollableMenu(ElaMenu):
         :type mode: ElaThemeType.ThemeMode
         """
         if mode == ElaThemeType.ThemeMode.Light:
-            self.scroll_widget.setStyleSheet(
-                f"#menu_scroll_widget {{ background-color:{SCROLLABLE_MENU_LIGHT_BG_COLOR}; }}"
+            self.scrollWidget.setStyleSheet(
+                f"#menu_scrollWidget {{ background-color:{SCROLLABLE_MENU_LIGHT_BG_COLOR}; }}"
             )
         else:
-            self.scroll_widget.setStyleSheet(
-                f"#menu_scroll_widget {{ background-color:{SCROLLABLE_MENU_DARK_BG_COLOR}; }}"
+            self.scrollWidget.setStyleSheet(
+                f"#menu_scrollWidget {{ background-color:{SCROLLABLE_MENU_DARK_BG_COLOR}; }}"
             )
 
     def addWidgetAction(self, widget: QWidget) -> None:
         """向滚动区域添加一个自定义 widget。
 
         :param widget: 要添加的 widget，将由内部
-            ``scroll_layout`` 管理。
+            ``scrollLayout`` 管理。
         :type widget: QWidget
         """
-        self.scroll_layout.addWidget(widget)
+        self.scrollLayout.addWidget(widget)
 
     def clearMenu(self) -> None:
         """从滚动区域中移除并删除所有子 widget。"""
-        for i in reversed(range(self.scroll_layout.count())):
-            item = self.scroll_layout.itemAt(i)
-            self.scroll_layout.removeItem(item)
+        for i in reversed(range(self.scrollLayout.count())):
+            item = self.scrollLayout.itemAt(i)
+            self.scrollLayout.removeItem(item)
             if item.widget():
                 item.widget().deleteLater()
 
@@ -134,7 +134,7 @@ class ElaScrollableMenu(ElaMenu):
         :return: 建议的尺寸。
         :rtype: QSize
         """
-        return self.scroll_area.sizeHint()
+        return self.scrollArea.sizeHint()
 
     def showEvent(self, a0: QShowEvent) -> None:  # ty:ignore[invalid-method-override]
         """显示事件处理，确保菜单宽度与父级 widget 一致。

@@ -187,7 +187,7 @@ class ElaSvgIconLoader:
         svg_data = self.getSvgData(name, color)
         return svg_to_pixmap(svg_data, size)
 
-    def iconExists(self, name: str) -> Optional[str]:
+    def getIconData(self, name: str) -> Optional[str]:
         """检查图标是否存在"""
         return self._icons.get(name)
 

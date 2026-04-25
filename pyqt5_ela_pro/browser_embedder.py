@@ -44,9 +44,9 @@ except ImportError:
 class _BrowserController(QObject):
     """CDP WebSocket 客户端（内部类）- 信号驱动版本"""
 
-    cdp_ready = pyqtSignal()
-    error_occurred = pyqtSignal(str)
-    console_message = pyqtSignal(str, str)
+    cdpReady = pyqtSignal()
+    errorOccurred = pyqtSignal(str)
+    consoleMessage = pyqtSignal(str, str)
 
     def __init__(
         self,
@@ -64,8 +64,8 @@ class _BrowserController(QObject):
         self._result_timers: dict[int, QTimer] = {}
         self._connect_timer: Optional[QTimer] = None
         self._running: bool = False
-        self._load_started_callback: Optional[Callable] = None
-        self._load_finished_callback: Optional[Callable] = None
+        self._loadStarted_callback: Optional[Callable] = None
+        self._loadFinished_callback: Optional[Callable] = None
 
     def _log(self, message: str, level: int = 30) -> None:
         if self._log_func:
@@ -89,13 +89,13 @@ class _BrowserController(QObject):
         self._log("CDP WebSocket 已连接", 20)
         self._connect_timer.stop()
         self._running = True
-        self.send_command("Page.enable")
-        self.send_command("Runtime.enable")
-        self.cdp_ready.emit()
+        self.sendCommand("Page.enable")
+        self.sendCommand("Runtime.enable")
+        self.cdpReady.emit()
 
     def _on_connect_timeout(self) -> None:
         self._log("CDP WebSocket 连接超时", 30)
-        self.error_occurred.emit("WebSocket 连接超时")
+        self.errorOccurred.emit("WebSocket 连接超时")
         self._running = False
         if self._ws:
             self._ws.close()
@@ -103,7 +103,7 @@ class _BrowserController(QObject):
 
     def _on_error(self, error) -> None:
         self._log(f"WebSocket 错误: {error}", 30)
-        self.error_occurred.emit(str(error))
+        self.errorOccurred.emit(str(error))
         if self._connect_timer:
             self._connect_timer.stop()
 
@@ -133,11 +133,11 @@ class _BrowserController(QObject):
 
     def _handle_event(self, method: Optional[str], params: dict) -> None:
         if method == "Page.frameStartedLoading":
-            if self._load_started_callback:
-                self._load_started_callback()
+            if self._loadStarted_callback:
+                self._loadStarted_callback()
         elif method in ("Page.loadEventFired", "Page.frameStoppedLoading"):
-            if self._load_finished_callback:
-                self._load_finished_callback()
+            if self._loadFinished_callback:
+                self._loadFinished_callback()
         elif method == "Runtime.consoleAPICalled":
             msg_type = params.get("type", "log")
             args = params.get("args", [])
@@ -146,15 +146,15 @@ class _BrowserController(QObject):
                 value = arg.get("value", "")
                 texts.append(str(value))
             text = " ".join(texts)
-            self.console_message.emit(msg_type, text)
+            self.consoleMessage.emit(msg_type, text)
 
-    def set_load_started_callback(self, callback: Callable) -> None:
-        self._load_started_callback = callback
+    def set_loadStarted_callback(self, callback: Callable) -> None:
+        self._loadStarted_callback = callback
 
-    def set_load_finished_callback(self, callback: Callable) -> None:
-        self._load_finished_callback = callback
+    def set_loadFinished_callback(self, callback: Callable) -> None:
+        self._loadFinished_callback = callback
 
-    def send_command(
+    def sendCommand(
         self, method: str, params: Optional[dict] = None, callback: Optional[Callable[[Any], None]] = None
     ) -> int:
         """发送 CDP 命令（非阻塞）
@@ -191,14 +191,14 @@ class _BrowserController(QObject):
         if timer:
             timer.deleteLater()
 
-    def run_js(self, script: str, callback: Optional[Callable[[Any], None]] = None) -> int:
+    def runJS(self, script: str, callback: Optional[Callable[[Any], None]] = None) -> int:
         """执行 JavaScript 代码（非阻塞）
 
         :param script: JavaScript 代码
         :param callback: 可选回调
         :returns: 消息 ID
         """
-        return self.send_command(
+        return self.sendCommand(
             "Runtime.evaluate", {"expression": script, "returnByValue": True}, callback=callback
         )
 
@@ -209,7 +209,7 @@ class _BrowserController(QObject):
         :param callback: 可选回调
         :returns: 消息 ID
         """
-        return self.send_command("Page.navigate", {"url": url}, callback=callback)
+        return self.sendCommand("Page.navigate", {"url": url}, callback=callback)
 
     def reload(self, callback: Optional[Callable[[Any], None]] = None) -> int:
         """刷新页面（非阻塞）
@@ -217,7 +217,7 @@ class _BrowserController(QObject):
         :param callback: 可选回调
         :returns: 消息 ID
         """
-        return self.send_command("Page.reload", callback=callback)
+        return self.sendCommand("Page.reload", callback=callback)
 
     def close(self) -> None:
         self._running = False
@@ -240,15 +240,15 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
     继承自 ElaWindowEmbedder，添加浏览器启动和管理功能。
 
     信号（继承自 ElaWindowEmbedder）:
-        window_embedded(int): 窗口嵌入成功
-        window_released(int): 窗口释放成功
-        window_not_found(str): 等待窗口时未找到
-        embed_error(str): 嵌入出错
-        embed_timeout(): 等待窗口嵌入超时
+        windowEmbedded(int): 窗口嵌入成功
+        windowReleased(int): 窗口释放成功
+        windowNotFound(str): 等待窗口时未找到
+        embedError(str): 嵌入出错
+        embedTimeout(): 等待窗口嵌入超时
 
     新增信号:
-        load_started(): 页面开始加载
-        load_finished(): 页面加载完成
+        loadStarted(): 页面开始加载
+        loadFinished(): 页面加载完成
 
     使用示例:
         browser = ElaBrowserEmbedder(
@@ -260,11 +260,11 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         browser.embed("http://example.com", window_title="MyBrowser")
     """
 
-    load_started = pyqtSignal()
-    load_finished = pyqtSignal()
-    log_message = pyqtSignal(str, int)
-    embed_completed = pyqtSignal(bool)
-    console_message = pyqtSignal(str, str)
+    loadStarted = pyqtSignal()
+    loadFinished = pyqtSignal()
+    logMessage = pyqtSignal(str, int)
+    embedCompleted = pyqtSignal(bool)
+    consoleMessage = pyqtSignal(str, str)
 
     _debug_port_counter = 9222
     _freed_ports: set[int] = set()
@@ -278,18 +278,18 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         return cls._debug_port_counter
 
     @classmethod
-    def get_all_instances(cls) -> list:
+    def getAllInstances(cls) -> list:
         """返回所有活跃实例"""
         return list(cls._instances)
 
     @classmethod
-    def close_all_instances(cls) -> None:
+    def closeAllInstances(cls) -> None:
         """关闭所有活跃实例"""
         for instance in list(cls._instances):
             instance.release()
 
     @staticmethod
-    def _check_dependencies() -> None:
+    def _checkDependencies() -> None:
         if win32gui is None:
             raise ImportError(
                 "ElaBrowserEmbedder 需要 pywin32，请运行: uv pip install pywin32"
@@ -302,7 +302,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         browser_args: Optional[list[str]] = None,
         parent: Optional[QWidget] = None,
     ):
-        self._check_dependencies()
+        self._checkDependencies()
         super().__init__(parent)
         ElaBrowserEmbedder._instances.add(self)
 
@@ -318,7 +318,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._original_rect: Optional[tuple] = None
         self._pending_window_title: Optional[str] = None
         self._pending_connect_cdp: bool = False
-        self._browser_embed_timer: Optional[QTimer] = None
+        self._browser_embedTimer: Optional[QTimer] = None
         self._network_mgr: Optional[QNetworkAccessManager] = None
         self._debug_url_timer: Optional[QTimer] = None
         self._debug_url_retries: int = 0
@@ -331,11 +331,11 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         :param url: 目标 URL
         :param window_title: 浏览器窗口标题（必须指定，用于查找窗口）
         :param connect_cdp: 是否连接 CDP（用于页面加载监控）
-            CDP 连接会在窗口嵌入成功后自动启动，完成后触发 embed_completed 信号
+            CDP 连接会在窗口嵌入成功后自动启动，完成后触发 embedCompleted 信号
 
         使用示例:
             browser.embed("http://example.com", window_title="MyBrowser")
-            browser.embed_completed.connect(lambda ok: print("嵌入完成" if ok else "失败"))
+            browser.embedCompleted.connect(lambda ok: print("嵌入完成" if ok else "失败"))
         """
         if self._embedded_info is not None:
             self._log("已有嵌入窗口，请先调用 release()", 30)
@@ -348,7 +348,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._pending_window_title = window_title
         self._pending_connect_cdp = connect_cdp
         self._start_browser_process(url)
-        self._start_embed_timer(window_title)
+        self._startEmbedTimer(window_title)
 
     def _start_browser_process(self, url: str) -> None:
         args = [
@@ -388,29 +388,29 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         if data.strip():
             self._log(f"[stderr] {data.strip()}", 20)
 
-    def _start_embed_timer(self, window_title: str, timeout: float = 30) -> None:
-        self._embed_timeout = timeout
+    def _startEmbedTimer(self, window_title: str, timeout: float = 30) -> None:
+        self._embedTimeout = timeout
         self._embed_start_time = time.time()
-        self._browser_embed_timer = QTimer(self)
-        self._browser_embed_timer.timeout.connect(self._on_embed_timer_timeout)
-        self._browser_embed_timer.start(500)
+        self._browser_embedTimer = QTimer(self)
+        self._browser_embedTimer.timeout.connect(self._onEmbedTimerTimeout)
+        self._browser_embedTimer.start(500)
 
-    def _on_embed_timer_timeout(self) -> None:
+    def _onEmbedTimerTimeout(self) -> None:
         if not self._pending_window_title:
-            if self._browser_embed_timer:
-                self._browser_embed_timer.stop()
+            if self._browser_embedTimer:
+                self._browser_embedTimer.stop()
             return
 
         elapsed = time.time() - self._embed_start_time
-        if elapsed > self._embed_timeout:
-            if self._browser_embed_timer:
-                self._browser_embed_timer.stop()
-            self.window_not_found.emit(f"等待窗口 '{self._pending_window_title}' 超时")
+        if elapsed > self._embedTimeout:
+            if self._browser_embedTimer:
+                self._browser_embedTimer.stop()
+            self.windowNotFound.emit(f"等待窗口 '{self._pending_window_title}' 超时")
             self._pending_window_title = None
             self._cleanup_browser()
             return
 
-        hwnd = self.find_window_by_title(self._pending_window_title)
+        hwnd = self.findWindowByTitle(self._pending_window_title)
         if hwnd:
             if (
                 win32process
@@ -424,14 +424,14 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                 except Exception:
                     hwnd = 0
         if hwnd:
-            if self._browser_embed_timer:
-                self._browser_embed_timer.stop()
+            if self._browser_embedTimer:
+                self._browser_embedTimer.stop()
             self._pending_window_title = None
             self._embed_hwnd(hwnd)
             if self._pending_connect_cdp:
                 self._start_cdp_connection()
             else:
-                self.embed_completed.emit(True)
+                self.embedCompleted.emit(True)
 
     def _embed_hwnd(self, hwnd: int) -> None:
         self._target_hwnd = hwnd
@@ -444,7 +444,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         if self._embedded_info:
             ElaWindowEmbedder.release(self)
 
-        self._try_embed_once(hwnd)
+        self._tryEmbedOnce(hwnd)
         if self._original_rect and self._original_rect[0] < -5000:
             w = self._original_rect[2] - self._original_rect[0]
             h = self._original_rect[3] - self._original_rect[1]
@@ -455,7 +455,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
 
     def _log(self, message: str, level: int = 30) -> None:
-        self.log_message.emit(message, level)
+        self.logMessage.emit(message, level)
 
     # ---- 异步 CDP 连接 ----
 
@@ -483,7 +483,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
     def _do_debug_url_request(self) -> None:
         if self._debug_url_retries >= self._debug_url_max_retries:
             self._log("获取调试 URL 超时", 40)
-            self.embed_completed.emit(False)
+            self.embedCompleted.emit(False)
             self._cleanup_debug_url_polling()
             return
 
@@ -530,22 +530,22 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._controller = _BrowserController(
             debugger_url=debugger_url, log_func=self._log
         )
-        self._controller.set_load_started_callback(lambda: self.load_started.emit())
-        self._controller.set_load_finished_callback(
-            lambda: self.load_finished.emit()
+        self._controller.set_loadStarted_callback(lambda: self.loadStarted.emit())
+        self._controller.set_loadFinished_callback(
+            lambda: self.loadFinished.emit()
         )
-        self._controller.cdp_ready.connect(self._on_cdp_ready)
-        self._controller.error_occurred.connect(self._on_cdp_error)
-        self._controller.console_message.connect(self.console_message)
+        self._controller.cdpReady.connect(self._on_cdpReady)
+        self._controller.errorOccurred.connect(self._on_cdp_error)
+        self._controller.consoleMessage.connect(self.consoleMessage)
         self._controller.connect()
 
-    def _on_cdp_ready(self) -> None:
+    def _on_cdpReady(self) -> None:
         self._log("CDP 连接就绪", 20)
-        self.embed_completed.emit(True)
+        self.embedCompleted.emit(True)
 
     def _on_cdp_error(self, error: str) -> None:
         self._log(f"CDP 连接失败: {error}", 40)
-        self.embed_completed.emit(False)
+        self.embedCompleted.emit(False)
 
     def reload(self, callback: Optional[Callable[[Any], None]] = None) -> None:
         """刷新当前页面（非阻塞）
@@ -564,7 +564,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         if self._controller:
             self._controller.navigate(url, callback=callback)
 
-    def run_js(self, script: str, callback: Optional[Callable[[Any], None]] = None) -> Optional[int]:
+    def runJS(self, script: str, callback: Optional[Callable[[Any], None]] = None) -> Optional[int]:
         """执行 JavaScript 代码（非阻塞）
 
         :param script: JavaScript 代码
@@ -572,7 +572,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         :returns: 消息 ID（调试用），或 None（CDP未就绪）
         """
         if self._controller:
-            return self._controller.run_js(script, callback=callback)
+            return self._controller.runJS(script, callback=callback)
         return None
 
     def _cleanup_browser(self) -> None:
@@ -591,9 +591,9 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
 
     def release(self) -> None:
         """释放浏览器窗口并终止浏览器进程"""
-        if self._browser_embed_timer:
-            self._browser_embed_timer.stop()
-            self._browser_embed_timer = None
+        if self._browser_embedTimer:
+            self._browser_embedTimer.stop()
+            self._browser_embedTimer = None
         self._pending_window_title = None
         self._cleanup_debug_url_polling()
 

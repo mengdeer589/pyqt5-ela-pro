@@ -84,34 +84,34 @@ class TestElaToolTipPosition:
     """Test cases for ElaToolTipPosition enum."""
 
     def test_ela_tool_tip_position_has_top(self):
-        """Test ElaToolTipPosition.TOP exists."""
-        assert ElaToolTipPosition.TOP is not None
+        """Test ElaToolTipPosition.Top exists."""
+        assert ElaToolTipPosition.Top is not None
 
     def test_ela_tool_tip_position_has_bottom(self):
-        """Test ElaToolTipPosition.BOTTOM exists."""
-        assert ElaToolTipPosition.BOTTOM is not None
+        """Test ElaToolTipPosition.Bottom exists."""
+        assert ElaToolTipPosition.Bottom is not None
 
     def test_ela_tool_tip_position_has_left(self):
-        """Test ElaToolTipPosition.LEFT exists."""
-        assert ElaToolTipPosition.LEFT is not None
+        """Test ElaToolTipPosition.Left exists."""
+        assert ElaToolTipPosition.Left is not None
 
     def test_ela_tool_tip_position_has_right(self):
-        """Test ElaToolTipPosition.RIGHT exists."""
-        assert ElaToolTipPosition.RIGHT is not None
+        """Test ElaToolTipPosition.Right exists."""
+        assert ElaToolTipPosition.Right is not None
 
     def test_ela_tool_tip_position_has_all_8_positions(self):
         """Test all 8 positions exist."""
         assert len(ElaToolTipPosition) == 8
 
         positions = [
-            ElaToolTipPosition.TOP,
-            ElaToolTipPosition.BOTTOM,
-            ElaToolTipPosition.LEFT,
-            ElaToolTipPosition.RIGHT,
-            ElaToolTipPosition.TOP_LEFT,
-            ElaToolTipPosition.TOP_RIGHT,
-            ElaToolTipPosition.BOTTOM_LEFT,
-            ElaToolTipPosition.BOTTOM_RIGHT,
+            ElaToolTipPosition.Top,
+            ElaToolTipPosition.Bottom,
+            ElaToolTipPosition.Left,
+            ElaToolTipPosition.Right,
+            ElaToolTipPosition.TopLeft,
+            ElaToolTipPosition.TopRight,
+            ElaToolTipPosition.BottomLeft,
+            ElaToolTipPosition.BottomRight,
         ]
 
         for pos in positions:
@@ -134,7 +134,7 @@ class TestSetTooltip:
         """Test set_tooltip accepts position parameter."""
         widget = QWidget()
 
-        set_tooltip(widget, "Test", position=ElaToolTipPosition.TOP)
+        set_tooltip(widget, "Test", position=ElaToolTipPosition.Top)
 
         widget.deleteLater()
         qapp.processEvents()

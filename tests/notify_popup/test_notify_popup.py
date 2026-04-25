@@ -94,14 +94,14 @@ class TestElaNotifyManager:
 
     def test_show_notify_is_ela_manager_show(self):
         """Test show_notify is bound to ElaNotifyManager.show method."""
-        assert show_notify == ElaNotifyManager().show
+        assert show_notify == ElaNotifyManager().showNotification
 
     def test_ela_notify_manager_show_creates_popup(self):
         """Test show method creates and shows popup."""
         manager = ElaNotifyManager()
         manager._popups.clear()
 
-        manager.show(title="Test", content="Message", timeout=100)
+        manager.showNotification(title="Test", content="Message", timeout=100)
 
         assert len(manager._popups) == 1
         popup = manager._popups[0]
@@ -110,14 +110,14 @@ class TestElaNotifyManager:
         popup.deleteLater()
 
     def test_ela_notify_manager_removes_closed_popup(self):
-        """Test _on_popup_closed removes popup from list."""
+        """Test _onPopupClosed removes popup from list."""
         manager = ElaNotifyManager()
         manager._popups.clear()
 
         popup = ElaNotifyPopup(title="Test", timeout=100)
         manager._popups.append(popup)
 
-        manager._on_popup_closed(popup)
+        manager._onPopupClosed(popup)
 
         assert popup not in manager._popups
 

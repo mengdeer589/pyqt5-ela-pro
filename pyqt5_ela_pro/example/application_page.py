@@ -240,8 +240,8 @@ class ApplicationComponentsPage(ExamplePage):
         self._taskbar_paused = False
         self._taskbar_value = 0
 
-        self._taskbar_progress.set_range(0, 100)
-        self._taskbar_progress.set_value(0)
+        self._taskbar_progress.setRange(0, 100)
+        self._taskbar_progress.setValue(0)
         self._taskbar_progress.show()
         self._taskbar_timer.start(50)
 
@@ -268,8 +268,8 @@ class ApplicationComponentsPage(ExamplePage):
             return
 
         self._taskbar_progress.show()
-        self._taskbar_progress.set_range(0, 0)
-        self._taskbar_progress.set_value(0)
+        self._taskbar_progress.setRange(0, 0)
+        self._taskbar_progress.setValue(0)
 
     def _resetTaskbarDemo(self):
         self._taskbar_timer.stop()
@@ -287,7 +287,7 @@ class ApplicationComponentsPage(ExamplePage):
 
         self._taskbar_value += 1
         if self._taskbar_progress:
-            self._taskbar_progress.set_value(self._taskbar_value)
+            self._taskbar_progress.setValue(self._taskbar_value)
 
         if self._taskbar_value >= 100:
             self._taskbar_timer.stop()

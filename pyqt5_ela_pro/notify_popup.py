@@ -120,7 +120,7 @@ class ElaNotifyPopup(QWidget):
             return screen.availableGeometry()
         return QApplication.instance().desktop().availableGeometry()
 
-    def show(self, title: str = "", content: str = "", timeout: int = -1) -> None:
+    def showNotification(self, title: str = "", content: str = "", timeout: int = -1) -> None:
         if title:
             self.setTitle(title)
         if content:
@@ -230,15 +230,15 @@ class ElaNotifyManager:
             cls._instance._popups = []
         return cls._instance
 
-    def show(self, title: str = "", content: str = "", timeout: int = 5000) -> None:
+    def showNotification(self, title: str = "", content: str = "", timeout: int = 5000) -> None:
         popup = ElaNotifyPopup(title=title, content=content, timeout=timeout)
-        popup.closed.connect(lambda: self._on_popup_closed(popup))
+        popup.closed.connect(lambda: self._onPopupClosed(popup))
         self._popups.append(popup)
-        popup.show(title, content, timeout)
+        popup.showNotification(title, content, timeout)
 
-    def _on_popup_closed(self, popup: ElaNotifyPopup) -> None:
+    def _onPopupClosed(self, popup: ElaNotifyPopup) -> None:
         if popup in self._popups:
             self._popups.remove(popup)
 
 
-show_notify = ElaNotifyManager().show
+show_notify = ElaNotifyManager().showNotification

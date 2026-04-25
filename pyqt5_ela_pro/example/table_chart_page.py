@@ -301,14 +301,14 @@ class TableChartPage(ExamplePage):
             self, "导出 PNG", "chart.png", "PNG 图片 (*.png)"
         )
         if path:
-            self._trendChart.save_to_png(path)
+            self._trendChart.saveToPng(path)
 
     def _exportSvg(self):
         path, _ = QFileDialog.getSaveFileName(
             self, "导出 SVG", "chart.svg", "SVG 矢量图 (*.svg)"
         )
         if path:
-            self._trendChart.save_to_svg(path)
+            self._trendChart.saveToSvg(path)
 
     def _generateWaveData(self, count, base=50, amplitude=10, phase=5):
         data = []

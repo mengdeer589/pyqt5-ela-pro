@@ -29,34 +29,34 @@ class TestThemeWidget:
         assert hasattr(widget, "_themeConnection")
         widget.deleteLater()
 
-    def test_create_lay_horizontal(self):
-        """Test create_lay with horizontal layout."""
+    def test_createLayout_horizontal(self):
+        """Test createLayout with horizontal layout."""
         widget = ThemeWidget()
-        lay = widget.create_lay("h")
+        lay = widget.createLayout("h")
         assert isinstance(lay, QHBoxLayout)
         widget.deleteLater()
 
-    def test_create_lay_vertical(self):
-        """Test create_lay with vertical layout."""
+    def test_createLayout_vertical(self):
+        """Test createLayout with vertical layout."""
         widget = ThemeWidget()
-        lay = widget.create_lay("v")
+        lay = widget.createLayout("v")
         assert isinstance(lay, QVBoxLayout)
         widget.deleteLater()
 
-    def test_create_lay_sets_zero_margins_and_spacing(self):
+    def test_createLayout_sets_zero_margins_and_spacing(self):
         """Test created layout has zero margins and spacing."""
         widget = ThemeWidget()
-        lay = widget.create_lay("h")
+        lay = widget.createLayout("h")
         margins = lay.contentsMargins()
         assert margins.left() == 0 and margins.top() == 0 and margins.right() == 0 and margins.bottom() == 0
         assert lay.spacing() == 0
         widget.deleteLater()
 
-    def test_create_lay_with_parent(self):
-        """Test create_lay with custom parent widget."""
+    def test_createLayout_with_parent(self):
+        """Test createLayout with custom parent widget."""
         parent = QWidget()
         widget = ThemeWidget()
-        lay = widget.create_lay("v", parent=parent)
+        lay = widget.createLayout("v", parent=parent)
         assert lay.parent() is parent
         parent.deleteLater()
         widget.deleteLater()

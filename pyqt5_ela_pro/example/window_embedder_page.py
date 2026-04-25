@@ -109,11 +109,11 @@ class WindowEmbedderPage(ExamplePage):
         parent_layout.addWidget(self._embedderContainer)
 
         self._embedder = ElaWindowEmbedder(self._embedderContainer)
-        self._embedder.window_embedded.connect(self._onWindowEmbedded)
-        self._embedder.window_released.connect(self._onWindowReleased)
-        self._embedder.window_not_found.connect(self._onWindowNotFound)
-        self._embedder.embed_error.connect(self._onEmbedError)
-        self._embedder.embed_timeout.connect(self._onEmbedTimeout)
+        self._embedder.windowEmbedded.connect(self._onWindowEmbedded)
+        self._embedder.windowReleased.connect(self._onWindowReleased)
+        self._embedder.windowNotFound.connect(self._onWindowNotFound)
+        self._embedder.embedError.connect(self._onEmbedError)
+        self._embedder.embedTimeout.connect(self._onEmbedTimeout)
 
         self._infoText = ElaText(
             '嵌入区域 - 从下拉框选择窗口后点击"嵌入窗口"',
@@ -168,18 +168,18 @@ class WindowEmbedderPage(ExamplePage):
         if mode == 0:
             hwnd = self._windowCombo.currentData()
             if hwnd:
-                self._embedder.embed_by_hwnd(hwnd)
+                self._embedder.embedByHwnd(hwnd)
         elif mode == 1:
             title = self._windowCombo.currentText()
             if title:
-                self._embedder.embed_by_title(title)
+                self._embedder.embedByTitle(title)
         elif mode == 2:
             class_name = self._windowCombo.currentText()
             if class_name:
-                self._embedder.embed_by_class(class_name)
+                self._embedder.embedByClass(class_name)
 
     def _releaseWindow(self):
-        if self._embedder.has_embedded_window:
+        if self._embedder.hasEmbeddedWindow:
             self._embedder.release()
         else:
             self._showStatus("没有嵌入的窗口")
@@ -219,8 +219,8 @@ class WindowEmbedderPage(ExamplePage):
         info_text = (
             "ElaBrowserEmbedder 功能:\n"
             "  - 基于 Chrome DevTools Protocol (CDP) 控制浏览器\n"
-            "  - 支持页面加载监控 (load_started / load_finished 信号)\n"
-            "  - 支持 JavaScript 执行 (run_js)\n"
+            "  - 支持页面加载监控 (loadStarted / loadFinished 信号)\n"
+            "  - 支持 JavaScript 执行 (runJS)\n"
             "  - 支持页面导航 (navigate / reload)\n"
             "  - 自动管理浏览器进程生命周期"
         )

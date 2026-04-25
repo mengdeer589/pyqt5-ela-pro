@@ -130,19 +130,19 @@ class TestElaSvgIconLoader:
         assert isinstance(pixmap, QPixmap)
 
     def test_icon_exists_returns_data_for_existing(self):
-        """Test iconExists returns data for existing icon."""
+        """Test getIconData returns data for existing icon."""
         loader = ElaSvgIconLoader()
         loader.append("existing", "<svg/>")
 
-        result = loader.iconExists("existing")
+        result = loader.getIconData("existing")
 
         assert result is not None
 
     def test_icon_exists_returns_none_for_missing(self):
-        """Test iconExists returns None for missing icon."""
+        """Test getIconData returns None for missing icon."""
         loader = ElaSvgIconLoader()
 
-        result = loader.iconExists("nonexistent")
+        result = loader.getIconData("nonexistent")
 
         assert result is None
 

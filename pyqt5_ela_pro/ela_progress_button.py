@@ -22,7 +22,7 @@ class ElaProgressButton(ElaPushButton):
     进度由外部通过 setProgress() 控制，不支持长按。
 
     :param text: 按钮文本
-    :param progressColor: 进度条颜色，为 None 时使用主题色
+    :param getProgressColor: 进度条颜色，为 None 时使用主题色
     :param parent: 父控件
 
     Example::
@@ -37,7 +37,7 @@ class ElaProgressButton(ElaPushButton):
     def __init__(
         self,
         text: str = "",
-        progressColor: Optional[QColor] = None,
+        getProgressColor: Optional[QColor] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -45,7 +45,7 @@ class ElaProgressButton(ElaPushButton):
 
         self._progress = 0.0
         self._progress_color = QColor()
-        self._custom_progress_color = progressColor is not None
+        self._custom_progress_color = getProgressColor is not None
 
         self._theme_connection = self._updateProgressColor
         self._updateProgressColor(eTheme.getThemeMode())
@@ -67,7 +67,7 @@ class ElaProgressButton(ElaPushButton):
         self._progress_color = color
         self.update()
 
-    def progressColor(self) -> QColor:
+    def getProgressColor(self) -> QColor:
         """返回进度条填充颜色。
 
         :return: 进度条颜色

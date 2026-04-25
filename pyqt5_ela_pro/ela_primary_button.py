@@ -81,10 +81,10 @@ def _draw_button_content(
     return text_rect
 
 
-class ElaToolButton(ElaToolButton):
+class ElaThemeToolButton(ElaToolButton):
     """工具按钮。
 
-    继承自 ElaToolButton，支持图标和文字水平排列。
+    继承自 ElaThemeToolButton，支持图标和文字水平排列。
     图标支持主题切换，自动更新颜色。
     外观与 ElaPushButton 一致，支持圆角背景。
 
@@ -95,7 +95,7 @@ class ElaToolButton(ElaToolButton):
 
     Example::
 
-        btn = ElaToolButton(text="设置", icon=ElaIconType.IconName.Gear, parent=parent)
+        btn = ElaThemeToolButton(text="设置", icon=ElaIconType.IconName.Gear, parent=parent)
     """
 
     def __init__(

@@ -66,28 +66,28 @@ STATETOOLTIP_SUCCESS_COLOR_DARK: str = "#66BB6A"
 class ElaToolTipPosition(Enum):
     """提示框相对于目标 widget 的显示位置枚举。"""
 
-    TOP = 0
+    Top = 0
     """显示在目标上方"""
 
-    BOTTOM = 1
+    Bottom = 1
     """显示在目标下方"""
 
-    LEFT = 2
+    Left = 2
     """显示在目标左侧"""
 
-    RIGHT = 3
+    Right = 3
     """显示在目标右侧"""
 
-    TOP_LEFT = 4
+    TopLeft = 4
     """显示在目标左上方"""
 
-    TOP_RIGHT = 5
+    TopRight = 5
     """显示在目标右上方"""
 
-    BOTTOM_LEFT = 6
+    BottomLeft = 6
     """显示在目标左下方"""
 
-    BOTTOM_RIGHT = 7
+    BottomRight = 7
     """显示在目标右下方"""
 
 
@@ -170,7 +170,7 @@ class ToolTip(QWidget):
         )
 
     def showAt(
-        self, widget: QWidget, position: ElaToolTipPosition = ElaToolTipPosition.TOP
+        self, widget: QWidget, position: ElaToolTipPosition = ElaToolTipPosition.Top
     ) -> None:
         """在指定 widget 附近显示提示框。
 
@@ -191,28 +191,28 @@ class ToolTip(QWidget):
             return
         widgetRect = QRect(globalPos, widget.size())
 
-        if position == ElaToolTipPosition.TOP:
+        if position == ElaToolTipPosition.Top:
             x = widgetRect.center().x() - self.width() // 2
             y = widgetRect.top() - self.height() - 6
-        elif position == ElaToolTipPosition.BOTTOM:
+        elif position == ElaToolTipPosition.Bottom:
             x = widgetRect.center().x() - self.width() // 2
             y = widgetRect.bottom() + 6
-        elif position == ElaToolTipPosition.LEFT:
+        elif position == ElaToolTipPosition.Left:
             x = widgetRect.left() - self.width() - 6
             y = widgetRect.center().y() - self.height() // 2
-        elif position == ElaToolTipPosition.RIGHT:
+        elif position == ElaToolTipPosition.Right:
             x = widgetRect.right() + 6
             y = widgetRect.center().y() - self.height() // 2
-        elif position == ElaToolTipPosition.TOP_LEFT:
+        elif position == ElaToolTipPosition.Top_LEFT:
             x = widgetRect.left()
             y = widgetRect.top() - self.height() - 6
-        elif position == ElaToolTipPosition.TOP_RIGHT:
+        elif position == ElaToolTipPosition.Top_RIGHT:
             x = widgetRect.right() - self.width()
             y = widgetRect.top() - self.height() - 6
-        elif position == ElaToolTipPosition.BOTTOM_LEFT:
+        elif position == ElaToolTipPosition.Bottom_LEFT:
             x = widgetRect.left()
             y = widgetRect.bottom() + 6
-        elif position == ElaToolTipPosition.BOTTOM_RIGHT:
+        elif position == ElaToolTipPosition.Bottom_RIGHT:
             x = widgetRect.right() - self.width()
             y = widgetRect.bottom() + 6
         else:
@@ -311,7 +311,7 @@ def remove_tooltip_from_dict(widget: QWidget) -> None:
 
 
 def set_tooltip(
-    widget: QWidget, text: str, position: ElaToolTipPosition = ElaToolTipPosition.TOP
+    widget: QWidget, text: str, position: ElaToolTipPosition = ElaToolTipPosition.Top
 ) -> None:
     """为指定 widget 绑定悬浮提示。
 
