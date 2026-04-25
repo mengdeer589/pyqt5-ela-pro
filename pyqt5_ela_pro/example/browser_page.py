@@ -1,25 +1,12 @@
 """
-ElaBrowserEmbedder 使用示例
-
-演示如何嵌入外部浏览器到 PyQt5 窗口中，支持：
-- 浏览器嵌入和释放
-- 页面导航
-- JavaScript 执行
-- CDP 连接监控
-
-运行方式:
-    uv run python -m pyqt5_ela_pro.example.browser_example
+浏览器嵌入示例页面。
 """
 
-import sys
 import os
-
-os.environ["QT_LOGGING_RULES"] = "*.debug=false;qt.qpa.fonts.warning=false"
-
 from pathlib import Path
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton, QToolButton
-from PyQt5ElaWidgetTools import eApp, ElaWindow, ElaText, eTheme, ElaThemeType, ElaToolButton
+from PyQt5.QtWidgets import QHBoxLayout, QTextEdit, QPushButton
+from PyQt5ElaWidgetTools import ElaText
 from pyqt5_ela_pro import ElaBrowserEmbedder
 from .base_page import ExamplePage
 
@@ -32,10 +19,24 @@ BROWSER_PATH = Path(
 TEST_URL = "https://www.bilibili.com"
 
 
-class _BrowserDemoMixin:
-    """浏览器演示的共享 UI 构建逻辑"""
+class BrowserExamplePage(ExamplePage):
+    """浏览器嵌入演示页面"""
 
-    def _buildBrowserContent(self, layout):
+    PAGE_TITLE = "浏览器嵌入"
+
+    def __init__(self, parent=None):
+        self._browser = None
+        super().__init__(parent)
+
+    def _addDemoContent(self, layout):
+        if not BROWSER_PATH.exists():
+            info = ElaText(
+                f"浏览器不存在: {BROWSER_PATH}\n请设置环境变量 ELA_BROWSER_PATH 指向 chrome.exe", self
+            )
+            info.setTextPixelSize(14)
+            layout.addWidget(info)
+            return
+
         url_layout = QHBoxLayout()
         self._url_input = QTextEdit()
         self._url_input.setFixedHeight(30)
@@ -67,7 +68,9 @@ class _BrowserDemoMixin:
         self._browser_widget = ElaBrowserEmbedder(
             webview_path=BROWSER_PATH,
             debug_port=9222,
-            browser_args=[f"--user-data-dir={Path.cwd() / 'runtime' / 'cache' / 'browser_demo'}"],
+            browser_args=[
+                f"--user-data-dir={Path.cwd() / 'runtime' / 'cache' / 'browser_demo'}"
+            ],
             parent=self,
         )
         layout.addWidget(self._browser_widget, 1)
@@ -81,12 +84,22 @@ class _BrowserDemoMixin:
         self._log_output.setFixedHeight(80)
         layout.addWidget(self._log_output)
 
-        self._browser_widget.windowEmbedded.connect(lambda h: self._log(f"窗口已嵌入: 0x{h:X}"))
-        self._browser_widget.windowReleased.connect(lambda h: self._log(f"窗口已释放: 0x{h:X}"))
-        self._browser_widget.embedError.connect(lambda m: self._log(f"嵌入错误: {m}"))
+        self._browser_widget.windowEmbedded.connect(
+            lambda h: self._log(f"窗口已嵌入: 0x{h:X}")
+        )
+        self._browser_widget.windowReleased.connect(
+            lambda h: self._log(f"窗口已释放: 0x{h:X}")
+        )
+        self._browser_widget.embedError.connect(
+            lambda m: self._log(f"嵌入错误: {m}")
+        )
         self._browser_widget.embedCompleted.connect(self._on_embed_completed)
-        self._browser_widget.loadStarted.connect(lambda: self._log("页面加载中..."))
-        self._browser_widget.loadFinished.connect(lambda: self._log("页面加载完成"))
+        self._browser_widget.loadStarted.connect(
+            lambda: self._log("页面加载中...")
+        )
+        self._browser_widget.loadFinished.connect(
+            lambda: self._log("页面加载完成")
+        )
         self._browser_widget.logMessage.connect(self._log)
 
     def _log(self, msg):
@@ -129,72 +142,9 @@ class _BrowserDemoMixin:
     def _closeBrowser(self):
         try:
             self._browser_widget.release()
-        except Exception as e:
-            print(e)
-
-
-class BrowserExamplePage(_BrowserDemoMixin, ExamplePage):
-    """作为 ExampleWindow 页面节点的浏览器嵌入演示"""
-
-    PAGE_TITLE = "浏览器嵌入"
-
-    def _addDemoContent(self, layout):
-        if not BROWSER_PATH.exists():
-            info = ElaText(f"浏览器不存在: {BROWSER_PATH}\n请设置环境变量 ELA_BROWSER_PATH 指向 chrome.exe", self)
-            info.setTextPixelSize(14)
-            layout.addWidget(info)
-            return
-        self._buildBrowserContent(layout)
+        except Exception:
+            pass
 
     def deleteLater(self) -> None:
         self._closeBrowser()
         super().deleteLater()
-
-
-class BrowserDemoWindow(_BrowserDemoMixin, ElaWindow):
-    """独立运行的浏览器嵌入演示窗口"""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._browser = None
-        self._setup_ui()
-
-    def _setup_ui(self):
-        self.setWindowTitle("ElaBrowserEmbedder 示例")
-        self.resize(1000, 700)
-        self.setUserInfoCardTitle("浏览器演示")
-        self.setUserInfoCardSubTitle("PyQt5ElaWidgetTools")
-
-        central = QWidget(self)
-        self.addPageNode("浏览器示例", central)
-        layout = QVBoxLayout(central)
-        self._buildBrowserContent(layout)
-
-    def closeEvent(self, event):
-        self._closeBrowser()
-        super().closeEvent(event)
-
-
-def main():
-    if not BROWSER_PATH.exists():
-        print(f"错误: 浏览器不存在: {BROWSER_PATH}")
-        return 1
-
-    app = QApplication(sys.argv)
-    eApp.init()
-
-    window = BrowserDemoWindow()
-    window.show()
-
-    print("=" * 60)
-    print("ElaBrowserEmbedder 使用示例")
-    print("=" * 60)
-    print(f"浏览器: {BROWSER_PATH}")
-    print("功能: 嵌入、导航、刷新、JavaScript执行、主题切换")
-    print("=" * 60)
-
-    return app.exec_()
-
-
-if __name__ == "__main__":
-    sys.exit(main())

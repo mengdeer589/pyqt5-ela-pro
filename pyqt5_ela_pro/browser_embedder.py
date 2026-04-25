@@ -337,7 +337,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             browser.embed("http://example.com", window_title="MyBrowser")
             browser.embedCompleted.connect(lambda ok: print("嵌入完成" if ok else "失败"))
         """
-        if self._embedded_info is not None:
+        if self._embeddedInfo is not None:
             self._log("已有嵌入窗口，请先调用 release()", 30)
             return
 
@@ -427,13 +427,13 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             if self._browser_embedTimer:
                 self._browser_embedTimer.stop()
             self._pending_window_title = None
-            self._embed_hwnd(hwnd)
+            self._embedHwnd(hwnd)
             if self._pending_connect_cdp:
                 self._start_cdp_connection()
             else:
                 self.embedCompleted.emit(True)
 
-    def _embed_hwnd(self, hwnd: int) -> None:
+    def _embedHwnd(self, hwnd: int) -> None:
         self._target_hwnd = hwnd
 
         self._original_parent = win32gui.GetParent(hwnd)
@@ -441,7 +441,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._original_exstyle = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
         self._original_rect = win32gui.GetWindowRect(hwnd)
 
-        if self._embedded_info:
+        if self._embeddedInfo:
             ElaWindowEmbedder.release(self)
 
         self._tryEmbedOnce(hwnd)
@@ -535,7 +535,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             lambda: self.loadFinished.emit()
         )
         self._controller.cdpReady.connect(self._on_cdpReady)
-        self._controller.errorOccurred.connect(self._on_cdp_error)
+        self._controller.errorOccurred.connect(self._onCdpError)
         self._controller.consoleMessage.connect(self.consoleMessage)
         self._controller.connect()
 
@@ -543,7 +543,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._log("CDP 连接就绪", 20)
         self.embedCompleted.emit(True)
 
-    def _on_cdp_error(self, error: str) -> None:
+    def _onCdpError(self, error: str) -> None:
         self._log(f"CDP 连接失败: {error}", 40)
         self.embedCompleted.emit(False)
 
