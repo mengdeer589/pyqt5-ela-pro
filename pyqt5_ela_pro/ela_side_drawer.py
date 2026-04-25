@@ -244,7 +244,7 @@ class ElaDrawer(QWidget):
         self._dim_anim.setDuration(duration)
         return self
 
-    def opened(self) -> bool:
+    def isOpened(self) -> bool:
         return self._is_opened
 
     def showDrawer(self) -> None:
@@ -257,30 +257,32 @@ class ElaDrawer(QWidget):
         parent = self.parentWidget()
         if not parent:
             return
+        try:
+            self.resize(parent.size())
+            self._dim_widget.resize(self.size())
 
-        self.resize(parent.size())
-        self._dim_widget.resize(self.size())
+            start_rect = self._getStartRect(parent)
+            end_rect = self._getEndRect(parent)
 
-        start_rect = self._getStartRect(parent)
-        end_rect = self._getEndRect(parent)
+            self._drawer_widget.setGeometry(start_rect)
+            self._drawer_widget.show()
+            self._dim_widget.setWindowOpacity(0)
+            self._dim_widget.show()
+            self.show()
+            self._is_opened = True
 
-        self._drawer_widget.setGeometry(start_rect)
-        self._drawer_widget.show()
-        self._dim_widget.setWindowOpacity(0)
-        self._dim_widget.show()
-        self.show()
-        self._is_opened = True
+            self._show_anim.setDuration(self._animation_duration)
+            self._show_anim.setStartValue(start_rect)
+            self._show_anim.setEndValue(end_rect)
+            self._show_anim.start()
 
-        self._show_anim.setDuration(self._animation_duration)
-        self._show_anim.setStartValue(start_rect)
-        self._show_anim.setEndValue(end_rect)
-        self._show_anim.start()
+            self._dim_anim.setStartValue(0)
+            self._dim_anim.setEndValue(1)
+            self._dim_anim.start()
 
-        self._dim_anim.setStartValue(0)
-        self._dim_anim.setEndValue(1)
-        self._dim_anim.start()
-
-        self.opened.emit()
+            self.opened.emit()
+        except Exception as e:
+            print(e)
 
     def closeDrawer(self) -> None:
         if not self._is_opened:

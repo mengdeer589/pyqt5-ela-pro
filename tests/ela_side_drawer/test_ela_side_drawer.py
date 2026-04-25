@@ -173,7 +173,7 @@ class TestElaDrawer:
         parent = QWidget()
         drawer = ElaDrawer(parent)
 
-        assert drawer.opened() is False
+        assert drawer.isOpened() is False
 
         parent.deleteLater()
         drawer.deleteLater()
