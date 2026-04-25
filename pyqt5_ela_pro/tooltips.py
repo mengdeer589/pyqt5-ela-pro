@@ -3,8 +3,8 @@
 
 提供两种提示组件：
 
-- ``ToolTip``：悬浮提示组件，支持 8 种显示位置
-- ``StateToolTip``：带状态指示的提示组件，支持加载中/成功/失败等状态
+- ``ElaToolTip``：悬浮提示组件，支持 8 种显示位置
+- ``ElaStateToolTip``：带状态指示的提示组件，支持加载中/成功/失败等状态
 
 ``set_tooltip`` 和 ``remove_tooltip`` 函数用于为任意 ``QWidget`` 绑定或解除
 悬浮提示，使用弱引用字典管理，不会阻止 widget 被垃圾回收。
@@ -91,7 +91,7 @@ class ElaToolTipPosition(Enum):
     """显示在目标右下方"""
 
 
-class ToolTip(QWidget):
+class ElaToolTip(QWidget):
     """轻量级悬浮提示组件。
 
     绘制一个带圆角和阴影的背景框，内部包含文本。
@@ -223,7 +223,7 @@ class ToolTip(QWidget):
         self.show()
 
 
-_tooltip_dict: weakref.WeakKeyDictionary[QWidget, ToolTip] = weakref.WeakKeyDictionary()
+_tooltip_dict: weakref.WeakKeyDictionary[QWidget, ElaToolTip] = weakref.WeakKeyDictionary()
 _filter_dict: weakref.WeakKeyDictionary[QWidget, _TooltipEventFilter] = (
     weakref.WeakKeyDictionary()
 )
@@ -235,8 +235,8 @@ _cleanup_filter_refs: weakref.WeakKeyDictionary[QWidget, _WidgetCleanupFilter] =
 class _TooltipEventFilter(QObject):
     """事件过滤器，监听目标 widget 的进入/离开事件以显示或隐藏提示框。
 
-    :param tooltip: 要显示的 ``ToolTip`` 实例。
-    :type tooltip: ToolTip
+    :param tooltip: 要显示的 ``ElaToolTip`` 实例。
+    :type tooltip: ElaToolTip
     :param position: 提示框的显示位置。
     :type position: ElaToolTipPosition
     :param target_widget: 安装此过滤器的目标 widget。
@@ -244,10 +244,10 @@ class _TooltipEventFilter(QObject):
     """
 
     def __init__(
-        self, tooltip: ToolTip, position: ElaToolTipPosition, target_widget: QWidget
+        self, tooltip: ElaToolTip, position: ElaToolTipPosition, target_widget: QWidget
     ) -> None:
         super().__init__(target_widget)
-        self._tooltip: weakref.ref[ToolTip] = weakref.ref(tooltip)
+        self._tooltip: weakref.ref[ElaToolTip] = weakref.ref(tooltip)
         self._position = position
 
     def eventFilter(self, a0: Optional[QObject], a1: Optional[QEvent]) -> bool:
@@ -333,7 +333,7 @@ def set_tooltip(
     if widget in _tooltip_dict:
         remove_tooltip(widget)
 
-    tooltip = ToolTip(text, widget.window())
+    tooltip = ElaToolTip(text, widget.window())
     _tooltip_dict[widget] = tooltip
 
     filter_instance = _TooltipEventFilter(tooltip, position, widget)
@@ -360,7 +360,7 @@ def remove_tooltip(widget: QWidget) -> None:
         del _cleanup_filter_refs[widget]
 
 
-class StateToolTip(QWidget):
+class ElaStateToolTip(QWidget):
     """带状态指示的提示组件。
 
     支持两种状态：加载中（显示旋转图标）和完成（显示对勾图标）。
@@ -378,7 +378,7 @@ class StateToolTip(QWidget):
 
     Example::
 
-        tooltip = StateToolTip("正在加载", "请稍候...", self)
+        tooltip = ElaStateToolTip("正在加载", "请稍候...", self)
         tooltip.closed.connect(on_closed)
         tooltip.show()
     """
@@ -729,7 +729,7 @@ class StateToolTip(QWidget):
             dy = i * (self.height() + 16)
             pos = QPoint(parent.width() - self.width() - 24, 50 + dy)
             widget = parent.childAt(pos + QPoint(2, 2))
-            if isinstance(widget, StateToolTip):
+            if isinstance(widget, ElaStateToolTip):
                 pos += QPoint(0, self.height() + 16)
             else:
                 break

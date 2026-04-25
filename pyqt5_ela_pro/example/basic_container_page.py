@@ -64,7 +64,7 @@ from PyQt5ElaWidgetTools import (
     ElaMenuBar,
     ElaSuggestBox,
 )
-from pyqt5_ela_pro import ThemeWidget, create_ela_splitter, ElaSplitter
+from pyqt5_ela_pro import ElaThemeWidget, create_ela_splitter, ElaSplitter
 from .base_page import ExamplePage, _res
 
 
@@ -568,7 +568,7 @@ class BasicContainerPage(ExamplePage):
         self._addInfoText("点击开关展开/收起抽屉", parent_layout)
         self._drawer_area = ElaDrawerArea(self)
         self._drawer_area.setFixedHeight(200)
-        header_widget = ThemeWidget()
+        header_widget = ElaThemeWidget()
         header_layout = QHBoxLayout(header_widget)
         header_layout.setContentsMargins(10, 5, 10, 5)
         header_title = ElaText("抽屉标题", header_widget)
@@ -592,7 +592,7 @@ class BasicContainerPage(ExamplePage):
         header_layout.addWidget(self._drawer_switch)
         self._drawer_area.setDrawerHeader(header_widget)
         for i in range(3):
-            drawer_widget = ThemeWidget()
+            drawer_widget = ElaThemeWidget()
             drawer_widget.setFixedHeight(75)
             drawer_layout = QHBoxLayout(drawer_widget)
             drawer_layout.setContentsMargins(60, 0, 10, 0)
@@ -613,7 +613,7 @@ class BasicContainerPage(ExamplePage):
         scroll_area = ElaScrollArea(self)
         scroll_area.setFixedHeight(200)
         scroll_area.setWidgetResizable(True)
-        scroll_content = ThemeWidget()
+        scroll_content = ElaThemeWidget()
         scroll_layout = QVBoxLayout(scroll_content)
         scroll_layout.setContentsMargins(10, 10, 10, 10)
         scroll_layout.setSpacing(10)
@@ -639,21 +639,21 @@ class BasicContainerPage(ExamplePage):
             parent_layout,
         )
 
-        widget1 = ThemeWidget(self)
+        widget1 = ElaThemeWidget(self)
         widget1.setMinimumSize(50, 50)
         layout1 = QVBoxLayout(widget1)
         text1 = ElaText("面板 1", widget1)
         text1.setAlignment(Qt.AlignCenter)
         layout1.addWidget(text1)
 
-        widget2 = ThemeWidget(self)
+        widget2 = ElaThemeWidget(self)
         widget2.setMinimumSize(50, 50)
         layout2 = QVBoxLayout(widget2)
         text2 = ElaText("面板 2", widget2)
         text2.setAlignment(Qt.AlignCenter)
         layout2.addWidget(text2)
 
-        widget3 = ThemeWidget(self)
+        widget3 = ElaThemeWidget(self)
         widget3.setMinimumSize(50, 50)
         layout3 = QVBoxLayout(widget3)
         text3 = ElaText("面板 3", widget3)

@@ -202,14 +202,14 @@ class ElaSvgIconLoader:
         return len(self._icons)
 
 
-_svgIconLoader: Optional[ElaSvgIconLoader] = None
+_svg_icon_loader: Optional[ElaSvgIconLoader] = None
 
 
 class _ElaSvgButtonBase(QPushButton):
     """SVG 图标按钮基类，包含共用绘制逻辑"""
 
     _iconName: Optional[str] = None
-    _svgIconLoader: ElaSvgIconLoader
+    _svg_icon_loader: ElaSvgIconLoader
     _themeColor: Optional[ElaThemeType.ThemeColor] = None
     _iconSize: int
     _borderRadius: int
@@ -225,7 +225,7 @@ class _ElaSvgButtonBase(QPushButton):
     ):
         super().__init__(text, parent)
         self._iconName = icon_name
-        self._svgIconLoader = svgIconLoader()
+        self._svg_icon_loader = svg_icon_loader()
         self._themeColor = theme_color
         self._iconSize = size
         self._borderRadius = 3
@@ -321,7 +321,7 @@ class _ElaSvgButtonBase(QPushButton):
                 content_height,
             )
             icon_color_str = self._getIconColorStr(text_color)
-            icon = self._svgIconLoader.getIcon(
+            icon = self._svg_icon_loader.getIcon(
                 self._iconName,
                 size=self._iconSize,
                 color=icon_color_str,
@@ -472,16 +472,16 @@ class ElaSvgIconButton(_ElaSvgButtonBase):
         self.update()
 
 
-def svgIconLoader() -> ElaSvgIconLoader:
+def svg_icon_loader() -> ElaSvgIconLoader:
     """获取全局图标加载器实例（自动加载默认图标包）"""
-    global _svgIconLoader
-    if _svgIconLoader is None:
-        _svgIconLoader = ElaSvgIconLoader.getInstance()
+    global _svg_icon_loader
+    if _svg_icon_loader is None:
+        _svg_icon_loader = ElaSvgIconLoader.getInstance()
         try:
-            _svgIconLoader.loadFromPackage("fluent_ui_icon_regular.icons")
+            _svg_icon_loader.loadFromPackage("fluent_ui_icon_regular.icons")
         except FileNotFoundError:
             pass
-    return _svgIconLoader
+    return _svg_icon_loader
 
 
 __all__ = [
@@ -490,5 +490,5 @@ __all__ = [
     "ElaSvgIconLoader",
     "ElaSvgButton",
     "ElaSvgIconButton",
-    "svgIconLoader",
+    "svg_icon_loader",
 ]

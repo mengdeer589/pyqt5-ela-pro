@@ -7,7 +7,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QScrollArea, QWidget, QVBoxLayout
 from PyQt5.QtGui import QFont
 from PyQt5ElaWidgetTools import ElaScrollArea, ElaText
-from pyqt5_ela_pro import ThemeWidget
+from pyqt5_ela_pro import ElaThemeWidget
 
 RESOURCE_PATH = os.path.join(os.path.dirname(__file__), "resource", "images")
 
@@ -16,7 +16,7 @@ def _res(filename):
     return os.path.join(RESOURCE_PATH, filename)
 
 
-class ExamplePage(ThemeWidget):
+class ExamplePage(ElaThemeWidget):
     """示例页面基类，提供通用布局结构"""
 
     PAGE_TITLE = "[ela_ext] 示例页面"
@@ -30,7 +30,7 @@ class ExamplePage(ThemeWidget):
         self._scrollArea.setWidgetResizable(True)
         self._scrollArea.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
 
-        scrollWidget = ThemeWidget()
+        scrollWidget = ElaThemeWidget()
         mainLayout = QVBoxLayout(scrollWidget)
         mainLayout.setContentsMargins(20, 20, 20, 20)
         mainLayout.setSpacing(15)

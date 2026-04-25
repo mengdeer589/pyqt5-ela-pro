@@ -6,7 +6,7 @@ Extension components based on PyQt5ElaWidgetTools with custom styling.
 
 __version__ = "1.0.0"
 
-from .widget_base import ThemeWidget
+from .widget_base import ElaThemeWidget
 
 from .table_view import ElaDataTable
 
@@ -19,10 +19,10 @@ from .combo_box import (
 
 from .tooltips import (
     ElaToolTipPosition,
-    ToolTip,
+    ElaToolTip,
     set_tooltip,
     remove_tooltip,
-    StateToolTip,
+    ElaStateToolTip,
 )
 
 from .dialog_base import ElaDialogBase
@@ -63,7 +63,7 @@ from .svg_icon import (
     ElaSvgIconLoader,
     ElaSvgButton,
     ElaSvgIconButton,
-    svgIconLoader,
+    svg_icon_loader,
 )
 
 from .window_embedder import ElaWindowEmbedder
@@ -80,16 +80,16 @@ from .notify_popup import ElaNotifyPopup, show_notify
 __all__ = [
     "__version__",
     "shake_window",
-    "ThemeWidget",
+    "ElaThemeWidget",
     "ElaDataTable",
     "ElaScrollableMenu",
     "ElaSearchBox",
     "ElaSearchMultiBox",
     "ElaToolTipPosition",
-    "ToolTip",
+    "ElaToolTip",
     "set_tooltip",
     "remove_tooltip",
-    "StateToolTip",
+    "ElaStateToolTip",
     "ElaDialogBase",
     "ElaMessageDialog",
     "ElaParquetTable",
@@ -117,7 +117,7 @@ __all__ = [
     "ElaSvgIconLoader",
     "ElaSvgButton",
     "ElaSvgIconButton",
-    "svgIconLoader",
+    "svg_icon_loader",
     "ElaWindowEmbedder",
     "ElaBrowserEmbedder",
     "ElaSplitter",

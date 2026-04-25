@@ -1,4 +1,4 @@
-"""Tests for tooltips module: ToolTip, StateToolTip, set_tooltip, remove_tooltip."""
+"""Tests for tooltips module: ElaToolTip, ElaStateToolTip, set_tooltip, remove_tooltip."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from PyQt5.QtCore import Qt, QPoint, QTimer
 from PyQt5.QtWidgets import QWidget, QLabel
 
 from pyqt5_ela_pro.tooltips import (
-    ToolTip,
-    StateToolTip,
+    ElaToolTip,
+    ElaStateToolTip,
     set_tooltip,
     remove_tooltip,
     ElaToolTipPosition,
@@ -20,19 +20,19 @@ from pyqt5_ela_pro.tooltips import (
 
 
 class TestToolTip:
-    """Test cases for ToolTip class."""
+    """Test cases for ElaToolTip class."""
 
     def test_tooltip_initialization(self):
-        """Test ToolTip initializes with text."""
-        tooltip = ToolTip("Test tooltip")
+        """Test ElaToolTip initializes with text."""
+        tooltip = ElaToolTip("Test tooltip")
 
         assert tooltip._text == "Test tooltip"
 
         tooltip.deleteLater()
 
     def test_tooltip_has_frameless_window_flag(self):
-        """Test ToolTip uses frameless window."""
-        tooltip = ToolTip()
+        """Test ElaToolTip uses frameless window."""
+        tooltip = ElaToolTip()
 
         flags = tooltip.windowFlags()
         assert flags & Qt.FramelessWindowHint
@@ -40,8 +40,8 @@ class TestToolTip:
         tooltip.deleteLater()
 
     def test_tooltip_has_tool_window_flag(self):
-        """Test ToolTip uses Tool window type."""
-        tooltip = ToolTip()
+        """Test ElaToolTip uses Tool window type."""
+        tooltip = ElaToolTip()
 
         flags = tooltip.windowFlags()
         assert flags & Qt.Tool
@@ -49,8 +49,8 @@ class TestToolTip:
         tooltip.deleteLater()
 
     def test_tooltip_has_stays_on_top_flag(self):
-        """Test ToolTip stays on top of other windows."""
-        tooltip = ToolTip()
+        """Test ElaToolTip stays on top of other windows."""
+        tooltip = ElaToolTip()
 
         flags = tooltip.windowFlags()
         assert flags & Qt.WindowStaysOnTopHint
@@ -59,7 +59,7 @@ class TestToolTip:
 
     def test_tooltip_set_text(self):
         """Test setText updates tooltip text."""
-        tooltip = ToolTip()
+        tooltip = ElaToolTip()
         tooltip.setText("New text")
 
         assert tooltip._text == "New text"
@@ -68,8 +68,8 @@ class TestToolTip:
         tooltip.deleteLater()
 
     def test_tooltip_has_translucent_background(self):
-        """Test ToolTip has translucent background."""
-        tooltip = ToolTip()
+        """Test ElaToolTip has translucent background."""
+        tooltip = ElaToolTip()
 
         assert tooltip.testAttribute(Qt.WA_TranslucentBackground)
 
@@ -163,11 +163,11 @@ class TestRemoveTooltip:
 
 
 class TestStateToolTip:
-    """Test cases for StateToolTip class."""
+    """Test cases for ElaStateToolTip class."""
 
     def test_state_tooltip_initialization(self):
-        """Test StateToolTip initializes with title and content."""
-        st = StateToolTip("Title", "Content")
+        """Test ElaStateToolTip initializes with title and content."""
+        st = ElaStateToolTip("Title", "Content")
 
         assert st._title == "Title"
         assert st._content == "Content"
@@ -175,14 +175,14 @@ class TestStateToolTip:
         st.deleteLater()
 
     def test_state_tooltip_has_closed_signal(self):
-        """Test StateToolTip has closed signal (was closedSignal)."""
-        st = StateToolTip()
+        """Test ElaStateToolTip has closed signal (was closedSignal)."""
+        st = ElaStateToolTip()
         assert hasattr(st, "closed")
         st.deleteLater()
 
     def test_state_tooltip_has_title_and_content_labels(self):
-        """Test StateToolTip has title and content labels."""
-        st = StateToolTip("Title", "Content")
+        """Test ElaStateToolTip has title and content labels."""
+        st = ElaStateToolTip("Title", "Content")
 
         assert hasattr(st, "_titleLabel")
         assert hasattr(st, "_contentLabel")

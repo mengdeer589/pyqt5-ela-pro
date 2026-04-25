@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLineEdit
 from PyQt5.QtCore import QTimer
 from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaIconType
 from pyqt5_ela_pro import (
-    ThemeWidget,
+    ElaThemeWidget,
     ElaTagLineEdit,
     ElaLongPressButton,
     ElaPrimaryButton,

@@ -17,7 +17,7 @@ from PyQt5ElaWidgetTools import (
     ElaText,
 )
 from pyqt5_ela_pro import (
-    ThemeWidget,
+    ElaThemeWidget,
     ElaSearchBox,
     ElaSearchMultiBox,
     ElaTagBox,

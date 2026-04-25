@@ -15,7 +15,7 @@ from PyQt5.QAxContainer import QAxWidget
 from PyQt5.QtGui import QCloseEvent, QResizeEvent
 from PyQt5.QtWidgets import QMessageBox, QSizePolicy, QWidget
 
-from .widget_base import ThemeWidget
+from .widget_base import ElaThemeWidget
 
 _MS_WORD_PROGIDS = ["Word.Application"]
 _WPS_WORD_PROGIDS = ["KWps.Application", "WPS.Application"]
@@ -112,7 +112,7 @@ class ElaOfficeViewerMixin:
         self._axWidget.resize(self.size())
 
 
-class ElaWordViewer(ElaOfficeViewerMixin, ThemeWidget):
+class ElaWordViewer(ElaOfficeViewerMixin, ElaThemeWidget):
     """Word 文档预览组件。
 
     支持 ``.doc``、``.docx`` 格式。
@@ -127,7 +127,7 @@ class ElaWordViewer(ElaOfficeViewerMixin, ThemeWidget):
         super().__init__(parent=parent, backend=backend)
 
 
-class ElaExcelViewer(ElaOfficeViewerMixin, ThemeWidget):
+class ElaExcelViewer(ElaOfficeViewerMixin, ElaThemeWidget):
     """Excel 文档预览组件。
 
     支持 ``.xls``、``.xlsx`` 格式。
@@ -142,7 +142,7 @@ class ElaExcelViewer(ElaOfficeViewerMixin, ThemeWidget):
         super().__init__(parent=parent, backend=backend)
 
 
-class ElaPowerPointViewer(ElaOfficeViewerMixin, ThemeWidget):
+class ElaPowerPointViewer(ElaOfficeViewerMixin, ElaThemeWidget):
     """PowerPoint 文档预览组件。
 
     支持 ``.ppt``、``.pptx`` 格式。

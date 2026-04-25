@@ -11,11 +11,11 @@ from PyQt5ElaWidgetTools import ElaText, ElaPushButton
 from pyqt5_ela_pro import (
     ElaDrawer,
     ElaDrawerPosition,
-    ThemeWidget,
+    ElaThemeWidget,
     ElaPrimaryButton,
     ElaToolTipPosition,
     set_tooltip,
-    StateToolTip,
+    ElaStateToolTip,
 )
 from .base_page import ExamplePage
 
@@ -61,7 +61,7 @@ class DrawerTooltipPage(ExamplePage):
             ("底部抽屉", ElaDrawerPosition.Bottom, 200),
         ]:
             drawer = ElaDrawer(self, position=pos, drawer_size=size)
-            content = ThemeWidget()
+            content = ElaThemeWidget()
             content_layout = QVBoxLayout(content)
             content_layout.setContentsMargins(16, 16, 16, 16)
             content_layout.setSpacing(12)
@@ -93,7 +93,7 @@ class DrawerTooltipPage(ExamplePage):
 
     def _demoToolTip(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("02. ela_ext - ToolTip 工具提示")
+            self._createSectionHeader("02. ela_ext - ElaToolTip 工具提示")
         )
         self._addInfoText("鼠标悬停在按钮上查看提示", parent_layout)
         btn_layout = QHBoxLayout()
@@ -118,7 +118,7 @@ class DrawerTooltipPage(ExamplePage):
 
     def _demoStateTooltip(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("03. ela_ext - StateToolTip 状态提示")
+            self._createSectionHeader("03. ela_ext - ElaStateToolTip 状态提示")
         )
         self._addInfoText("显示加载状态、成功/失败状态的提示", parent_layout)
         btn_layout = QHBoxLayout()
@@ -152,7 +152,7 @@ class DrawerTooltipPage(ExamplePage):
             if is_done:
                 self._stateTooltip.setState(True)
             return
-        self._stateTooltip = StateToolTip(title, content, self)
+        self._stateTooltip = ElaStateToolTip(title, content, self)
         self._stateTooltip.closed.connect(self._onStateTooltipClosed)
         pos = self._stateTooltip.getSuitablePos()
         self._stateTooltip.move(pos)

@@ -16,7 +16,7 @@ from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaMessageBar, ElaMessageB
 from ._internal import disconnect_theme_signal
 
 
-class ThemeWidget(QWidget):
+class ElaThemeWidget(QWidget):
     """自动适应主题变化的 ``QWidget`` 基类。
 
     在构造时查询当前主题模式，并通过 ``QPalette.Window`` 应用相应的背景色。
@@ -30,7 +30,7 @@ class ThemeWidget(QWidget):
 
     Example::
 
-        class MyPanel(ThemeWidget):
+        class MyPanel(ElaThemeWidget):
             def __init__(self, parent=None):
                 super().__init__(parent)
                 # self 已经拥有正确的主题背景色
@@ -38,7 +38,7 @@ class ThemeWidget(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setObjectName("ThemeWidget")
+        self.setObjectName("ElaThemeWidget")
         self._themeConnection = self._update_bg_color
         self._update_bg_color(eTheme.getThemeMode())
         eTheme.themeModeChanged.connect(self._themeConnection)

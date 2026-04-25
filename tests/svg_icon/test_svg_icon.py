@@ -11,7 +11,7 @@ from pyqt5_ela_pro.svg_icon import (
     svg_to_icon,
     svg_to_pixmap,
     ElaSvgIconLoader,
-    svgIconLoader,
+    svg_icon_loader,
 )
 
 
@@ -174,17 +174,17 @@ class TestElaSvgIconLoader:
 
 
 class TestSvgIconLoader:
-    """Test cases for svgIconLoader function."""
+    """Test cases for svg_icon_loader function."""
 
     def test_svg_icon_loader_returns_loader_instance(self):
-        """Test svgIconLoader returns ElaSvgIconLoader."""
-        loader = svgIconLoader()
+        """Test svg_icon_loader returns ElaSvgIconLoader."""
+        loader = svg_icon_loader()
 
         assert isinstance(loader, ElaSvgIconLoader)
 
     def test_svg_icon_loader_is_singleton(self):
-        """Test svgIconLoader returns same instance on multiple calls."""
-        loader1 = svgIconLoader()
-        loader2 = svgIconLoader()
+        """Test svg_icon_loader returns same instance on multiple calls."""
+        loader1 = svg_icon_loader()
+        loader2 = svg_icon_loader()
 
         assert loader1 is loader2

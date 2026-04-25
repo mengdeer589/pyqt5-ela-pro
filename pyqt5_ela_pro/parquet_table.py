@@ -21,7 +21,7 @@ from PyQt5ElaWidgetTools import (
     ElaThemeType,
 )
 
-from . import ThemeWidget
+from . import ElaThemeWidget
 from .table_view import ElaDataTable
 
 
@@ -41,7 +41,7 @@ PAGER_HEIGHT: int = 50
 PAGER_SPACING: int = 12
 
 
-class ElaInfoBarWidget(ThemeWidget):
+class ElaInfoBarWidget(ElaThemeWidget):
     """列信息显示栏，显示当前选中列的统计信息。"""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -136,7 +136,7 @@ class ElaInfoBarWidget(ThemeWidget):
         self._last_label.setText("最后一行: -")
 
 
-class ElaPagerWidget(ThemeWidget):
+class ElaPagerWidget(ElaThemeWidget):
     """翻页控件组合，包含记录数、上下页、页码跳转。"""
 
     pageRequest = pyqtSignal(int)
@@ -240,10 +240,10 @@ class ElaPagerWidget(ThemeWidget):
         self._update_button_states()
 
 
-class ElaParquetTable(ThemeWidget):
+class ElaParquetTable(ElaThemeWidget):
     """Parquet 表格视图，支持分页。
 
-    继承自 ``ThemeWidget``，数据来源为 Parquet 文件，
+    继承自 ``ElaThemeWidget``，数据来源为 Parquet 文件，
     通过 ``polars`` 进行高效读取，按页展示。
 
     :param parquet_path: Parquet 文件路径。
