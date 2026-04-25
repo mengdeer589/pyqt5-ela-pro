@@ -599,6 +599,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
 
         if self._target_hwnd:
             try:
+                win32gui.ShowWindow(self._target_hwnd, win32con.SW_HIDE)
                 win32gui.SetParent(self._target_hwnd, self._original_parent)
                 if self._original_style is not None:
                     win32gui.SetWindowLong(
