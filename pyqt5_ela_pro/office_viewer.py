@@ -93,7 +93,8 @@ class ElaOfficeViewerMixin:
             self._axWidget.close()
             self._axWidget.clear()
         except Exception:
-            pass
+            import traceback
+            traceback.print_exc()
         self._loaded = False
 
     @property

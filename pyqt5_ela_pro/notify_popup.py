@@ -48,6 +48,7 @@ class ElaNotifyPopup(QWidget):
         self._content = content
         self._timeout = timeout
         self._is_showing = False
+        self._is_closing = False
         self._animation = None
         self._timer = None
 
@@ -130,7 +131,12 @@ class ElaNotifyPopup(QWidget):
         self._update_positions()
         self._timer.stop()
         self._is_showing = False
+        self._is_closing = False
         self._animation.stop()
+        try:
+            self._animation.finished.disconnect(self._on_animation_end)
+        except TypeError:
+            pass
         self.move(self._start_pos)
         super().show()
 
@@ -145,15 +151,23 @@ class ElaNotifyPopup(QWidget):
         self._close_animation()
 
     def _close_animation(self):
+        if self._is_closing:
+            return
+        self._is_closing = True
         self._timer.stop()
         self._is_showing = False
         self._animation.stop()
         self._animation.setStartValue(self.pos())
         self._animation.setEndValue(self._start_pos)
-        self._animation.start()
+        try:
+            self._animation.finished.disconnect(self._on_animation_end)
+        except TypeError:
+            pass
         self._animation.finished.connect(self._on_animation_end)
+        self._animation.start()
 
     def _on_animation_end(self):
+        self._is_closing = False
         try:
             self._animation.finished.disconnect(self._on_animation_end)
         except TypeError:

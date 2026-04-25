@@ -239,7 +239,7 @@ class ElaDataTable(ElaTableView):
         """
         numeric_count = 0
         chinese_count = 0
-        sample_size = min(5, self._model.rowCount())
+        sample_size = min(20, self._model.rowCount())
 
         for row in range(sample_size):
             item = self._model.item(row, column)
@@ -305,7 +305,7 @@ class ElaDataTable(ElaTableView):
         reverse = order == Qt.DescendingOrder
         items_with_pinyin.sort(key=lambda x: x[0], reverse=reverse)
 
-        self._reorderRows(column, items_with_pinyin)
+        self._reorderRows(column, [row for _, row, _ in items_with_pinyin])
 
     def _sortNumeric(self, column: int, order: Qt.SortOrder) -> None:
         """对数字列进行排序。
@@ -332,76 +332,26 @@ class ElaDataTable(ElaTableView):
         reverse = order == Qt.DescendingOrder
         items_with_value.sort(key=lambda x: x[0], reverse=reverse)
 
-        pinyin_list = [(str(x[0]), x[1], str(x[0])) for x in items_with_value]
-        self._reorderRows(column, pinyin_list)
+        self._reorderRows(column, [row for _, row in items_with_value])
 
-    def _reorderRows(self, column: int, sorted_items: list) -> None:
+    def _reorderRows(self, column: int, row_order: list[int]) -> None:
         """根据排序后的顺序重新排列行。
 
-        :param column: 排序列索引
-        :type column: int
-        :param sorted_items: 排序后的 (pinyin, original_row, text) 列表
-        :type sorted_items: list
+        使用 takeRow/appendRow 就地移动 QStandardItem，避免序列化再重建。
+
+        :param column: 排序列索引（保留参数，未使用）
+        :param row_order: 按目标顺序排列的行索引列表
         """
-        col_count = self._model.columnCount()
-        old_rows_data = []
-        for row in range(self._model.rowCount()):
-            row_data = []
-            for col in range(col_count):
-                item = self._model.item(row, col)
-                if item:
-                    row_data.append(
-                        {
-                            "text": item.text(),
-                            "font": item.font(),
-                            "foreground": item.foreground(),
-                            "background": item.background(),
-                            "textAlignment": item.textAlignment(),
-                            "icon": item.icon(),
-                            "toolTip": item.toolTip(),
-                            "checkState": item.checkState(),
-                            "flags": item.flags(),
-                            "data": item.data(),
-                        }
-                    )
-                else:
-                    row_data.append(None)
-            old_rows_data.append(row_data)
+        row_count = self._model.rowCount()
+        if row_count <= 1:
+            return
 
-        self._model.removeRows(0, self._model.rowCount())
+        rows = []
+        while self._model.rowCount() > 0:
+            rows.append(self._model.takeRow(0))
 
-        for pinyin, original_row, _ in sorted_items:
-            self._model.insertRow(self._model.rowCount())
-            for col, data in enumerate(old_rows_data[original_row]):
-                if data:
-                    item = QStandardItem(data["text"])
-                    if data["font"]:
-                        item.setFont(data["font"])
-                    if data["foreground"]:
-                        item.setForeground(data["foreground"])
-                    if data["background"]:
-                        item.setBackground(data["background"])
-                    alignment = data["textAlignment"]
-                    if not alignment and col in self._columnAlignments:
-                        alignment = self._columnAlignments[col]
-                    if not alignment:
-                        alignment = Qt.AlignmentFlag.AlignCenter
-                    item.setTextAlignment(alignment)
-                    if data["icon"]:
-                        item.setIcon(data["icon"])
-                    if data["toolTip"]:
-                        item.setToolTip(data["toolTip"])
-                    if data["checkState"] is not None:
-                        item.setCheckState(data["checkState"])
-                    if data["flags"]:
-                        item.setFlags(data["flags"])
-                    if data["data"]:
-                        item.setData(data["data"])
-                    self._model.setItem(self._model.rowCount() - 1, col, item)
-                else:
-                    self._model.setItem(
-                        self._model.rowCount() - 1, col, QStandardItem()
-                    )
+        for original_row in row_order:
+            self._model.appendRow(rows[original_row])
 
     def setSortingEnabled(self, enabled: bool) -> None:
         """开启或关闭表头点击排序功能。

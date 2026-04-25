@@ -9,41 +9,25 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import (
-    Qt,
-    QRect,
-    QRectF,
-    QTimer,
-    QPropertyAnimation,
-    QEasingCurve,
-    pyqtProperty,
-)
-
-from PyQt5.QtGui import (
-    QColor,
-    QPainter,
-    QPainterPath,
-    QFontMetrics,
-    QTextOption,
-    QPen,
-    QFont,
-    QTransform,
-)
-
+from PyQt5.QtCore import QTimer
+from PyQt5.QtGui import QPainter
 from PyQt5.QtWidgets import QWidget
 
-from PyQt5ElaWidgetTools import (
-    eTheme,
-    ElaThemeType,
-    ElaIcon,
-    ElaIconType,
+from .combo_box import ElaSearchMultiBox
+from .ela_tag_combo_base import (
+    _TagBoxThemeMixin,
+    _TagBoxAnimMixin,
+    _draw_tag_background,
+    _draw_tag_title,
+    _draw_tag_arrow,
+    _draw_tag_mark,
+    _draw_multi_value_text,
 )
 
-from .combo_box import ElaSearchMultiBox
-from .ela_tag_box import _TagBoxThemeMixin
 
-
-class ElaTagSearchMultiBox(_TagBoxThemeMixin, ElaSearchMultiBox):
+class ElaTagSearchMultiBox(
+    _TagBoxThemeMixin, _TagBoxAnimMixin, ElaSearchMultiBox
+):
     """具名可搜索多选下拉框。
 
     带有标题标签的可搜索多选下拉框，支持汉字拼音首字母搜索。
@@ -65,44 +49,9 @@ class ElaTagSearchMultiBox(_TagBoxThemeMixin, ElaSearchMultiBox):
         title: str = "",
     ) -> None:
         super().__init__(parent)
-
-        self._title_text = title
-        self._title_font_size = 13
-        self._expand_mark_width: float = 0.0
-        self._expand_icon_rotate: float = 0.0
-
-        self._mark_animation = QPropertyAnimation(self, b"expandMarkWidth")
-        self._mark_animation.setDuration(300)
-        self._mark_animation.setEasingCurve(QEasingCurve.InOutSine)
-
-        self._rotate_animation = QPropertyAnimation(self, b"expandIconRotate")
-        self._rotate_animation.setDuration(300)
-        self._rotate_animation.setEasingCurve(QEasingCurve.InOutSine)
-
-        self.setFixedHeight(38)
+        self._tag_box_init(title)
         self.setMaxVisibleItems(10)
-
         QTimer.singleShot(0, self._preInitPopup)
-
-    @pyqtProperty(float)
-    def expandMarkWidth(self) -> float:
-        return self._expand_mark_width
-
-    @expandMarkWidth.setter
-    def expandMarkWidth(self, width: float) -> None:
-        if self._expand_mark_width != width:
-            self._expand_mark_width = width
-            self.update()
-
-    @pyqtProperty(float)
-    def expandIconRotate(self) -> float:
-        return self._expand_icon_rotate
-
-    @expandIconRotate.setter
-    def expandIconRotate(self, rotate: float) -> None:
-        if self._expand_icon_rotate != rotate:
-            self._expand_icon_rotate = rotate
-            self.update()
 
     def _preInitPopup(self) -> None:
         view = self.view()
@@ -117,8 +66,12 @@ class ElaTagSearchMultiBox(_TagBoxThemeMixin, ElaSearchMultiBox):
         return (self.width() / 2 - 9) * selected_count / total_count
 
     def showPopup(self) -> None:
+        if self.count() == 0:
+            return
         self._expand_mark_width = self._getTargetMarkWidth()
         super().showPopup()
+        if self._searchEdit:
+            self._applySearchEditPalette()
 
     def hidePopup(self) -> None:
         self._expand_mark_width = 0.0
@@ -128,146 +81,26 @@ class ElaTagSearchMultiBox(_TagBoxThemeMixin, ElaSearchMultiBox):
         super().setCurrentSelection(selection)
         self.update()
 
-    def setTitle(self, title: str) -> None:
-        """设置标题文字。
-
-        :param title: 标题文字
-        """
-        self._title_text = title
-        self.update()
-
-    def title(self) -> str:
-        """返回标题文字。
-
-        :return: 标题文字
-        """
-        return self._title_text
-
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-
-        shadow_border = 3
-        content_rect = QRect(
-            shadow_border,
-            shadow_border,
-            self.width() - 2 * shadow_border,
-            self.height() - 2 * shadow_border,
-        )
-
-        bg_color = self._getBackgroundColor()
-        text_color = self._getTitleColor()
-        border_color = self._getBorderColor()
-
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(content_rect), 3, 3)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(bg_color)
-        painter.drawPath(path)
-
-        pen = QPen(border_color)
-        pen.setWidth(2)
-        painter.setPen(pen)
-        y = content_rect.bottom()
-        painter.drawLine(content_rect.left(), y, content_rect.right(), y)
+        content_rect, text_color, _ = _draw_tag_background(painter, self)
 
         view = self.view()
         is_popup_visible = view.isVisible() if view else False
-        if is_popup_visible:
-            mark_width = self._getTargetMarkWidth()
-        else:
-            mark_width = self._expand_mark_width
-        if mark_width > 0:
-            mark_color = eTheme.getThemeColor(
-                eTheme.getThemeMode(), ElaThemeType.ThemeColor.PrimaryNormal
-            )
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(mark_color)
-            mark_rect = QRectF(
-                self.width() / 2 - mark_width,
-                self.height() - 3,
-                mark_width * 2,
-                3,
-            )
-            mark_path = QPainterPath()
-            mark_path.addRoundedRect(mark_rect, 1.5, 1.5)
-            painter.drawPath(mark_path)
+        mark_width = self._getTargetMarkWidth() if is_popup_visible else self._expand_mark_width
+        _draw_tag_mark(painter, self, mark_width)
 
-        metrics = QFontMetrics(self.font())
-        title_width = metrics.horizontalAdvance(self._title_text) + 20
-
-        title_rect = QRect(
-            content_rect.left(),
-            content_rect.top(),
-            title_width,
-            content_rect.height(),
+        title_rect = _draw_tag_title(
+            painter, content_rect, self._title_text,
+            self._title_font_size, text_color, self.font(),
         )
-        title_option = QTextOption()
-        title_option.setWrapMode(QTextOption.NoWrap)
-        title_option.setAlignment(
-            Qt.Alignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        _draw_multi_value_text(
+            painter, content_rect, title_rect, self.getCurrentSelection(),
         )
-        title_font = QFont(self.font())
-        title_font.setPixelSize(self._title_font_size)
-        painter.setFont(title_font)
-        painter.setPen(text_color)
-        painter.drawText(
-            QRectF(title_rect.adjusted(10, 0, -10, 0)),
-            self._title_text,
-            title_option,
+        _draw_tag_arrow(
+            painter, content_rect, text_color, self._expand_icon_rotate,
         )
 
-        current_selections = self.getCurrentSelection()
-        max_show = 3
-        if current_selections:
-            if len(current_selections) > max_show:
-                display_text = ",".join(current_selections[:max_show]) + "..."
-            else:
-                display_text = ",".join(current_selections)
-            text_left = title_rect.right()
-            text_width = content_rect.right() - 30 - text_left
-            if text_width > 0:
-                text_rect = QRect(
-                    text_left,
-                    content_rect.top(),
-                    text_width,
-                    content_rect.height(),
-                )
-                text_option = QTextOption()
-                text_option.setWrapMode(QTextOption.NoWrap)
-                text_option.setAlignment(
-                    Qt.Alignment(
-                        Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
-                    )
-                )
-                painter.drawText(
-                    QRectF(text_rect),
-                    display_text,
-                    text_option,
-                )
-
-        arrow_rect = QRect(
-            content_rect.right() - 25,
-            content_rect.top(),
-            20,
-            content_rect.height(),
-        )
-        icon = ElaIcon.getInstance().getElaIcon(
-            ElaIconType.IconName.AngleDown, text_color
-        )
-        icon_pixmap = icon.pixmap(17, 17)
-
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        transform = QTransform()
-        transform.translate(
-            arrow_rect.left() + arrow_rect.width() / 2,
-            arrow_rect.top() + arrow_rect.height() / 2,
-        )
-        transform.rotate(self._expand_icon_rotate)
-        transform.translate(-icon_pixmap.width() / 2, -icon_pixmap.height() / 2)
-        painter.setTransform(transform)
-        painter.drawPixmap(0, 0, icon_pixmap)
-        painter.restore()
+    def deleteLater(self) -> None:
+        self._tag_box_delete_later()
+        super().deleteLater()

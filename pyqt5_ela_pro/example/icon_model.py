@@ -1,5 +1,4 @@
-from PyQt5.QtCore import *
-from PyQt5.QtGui import *
+from PyQt5.QtCore import Qt, QAbstractListModel, QModelIndex, QVariant
 from PyQt5ElaWidgetTools import ElaIconType
 
 

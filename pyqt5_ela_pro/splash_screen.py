@@ -35,6 +35,7 @@ class ElaSplashScreen(QSplashScreen):
         self._subtitle = subtitle
         self._width = width
         self._height = height
+        self._progress = 0.0
         pixmap = self._createPixmap()
         super().__init__(
             pixmap,
@@ -90,14 +91,37 @@ class ElaSplashScreen(QSplashScreen):
         barWidth = self._width - barMargin * 2
 
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(255, 255, 255, 50))
-        painter.drawRoundedRect(barMargin, barY, barWidth, barHeight, 4, 4)
 
-        painter.setBrush(QColor(255, 255, 255))
-        painter.drawRoundedRect(barMargin, barY, barWidth // 3, barHeight, 4, 4)
+        self._drawProgressBar(painter)
 
         painter.end()
         return pixmap
+
+    def _drawProgressBar(self, painter: QPainter) -> None:
+        barY = self._height - 100
+        barHeight = 8
+        barMargin = 50
+        barWidth = self._width - barMargin * 2
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(255, 255, 255, 50))
+        painter.drawRoundedRect(barMargin, barY, barWidth, barHeight, 4, 4)
+
+        fillWidth = int(barWidth * self._progress)
+        painter.setBrush(QColor(255, 255, 255))
+        painter.drawRoundedRect(barMargin, barY, fillWidth, barHeight, 4, 4)
+
+    def setProgress(self, percent: float) -> None:
+        """设置进度条百分比。
+
+        :param percent: 进度百分比，范围 0.0 ~ 1.0。
+        :type percent: float
+        """
+        self._progress = max(0.0, min(1.0, percent))
+        pixmap = self._createPixmap()
+        self.setPixmap(pixmap)
+        self.repaint()
+        QApplication.instance().processEvents()
 
     def showMessage(self, message: str) -> None:
         """显示加载消息。

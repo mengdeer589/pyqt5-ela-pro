@@ -22,7 +22,12 @@ from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QTe
 from PyQt5ElaWidgetTools import eApp, ElaWindow, ElaText, eTheme, ElaThemeType, ElaToolButton
 from pyqt5_ela_pro import ElaBrowserEmbedder
 
-BROWSER_PATH = Path(r"E:\python_project\elawidgettools\Supermium\chrome.exe")
+BROWSER_PATH = Path(
+    os.environ.get(
+        "ELA_BROWSER_PATH",
+        r"E:\python_project\elawidgettools\Supermium\chrome.exe",
+    )
+)
 TEST_URL = "https://www.bilibili.com"
 
 
@@ -31,16 +36,6 @@ class BrowserDemoWindow(ElaWindow):
         super().__init__(parent)
         self._browser = None
         self._setup_ui()
-        app_bar = self.findChild(QWidget, "ElaAppBar")
-
-        # 方法1: 查找所有 QToolButton
-        buttons = app_bar.findChildren(QToolButton)
-        # buttons[-3].deleteLater()
-        # buttons[-3].clicked.connect(self._toggle_theme)
-        # print( 111,btn.setVisible( False))
-        # app_bar.themeChangeButtonClicked.connect(self._toggle_theme)
-    def _on_theme_btn_clicked(self):
-        print(111)
 
     def _setup_ui(self):
         self.setWindowTitle("ElaBrowserEmbedder 示例")
@@ -80,16 +75,13 @@ class BrowserDemoWindow(ElaWindow):
         js_btn.clicked.connect(self._run_js)
         url_layout.addWidget(js_btn)
 
-        # theme_btn = QPushButton("切换主题")
-        # theme_btn.clicked.connect(self._toggle_theme)
-        # url_layout.addWidget(theme_btn)
-
         layout.addLayout(url_layout)
 
         self._browser_widget = ElaBrowserEmbedder(
             webview_path=BROWSER_PATH,
             port=9023,
             debug_port=9222,
+            browser_args=[f"--user-data-dir={Path.cwd() / 'runtime' / 'cache' / 'browser_demo'}"],
             parent=self,
         )
         layout.addWidget(self._browser_widget, 1)
@@ -145,22 +137,7 @@ class BrowserDemoWindow(ElaWindow):
         self._browser_widget.reload()
 
     def _run_js(self):
-        self._log("执行JS: document.title")
-        self._browser_widget.run_js("alert('你好3')")
-
-    def _toggle_theme(self):
-        print(12131231)
-        try:
-            current = eTheme.getThemeMode()
-            print( current)
-            if current == ElaThemeType.ThemeMode.Light:
-                eTheme.setThemeMode(ElaThemeType.ThemeMode.Dark)
-                print( "切换到暗色模式")
-            else:
-                eTheme.setThemeMode(ElaThemeType.ThemeMode.Light)
-                print( "切换到亮色模式")
-        except Exception as e:
-            print(e)
+        self._browser_widget.run_js("console.log('你好')")
 
     def closeEvent(self, event):
         try:

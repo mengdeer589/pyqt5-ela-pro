@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import QWidget
 from ._internal import catch_error, safe_call
 
 
-_animation_registry: dict[int, QPropertyAnimation] = {}
+_animation_registry: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 
 def fade_in(widget: QWidget, duration: int = 1000) -> None:
@@ -33,9 +33,8 @@ def fade_in(widget: QWidget, duration: int = 1000) -> None:
         widget.setWindowOpacity(0)
         widget.show()
 
-    key = id(widget)
-    if key in _animation_registry:
-        existing = _animation_registry[key]
+    if widget in _animation_registry:
+        existing = _animation_registry[widget]
         if existing and existing.state() == QPropertyAnimation.State.Running:
             return
 
@@ -46,12 +45,12 @@ def fade_in(widget: QWidget, duration: int = 1000) -> None:
 
     @catch_error
     def _cleanup():
-        if key in _animation_registry and _animation_registry[key] is animation:
-            _animation_registry.pop(key, None)
+        if widget in _animation_registry and _animation_registry[widget] is animation:
+            del _animation_registry[widget]
 
     animation.finished.connect(_cleanup)
-    widget.destroyed.connect(lambda: _animation_registry.pop(key, None) if key in _animation_registry and _animation_registry.get(key) is animation else None)
-    _animation_registry[key] = animation
+    widget.destroyed.connect(lambda: _cleanup() if widget in _animation_registry and _animation_registry.get(widget) is animation else None)
+    _animation_registry[widget] = animation
     animation.start()
 
 
@@ -68,9 +67,8 @@ def fade_out(
     :param widget: 目标窗口控件
     :param duration: 动画时长（毫秒），默认 1000ms
     """
-    key = id(widget)
-    if key in _animation_registry:
-        existing = _animation_registry[key]
+    if widget in _animation_registry:
+        existing = _animation_registry[widget]
         if existing and existing.state() == QPropertyAnimation.State.Running:
             return
 
@@ -81,14 +79,14 @@ def fade_out(
 
     @catch_error
     def _on_finished():
-        if key in _animation_registry and _animation_registry[key] is animation:
-            _animation_registry.pop(key, None)
+        if widget in _animation_registry and _animation_registry[widget] is animation:
+            del _animation_registry[widget]
         if on_finished is not None:
             safe_call(on_finished)
 
     animation.finished.connect(_on_finished)
-    widget.destroyed.connect(lambda: _animation_registry.pop(key, None) if key in _animation_registry and _animation_registry.get(key) is animation else None)
-    _animation_registry[key] = animation
+    widget.destroyed.connect(lambda: _on_finished() if widget in _animation_registry and _animation_registry.get(widget) is animation else None)
+    _animation_registry[widget] = animation
     animation.start()
 
 

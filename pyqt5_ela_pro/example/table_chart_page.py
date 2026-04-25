@@ -7,7 +7,7 @@
 
 import random
 
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout
+from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QFileDialog
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtCore import Qt
 from PyQt5ElaWidgetTools import ElaText, ElaPushButton
@@ -235,7 +235,9 @@ class TableChartPage(ExamplePage):
             self._createSectionHeader("02. ela_ext - ElaTrendChart 趋势图")
         )
         self._addInfoText(
-            "支持多曲线绘制、主题切换、网格线显示、交互式指示器", parent_layout
+            "支持多曲线绘制、主题切换、网格线显示、交互式指示器\n"
+            "启用交互后，左键拖拽平移，滚轮缩放，双击重置视图",
+            parent_layout,
         )
         self._trendChart = ElaTrendChart(self)
         self._trendChart.setFixedSize(600, 300)
@@ -264,6 +266,18 @@ class TableChartPage(ExamplePage):
         refresh_btn.setFixedWidth(100)
         refresh_btn.clicked.connect(self._onRefreshChartData)
         btn_layout.addWidget(refresh_btn)
+        self._interact_btn = ElaPushButton("启用交互", self)
+        self._interact_btn.setFixedWidth(100)
+        self._interact_btn.clicked.connect(self._toggleChartInteraction)
+        btn_layout.addWidget(self._interact_btn)
+        png_btn = ElaPushButton("导出PNG", self)
+        png_btn.setFixedWidth(80)
+        png_btn.clicked.connect(self._exportPng)
+        btn_layout.addWidget(png_btn)
+        svg_btn = ElaPushButton("导出SVG", self)
+        svg_btn.setFixedWidth(80)
+        svg_btn.clicked.connect(self._exportSvg)
+        btn_layout.addWidget(svg_btn)
         btn_layout.addStretch()
         parent_layout.addWidget(self._trendChart)
         parent_layout.addLayout(btn_layout)
@@ -276,6 +290,25 @@ class TableChartPage(ExamplePage):
     def _toggleLegend(self):
         self._legendVisible = not self._legendVisible
         self._trendChart.setLegendVisible(self._legendVisible)
+
+    def _toggleChartInteraction(self):
+        enabled = not self._trendChart.isInteractionEnabled()
+        self._trendChart.setInteractionEnabled(enabled)
+        self._interact_btn.setText("禁用交互" if enabled else "启用交互")
+
+    def _exportPng(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出 PNG", "chart.png", "PNG 图片 (*.png)"
+        )
+        if path:
+            self._trendChart.save_to_png(path)
+
+    def _exportSvg(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出 SVG", "chart.svg", "SVG 矢量图 (*.svg)"
+        )
+        if path:
+            self._trendChart.save_to_svg(path)
 
     def _generateWaveData(self, count, base=50, amplitude=10, phase=5):
         data = []

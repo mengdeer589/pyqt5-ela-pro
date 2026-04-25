@@ -148,6 +148,9 @@ class ElaSearchMultiBox(ElaMultiSelectComboBox):
         self._searchWidget: Optional[QWidget] = None
         self._currentSelection: list[str] = []
         self._isRestoringSelection = False
+        self._themeConnection = eTheme.themeModeChanged.connect(
+            self._onThemeModeChanged
+        )
 
     def addItem(self, text: str) -> None:
         """添加一个选项。
@@ -173,11 +176,9 @@ class ElaSearchMultiBox(ElaMultiSelectComboBox):
     def setCurrentSelection(self, selection: list) -> None:
         """设置当前选中项。
 
-        :param selection: 要选中的文本列表。
+        :param selection: 选中的文本列表。
         :type selection: list
         """
-        if isinstance(selection, str):
-            selection = [selection]
         self._currentSelection = list(selection)
         super().setCurrentSelection(self._currentSelection)
 
@@ -191,6 +192,8 @@ class ElaSearchMultiBox(ElaMultiSelectComboBox):
 
     def showPopup(self) -> None:
         """显示下拉弹窗，在弹窗顶部插入搜索框。"""
+        if self.count() == 0:
+            return
         self._isRestoringSelection = True
         self._restoreSelection()
         super().showPopup()
@@ -229,6 +232,9 @@ class ElaSearchMultiBox(ElaMultiSelectComboBox):
         """应用主题颜色到搜索框。"""
         if self._searchEdit:
             _apply_search_edit_palette(self._searchEdit)
+
+    def _onThemeModeChanged(self, *args) -> None:
+        self._applySearchEditPalette()
 
     def _onSearchTextChanged(self, text: str) -> None:
         """搜索框文本变化时过滤项目。
@@ -283,6 +289,10 @@ class ElaSearchMultiBox(ElaMultiSelectComboBox):
     def deleteLater(self) -> None:
         """清理搜索框，断开信号，调度自身删除。"""
         self._cleanupSearchWidget()
+        try:
+            eTheme.themeModeChanged.disconnect(self._onThemeModeChanged)
+        except (TypeError, RuntimeError):
+            pass
         super().deleteLater()
 
 
@@ -309,6 +319,9 @@ class ElaSearchBox(ElaComboBox):
         self._searchEdit: Optional[QLineEdit] = None
         self._searchWidget: Optional[QWidget] = None
 
+        self._themeConnection = eTheme.themeModeChanged.connect(
+            self._onThemeModeChanged
+        )
         self.activated.connect(self._onActivated)
 
     def addItem(self, text: str, userData: Any = None) -> None:  # type: ignore[override]
@@ -350,6 +363,8 @@ class ElaSearchBox(ElaComboBox):
 
     def showPopup(self) -> None:
         """显示下拉弹窗，在弹窗顶部插入搜索框。"""
+        if self.count() == 0:
+            return
         self._proxyModel.setKeyword("")
         super().showPopup()
 
@@ -394,6 +409,9 @@ class ElaSearchBox(ElaComboBox):
         if self._searchEdit:
             _apply_search_edit_palette(self._searchEdit)
 
+    def _onThemeModeChanged(self, *args) -> None:
+        self._applySearchEditPalette()
+
     def _onSearchTextChanged(self, text: str) -> None:
         """搜索框文本变化时更新过滤关键词。
 
@@ -425,6 +443,10 @@ class ElaSearchBox(ElaComboBox):
         self._cleanupSearchWidget()
         try:
             self.activated.disconnect(self._onActivated)
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            eTheme.themeModeChanged.disconnect(self._onThemeModeChanged)
         except (TypeError, RuntimeError):
             pass
         super().deleteLater()

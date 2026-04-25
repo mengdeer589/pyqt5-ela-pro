@@ -12,7 +12,6 @@ from PyQt5.QtGui import (
     QPixmap,
     QStandardItemModel,
     QStandardItem,
-    QPalette,
     QColor,
     QFont,
 )
@@ -49,8 +48,6 @@ from PyQt5ElaWidgetTools import (
     ElaTreeView,
     ElaTableView,
     ElaListView,
-    ElaToggleSwitch,
-    ElaCheckBox,
     ElaProgressRing,
     ElaProgressRingType,
     ElaImageCard,
@@ -66,7 +63,6 @@ from PyQt5ElaWidgetTools import (
     ElaMenu,
     ElaMenuBar,
     ElaSuggestBox,
-    ElaToolButton,
 )
 from pyqt5_ela_pro import ThemeWidget, create_ela_splitter, ElaSplitter
 from .base_page import ExamplePage, _res
@@ -151,7 +147,7 @@ class BasicContainerPage(ExamplePage):
         self._demoContentDialog(parent_layout)
 
     def _demoMenu(self, parent_layout):
-        self._demoMenu(parent_layout)
+        self._demoElaMenu(parent_layout)
         self._demoMenuBar(parent_layout)
         self._demoSuggestBox(parent_layout)
 
@@ -975,7 +971,7 @@ class BasicContainerPage(ExamplePage):
             2000,
         )
 
-    def _demoMenu(self, parent_layout):
+    def _demoElaMenu(self, parent_layout):
         parent_layout.addWidget(
             self._createSectionHeader("01. PyQt5ElaWidgetTools - ElaMenu 菜单")
         )

@@ -116,22 +116,12 @@ class ElaScrollableMenu(ElaMenu):
         self.scroll_layout.addWidget(widget)
 
     def clearMenu(self) -> None:
-        """从滚动区域中移除并删除所有子 widget。
-
-        以逆序遍历布局，对每个 widget 及其子组件调用
-        ``deleteLater()``，然后移除布局项。
-        """
+        """从滚动区域中移除并删除所有子 widget。"""
         for i in reversed(range(self.scroll_layout.count())):
             item = self.scroll_layout.itemAt(i)
-            if item.widget():
-                widget = item.widget()
-                for child in widget.findChildren(QObject):
-                    try:
-                        child.deleteLater()
-                    except (RuntimeError, AttributeError):
-                        pass
-                widget.deleteLater()
             self.scroll_layout.removeItem(item)
+            if item.widget():
+                item.widget().deleteLater()
 
     def sizeHint(self) -> Any:
         """返回基于滚动区域的菜单理想尺寸。

@@ -2,12 +2,11 @@
 浏览器嵌入组件 (Windows + PyQt5)
 
 继承自 ElaWindowEmbedder，添加浏览器启动和管理功能。
-需要额外依赖: psutil
 
 使用示例:
     from pyqt5_ela_pro.browser_embedder import ElaBrowserEmbedder
     browser = ElaBrowserEmbedder(
-        webview_path=Path("Supermium/chrome.exe"),
+        webview_path=Path("chrome.exe"),
         port=9023,
         debug_port=9222,
         parent=self
@@ -18,12 +17,11 @@
 from __future__ import annotations
 
 import json
-import multiprocessing
 import time
 from pathlib import Path
 from typing import Optional, Any, Callable
 
-from PyQt5.QtCore import pyqtSignal, QTimer, QObject, QUrl
+from PyQt5.QtCore import pyqtSignal, QTimer, QObject, QUrl, QProcess
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PyQt5.QtWebSockets import QWebSocket
 from PyQt5.QtWidgets import QWidget
@@ -35,19 +33,10 @@ try:
     import win32con
 except ImportError:
     raise ImportError("ElaBrowserEmbedder 需要 pywin32，请运行: uv pip install pywin32")
-
-
-def _run_browser_process(command: list, pid_shared) -> None:
-    """在子进程中运行浏览器"""
-    import subprocess
-
-    proc = subprocess.Popen(
-        command,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    pid_shared.value = proc.pid
+try:
+    import win32process
+except ImportError:
+    win32process = None
 
 
 class _BrowserController(QObject):
@@ -55,6 +44,7 @@ class _BrowserController(QObject):
 
     cdp_ready = pyqtSignal()
     error_occurred = pyqtSignal(str)
+    console_message = pyqtSignal(str, str)
 
     def __init__(
         self,
@@ -98,6 +88,7 @@ class _BrowserController(QObject):
         self._connect_timer.stop()
         self._running = True
         self.send_command("Page.enable")
+        self.send_command("Runtime.enable")
         self.cdp_ready.emit()
 
     def _on_connect_timeout(self) -> None:
@@ -145,6 +136,15 @@ class _BrowserController(QObject):
         elif method == "Page.frameStoppedLoading":
             if self._load_finished_callback:
                 self._load_finished_callback()
+        elif method == "Runtime.consoleAPICalled":
+            msg_type = params.get("type", "log")
+            args = params.get("args", [])
+            texts = []
+            for arg in args:
+                value = arg.get("value", "")
+                texts.append(str(value))
+            text = " ".join(texts)
+            self.console_message.emit(msg_type, text)
 
     def set_load_started_callback(self, callback: Callable) -> None:
         self._load_started_callback = callback
@@ -237,8 +237,6 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
 
     继承自 ElaWindowEmbedder，添加浏览器启动和管理功能。
 
-    依赖: psutil
-
     信号（继承自 ElaWindowEmbedder）:
         window_embedded(int): 窗口嵌入成功
         window_released(int): 窗口释放成功
@@ -252,7 +250,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
 
     使用示例:
         browser = ElaBrowserEmbedder(
-            webview_path=Path("Supermium/chrome.exe"),
+            webview_path=Path("chrome.exe"),
             port=9023,
             debug_port=9222,
             parent=self
@@ -264,12 +262,16 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
     load_finished = pyqtSignal()
     log_message = pyqtSignal(str, int)
     embed_completed = pyqtSignal(bool)
+    console_message = pyqtSignal(str, str)
 
     _debug_port_counter = 9222
+    _freed_ports: set[int] = set()
     _instances: set = set()
 
     @classmethod
     def _alloc_debug_port(cls) -> int:
+        if cls._freed_ports:
+            return cls._freed_ports.pop()
         cls._debug_port_counter += 1
         return cls._debug_port_counter
 
@@ -290,17 +292,17 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         webview_path: Path,
         port: int = 9023,
         debug_port: Optional[int] = None,
+        browser_args: Optional[list[str]] = None,
         parent: Optional[QWidget] = None,
     ):
-        self._check_dependencies()
         super().__init__(parent)
         ElaBrowserEmbedder._instances.add(self)
 
         self._webview_path = webview_path
         self._port = port
         self._debug_port = debug_port or self._alloc_debug_port()
-        self._browser_process: Optional[multiprocessing.Process] = None
-        self._browser_pid: Optional[multiprocessing.Value] = None
+        self._browser_args = browser_args or []
+        self._browser_process: Optional[QProcess] = None
         self._controller: Optional[_BrowserController] = None
         self._target_hwnd: Optional[int] = None
         self._original_parent: Optional[int] = None
@@ -315,21 +317,6 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._debug_url_retries: int = 0
         self._debug_url_max_retries: int = 0
         self._debug_url_callback: Optional[Callable] = None
-
-    @staticmethod
-    def _check_dependencies() -> None:
-        """检查可选依赖是否已安装"""
-        missing = []
-        try:
-            import psutil
-        except ImportError:
-            missing.append("psutil")
-
-        if missing:
-            raise ImportError(
-                f"ElaBrowserEmbedder 需要以下依赖: {', '.join(missing)}\n"
-                f"请运行: uv pip install {' '.join(missing)}"
-            )
 
     def embed(self, url: str, window_title: str, connect_cdp: bool = True) -> None:
         """嵌入浏览器并导航到指定 URL（非阻塞）
@@ -347,7 +334,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             self._log("已有嵌入窗口，请先调用 release()", 30)
             return
 
-        if self._browser_process is not None and self._browser_process.is_alive():
+        if self._browser_process is not None and self._browser_process.state() != QProcess.NotRunning:
             self._log("浏览器进程已在运行，请先调用 release()", 30)
             return
 
@@ -357,28 +344,42 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._start_embed_timer(window_title)
 
     def _start_browser_process(self, url: str) -> None:
-        cache_dir = Path.cwd() / "runtime" / "cache" / f"browser_{self._debug_port}"
-        cache_dir.mkdir(parents=True, exist_ok=True)
-
-        command = [
-            str(self._webview_path),
+        args = [
             f"--app={url}",
             "--incognito",
-            "--disable-web-security",
             "--no-first-run",
             "--disable-sync",
-            "--kiosk",
-            "--start-maximized",
+            # "--kiosk",
+            f"--window-position=-9999,-9999",
             f"--remote-debugging-port={self._debug_port}",
             "--remote-allow-origins=*",
-            f"--user-data-dir={cache_dir}",
         ]
+        args.extend(self._browser_args)
 
-        self._browser_pid = multiprocessing.Value("i", 0)
-        self._browser_process = multiprocessing.Process(
-            target=_run_browser_process, args=(command, self._browser_pid), daemon=True
+        self._browser_process = QProcess(self)
+        self._browser_process.setProgram(str(self._webview_path))
+        self._browser_process.setArguments(args)
+        self._browser_process.readyReadStandardOutput.connect(
+            self._on_browser_stdout
+        )
+        self._browser_process.readyReadStandardError.connect(
+            self._on_browser_stderr
         )
         self._browser_process.start()
+
+    def _on_browser_stdout(self) -> None:
+        data = bytes(self._browser_process.readAllStandardOutput()).decode(
+            errors="replace"
+        )
+        if data.strip():
+            self._log(f"[stdout] {data.strip()}", 10)
+
+    def _on_browser_stderr(self) -> None:
+        data = bytes(self._browser_process.readAllStandardError()).decode(
+            errors="replace"
+        )
+        if data.strip():
+            self._log(f"[stderr] {data.strip()}", 20)
 
     def _start_embed_timer(self, window_title: str, timeout: float = 30) -> None:
         self._embed_timeout = timeout
@@ -404,6 +405,18 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
 
         hwnd = self.find_window_by_title(self._pending_window_title)
         if hwnd:
+            if (
+                win32process
+                and self._browser_process
+                and self._browser_process.state() == QProcess.Running
+            ):
+                try:
+                    _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                    if pid != self._browser_process.processId():
+                        hwnd = 0
+                except Exception:
+                    hwnd = 0
+        if hwnd:
             if self._browser_embed_timer:
                 self._browser_embed_timer.stop()
             self._pending_window_title = None
@@ -425,6 +438,14 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             ElaWindowEmbedder.release(self)
 
         self._try_embed_once(hwnd)
+        if self._original_rect and self._original_rect[0] < -5000:
+            w = self._original_rect[2] - self._original_rect[0]
+            h = self._original_rect[3] - self._original_rect[1]
+            screen = win32gui.GetWindowRect(win32gui.GetDesktopWindow())
+            cx = screen[0] + (screen[2] - screen[0] - w) // 2
+            cy = screen[1] + (screen[3] - screen[1] - h) // 2
+            self._original_rect = (cx, cy, cx + w, cy + h)
+        win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
 
     def _log(self, message: str, level: int = 30) -> None:
         self.log_message.emit(message, level)
@@ -508,6 +529,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         )
         self._controller.cdp_ready.connect(self._on_cdp_ready)
         self._controller.error_occurred.connect(self._on_cdp_error)
+        self._controller.console_message.connect(self.console_message)
         self._controller.connect()
 
     def _on_cdp_ready(self) -> None:
@@ -552,13 +574,12 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             self._controller.close()
             self._controller = None
 
-        if self._browser_pid and self._browser_pid.value != 0:
-            self._kill_browser_by_pid(self._browser_pid.value)
         if self._browser_process:
-            self._browser_process.terminate()
-            self._browser_process.join(timeout=5)
-            if self._browser_process.is_alive():
-                self._browser_process.kill()
+            if self._browser_process.state() == QProcess.Running:
+                self._browser_process.terminate()
+                if not self._browser_process.waitForFinished(2000):
+                    self._browser_process.kill()
+                    self._browser_process.waitForFinished(100)
             self._browser_process = None
 
     def release(self) -> None:
@@ -602,20 +623,13 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         ElaWindowEmbedder.release(self, destroy=True)
 
         self._cleanup_browser()
+        if hasattr(self, '_debug_port') and self._debug_port:
+            ElaBrowserEmbedder._freed_ports.add(self._debug_port)
         ElaBrowserEmbedder._instances.discard(self)
 
-    def _kill_browser_by_pid(self, pid: int) -> None:
-        import psutil
-
-        try:
-            proc = psutil.Process(pid)
-            exe_path = proc.exe()
-            if exe_path.lower() == str(self._webview_path).lower():
-                self._log(f"杀死浏览器进程 {pid}: {exe_path}", 20)
-                proc.kill()
-            else:
-                self._log(f"跳过进程 {pid}: {exe_path} (不是目标浏览器)", 30)
-        except psutil.NoSuchProcess:
-            pass
-        except Exception as e:
-            self._log(f"杀死进程失败: {e}", 40)
+    def deleteLater(self) -> None:
+        if self in ElaBrowserEmbedder._instances:
+            self.release()
+        else:
+            self._cleanup_browser()
+        super().deleteLater()

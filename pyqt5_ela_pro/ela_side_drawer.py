@@ -219,19 +219,19 @@ class ElaDrawer(QWidget):
         self._main_layout.addWidget(widget)
         return self
 
-    def setDrawerSize(self, size: int) -> "ElaSideDrawer":
+    def setDrawerSize(self, size: int) -> "ElaDrawer":
         self._drawer_size = size
         return self
 
-    def setCornerRadius(self, radius: int) -> "ElaSideDrawer":
+    def setCornerRadius(self, radius: int) -> "ElaDrawer":
         self._corner_radius = radius
         return self
 
-    def setCloseOnDimClicked(self, on: bool) -> "ElaSideDrawer":
+    def setCloseOnDimClicked(self, on: bool) -> "ElaDrawer":
         self._close_on_dim_clicked = on
         return self
 
-    def setAnimationDuration(self, duration: int) -> "ElaSideDrawer":
+    def setAnimationDuration(self, duration: int) -> "ElaDrawer":
         self._animation_duration = duration
         self._show_anim.setDuration(duration)
         self._hide_anim.setDuration(duration)

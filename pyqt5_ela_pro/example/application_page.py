@@ -2,6 +2,7 @@
 [ela_ext] 应用级组件演示页面 - PyQt5ElaWidgetTools
 """
 
+from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QApplication
 from PyQt5.QtGui import QFont
 from PyQt5ElaWidgetTools import (
@@ -133,14 +134,27 @@ class ApplicationComponentsPage(ExamplePage):
         )
         splash.show()
         splash.showMessage("正在加载组件...")
-        import time
 
-        time.sleep(1)
-        splash.showMessage("正在初始化主题...")
-        time.sleep(1)
-        splash.showMessage("正在启动应用程序...")
-        time.sleep(1)
-        splash.finish(self.window())
+        messages = [
+            "正在加载组件...",
+            "正在初始化主题...",
+            "正在启动应用程序...",
+        ]
+        self._splash_step = 0
+
+        def next_step():
+            if self._splash_step < len(messages):
+                progress = (self._splash_step + 1) / len(messages)
+                splash.setProgress(progress)
+                splash.showMessage(messages[self._splash_step])
+                self._splash_step += 1
+            else:
+                self._splash_timer.stop()
+                splash.finish(self.window())
+
+        self._splash_timer = QTimer(self)
+        self._splash_timer.timeout.connect(next_step)
+        self._splash_timer.start(800)
 
     def _demoTaskbarProgress(self, parent_layout):
         section = ElaText("06. ElaTaskbarProgress - 任务栏进度条", self)

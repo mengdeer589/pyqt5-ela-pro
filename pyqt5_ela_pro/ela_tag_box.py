@@ -9,69 +9,24 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import (
-    Qt,
-    QRect,
-    QRectF,
-    QPropertyAnimation,
-    QEasingCurve,
-    pyqtProperty,
+from PyQt5.QtCore import QEasingCurve
+from PyQt5.QtGui import QPainter
+from PyQt5.QtWidgets import QWidget
+
+from PyQt5ElaWidgetTools import ElaComboBox
+
+from .ela_tag_combo_base import (
+    _TagBoxThemeMixin,
+    _TagBoxAnimMixin,
+    _draw_tag_background,
+    _draw_tag_title,
+    _draw_tag_arrow,
+    _draw_tag_mark,
+    _draw_single_value_text,
 )
-from PyQt5.QtGui import (
-    QColor,
-    QPainter,
-    QPainterPath,
-    QFontMetrics,
-    QTextOption,
-    QPen,
-    QFont,
-    QTransform,
-)
-from PyQt5.QtWidgets import QWidget, QStyleOptionComboBox, QStylePainter
-
-from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaComboBox, ElaIcon, ElaIconType
 
 
-class _TagBoxThemeMixin:
-    """标签框主题色方法混入类，提供共用的 _getTitleColor / _getBackgroundColor / _getBorderColor。"""
-
-    def _getTitleColor(self) -> QColor:
-        if not self.isEnabled():
-            return eTheme.getThemeColor(
-                eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicTextDisable
-            )
-        return eTheme.getThemeColor(
-            eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicText
-        )
-
-    def _getBackgroundColor(self) -> QColor:
-        current_theme = eTheme.getThemeMode()
-        if not self.isEnabled():
-            return eTheme.getThemeColor(
-                current_theme, ElaThemeType.ThemeColor.BasicDisable
-            )
-        if self.hasFocus():
-            return eTheme.getThemeColor(
-                current_theme, ElaThemeType.ThemeColor.DialogBase
-            )
-        if self.underMouse():
-            return eTheme.getThemeColor(
-                current_theme, ElaThemeType.ThemeColor.BasicHover
-            )
-        return eTheme.getThemeColor(current_theme, ElaThemeType.ThemeColor.BasicBase)
-
-    def _getBorderColor(self) -> QColor:
-        if self.hasFocus():
-            return eTheme.getThemeColor(
-                eTheme.getThemeMode(), ElaThemeType.ThemeColor.PrimaryNormal
-            )
-        current_theme = eTheme.getThemeMode()
-        return eTheme.getThemeColor(
-            current_theme, ElaThemeType.ThemeColor.BasicBaseLine
-        )
-
-
-class ElaTagBox(_TagBoxThemeMixin, ElaComboBox):
+class ElaTagBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaComboBox):
     """具名组合框。
 
     带有标题标签的组合框，只读模式。
@@ -92,44 +47,12 @@ class ElaTagBox(_TagBoxThemeMixin, ElaComboBox):
         title: str = "",
     ) -> None:
         super().__init__(parent)
-
-        self._title_text = title
-        self._title_font_size = 13
-        self._expand_mark_width: float = 0.0
-        self._expand_icon_rotate: float = 0.0
-
-        self._mark_animation = QPropertyAnimation(self, b"expandMarkWidth")
-        self._mark_animation.setDuration(300)
-        self._mark_animation.setEasingCurve(QEasingCurve.InOutSine)
-
-        self._rotate_animation = QPropertyAnimation(self, b"expandIconRotate")
-        self._rotate_animation.setDuration(300)
-        self._rotate_animation.setEasingCurve(QEasingCurve.InOutSine)
-
-        self.setFixedHeight(38)
+        self._tag_box_init(title)
         self.currentIndexChanged.connect(self._onCurrentIndexChanged)
 
-    @pyqtProperty(float)
-    def expandMarkWidth(self) -> float:
-        return self._expand_mark_width
-
-    @expandMarkWidth.setter
-    def expandMarkWidth(self, width: float) -> None:
-        if self._expand_mark_width != width:
-            self._expand_mark_width = width
-            self.update()
-
-    @pyqtProperty(float)
-    def expandIconRotate(self) -> float:
-        return self._expand_icon_rotate
-
-    @expandIconRotate.setter
-    def expandIconRotate(self, rotate: float) -> None:
-        if self._expand_icon_rotate != rotate:
-            self._expand_icon_rotate = rotate
-            self.update()
-
     def showPopup(self) -> None:
+        if self.count() == 0:
+            return
         target_mark_width = self.width() / 2 - 9
         self._mark_animation.setStartValue(self._expand_mark_width)
         self._mark_animation.setEndValue(target_mark_width)
@@ -152,138 +75,24 @@ class ElaTagBox(_TagBoxThemeMixin, ElaComboBox):
 
         super().hidePopup()
 
-    def setTitle(self, title: str) -> None:
-        """设置标题文字。
-
-        :param title: 标题文字
-        """
-        self._title_text = title
-        self.update()
-
-    def title(self) -> str:
-        """返回标题文字。
-
-        :return: 标题文字
-        """
-        return self._title_text
-
     def _onCurrentIndexChanged(self, index: int) -> None:
         self.update()
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-
-        shadow_border = 3
-        content_rect = QRect(
-            shadow_border,
-            shadow_border,
-            self.width() - 2 * shadow_border,
-            self.height() - 2 * shadow_border,
+        content_rect, text_color, _ = _draw_tag_background(painter, self)
+        _draw_tag_mark(painter, self, self._expand_mark_width)
+        title_rect = _draw_tag_title(
+            painter, content_rect, self._title_text,
+            self._title_font_size, text_color, self.font(),
+        )
+        _draw_single_value_text(
+            painter, content_rect, title_rect, self.currentText(),
+        )
+        _draw_tag_arrow(
+            painter, content_rect, text_color, self._expand_icon_rotate,
         )
 
-        bg_color = self._getBackgroundColor()
-        text_color = self._getTitleColor()
-        border_color = self._getBorderColor()
-
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(content_rect), 3, 3)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(bg_color)
-        painter.drawPath(path)
-
-        pen = QPen(border_color)
-        pen.setWidth(2)
-        painter.setPen(pen)
-        y = content_rect.bottom()
-        painter.drawLine(content_rect.left(), y, content_rect.right(), y)
-
-        if self._expand_mark_width > 0:
-            mark_color = eTheme.getThemeColor(
-                eTheme.getThemeMode(), ElaThemeType.ThemeColor.PrimaryNormal
-            )
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(mark_color)
-            mark_rect = QRectF(
-                self.width() / 2 - self._expand_mark_width,
-                self.height() - 3,
-                self._expand_mark_width * 2,
-                3,
-            )
-            mark_path = QPainterPath()
-            mark_path.addRoundedRect(mark_rect, 1.5, 1.5)
-            painter.drawPath(mark_path)
-
-        metrics = QFontMetrics(self.font())
-        title_width = metrics.horizontalAdvance(self._title_text) + 20
-
-        title_rect = QRect(
-            content_rect.left(),
-            content_rect.top(),
-            title_width,
-            content_rect.height(),
-        )
-        title_option = QTextOption()
-        title_option.setWrapMode(QTextOption.NoWrap)
-        title_option.setAlignment(
-            Qt.Alignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-        )
-        title_font = QFont(self.font())
-        title_font.setPixelSize(self._title_font_size)
-        painter.setFont(title_font)
-        painter.setPen(text_color)
-        painter.drawText(
-            QRectF(title_rect.adjusted(10, 0, -10, 0)),
-            self._title_text,
-            title_option,
-        )
-
-        current_text = self.currentText()
-        if current_text:
-            text_left = title_rect.right()
-            text_width = content_rect.right() - 30 - text_left
-            if text_width > 0:
-                text_rect = QRect(
-                    text_left,
-                    content_rect.top(),
-                    text_width,
-                    content_rect.height(),
-                )
-                text_option = QTextOption()
-                text_option.setWrapMode(QTextOption.NoWrap)
-                text_option.setAlignment(
-                    Qt.Alignment(
-                        Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
-                    )
-                )
-                painter.drawText(
-                    QRectF(text_rect),
-                    current_text,
-                    text_option,
-                )
-
-        arrow_rect = QRect(
-            content_rect.right() - 25,
-            content_rect.top(),
-            20,
-            content_rect.height(),
-        )
-        icon = ElaIcon.getInstance().getElaIcon(
-            ElaIconType.IconName.AngleDown, text_color
-        )
-        icon_pixmap = icon.pixmap(17, 17)
-
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        transform = QTransform()
-        transform.translate(
-            arrow_rect.left() + arrow_rect.width() / 2,
-            arrow_rect.top() + arrow_rect.height() / 2,
-        )
-        transform.rotate(self._expand_icon_rotate)
-        transform.translate(-icon_pixmap.width() / 2, -icon_pixmap.height() / 2)
-        painter.setTransform(transform)
-        painter.drawPixmap(0, 0, icon_pixmap)
-        painter.restore()
+    def deleteLater(self) -> None:
+        self._tag_box_delete_later()
+        super().deleteLater()

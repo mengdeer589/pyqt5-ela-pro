@@ -7,6 +7,7 @@ TrendChart 趋势图组件。
 
 from __future__ import annotations
 
+import math
 from typing import Optional, Callable
 
 from PyQt5.QtCore import Qt, QRect, QRectF, QPointF, QPoint
@@ -19,7 +20,8 @@ from PyQt5.QtGui import (
     QFont,
     QPixmap,
 )
-from PyQt5.QtWidgets import QWidget, QToolTip
+from PyQt5.QtWidgets import QWidget, QToolTip, QFileDialog
+from PyQt5.QtSvg import QSvgGenerator
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
@@ -88,6 +90,11 @@ class ElaTrendChart(QWidget):
 
         self.setMouseTracking(True)
         self.setMinimumSize(200, 150)
+
+        self._interaction_enabled = False
+        self._panning = False
+        self._pan_start_pos = QPoint(0, 0)
+        self._pan_start_rect = QRectF()
 
         eTheme.themeModeChanged.connect(self._onThemeChanged)
 
@@ -318,6 +325,19 @@ class ElaTrendChart(QWidget):
         """
         self._on_point_clicked = callback
 
+    def setInteractionEnabled(self, enabled: bool) -> None:
+        """启用或禁用鼠标拖拽平移和滚轮缩放。
+
+        :param enabled: True 启用交互，False 禁用
+        """
+        self._interaction_enabled = enabled
+        if not enabled:
+            self._panning = False
+
+    def isInteractionEnabled(self) -> bool:
+        """是否启用了鼠标拖拽平移和滚轮缩放。"""
+        return self._interaction_enabled
+
     def setLineWidth(self, width: float) -> None:
         """设置数据线宽度。
 
@@ -396,23 +416,8 @@ class ElaTrendChart(QWidget):
 
         return nearest_curve_idx, nearest_point
 
-    def _renderDataLine(self) -> None:
-        """渲染所有数据线到缓存。"""
-        if not self._curves:
-            self._data_pixmap = None
-            return
-
-        chart = self._getChartRect()
-        if chart.width() <= 0 or chart.height() <= 0:
-            return
-
-        pixmap = QPixmap(chart.size())
-        pixmap.fill(Qt.GlobalColor.transparent)
-
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
+    def _drawDataLines(self, painter: QPainter, chart: QRect) -> None:
+        """将数据曲线直接绘制到 painter（矢量）。"""
         for curve in self._curves:
             path = QPainterPath()
             first = True
@@ -436,11 +441,42 @@ class ElaTrendChart(QWidget):
             painter.setPen(pen)
             painter.drawPath(path)
 
+    def _renderDataLine(self) -> None:
+        """渲染所有数据线到像素缓存。"""
+        if not self._curves:
+            self._data_pixmap = None
+            return
+        chart = self._getChartRect()
+        if chart.width() <= 0 or chart.height() <= 0:
+            return
+        pixmap = QPixmap(chart.size())
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self._drawDataLines(painter, chart)
         painter.end()
         self._data_pixmap = pixmap
         self._last_size = QPoint(self.width(), self.height())
 
     def mouseMoveEvent(self, event) -> None:
+        if self._panning:
+            delta = event.pos() - self._pan_start_pos
+            chart = self._getChartRect()
+            if chart.width() == 0 or chart.height() == 0:
+                return
+            dx = -delta.x() / chart.width() * self._pan_start_rect.width()
+            dy = delta.y() / chart.height() * self._pan_start_rect.height()
+            self._view_rect = QRectF(
+                self._pan_start_rect.left() + dx,
+                self._pan_start_rect.top() + dy,
+                self._pan_start_rect.width(),
+                self._pan_start_rect.height(),
+            )
+            self._data_pixmap = None
+            self.update()
+            return
+
         pos = event.pos()
         chart = self._getChartRect()
 
@@ -470,6 +506,13 @@ class ElaTrendChart(QWidget):
         super().mouseMoveEvent(event)
 
     def mousePressEvent(self, event) -> None:
+        super().mousePressEvent(event)
+        if self._interaction_enabled and event.button() == Qt.MouseButton.LeftButton:
+            self._panning = True
+            self._pan_start_pos = event.pos()
+            self._pan_start_rect = QRectF(self._view_rect)
+            self.setCursor(Qt.ClosedHandCursor)
+            return
         if (
             event.button() == Qt.MouseButton.LeftButton
             and self._indicator_visible
@@ -483,7 +526,44 @@ class ElaTrendChart(QWidget):
                     self._indicator_point.x(),
                     self._indicator_point.y(),
                 )
-        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        super().mouseReleaseEvent(event)
+        if self._panning and event.button() == Qt.MouseButton.LeftButton:
+            self._panning = False
+            self.setCursor(Qt.ArrowCursor)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        if self._interaction_enabled and event.button() == Qt.MouseButton.LeftButton:
+            self.adjustViewRect()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def wheelEvent(self, event) -> None:
+        if not self._interaction_enabled:
+            super().wheelEvent(event)
+            return
+        chart = self._getChartRect()
+        if not chart.contains(event.pos()):
+            return
+        factor = 1.12 if event.angleDelta().y() > 0 else 1.0 / 1.12
+        mouse_data = self.posToCoordinate(event.pos())
+        cx = mouse_data.x()
+        cy = mouse_data.y()
+        old_w = self._view_rect.width()
+        old_h = self._view_rect.height()
+        new_w = old_w / factor
+        new_h = old_h / factor
+        self._view_rect = QRectF(
+            cx - (cx - self._view_rect.left()) / old_w * new_w,
+            cy - (cy - self._view_rect.top()) / old_h * new_h,
+            new_w,
+            new_h,
+        )
+        self._data_pixmap = None
+        self.update()
+        event.accept()
 
     def leaveEvent(self, event) -> None:
         self._indicator_visible = False
@@ -493,6 +573,13 @@ class ElaTrendChart(QWidget):
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
+        self._paint_chart(painter)
+
+    def _paint_chart(self, painter: QPainter, vector_lines: bool = False) -> None:
+        """将图表完整绘制到给定的 QPainter 上。
+
+        :param vector_lines: True 时数据线用矢量路径绘制（SVG 导出用）
+        """
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
@@ -505,19 +592,65 @@ class ElaTrendChart(QWidget):
         if self._grid_visible:
             self._drawGrid(painter, chart)
 
-        if self._data_pixmap is None or self._last_size != QPoint(
-            self.width(), self.height()
-        ):
-            self._renderDataLine()
-
-        if self._data_pixmap:
-            painter.drawPixmap(chart.topLeft(), self._data_pixmap)
+        if vector_lines and self._curves:
+            painter.save()
+            painter.translate(chart.topLeft())
+            self._drawDataLines(painter, chart)
+            painter.restore()
+        else:
+            if self._data_pixmap is None or self._last_size != QPoint(
+                self.width(), self.height()
+            ):
+                self._renderDataLine()
+            if self._data_pixmap:
+                painter.drawPixmap(chart.topLeft(), self._data_pixmap)
 
         self._drawIndicator(painter, chart)
         self._drawAxisLabels(painter, chart)
 
         if self._legend_visible:
             self._drawLegend(painter, chart)
+
+    def save_to_png(self, filepath: str) -> bool:
+        """导出为 PNG 图片。
+
+        :param filepath: 保存路径
+        :returns: 是否成功
+        """
+        pixmap = self.grab()
+        return pixmap.save(filepath, "PNG")
+
+    def save_to_svg(self, filepath: str) -> bool:
+        """导出为 SVG 矢量图。
+
+        :param filepath: 保存路径
+        :returns: 是否成功
+        """
+        generator = QSvgGenerator()
+        generator.setFileName(filepath)
+        generator.setSize(self.size())
+        generator.setViewBox(QRectF(0, 0, self.width(), self.height()))
+        generator.setTitle("ElaTrendChart")
+        painter = QPainter(generator)
+        self._paint_chart(painter, vector_lines=True)
+        painter.end()
+        return True
+
+    def _computeTickDelta(self, range_value: float, target_ticks: int = 8) -> float:
+        """根据数值范围计算合适的刻度间距，使刻度数接近 target_ticks。"""
+        if range_value <= 0:
+            return 1.0
+        raw = range_value / target_ticks
+        magnitude = 10 ** math.floor(math.log10(raw))
+        normalized = raw / magnitude
+        if normalized < 1.5:
+            return magnitude
+        elif normalized < 3.5:
+            return 2 * magnitude
+        elif normalized < 7.5:
+            return 5 * magnitude
+        else:
+            return 10 * magnitude
 
     def _drawGrid(self, painter: QPainter, chart: QRect) -> None:
         """绘制网格线。"""
@@ -531,6 +664,9 @@ class ElaTrendChart(QWidget):
         y_start = self._view_rect.top()
         y_end = self._view_rect.bottom()
 
+        x_tick = self._computeTickDelta(x_end - x_start)
+        y_tick = self._computeTickDelta(y_end - y_start)
+
         x = x_start
         while x <= x_end:
             if abs(x - 0) < 0.001:
@@ -543,7 +679,7 @@ class ElaTrendChart(QWidget):
             pos = self.coordinateToPos(QPointF(x, y_start))
             if chart.left() <= pos.x() <= chart.right():
                 painter.drawLine(pos.x(), chart.top(), pos.x(), chart.bottom())
-            x += self._x_tick_delta
+            x += x_tick
 
         y = y_start
         while y <= y_end:
@@ -557,7 +693,7 @@ class ElaTrendChart(QWidget):
             pos = self.coordinateToPos(QPointF(x_start, y))
             if chart.top() <= pos.y() <= chart.bottom():
                 painter.drawLine(chart.left(), pos.y(), chart.right(), pos.y())
-            y += self._y_tick_delta
+            y += y_tick
 
     def _drawIndicator(self, painter: QPainter, chart: QRect) -> None:
         """绘制指示器。"""
@@ -594,6 +730,13 @@ class ElaTrendChart(QWidget):
 
         metrics = QFontMetrics(font)
 
+        x_tick = self._computeTickDelta(
+            self._view_rect.right() - self._view_rect.left()
+        )
+        y_tick = self._computeTickDelta(
+            self._view_rect.bottom() - self._view_rect.top()
+        )
+
         x = self._view_rect.left()
         while x <= self._view_rect.right():
             pos = self.coordinateToPos(QPointF(x, 0))
@@ -604,7 +747,7 @@ class ElaTrendChart(QWidget):
                     chart.bottom() + 15,
                     label,
                 )
-            x += self._x_tick_delta
+            x += x_tick
 
         y = self._view_rect.top()
         while y <= self._view_rect.bottom():
@@ -616,7 +759,7 @@ class ElaTrendChart(QWidget):
                     pos.y() + metrics.ascent() // 2,
                     label,
                 )
-            y += self._y_tick_delta
+            y += y_tick
 
     def _drawLegend(self, painter: QPainter, chart: QRect) -> None:
         """绘制图例。"""

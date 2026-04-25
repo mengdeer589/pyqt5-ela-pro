@@ -68,12 +68,9 @@ class ElaSplitter(QSplitter):
         self.update()
 
     def setHandleWidth(self, width):
-        """设置手柄宽度（此方法被覆盖，请通过构造函数 handleThickness 参数设置）。"""
-        import logging
-        logging.getLogger(__name__).warning(
-            "ElaSplitter.setHandleWidth is a no-op. "
-            "Use the handleThickness constructor argument instead."
-        )
+        self._handle_thickness = width
+        self._style._thickness = width
+        super().setHandleWidth(width)
 
 
 def create_ela_splitter(

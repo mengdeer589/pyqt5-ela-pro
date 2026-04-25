@@ -218,7 +218,7 @@ class ElaLongPressBtn(ElaPushButton):
         gradient = QLinearGradient(rect.topLeft(), rect.topRight())
         gradient.setColorAt(0, self._progress_color)
         gradient.setColorAt(p, self._progress_color)
-        gradient.setColorAt(min(p + 0.001, 1.0), QColor(0, 0, 0, 0))
+        gradient.setColorAt(min(p + 0.05, 1.0), QColor(0, 0, 0, 0))
         gradient.setColorAt(1, QColor(0, 0, 0, 0))
         painter.fillRect(rect, gradient)
 

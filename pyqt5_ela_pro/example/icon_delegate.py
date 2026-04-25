@@ -1,6 +1,6 @@
-from PyQt5.QtCore import *
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
+from PyQt5.QtCore import Qt, QModelIndex, QSize
+from PyQt5.QtWidgets import QStyledItemDelegate, QStyle, QStyleOptionViewItem
+from PyQt5.QtGui import QPainter, QFont
 from PyQt5ElaWidgetTools import eTheme, ElaThemeColor, ElaThemeType
 
 
