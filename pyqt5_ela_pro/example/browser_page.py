@@ -4,9 +4,10 @@
 
 import os
 from pathlib import Path
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QHBoxLayout, QTextEdit, QPushButton
-from PyQt5ElaWidgetTools import ElaText
+from PyQt5.QtWidgets import QHBoxLayout
+from PyQt5ElaWidgetTools import ElaText,ElaPushButton,ElaPlainTextEdit
+from PyQt5ElaWidgetTools.ElaWidgetTools import ElaLineEdit
+
 from pyqt5_ela_pro import ElaBrowserEmbedder
 from .base_page import ExamplePage
 
@@ -38,28 +39,28 @@ class BrowserExamplePage(ExamplePage):
             return
 
         url_layout = QHBoxLayout()
-        self._url_input = QTextEdit()
+        self._url_input = ElaLineEdit()
         self._url_input.setFixedHeight(30)
         self._url_input.setText(TEST_URL)
         url_layout.addWidget(self._url_input)
 
-        embed_btn = QPushButton("嵌入浏览器")
+        embed_btn = ElaPushButton("嵌入浏览器")
         embed_btn.clicked.connect(self._embed_browser)
         url_layout.addWidget(embed_btn)
 
-        release_btn = QPushButton("释放浏览器")
+        release_btn = ElaPushButton("释放浏览器")
         release_btn.clicked.connect(self._release_browser)
         url_layout.addWidget(release_btn)
 
-        nav_btn = QPushButton("导航")
+        nav_btn = ElaPushButton("导航")
         nav_btn.clicked.connect(self._navigate)
         url_layout.addWidget(nav_btn)
 
-        reload_btn = QPushButton("刷新")
+        reload_btn = ElaPushButton("刷新")
         reload_btn.clicked.connect(self._reload)
         url_layout.addWidget(reload_btn)
 
-        js_btn = QPushButton("执行JS")
+        js_btn = ElaPushButton("执行JS")
         js_btn.clicked.connect(self._runJS)
         url_layout.addWidget(js_btn)
 
@@ -79,7 +80,7 @@ class BrowserExamplePage(ExamplePage):
         self._status_label.setTextPixelSize(14)
         layout.addWidget(self._status_label)
 
-        self._log_output = QTextEdit()
+        self._log_output = ElaPlainTextEdit()
         self._log_output.setReadOnly(True)
         self._log_output.setFixedHeight(80)
         layout.addWidget(self._log_output)
@@ -103,8 +104,11 @@ class BrowserExamplePage(ExamplePage):
         self._browser_widget.logMessage.connect(self._log)
 
     def _log(self, msg):
-        self._log_output.append(msg)
-        self._status_label.setText(f"状态: {msg[:20]}...")
+        try:
+            self._log_output.appendPlainText(msg)
+            self._status_label.setText(f"状态: {msg[:20]}...")
+        except Exception as e:
+            print(e)
 
     def _on_embed_completed(self, ok: bool):
         if ok:
@@ -113,7 +117,7 @@ class BrowserExamplePage(ExamplePage):
             self._log("CDP 连接失败")
 
     def _embed_browser(self):
-        url = self._url_input.toPlainText().strip()
+        url = self._url_input.text().strip()
         self._log(f"嵌入: {url}")
         try:
             self._browser_widget.embed(url, window_title="bilibili", connect_cdp=True)
@@ -128,7 +132,7 @@ class BrowserExamplePage(ExamplePage):
             self._log(f"释放错误: {e}")
 
     def _navigate(self):
-        url = self._url_input.toPlainText().strip()
+        url = self._url_input.text().strip()
         self._log(f"导航: {url}")
         self._browser_widget.navigate(url)
 

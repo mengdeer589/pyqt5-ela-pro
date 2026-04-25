@@ -20,7 +20,7 @@ from PyQt5.QtGui import (
     QFont,
     QPixmap,
 )
-from PyQt5.QtWidgets import QWidget, QToolTip, QFileDialog
+from PyQt5.QtWidgets import QWidget, QToolTip
 from PyQt5.QtSvg import QSvgGenerator
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType

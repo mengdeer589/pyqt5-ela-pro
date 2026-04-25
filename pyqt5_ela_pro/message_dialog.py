@@ -10,7 +10,7 @@ from typing import Optional
 
 from PyQt5.QtWidgets import QWidget
 
-from PyQt5ElaWidgetTools import ElaText, ElaTextType
+from PyQt5ElaWidgetTools import ElaText
 
 from .dialog_base import ElaDialogBase
 

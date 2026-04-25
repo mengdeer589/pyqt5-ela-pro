@@ -12,7 +12,7 @@ from PyQt5.QtCore import Qt, QRect, QRectF, QLine
 from PyQt5.QtGui import QColor, QPainter, QFontMetrics, QTextOption, QPen, QFont
 from PyQt5.QtWidgets import QWidget
 
-from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaLineEdit, ElaThemeColor
+from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaLineEdit
 
 
 class ElaTagLineEdit(ElaLineEdit):

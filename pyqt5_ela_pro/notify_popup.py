@@ -17,8 +17,7 @@ from PyQt5ElaWidgetTools import (
     ElaThemeType,
     ElaText,
     ElaIconButton,
-    ElaIconType,
-    ElaTheme,
+    ElaIconType
 )
 
 

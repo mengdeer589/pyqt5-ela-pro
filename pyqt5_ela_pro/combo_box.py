@@ -12,17 +12,13 @@ ComboBox 组件模块。
 
 from __future__ import annotations
 
-import sys
 from typing import Any, Optional
 
-from PyQt5.QtCore import QRect, Qt, QSortFilterProxyModel, QStringListModel, QModelIndex
-from PyQt5.QtGui import QGuiApplication, QPainter, QPen, QPaintEvent, QPalette, QColor
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QLineEdit, QBoxLayout
+from PyQt5.QtCore import Qt, QSortFilterProxyModel, QStringListModel, QModelIndex
+from PyQt5.QtGui import  QPalette, QColor
+from PyQt5.QtWidgets import  QWidget, QVBoxLayout, QLineEdit, QBoxLayout
 from PyQt5ElaWidgetTools import (
-    ElaThemeColor,
     ElaThemeType,
-    ElaWindow,
-    eApp,
     eTheme,
     ElaComboBox,
     ElaMultiSelectComboBox,

@@ -36,7 +36,7 @@ from PyQt5.QtGui import (
     QHideEvent,
     QMouseEvent, QPen, QPainterPath,
 )
-from PyQt5.QtWidgets import QWidget, QLabel, QGraphicsOpacityEffect, QGraphicsDropShadowEffect
+from PyQt5.QtWidgets import QWidget, QLabel, QGraphicsDropShadowEffect
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType, ElaText
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt5.QtCore import Qt, QObject
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QShowEvent
 from PyQt5.QtWidgets import (
     QWidget,

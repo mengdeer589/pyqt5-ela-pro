@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import QEasingCurve
 from PyQt5.QtGui import QPainter, QPaintEvent
 from PyQt5.QtWidgets import QWidget
 

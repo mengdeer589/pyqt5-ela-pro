@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import weakref
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 from PyQt5.QtCore import QPropertyAnimation, QPoint
 from PyQt5.QtWidgets import QWidget

@@ -6,9 +6,9 @@
 
 from __future__ import annotations
 
-from typing import Optional, Literal
+from typing import Optional
 
-from PyQt5.QtWidgets import QPushButton, QWidget, QLayout, QHBoxLayout, QVBoxLayout
+from PyQt5.QtWidgets import QPushButton, QWidget, QVBoxLayout
 from PyQt5ElaWidgetTools import ElaContentDialog, ElaText, ElaTextType
 
 

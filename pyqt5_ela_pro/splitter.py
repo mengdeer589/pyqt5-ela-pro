@@ -8,9 +8,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtWidgets import QSplitter, QWidget, QStyle, QStyleOption, QProxyStyle, QBoxLayout
+from PyQt5.QtWidgets import QSplitter, QWidget, QStyle, QProxyStyle, QBoxLayout
 from PyQt5.QtCore import Qt, QRect
-from PyQt5.QtGui import QPainter, QColor
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
 
