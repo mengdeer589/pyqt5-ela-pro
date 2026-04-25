@@ -18,14 +18,13 @@
 from __future__ import annotations
 
 import json
-import logging
 import multiprocessing
 import time
 import urllib.request
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, Callable
 
-from PyQt5.QtCore import QObject, QUrl, QTimer
+from PyQt5.QtCore import pyqtSignal, QTimer, QObject, QEventLoop, QUrl
 from PyQt5.QtWebSockets import QWebSocket
 from PyQt5.QtWidgets import QWidget
 
@@ -37,10 +36,8 @@ try:
 except ImportError:
     raise ImportError("ElaBrowserEmbedder 需要 pywin32，请运行: uv pip install pywin32")
 
-logger = logging.getLogger(__name__)
 
-
-def _run_browser_process(command: list, pid_shared: multiprocessing.Value) -> None:
+def _run_browser_process(command: list, pid_shared) -> None:
     """在子进程中运行浏览器"""
     import subprocess
 
@@ -54,50 +51,111 @@ def _run_browser_process(command: list, pid_shared: multiprocessing.Value) -> No
 
 
 class _BrowserController(QObject):
-    """CDP WebSocket 客户端 (基于 QWebSocket)
+    """CDP WebSocket 客户端（内部类）"""
 
-    使用 QWebSocket 与浏览器的 CDP 端点通信，完全运行在 Qt 事件循环中，
-    避免与 Qt 渲染管线冲突。连接保持打开，不在每次操作后关闭。
-    """
-
-    def __init__(self, debugger_url: str, parent=None):
-        super().__init__(parent)
+    def __init__(
+        self,
+        debugger_url: Optional[str] = None,
+        debug_port: int = 9222,
+        timeout: float = 5.0,
+        log_func: Optional[Callable[[str, int], None]] = None,
+    ):
+        super().__init__()
         self._debugger_url = debugger_url
+        self._debug_port = debug_port
+        self._timeout = timeout
+        self._log_func = log_func
         self._ws: Optional[QWebSocket] = None
         self._message_id: int = 0
-        self._is_ready: bool = False
+        self._callbacks: dict[int, Callable] = {}
+        self._pending_results: dict[int, Any] = {}
+        self._event_loop: Optional[QEventLoop] = None
+        self._running: bool = False
+        self._load_started_callback: Optional[Callable] = None
+        self._load_finished_callback: Optional[Callable] = None
+
+        if not debugger_url and debug_port:
+            self._debugger_url = self._get_debugger_url()
+
+    def _log(self, message: str, level: int = 30) -> None:
+        if self._log_func:
+            self._log_func(message, level)
+
+    def _get_debugger_url(self, timeout: float = 10) -> str:
+        start = time.time()
+        while time.time() - start < timeout:
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{self._debug_port}/json", timeout=2
+                ) as resp:
+                    targets = json.loads(resp.read())
+                    if targets:
+                        return targets[0]["webSocketDebuggerUrl"]
+            except Exception:
+                pass
+            time.sleep(0.5)
+        raise RuntimeError(f"无法连接到调试端口 {self._debug_port}")
 
     def connect(self) -> None:
         self._ws = QWebSocket()
-        self._ws.connected.connect(self._on_connected)
-        self._ws.disconnected.connect(self._on_disconnected)
-        self._ws.textMessageReceived.connect(self._on_text_message)
         self._ws.error.connect(self._on_error)
-        self._ws.open(QUrl(self._debugger_url))
+        self._ws.textMessageReceived.connect(self._on_text_message)
 
-    def _on_connected(self) -> None:
-        self._is_ready = True
+        loop = QEventLoop()
+        timer = QTimer()
+        timer.setSingleShot(True)
+        timer.timeout.connect(loop.quit)
+        self._ws.connected.connect(loop.quit)
+        self._ws.open(QUrl(self._debugger_url))
+        timer.start(10000)
+        loop.exec_()
+        timer.stop()
+
+        self._running = True
         self.send_command("Page.enable")
 
-    def _on_disconnected(self) -> None:
-        self._is_ready = False
+    def _on_error(self, error):
+        self._log(f"WebSocket 错误: {error}", 30)
+        if self._event_loop and self._event_loop.isRunning():
+            self._event_loop.quit()
 
     def _on_text_message(self, message: str) -> None:
-        pass
-
-    def _on_error(self, error_code: int) -> None:
-        logger.error(
-            f"CDP WebSocket 错误 (code={error_code}): {self._ws.errorString() if self._ws else ''}"
-        )
-
-    def send_command(
-        self,
-        method: str,
-        params: Optional[dict] = None,
-    ) -> None:
-        if not self._ws or not self._is_ready:
+        try:
+            data = json.loads(message)
+        except Exception as e:
+            self._log(f"CDP 消息解析失败: {e}", 30)
             return
 
+        if "id" in data:
+            msg_id = data["id"]
+            result = data.get("result")
+            self._pending_results[msg_id] = result
+            if msg_id in self._callbacks:
+                self._callbacks.pop(msg_id)()
+            if self._event_loop and self._event_loop.isRunning():
+                self._event_loop.quit()
+        else:
+            method = data.get("method")
+            params = data.get("params", {})
+            if method and not method.startswith("Debugger"):
+                self._log(f"[CDP Event] {method}: {params}", 10)
+            self._handle_event(method, params)
+
+    def _handle_event(self, method: Optional[str], params: dict) -> None:
+        if method == "Page.loadEventFired":
+            if self._load_started_callback:
+                self._load_started_callback()
+        elif method == "Page.frameStoppedLoading":
+            if self._load_finished_callback:
+                self._load_finished_callback()
+
+    def set_load_started_callback(self, callback: Callable) -> None:
+        self._load_started_callback = callback
+
+    def set_load_finished_callback(self, callback: Callable) -> None:
+        self._load_finished_callback = callback
+
+    def send_command(self, method: str, params: Optional[dict] = None) -> Any:
         msg_id = self._message_id
         self._message_id += 1
 
@@ -105,27 +163,48 @@ class _BrowserController(QObject):
         if params:
             cmd["params"] = params
 
-        self._ws.sendTextMessage(json.dumps(cmd))
+        self._event_loop = QEventLoop()
+        timer = QTimer()
+        timer.setSingleShot(True)
+        timer.timeout.connect(self._event_loop.quit)
+        timer.start(int(self._timeout * 1000))
 
-    def run_js(self, script: str) -> None:
-        self.send_command(
-            "Runtime.evaluate",
-            {"expression": script, "returnByValue": True},
+        self._ws.sendTextMessage(json.dumps(cmd))
+        self._event_loop.exec_()
+        timer.stop()
+        self._event_loop = None
+
+        return self._pending_results.pop(msg_id, None)
+
+    def run_js(self, script: str) -> Any:
+        """执行 JavaScript 代码
+
+        :param script: JavaScript 代码
+        :returns: 执行结果
+        """
+        return self.send_command(
+            "Runtime.evaluate", {"expression": script, "returnByValue": True}
         )
 
-    def navigate(self, url: str) -> None:
-        self.send_command("Page.navigate", {"url": url})
+    def navigate(self, url: str) -> Any:
+        """导航到指定 URL
 
-    def reload(self) -> None:
-        self.send_command("Page.reload")
+        :param url: 目标 URL
+        :returns: 执行结果
+        """
+        return self.send_command("Page.navigate", {"url": url})
+
+    def reload(self) -> Any:
+        """刷新页面
+
+        :returns: 执行结果
+        """
+        return self.send_command("Page.reload")
 
     def close(self) -> None:
-        self._is_ready = False
+        self._running = False
         if self._ws:
-            try:
-                self._ws.close()
-            except Exception:
-                pass
+            self._ws.close()
             self._ws = None
 
 
@@ -143,6 +222,10 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         embed_error(str): 嵌入出错
         embed_timeout(): 等待窗口嵌入超时
 
+    新增信号:
+        load_started(): 页面开始加载
+        load_finished(): 页面加载完成
+
     使用示例:
         browser = ElaBrowserEmbedder(
             webview_path=Path("Supermium/chrome.exe"),
@@ -152,6 +235,10 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         )
         browser.embed("http://example.com", window_title="MyBrowser")
     """
+
+    load_started = pyqtSignal()
+    load_finished = pyqtSignal()
+    log_message = pyqtSignal(str, int)
 
     _debug_port_counter = 9222
     _instances: set = set()
@@ -203,7 +290,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         """检查可选依赖是否已安装"""
         missing = []
         try:
-            __import__("psutil")
+            import psutil
         except ImportError:
             missing.append("psutil")
 
@@ -218,17 +305,17 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
 
         :param url: 目标 URL
         :param window_title: 浏览器窗口标题（必须指定，用于查找窗口）
-        :param connect_cdp: 是否连接 CDP
+        :param connect_cdp: 是否连接 CDP（用于页面加载监控）
 
         使用示例:
             browser.embed("http://example.com", window_title="MyBrowser")
         """
         if self._embedded_info is not None:
-            logger.warning("已有嵌入窗口，请先调用 release()")
+            self._log("已有嵌入窗口，请先调用 release()", 30)
             return
 
         if self._browser_process is not None and self._browser_process.is_alive():
-            logger.warning("浏览器进程已在运行，请先调用 release()")
+            self._log("浏览器进程已在运行，请先调用 release()", 30)
             return
 
         self._pending_window_title = window_title
@@ -236,7 +323,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._start_embed_timer(window_title)
 
         if connect_cdp:
-            QTimer.singleShot(500, self._async_connect_cdp)
+            self._connect_cdp()
 
     def _start_browser_process(self, url: str) -> None:
         cache_dir = Path.cwd() / "runtime" / "cache" / f"browser_{self._debug_port}"
@@ -304,75 +391,38 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
 
         self._try_embed_once(hwnd)
 
-    def _async_connect_cdp(self) -> None:
-        """异步连接 CDP，不阻塞主线程"""
-        self._poll_debugger_url(
-            timeout=30,
-            on_success=self._on_debugger_url_ready,
-            on_failure=self._on_cdp_poll_failure,
-        )
-
-    def _poll_debugger_url(
-        self,
-        timeout: float = 30,
-        on_success: Optional[Any] = None,
-        on_failure: Optional[Any] = None,
-    ) -> None:
-        """异步轮询调试端口，不阻塞主线程"""
-        self._poll_start_time = time.time()
-        self._poll_timeout = timeout
-        self._poll_success_callback = on_success
-        self._poll_failure_callback = on_failure
-
-        self._poll_timer = QTimer(self)
-        self._poll_timer.timeout.connect(self._on_poll_timer_timeout)
-        self._poll_timer.start(500)
-
-    def _on_poll_timer_timeout(self) -> None:
-        """定时器回调，检测调试端口或超时"""
-        elapsed = time.time() - self._poll_start_time
-        if elapsed > self._poll_timeout:
-            self._cancel_poll()
-            if self._poll_failure_callback:
-                self._poll_failure_callback()
-            return
-
-        import threading
-
-        def _check():
+    def _get_debugger_url(self, timeout: float = 10) -> str:
+        start = time.time()
+        while time.time() - start < timeout:
             try:
                 with urllib.request.urlopen(
                     f"http://127.0.0.1:{self._debug_port}/json", timeout=2
                 ) as resp:
                     targets = json.loads(resp.read())
-                if targets:
-                    debugger_url = targets[0]["webSocketDebuggerUrl"]
-                    success_cb = self._poll_success_callback
-                    self._cancel_poll()
-                    if success_cb:
-                        from PyQt5.QtCore import QTimer
-                        QTimer.singleShot(0, lambda: success_cb(debugger_url))
+                    if targets:
+                        return targets[0]["webSocketDebuggerUrl"]
             except Exception:
                 pass
+            time.sleep(0.5)
+        raise RuntimeError(f"无法连接到调试端口 {self._debug_port}")
 
-        threading.Thread(target=_check, daemon=True).start()
+    def _log(self, message: str, level: int = 30) -> None:
+        self.log_message.emit(message, level)
 
-    def _cancel_poll(self) -> None:
-        """取消轮询，清理定时器"""
-        if self._poll_timer:
-            self._poll_timer.stop()
-            self._poll_timer = None
-        self._poll_success_callback = None
-        self._poll_failure_callback = None
+    def _connect_cdp(self) -> None:
+        QTimer.singleShot(0, self._do_connect_cdp)
 
-    def _on_debugger_url_ready(self, debugger_url: str) -> None:
-        """CDP 调试 URL 获取成功后的回调"""
-        self._controller = _BrowserController(debugger_url=debugger_url, parent=self)
-        self._controller.connect()
-
-    def _on_cdp_poll_failure(self) -> None:
-        """CDP 轮询超时的回调"""
-        logger.error(f"CDP 连接超时（调试端口 {self._debug_port}）")
+    def _do_connect_cdp(self) -> None:
+        try:
+            debugger_url = self._get_debugger_url()
+            self._controller = _BrowserController(debugger_url=debugger_url, log_func=self._log)
+            self._controller.set_load_started_callback(lambda: self.load_started.emit())
+            self._controller.set_load_finished_callback(
+                lambda: self.load_finished.emit()
+            )
+            self._controller.connect()
+        except Exception as e:
+            self._log(f"CDP 连接失败: {e}", 40)
 
     def reload(self) -> None:
         """刷新当前页面"""
@@ -380,20 +430,27 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             self._controller.reload()
 
     def navigate(self, url: str) -> None:
-        """导航到指定 URL"""
+        """导航到指定 URL
+
+        :param url: 目标 URL
+        """
         if self._controller:
             self._controller.navigate(url)
 
-    def run_js(self, script: str) -> None:
-        """执行 JavaScript 代码"""
+    def run_js(self, script: str) -> Any:
+        """执行 JavaScript 代码
+
+        :param script: JavaScript 代码
+        :returns: 执行结果
+        """
         if self._controller:
-            self._controller.run_js(script)
+            return self._controller.run_js(script)
+        return None
 
     def _cleanup_browser(self) -> None:
         """清理浏览器进程和CDP连接"""
         if self._controller:
             self._controller.close()
-            self._controller.deleteLater()
             self._controller = None
 
         if self._browser_pid and self._browser_pid.value != 0:
@@ -410,7 +467,6 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         if self._browser_embed_timer:
             self._browser_embed_timer.stop()
             self._browser_embed_timer = None
-        self._cancel_poll()
         self._pending_window_title = None
 
         if self._target_hwnd:
@@ -435,7 +491,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                         0,
                     )
             except Exception as e:
-                logger.warning(f"还原窗口状态失败: {e}")
+                self._log(f"还原窗口状态失败: {e}", 30)
 
         self._target_hwnd = None
         self._original_parent = None
@@ -455,11 +511,11 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             proc = psutil.Process(pid)
             exe_path = proc.exe()
             if exe_path.lower() == str(self._webview_path).lower():
-                logger.info(f"杀死浏览器进程 {pid}: {exe_path}")
+                self._log(f"杀死浏览器进程 {pid}: {exe_path}", 20)
                 proc.kill()
             else:
-                logger.warning(f"跳过进程 {pid}: {exe_path} (不是目标浏览器)")
+                self._log(f"跳过进程 {pid}: {exe_path} (不是目标浏览器)", 30)
         except psutil.NoSuchProcess:
             pass
         except Exception as e:
-            logger.error(f"杀死进程失败: {e}")
+            self._log(f"杀死进程失败: {e}", 40)

@@ -18,8 +18,8 @@ os.environ["QT_LOGGING_RULES"] = "*.debug=false;qt.qpa.fonts.warning=false"
 
 from pathlib import Path
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton
-from PyQt5ElaWidgetTools import eApp, ElaWindow, ElaText, eTheme, ElaThemeType
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton, QToolButton
+from PyQt5ElaWidgetTools import eApp, ElaWindow, ElaText, eTheme, ElaThemeType, ElaToolButton
 from pyqt5_ela_pro import ElaBrowserEmbedder
 
 BROWSER_PATH = Path(r"E:\python_project\elawidgettools\Supermium\chrome.exe")
@@ -31,6 +31,16 @@ class BrowserDemoWindow(ElaWindow):
         super().__init__(parent)
         self._browser = None
         self._setup_ui()
+        app_bar = self.findChild(QWidget, "ElaAppBar")
+
+        # 方法1: 查找所有 QToolButton
+        buttons = app_bar.findChildren(QToolButton)
+        # buttons[-3].deleteLater()
+        # buttons[-3].clicked.connect(self._toggle_theme)
+        # print( 111,btn.setVisible( False))
+        # app_bar.themeChangeButtonClicked.connect(self._toggle_theme)
+    def _on_theme_btn_clicked(self):
+        print(111)
 
     def _setup_ui(self):
         self.setWindowTitle("ElaBrowserEmbedder 示例")
@@ -40,7 +50,8 @@ class BrowserDemoWindow(ElaWindow):
 
 
         central = QWidget(self)
-        self.setCentralWidget(central)
+        self.addPageNode("浏览器示例",central)
+        # self.setCentralWidget(central)
         layout = QVBoxLayout(central)
 
         url_layout = QHBoxLayout()
@@ -69,9 +80,9 @@ class BrowserDemoWindow(ElaWindow):
         js_btn.clicked.connect(self._run_js)
         url_layout.addWidget(js_btn)
 
-        theme_btn = QPushButton("切换主题")
-        theme_btn.clicked.connect(self._toggle_theme)
-        url_layout.addWidget(theme_btn)
+        # theme_btn = QPushButton("切换主题")
+        # theme_btn.clicked.connect(self._toggle_theme)
+        # url_layout.addWidget(theme_btn)
 
         layout.addLayout(url_layout)
 
@@ -103,11 +114,16 @@ class BrowserDemoWindow(ElaWindow):
     def _embed_browser(self):
         url = self._url_input.toPlainText().strip()
         self._log(f"嵌入: {url}")
-        self._browser_widget.embed(url, window_title="bilibili", connect_cdp=True)
-
+        try:
+            self._browser_widget.embed(url, window_title="bilibili", connect_cdp=True)
+        except Exception as e:
+            self._log(f"嵌入错误: {e}")
     def _release_browser(self):
-        self._log("释放浏览器")
-        self._browser_widget.release()
+        try:
+            self._log("释放浏览器")
+            self._browser_widget.release()
+        except Exception as e:
+            self._log(f"释放错误: {e}")
 
     def _navigate(self):
         url = self._url_input.toPlainText().strip()
@@ -120,18 +136,28 @@ class BrowserDemoWindow(ElaWindow):
 
     def _run_js(self):
         self._log("执行JS: document.title")
-        self._browser_widget.run_js("document.title")
+        self._browser_widget.run_js("alert('你好3')")
 
     def _toggle_theme(self):
-        current = eTheme.getThemeMode()
-        if current == ElaThemeType.ThemeMode.Light:
-            eTheme.setThemeMode(ElaThemeType.ThemeMode.Dark)
-        else:
-            eTheme.setThemeMode(ElaThemeType.ThemeMode.Light)
+        print(12131231)
+        try:
+            current = eTheme.getThemeMode()
+            print( current)
+            if current == ElaThemeType.ThemeMode.Light:
+                eTheme.setThemeMode(ElaThemeType.ThemeMode.Dark)
+                print( "切换到暗色模式")
+            else:
+                eTheme.setThemeMode(ElaThemeType.ThemeMode.Light)
+                print( "切换到亮色模式")
+        except Exception as e:
+            print(e)
 
     def closeEvent(self, event):
-        self._browser_widget.release()
-        super().closeEvent(event)
+        try:
+            self._browser_widget.release()
+            super().closeEvent(event)
+        except  Exception as e:
+            print(e)
 
 
 def main():
