@@ -6,6 +6,27 @@ Extension components based on PyQt5ElaWidgetTools with custom styling.
 
 __version__ = "1.0.0"
 
+# ── Functions ────────────────────────────────────────────────────────────────
+
+from .tooltips import (
+    set_tooltip,
+    remove_tooltip,
+)
+
+from .animation import fade_in, fade_out, shake_window
+
+from .svg_icon import (
+    svg_to_icon,
+    svg_to_pixmap,
+    svg_icon_loader,
+)
+
+from .splitter import create_ela_splitter
+
+from .notify_popup import show_notify
+
+# ── Components ───────────────────────────────────────────────────────────────
+
 from .widget_base import ElaThemeWidget
 
 from .table_view import ElaDataTable
@@ -20,8 +41,6 @@ from .combo_box import (
 from .tooltips import (
     ElaToolTipPosition,
     ElaToolTip,
-    set_tooltip,
-    remove_tooltip,
     ElaStateToolTip,
 )
 
@@ -33,7 +52,7 @@ from .parquet_table import ElaParquetTable
 
 from .splash_screen import ElaSplashScreen
 
-from .animation import fade_in, fade_out, shake_window, ElaAnimatedMixin
+from .animation import ElaAnimatedMixin
 
 from .taskbar_progress import ElaTaskbarProgress
 
@@ -58,71 +77,70 @@ from .ela_trend_chart import ElaTrendChart
 from .ela_side_drawer import ElaDrawer, ElaDrawerPosition
 
 from .svg_icon import (
-    svg_to_icon,
-    svg_to_pixmap,
     ElaSvgIconLoader,
     ElaSvgButton,
     ElaSvgIconButton,
-    svg_icon_loader,
 )
 
 from .window_embedder import ElaWindowEmbedder
 
 from .browser_embedder import ElaBrowserEmbedder
 
-from .splitter import ElaSplitter, create_ela_splitter
+from .splitter import ElaSplitter
 
 from .ela_progress_button import ElaProgressButton
 
-from .notify_popup import ElaNotifyPopup, show_notify
+from .notify_popup import ElaNotifyPopup
 
 
 __all__ = [
-    "__version__",
+    # ── Functions ──
+    "fade_in",
+    "fade_out",
     "shake_window",
-    "ElaThemeWidget",
+    "set_tooltip",
+    "remove_tooltip",
+    "svg_to_icon",
+    "svg_to_pixmap",
+    "svg_icon_loader",
+    "create_ela_splitter",
+    "show_notify",
+    # ── Components ──
+    "ElaAnimatedMixin",
+    "ElaBrowserEmbedder",
     "ElaDataTable",
+    "ElaDialogBase",
+    "ElaDrawer",
+    "ElaDrawerPosition",
+    "ElaExcelViewer",
+    "ElaLongPressButton",
+    "ElaMessageDialog",
+    "ElaNotifyPopup",
+    "ElaParquetTable",
+    "ElaPowerPointViewer",
+    "ElaPrimaryButton",
+    "ElaProgressButton",
     "ElaScrollableMenu",
     "ElaSearchBox",
     "ElaSearchMultiBox",
-    "ElaToolTipPosition",
-    "ElaToolTip",
-    "set_tooltip",
-    "remove_tooltip",
-    "ElaStateToolTip",
-    "ElaDialogBase",
-    "ElaMessageDialog",
-    "ElaParquetTable",
     "ElaSplashScreen",
-    "fade_in",
-    "fade_out",
-    "ElaAnimatedMixin",
-    "ElaTaskbarProgress",
-    "ElaWordViewer",
-    "ElaExcelViewer",
-    "ElaPowerPointViewer",
-    "ElaLongPressButton",
-    "ElaTagLineEdit",
-    "ElaPrimaryButton",
-    "ElaThemeToolButton",
+    "ElaSplitter",
+    "ElaStateToolTip",
+    "ElaSvgButton",
+    "ElaSvgIconButton",
+    "ElaSvgIconLoader",
     "ElaTagBox",
+    "ElaTagLineEdit",
     "ElaTagMultiBox",
     "ElaTagSearchBox",
     "ElaTagSearchMultiBox",
+    "ElaTaskbarProgress",
+    "ElaThemeToolButton",
+    "ElaThemeWidget",
+    "ElaToolTip",
+    "ElaToolTipPosition",
     "ElaTrendChart",
-    "ElaDrawer",
-    "ElaDrawerPosition",
-    "svg_to_icon",
-    "svg_to_pixmap",
-    "ElaSvgIconLoader",
-    "ElaSvgButton",
-    "ElaSvgIconButton",
-    "svg_icon_loader",
     "ElaWindowEmbedder",
-    "ElaBrowserEmbedder",
-    "ElaSplitter",
-    "create_ela_splitter",
-    "ElaProgressButton",
-    "ElaNotifyPopup",
-    "show_notify",
+    "ElaWordViewer",
+    "__version__",
 ]
