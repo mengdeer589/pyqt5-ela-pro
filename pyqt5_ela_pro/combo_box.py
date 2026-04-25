@@ -31,18 +31,6 @@ from PyQt5ElaWidgetTools import (
 from pypinyin import lazy_pinyin
 
 
-COMBO_BOX_SHADOW_BORDER_WIDTH: int = 3
-COMBO_BOX_BORDER_RADIUS: int = 3
-COMBO_BOX_MIN_WIDTH: int = 150
-COMBO_BOX_SEARCH_THRESHOLD: int = 15
-COMBO_BOX_SELECT_ALL_THRESHOLD: int = 5
-COMBO_BOX_MAX_SHOW_TEXT: int = 3
-COMBO_BOX_ARROW_RIGHT_OFFSET: int = 15
-COMBO_BOX_ARROW_WIDTH: int = 10
-COMBO_BOX_ARROW_HEIGHT: int = 6
-COMBO_BOX_TEXT_MARGIN: int = 5
-
-
 def _build_search_widget(
     text_changed_callback,
 ) -> tuple[QWidget, QLineEdit]:
@@ -72,7 +60,7 @@ def _apply_search_edit_palette(search_edit: QLineEdit) -> None:
     """应用主题颜色到搜索框。"""
     theme_mode = eTheme.getThemeMode()
     palette = search_edit.palette()
-    palette.setColor(QPalette.Text, eTheme.getThemeColor(theme_mode, 13))
+    palette.setColor(QPalette.Text, eTheme.getThemeColor(theme_mode, ElaThemeType.ThemeColor.BasicText))
     palette.setColor(
         QPalette.PlaceholderText,
         QColor(0, 0, 0, 128) if theme_mode == 0 else QColor(186, 186, 186),
@@ -148,6 +136,7 @@ class ElaSearchMultiBox(ElaMultiSelectComboBox):
         self._searchWidget: Optional[QWidget] = None
         self._currentSelection: list[str] = []
         self._isRestoringSelection = False
+        self._pinyin_cache: dict[str, str] = {}
         self._themeConnection = eTheme.themeModeChanged.connect(
             self._onThemeModeChanged
         )
@@ -158,6 +147,7 @@ class ElaSearchMultiBox(ElaMultiSelectComboBox):
         :param text: 选项文本。
         :type text: str
         """
+        self._pinyin_cache.pop(text, None)
         super().addItem(text)
 
     def addItems(self, texts: list[str]) -> None:
@@ -166,12 +156,15 @@ class ElaSearchMultiBox(ElaMultiSelectComboBox):
         :param texts: 选项文本列表。
         :type texts: list[str]
         """
+        for text in texts:
+            self._pinyin_cache.pop(text, None)
         super().addItems(texts)
 
     def clear(self) -> None:
         """清空所有选项。"""
         super().clear()
         self._currentSelection = []
+        self._pinyin_cache.clear()
 
     def setCurrentSelection(self, selection: list) -> None:
         """设置当前选中项。
@@ -252,7 +245,9 @@ class ElaSearchMultiBox(ElaMultiSelectComboBox):
 
         for i in range(self.count()):
             item_text = self.itemText(i)
-            pinyin_str = "".join(lazy_pinyin(item_text)).lower()
+            if item_text not in self._pinyin_cache:
+                self._pinyin_cache[item_text] = "".join(lazy_pinyin(item_text)).lower()
+            pinyin_str = self._pinyin_cache[item_text]
             visible = (
                 not text_lower
                 or text_lower in item_text.lower()
@@ -333,10 +328,12 @@ class ElaSearchBox(ElaComboBox):
         :type userData: Any
         """
         self._allItems.append((text, userData))
-        self._sourceModel.insertRow(self._sourceModel.rowCount())
-        self._sourceModel.setData(
-            self._sourceModel.index(self._sourceModel.rowCount() - 1, 0), text
-        )
+        row = self._sourceModel.rowCount()
+        self._sourceModel.insertRow(row)
+        idx = self._sourceModel.index(row, 0)
+        self._sourceModel.setData(idx, text)
+        if userData is not None:
+            self._sourceModel.setData(idx, userData, Qt.UserRole)
 
     def addItems(self, texts: list[str]) -> None:  # type: ignore[override]
         """批量添加选项。

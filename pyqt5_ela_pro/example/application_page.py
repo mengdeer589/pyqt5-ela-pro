@@ -13,7 +13,7 @@ from PyQt5ElaWidgetTools import (
     ElaEventBus,
     ElaPushButton,
 )
-from pyqt5_ela_pro import ElaSplashScreen, ElaTaskbarProgress, ElaPrimaryBtn
+from pyqt5_ela_pro import ElaSplashScreen, ElaTaskbarProgress, ElaPrimaryButton
 from .base_page import ExamplePage
 
 
@@ -174,32 +174,32 @@ class ApplicationComponentsPage(ExamplePage):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(15)
 
-        start_btn = ElaPrimaryBtn(self, "开始下载")
+        start_btn = ElaPrimaryButton("开始下载", parent=self)
         start_btn.setFixedWidth(100)
         start_btn.clicked.connect(self._startTaskbarDemo)
         btn_layout.addWidget(start_btn)
 
-        pause_btn = ElaPrimaryBtn(self, "暂停")
+        pause_btn = ElaPrimaryButton("暂停", parent=self)
         pause_btn.setFixedWidth(80)
         pause_btn.clicked.connect(self._pauseTaskbarDemo)
         btn_layout.addWidget(pause_btn)
 
-        resume_btn = ElaPrimaryBtn(self, "继续")
+        resume_btn = ElaPrimaryButton("继续", parent=self)
         resume_btn.setFixedWidth(80)
         resume_btn.clicked.connect(self._resumeTaskbarDemo)
         btn_layout.addWidget(resume_btn)
 
-        stop_btn = ElaPrimaryBtn(self, "停止")
+        stop_btn = ElaPrimaryButton("停止", parent=self)
         stop_btn.setFixedWidth(80)
         stop_btn.clicked.connect(self._stopTaskbarDemo)
         btn_layout.addWidget(stop_btn)
 
-        indeterminate_btn = ElaPrimaryBtn(self, "不确定状态")
+        indeterminate_btn = ElaPrimaryButton("不确定状态", parent=self)
         indeterminate_btn.setFixedWidth(100)
         indeterminate_btn.clicked.connect(self._indeterminateTaskbarDemo)
         btn_layout.addWidget(indeterminate_btn)
 
-        reset_btn = ElaPrimaryBtn(self, "重置")
+        reset_btn = ElaPrimaryButton("重置", parent=self)
         reset_btn.setFixedWidth(80)
         reset_btn.clicked.connect(self._resetTaskbarDemo)
         btn_layout.addWidget(reset_btn)

@@ -10,13 +10,13 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt5.QtCore import pyqtSignal, QTimer, Qt, QRect, QRectF, QPoint, QSize
-from PyQt5.QtGui import QColor, QPainter, QLinearGradient, QPainterPath, QFontMetrics
+from PyQt5.QtGui import QColor, QPainter, QLinearGradient, QPainterPath, QFontMetrics, QPaintEvent, QMouseEvent
 from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaPushButton
 
 
-class ElaLongPressBtn(ElaPushButton):
+class ElaLongPressButton(ElaPushButton):
     """长按按钮。
 
     按住按钮一段时间（默认 500ms）后才能触发点击事件的按钮。
@@ -24,15 +24,15 @@ class ElaLongPressBtn(ElaPushButton):
 
     继承自 ElaPushButton，支持主题适配和图标。
 
-    :param parent: 父控件
     :param duration: 触发长按所需的时长（毫秒），默认 500ms
     :param text: 按钮文本
     :param icon: 图标名称
     :param iconSize: 图标大小，默认 16
+    :param parent: 父控件
 
     Example::
 
-        button = ElaLongPressBtn(parent, duration=800, text="长按保存", icon=ElaIconType.IconName.FloppyDisk)
+        button = ElaLongPressButton(duration=800, text="长按保存", icon=ElaIconType.IconName.FloppyDisk, parent=parent)
         button.longPressed.connect(lambda: print("长按完成！"))
     """
 
@@ -41,11 +41,11 @@ class ElaLongPressBtn(ElaPushButton):
 
     def __init__(
         self,
-        parent: Optional[QWidget] = None,
         duration: int = 500,
         text: Optional[str] = None,
         icon: Optional[ElaIconType.IconName] = None,
         iconSize: int = 16,
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.setText(text if text is not None else "长按触发")
@@ -55,12 +55,11 @@ class ElaLongPressBtn(ElaPushButton):
         self._triggered = False
         self._progress_color = QColor()
         self._icon_name = None
-        self._icon_size = 16
+        self._icon_size = iconSize
 
         if icon is not None:
             self.setElaIcon(icon, iconSize)
 
-        self._theme_connection = None
         self._mouse_pressed_timer = QTimer(self)
         self._mouse_pressed_timer.setInterval(16)
         self._mouse_pressed_timer.timeout.connect(self._onMousePressed)
@@ -172,7 +171,7 @@ class ElaLongPressBtn(ElaPushButton):
         self.progressChanged.emit(0.0)
         self.update()
 
-    def mousePressEvent(self, event) -> None:
+    def mousePressEvent(self, event: QMouseEvent) -> None:
         if not self.isEnabled():
             return
         super().mousePressEvent(event)
@@ -180,12 +179,12 @@ class ElaLongPressBtn(ElaPushButton):
             self._mouse_pressed_timer.start()
             self._go_backwards_timer.stop()
 
-    def mouseReleaseEvent(self, event) -> None:
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         super().mouseReleaseEvent(event)
         self._mouse_pressed_timer.stop()
         self._go_backwards_timer.start()
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, event: QPaintEvent) -> None:
         if self._progress <= 0:
             super().paintEvent(event)
             return

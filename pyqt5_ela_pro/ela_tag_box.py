@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt5.QtCore import QEasingCurve
-from PyQt5.QtGui import QPainter
+from PyQt5.QtGui import QPainter, QPaintEvent
 from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import ElaComboBox
@@ -51,34 +51,17 @@ class ElaTagBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaComboBox):
         self.currentIndexChanged.connect(self._onCurrentIndexChanged)
 
     def showPopup(self) -> None:
-        if self.count() == 0:
-            return
-        target_mark_width = self.width() / 2 - 9
-        self._mark_animation.setStartValue(self._expand_mark_width)
-        self._mark_animation.setEndValue(target_mark_width)
-        self._mark_animation.start()
-
-        self._rotate_animation.setStartValue(self._expand_icon_rotate)
-        self._rotate_animation.setEndValue(-180.0)
-        self._rotate_animation.start()
-
+        self._animate_popup_open()
         super().showPopup()
 
     def hidePopup(self) -> None:
-        self._mark_animation.setStartValue(self._expand_mark_width)
-        self._mark_animation.setEndValue(0.0)
-        self._mark_animation.start()
-
-        self._rotate_animation.setStartValue(self._expand_icon_rotate)
-        self._rotate_animation.setEndValue(0.0)
-        self._rotate_animation.start()
-
+        self._animate_popup_close()
         super().hidePopup()
 
     def _onCurrentIndexChanged(self, index: int) -> None:
         self.update()
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
         content_rect, text_color, _ = _draw_tag_background(painter, self)
         _draw_tag_mark(painter, self, self._expand_mark_width)

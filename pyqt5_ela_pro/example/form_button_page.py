@@ -12,9 +12,9 @@ from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaIconType
 from pyqt5_ela_pro import (
     ThemeWidget,
     ElaTagLineEdit,
-    ElaLongPressBtn,
-    ElaPrimaryBtn,
-    ElaToolBtn,
+    ElaLongPressButton,
+    ElaPrimaryButton,
+    ElaToolButton,
     ElaMessageDialog,
     ElaProgressButton,
     ElaNotifyPopup,
@@ -123,7 +123,7 @@ class FormButtonPage(ExamplePage):
 
     def _demoLongPressButton(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("03. ela_ext - ElaPrimaryBtn 主要按钮")
+            self._createSectionHeader("03. ela_ext - ElaPrimaryButton 主要按钮")
         )
         self._addInfoText(
             "使用 Primary 主题色的按钮，与 ElaToggleButton ON 状态外观一致",
@@ -131,17 +131,17 @@ class FormButtonPage(ExamplePage):
         )
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(15)
-        primary_btn = ElaPrimaryBtn(self)
+        primary_btn = ElaPrimaryButton(parent=self)
         primary_btn.setText("主要按钮")
         primary_btn.setFixedWidth(120)
-        primary_btn.clicked.connect(lambda: print("ElaPrimaryBtn clicked"))
+        primary_btn.clicked.connect(lambda: print("ElaPrimaryButton clicked"))
         btn_layout.addWidget(primary_btn)
-        primary_btn_icon = ElaPrimaryBtn(self)
+        primary_btn_icon = ElaPrimaryButton(parent=self)
         primary_btn_icon.setText("带图标")
         primary_btn_icon.setFixedWidth(120)
         primary_btn_icon.setElaIcon(ElaIconType.IconName.FloppyDisk, 16)
         btn_layout.addWidget(primary_btn_icon)
-        primary_btn_disabled = ElaPrimaryBtn(self)
+        primary_btn_disabled = ElaPrimaryButton(parent=self)
         primary_btn_disabled.setText("禁用状态")
         primary_btn_disabled.setFixedWidth(120)
         primary_btn_disabled.setEnabled(False)
@@ -151,14 +151,14 @@ class FormButtonPage(ExamplePage):
         parent_layout.addSpacing(20)
 
         parent_layout.addWidget(
-            self._createSectionHeader("04. ela_ext - ElaLongPressBtn 长按按钮")
+            self._createSectionHeader("04. ela_ext - ElaLongPressButton 长按按钮")
         )
         self._addInfoText(
             "按住按钮一段时间后才能触发点击事件，适合危险操作防误触", parent_layout
         )
         btn_layout2 = QHBoxLayout()
         btn_layout2.setSpacing(15)
-        self._longPressBtn = ElaLongPressBtn(self, duration=800)
+        self._longPressBtn = ElaLongPressButton(duration=800, parent=self)
         self._longPressBtn.setText("长按 0.8 秒")
         self._longPressBtn.setFixedWidth(160)
         self._longPressBtn.longPressed.connect(self._onLongPressTriggered)
@@ -209,7 +209,7 @@ class FormButtonPage(ExamplePage):
         )
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(15)
-        self._progressBtn = ElaProgressButton(self)
+        self._progressBtn = ElaProgressButton(parent=self)
         self._progressBtn.setText("下载")
         self._progressBtn.setFixedWidth(120)
         btn_layout.addWidget(self._progressBtn)
@@ -238,26 +238,26 @@ class FormButtonPage(ExamplePage):
 
     def _demoToolButtonExt(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("06. ela_ext - ElaToolBtn 图标文字并排按钮")
+            self._createSectionHeader("06. ela_ext - ElaToolButton 图标文字并排按钮")
         )
         self._addInfoText(
             "ToolButton 样式设置为文字在图标旁边，适合工具栏使用", parent_layout
         )
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(15)
-        tool_btn = ElaToolBtn(self)
+        tool_btn = ElaToolButton(parent=self)
         tool_btn.setText("保存")
         tool_btn.setFixedWidth(100)
         tool_btn.setElaIcon(ElaIconType.IconName.FloppyDisk)
         tool_btn.clicked.connect(lambda: print("保存 clicked"))
         btn_layout.addWidget(tool_btn)
-        tool_btn_icon = ElaToolBtn(self)
+        tool_btn_icon = ElaToolButton(parent=self)
         tool_btn_icon.setText("编辑")
         tool_btn_icon.setFixedWidth(100)
         tool_btn_icon.setElaIcon(ElaIconType.IconName.Pencil)
         tool_btn_icon.clicked.connect(lambda: print("编辑 clicked"))
         btn_layout.addWidget(tool_btn_icon)
-        tool_btn_disabled = ElaToolBtn(self)
+        tool_btn_disabled = ElaToolButton(parent=self)
         tool_btn_disabled.setText("禁用")
         tool_btn_disabled.setFixedWidth(100)
         tool_btn_disabled.setEnabled(False)

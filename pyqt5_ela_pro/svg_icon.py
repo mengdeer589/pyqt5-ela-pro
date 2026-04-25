@@ -11,10 +11,24 @@ import os
 from typing import Optional
 
 from PyQt5.QtCore import QSize, Qt, QRect, QRectF
-from PyQt5.QtGui import QPainter, QPixmap, QIcon, QColor, QPainterPath
+from PyQt5.QtGui import QPainter, QPixmap, QIcon, QColor, QPainterPath, QPaintEvent
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtWidgets import QPushButton
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
+
+
+def _render_svg(svg_data: str, size: int, color: Optional[str] = None) -> QPixmap:
+    """将 SVG 数据渲染为 QPixmap（内部公用方法）。"""
+    if color:
+        svg_data = svg_data.replace("<<<COLOR_CODE>>>", color)
+    renderer = QSvgRenderer(svg_data.encode("utf-8"))
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.SmoothPixmapTransform)
+    renderer.render(painter)
+    painter.end()
+    return pixmap
 
 
 def svg_to_icon(
@@ -34,17 +48,7 @@ def svg_to_icon(
         icon = svg_to_icon(svg_data, size=24, color="#1570A5")
         button.setIcon(icon)
     """
-    if color:
-        svg_data = svg_data.replace("<<<COLOR_CODE>>>", color)
-
-    renderer = QSvgRenderer(svg_data.encode("utf-8"))
-    pixmap = QPixmap(size, size)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.SmoothPixmapTransform)
-    renderer.render(painter)
-    painter.end()
-    return QIcon(pixmap)
+    return QIcon(_render_svg(svg_data, size, color))
 
 
 def svg_to_pixmap(
@@ -59,17 +63,7 @@ def svg_to_pixmap(
     :param color: 颜色值，会替换 SVG 中的 <<<COLOR_CODE>>> 占位符
     :return: QPixmap 对象
     """
-    if color:
-        svg_data = svg_data.replace("<<<COLOR_CODE>>>", color)
-
-    renderer = QSvgRenderer(svg_data.encode("utf-8"))
-    pixmap = QPixmap(size, size)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.SmoothPixmapTransform)
-    renderer.render(painter)
-    painter.end()
-    return pixmap
+    return _render_svg(svg_data, size, color)
 
 
 class ElaSvgIconLoader:
@@ -279,7 +273,7 @@ class _ElaSvgButtonBase(QPushButton):
             icon_color_str = icon_color_str[:7]
         return icon_color_str
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)

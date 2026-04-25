@@ -58,8 +58,13 @@ class ElaScrollableMenu(ElaMenu):
         self.scroll_area = ElaScrollArea(self)
         self.scroll_widget = QWidget()
         self.scroll_widget.setObjectName("menu_scroll_widget")
+        initial_bg = (
+            SCROLLABLE_MENU_DARK_BG_COLOR
+            if eTheme.getThemeMode() == ElaThemeType.ThemeMode.Dark
+            else SCROLLABLE_MENU_LIGHT_BG_COLOR
+        )
         self.scroll_widget.setStyleSheet(
-            f"#menu_scroll_widget {{ background-color:{SCROLLABLE_MENU_LIGHT_BG_COLOR}; }}"
+            f"#menu_scroll_widget {{ background-color:{initial_bg}; }}"
         )
         self.scroll_layout = QVBoxLayout(self.scroll_widget)
         self.scroll_layout.setSpacing(SCROLLABLE_MENU_LAYOUT_SPACING)

@@ -50,7 +50,9 @@ class ElaMessageDialog(ElaDialogBase):
         :param message: 消息文本
         """
         if self._paramLay.count() > 2:
-            self._paramLay.takeAt(2).widget().deleteLater()
+            item = self._paramLay.takeAt(2)
+            if item and item.widget():
+                item.widget().deleteLater()
 
         message_widget = ElaText(message, self._paramWidget)
         message_widget.setTextPixelSize(12)

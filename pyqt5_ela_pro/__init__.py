@@ -6,8 +6,6 @@ Extension components based on PyQt5ElaWidgetTools with custom styling.
 
 __version__ = "1.0.0"
 
-from .utils import shake_window
-
 from .widget_base import ThemeWidget
 
 from .table_view import ElaDataTable
@@ -35,17 +33,17 @@ from .parquet_table import ElaParquetTable
 
 from .splash_screen import ElaSplashScreen
 
-from .animation import fade_in, fade_out, ElaAnimatedMixin
+from .animation import fade_in, fade_out, shake_window, ElaAnimatedMixin
 
 from .taskbar_progress import ElaTaskbarProgress
 
 from .office_viewer import ElaWordViewer, ElaExcelViewer, ElaPowerPointViewer
 
-from .ela_long_press_button import ElaLongPressBtn
+from .ela_long_press_button import ElaLongPressButton
 
 from .ela_tag_line_edit import ElaTagLineEdit
 
-from .ela_primary_button import ElaPrimaryBtn, ElaToolBtn
+from .ela_primary_button import ElaPrimaryButton, ElaToolButton
 
 from .ela_tag_box import ElaTagBox
 
@@ -103,10 +101,10 @@ __all__ = [
     "ElaWordViewer",
     "ElaExcelViewer",
     "ElaPowerPointViewer",
-    "ElaLongPressBtn",
+    "ElaLongPressButton",
     "ElaTagLineEdit",
-    "ElaPrimaryBtn",
-    "ElaToolBtn",
+    "ElaPrimaryButton",
+    "ElaToolButton",
     "ElaTagBox",
     "ElaTagMultiBox",
     "ElaTagSearchBox",

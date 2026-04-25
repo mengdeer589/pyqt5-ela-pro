@@ -128,11 +128,53 @@ class _TagBoxAnimMixin:
     def _on_tag_theme_changed(self, *args) -> None:
         self.update()
 
+    def _animate_popup_open(self) -> None:
+        """运行展开动画（底部主题色条 + 箭头旋转），供子类 showPopup 调用。"""
+        if self.count() == 0:
+            return
+        target_mark_width = self.width() / 2 - 9
+        self._mark_animation.setStartValue(self._expand_mark_width)
+        self._mark_animation.setEndValue(target_mark_width)
+        self._mark_animation.start()
+
+        self._rotate_animation.setStartValue(self._expand_icon_rotate)
+        self._rotate_animation.setEndValue(-180.0)
+        self._rotate_animation.start()
+
+    def _animate_popup_close(self) -> None:
+        """运行收起动画，供子类 hidePopup 调用。"""
+        self._mark_animation.setStartValue(self._expand_mark_width)
+        self._mark_animation.setEndValue(0.0)
+        self._mark_animation.start()
+
+        self._rotate_animation.setStartValue(self._expand_icon_rotate)
+        self._rotate_animation.setEndValue(0.0)
+        self._rotate_animation.start()
+
     def _tag_box_delete_later(self) -> None:
         try:
             eTheme.themeModeChanged.disconnect(self._on_tag_theme_changed)
         except (TypeError, RuntimeError):
             pass
+
+
+# ── 多选组合框共享辅助函数 ───────────────────────────────────────
+
+
+def _pre_init_popup(widget) -> None:
+    """初始化弹出列表的最小高度。"""
+    view = widget.view()
+    if view:
+        view.setMinimumHeight(200)
+
+
+def _get_target_mark_width(widget) -> float:
+    """根据选中比例计算底部主题色条的目标宽度。"""
+    selected_count = len(widget.getCurrentSelection())
+    total_count = widget.count()
+    if total_count <= 0:
+        return 0.0
+    return (widget.width() / 2 - 9) * selected_count / total_count
 
 
 # ── paint 辅助函数 ──────────────────────────────────────────────

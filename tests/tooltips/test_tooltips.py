@@ -174,6 +174,12 @@ class TestStateToolTip:
 
         st.deleteLater()
 
+    def test_state_tooltip_has_closed_signal(self):
+        """Test StateToolTip has closed signal (was closedSignal)."""
+        st = StateToolTip()
+        assert hasattr(st, "closed")
+        st.deleteLater()
+
     def test_state_tooltip_has_title_and_content_labels(self):
         """Test StateToolTip has title and content labels."""
         st = StateToolTip("Title", "Content")

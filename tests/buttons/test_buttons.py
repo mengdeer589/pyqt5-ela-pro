@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QWidget
 
-from pyqt5_ela_pro.ela_primary_button import ElaPrimaryBtn, ElaToolBtn
-from pyqt5_ela_pro.ela_long_press_button import ElaLongPressBtn
+from pyqt5_ela_pro.ela_primary_button import ElaPrimaryButton as ElaPrimaryBtn, ElaToolButton as ElaToolBtn
+from pyqt5_ela_pro.ela_long_press_button import ElaLongPressButton as ElaLongPressBtn
 from pyqt5_ela_pro.ela_progress_button import ElaProgressButton
 
 

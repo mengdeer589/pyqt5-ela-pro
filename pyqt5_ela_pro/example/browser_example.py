@@ -79,7 +79,6 @@ class BrowserDemoWindow(ElaWindow):
 
         self._browser_widget = ElaBrowserEmbedder(
             webview_path=BROWSER_PATH,
-            port=9023,
             debug_port=9222,
             browser_args=[f"--user-data-dir={Path.cwd() / 'runtime' / 'cache' / 'browser_demo'}"],
             parent=self,

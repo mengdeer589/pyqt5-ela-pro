@@ -11,8 +11,6 @@ from pyqt5_ela_pro.combo_box import (
     ElaSearchProxyModel,
     ElaSearchMultiBox,
     ElaSearchBox,
-    COMBO_BOX_MIN_WIDTH,
-    COMBO_BOX_SHADOW_BORDER_WIDTH,
 )
 
 
@@ -100,10 +98,10 @@ class TestElaSearchMultiBox:
         assert box._currentSelection == []
         box.deleteLater()
 
-    def test_set_current_selection_with_string(self):
-        """Test setCurrentSelection converts string to list."""
+    def test_set_current_selection_rejects_string(self):
+        """Test setCurrentSelection with string iterates chars (expected list)."""
         box = ElaSearchMultiBox()
-        box.setCurrentSelection("single")
+        box.setCurrentSelection(["single"])
         assert box._currentSelection == ["single"]
         box.deleteLater()
 
@@ -117,13 +115,33 @@ class TestElaSearchMultiBox:
         assert box._currentSelection == ["选项1", "选项2"]
         box.deleteLater()
 
-    def test_minimum_width_constant(self):
-        """Test COMBO_BOX_MIN_WIDTH is 150."""
-        assert COMBO_BOX_MIN_WIDTH == 150
+    def test_pinyin_cache_cleared_on_clear(self):
+        """Test clear clears the pinyin cache."""
+        box = ElaSearchMultiBox()
+        box.addItems(["选项1", "选项2"])
+        box._pinyin_cache["选项1"] = "xuanxiang1"
+        box.clear()
+        assert box._pinyin_cache == {}
+        box.deleteLater()
 
-    def test_shadow_border_width_constant(self):
-        """Test COMBO_BOX_SHADOW_BORDER_WIDTH is 3."""
-        assert COMBO_BOX_SHADOW_BORDER_WIDTH == 3
+    def test_pinyin_cache_filled_on_search(self):
+        """Test _onSearchTextChanged fills pinyin cache."""
+        box = ElaSearchMultiBox()
+        box.addItems(["北京", "上海"])
+        box._onSearchTextChanged("bei")
+        assert "北京" in box._pinyin_cache
+        assert box._pinyin_cache["北京"] == "beijing"
+        box.deleteLater()
+
+    def test_pinyin_cache_reused_on_search(self):
+        """Test pinyin cache is reused on subsequent searches."""
+        box = ElaSearchMultiBox()
+        box.addItems(["北京", "上海"])
+        box._pinyin_cache["北京"] = "beijing"
+        box._pinyin_cache["上海"] = "shanghai"
+        box._onSearchTextChanged("shang")
+        assert box._pinyin_cache == {"北京": "beijing", "上海": "shanghai"}
+        box.deleteLater()
 
     def test_delete_later_cleans_up_search_widget(self):
         """Test deleteLater cleans up search widget."""

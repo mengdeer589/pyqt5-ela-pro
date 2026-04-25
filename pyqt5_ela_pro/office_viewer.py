@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt5.QAxContainer import QAxWidget
+from PyQt5.QtGui import QCloseEvent, QResizeEvent
 from PyQt5.QtWidgets import QMessageBox, QSizePolicy, QWidget
 
 from .widget_base import ThemeWidget
@@ -102,11 +103,11 @@ class ElaOfficeViewerMixin:
         """当前是否已加载文档。"""
         return self._loaded
 
-    def closeEvent(self, event):
+    def closeEvent(self, event: QCloseEvent) -> None:
         self.close()
         super().closeEvent(event)
 
-    def resizeEvent(self, event):
+    def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
         self._axWidget.resize(self.size())
 
@@ -123,8 +124,7 @@ class ElaWordViewer(ElaOfficeViewerMixin, ThemeWidget):
     _appName = "word"
 
     def __init__(self, parent: Optional[QWidget] = None, backend: str = "office"):
-        QWidget.__init__(self, parent)
-        ElaOfficeViewerMixin.__init__(self, backend)
+        super().__init__(parent=parent, backend=backend)
 
 
 class ElaExcelViewer(ElaOfficeViewerMixin, ThemeWidget):
@@ -139,8 +139,7 @@ class ElaExcelViewer(ElaOfficeViewerMixin, ThemeWidget):
     _appName = "excel"
 
     def __init__(self, parent: Optional[QWidget] = None, backend: str = "office"):
-        QWidget.__init__(self, parent)
-        ElaOfficeViewerMixin.__init__(self, backend)
+        super().__init__(parent=parent, backend=backend)
 
 
 class ElaPowerPointViewer(ElaOfficeViewerMixin, ThemeWidget):
@@ -155,5 +154,4 @@ class ElaPowerPointViewer(ElaOfficeViewerMixin, ThemeWidget):
     _appName = "ppt"
 
     def __init__(self, parent: Optional[QWidget] = None, backend: str = "office"):
-        QWidget.__init__(self, parent)
-        ElaOfficeViewerMixin.__init__(self, backend)
+        super().__init__(parent=parent, backend=backend)

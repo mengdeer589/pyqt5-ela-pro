@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import time
+import weakref
 from pathlib import Path
 from typing import Optional, Any, Callable
 
@@ -32,7 +33,8 @@ try:
     import win32gui
     import win32con
 except ImportError:
-    raise ImportError("ElaBrowserEmbedder 需要 pywin32，请运行: uv pip install pywin32")
+    win32gui = None
+    win32con = None
 try:
     import win32process
 except ImportError:
@@ -130,10 +132,10 @@ class _BrowserController(QObject):
             self._handle_event(method, params)
 
     def _handle_event(self, method: Optional[str], params: dict) -> None:
-        if method == "Page.loadEventFired":
+        if method == "Page.frameStartedLoading":
             if self._load_started_callback:
                 self._load_started_callback()
-        elif method == "Page.frameStoppedLoading":
+        elif method in ("Page.loadEventFired", "Page.frameStoppedLoading"):
             if self._load_finished_callback:
                 self._load_finished_callback()
         elif method == "Runtime.consoleAPICalled":
@@ -266,7 +268,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
 
     _debug_port_counter = 9222
     _freed_ports: set[int] = set()
-    _instances: set = set()
+    _instances: weakref.WeakSet = weakref.WeakSet()
 
     @classmethod
     def _alloc_debug_port(cls) -> int:
@@ -285,21 +287,26 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         """关闭所有活跃实例"""
         for instance in list(cls._instances):
             instance.release()
-        cls._instances.clear()
+
+    @staticmethod
+    def _check_dependencies() -> None:
+        if win32gui is None:
+            raise ImportError(
+                "ElaBrowserEmbedder 需要 pywin32，请运行: uv pip install pywin32"
+            )
 
     def __init__(
         self,
         webview_path: Path,
-        port: int = 9023,
         debug_port: Optional[int] = None,
         browser_args: Optional[list[str]] = None,
         parent: Optional[QWidget] = None,
     ):
+        self._check_dependencies()
         super().__init__(parent)
         ElaBrowserEmbedder._instances.add(self)
 
         self._webview_path = webview_path
-        self._port = port
         self._debug_port = debug_port or self._alloc_debug_port()
         self._browser_args = browser_args or []
         self._browser_process: Optional[QProcess] = None
@@ -625,11 +632,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._cleanup_browser()
         if hasattr(self, '_debug_port') and self._debug_port:
             ElaBrowserEmbedder._freed_ports.add(self._debug_port)
-        ElaBrowserEmbedder._instances.discard(self)
 
     def deleteLater(self) -> None:
-        if self in ElaBrowserEmbedder._instances:
-            self.release()
-        else:
-            self._cleanup_browser()
+        self.release()
         super().deleteLater()

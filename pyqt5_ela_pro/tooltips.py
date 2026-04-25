@@ -34,8 +34,9 @@ from PyQt5.QtGui import (
     QColor,
     QPaintEvent,
     QHideEvent,
+    QMouseEvent, QPen, QPainterPath,
 )
-from PyQt5.QtWidgets import QWidget, QLabel, QGraphicsOpacityEffect
+from PyQt5.QtWidgets import QWidget, QLabel, QGraphicsOpacityEffect, QGraphicsDropShadowEffect
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType, ElaText
 
@@ -49,14 +50,17 @@ TOOLTIP_AUTO_CLOSE_DELAY: int = 1000
 TOOLTIP_ROTATE_TIMER_INTERVAL: int = 50
 TOOLTIP_ROTATE_ANGLE_DELTA: int = 20
 
-STATETOOLTIP_LIGHT_BG_COLOR: str = "#4cc2ff"
-STATETOOLTIP_DARK_BG_COLOR: str = "#0067c0"
+STATETOOLTIP_BORDER_RADIUS: int = 10
 STATETOOLTIP_TITLE_FONT_SIZE: int = 13
 STATETOOLTIP_CONTENT_FONT_SIZE: int = 12
 STATETOOLTIP_MIN_WIDTH: int = 200
-STATETOOLTIP_HEIGHT: int = 51
-STATETOOLTIP_CLOSE_BUTTON_SIZE: int = 12
+STATETOOLTIP_MAX_WIDTH: int = 360
+STATETOOLTIP_HEIGHT: int = 56
+STATETOOLTIP_CLOSE_BUTTON_SIZE: int = 20
 STATETOOLTIP_ICON_SIZE: int = 16
+STATETOOLTIP_ACCENT_WIDTH: int = 4
+STATETOOLTIP_SUCCESS_COLOR_LIGHT: str = "#4CAF50"
+STATETOOLTIP_SUCCESS_COLOR_DARK: str = "#66BB6A"
 
 
 class ElaToolTipPosition(Enum):
@@ -370,16 +374,16 @@ class StateToolTip(QWidget):
     :type parent: QWidget, optional
 
     Signals:
-        closedSignal: 提示框被关闭时发射此信号。
+        closed: 提示框被关闭时发射此信号。
 
     Example::
 
         tooltip = StateToolTip("正在加载", "请稍候...", self)
-        tooltip.closedSignal.connect(on_closed)
+        tooltip.closed.connect(on_closed)
         tooltip.show()
     """
 
-    closedSignal = pyqtSignal()
+    closed = pyqtSignal()
 
     def __init__(
         self, title: str = "", content: str = "", parent: Optional[QWidget] = None
@@ -390,61 +394,99 @@ class StateToolTip(QWidget):
         self._isDone = False
         self._rotateAngle = 0
         self._deltaAngle = TOOLTIP_ROTATE_ANGLE_DELTA
-        self._borderRadius = TOOLTIP_BORDER_RADIUS
-        self._shadowBorderWidth = TOOLTIP_SHADOW_BORDER_WIDTH
+        self._borderRadius = STATETOOLTIP_BORDER_RADIUS
         self._currentTheme = eTheme.getThemeMode()
         self._isClosing = False
+        self._destroyed = False
+        self._closeBtnHovered = False
         self._themeConnection: Any = None
 
-        self._opacityEffect = QGraphicsOpacityEffect(self)
-        self._animation = QPropertyAnimation(self._opacityEffect, b"opacity")
+        self._animation = QPropertyAnimation(self, b"windowOpacity")
         self._rotateTimer = QTimer(self)
 
         self._titleLabel = ElaText(title, self)
         self._contentLabel = ElaText(content, self)
-        self._closeButton = QWidget(self)
-        self._closeButton.setFixedSize(
-            STATETOOLTIP_CLOSE_BUTTON_SIZE, STATETOOLTIP_CLOSE_BUTTON_SIZE
-        )
-        self._closeButton.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._closeButton.installEventFilter(self)
+
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setColor(QColor(0, 0, 0, 40))
+        shadow.setOffset(0, 4)
+        shadow.setBlurRadius(20)
+        self.setGraphicsEffect(shadow)
 
         self._themeConnection = eTheme.themeModeChanged.connect(
             self._onThemeModeChanged
         )
 
-        self._setupUi()
+        self.setMouseTracking(True)
+        self._setup_ui()
         self._connectSignals()
 
-    def _setupUi(self) -> None:
-        """初始化 UI 组件和样式。"""
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
-        self.setGraphicsEffect(self._opacityEffect)
-        self._opacityEffect.setOpacity(1)
-
+    def _setup_ui(self) -> None:
         self._rotateTimer.setInterval(TOOLTIP_ROTATE_TIMER_INTERVAL)
         self._rotateTimer.timeout.connect(self._rotateTimerFlow)
 
         self._contentLabel.setMinimumWidth(STATETOOLTIP_MIN_WIDTH)
+        self._contentLabel.setWordWrap(True)
+        self._contentLabel.setMaximumWidth(STATETOOLTIP_MAX_WIDTH)
 
         self._updateContent()
         self._updateSizeAndPositions()
 
     def _connectSignals(self) -> None:
-        """启动旋转定时器。"""
         self._rotateTimer.start()
 
     def _onThemeModeChanged(self, mode: int) -> None:
-        """主题切换时触发重绘。
-
-        :param mode: 当前主题模式。
-        :type mode: int
-        """
         self._currentTheme = mode
         self.update()
 
+    def _getAccentColor(self) -> QColor:
+        if self._isDone:
+            mode = self._currentTheme
+            return (
+                QColor(STATETOOLTIP_SUCCESS_COLOR_DARK)
+                if mode == ElaThemeType.ThemeMode.Dark
+                else QColor(STATETOOLTIP_SUCCESS_COLOR_LIGHT)
+            )
+        return eTheme.getThemeColor(
+            self._currentTheme, ElaThemeType.ThemeColor.PrimaryNormal
+        )
+
+    def _drawCloseButton(self, painter: QPainter) -> None:
+        btn_size = STATETOOLTIP_CLOSE_BUTTON_SIZE
+        btn_x = self.width() - btn_size - 12
+        btn_y = 8
+        btn_rect = QRect(btn_x, btn_y, btn_size, btn_size)
+
+        if self._closeBtnHovered:
+            hover_bg = eTheme.getThemeColor(
+                self._currentTheme, ElaThemeType.ThemeColor.BasicHover
+            )
+            painter.save()
+            painter.setBrush(hover_bg)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(btn_rect)
+            painter.restore()
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        text_color = eTheme.getThemeColor(
+            self._currentTheme, ElaThemeType.ThemeColor.BasicText
+        )
+        line_pen = QPen(text_color, 2, Qt.PenStyle.SolidLine)
+        painter.setPen(line_pen)
+
+        margin = 6
+        painter.drawLine(
+            btn_x + margin, btn_y + margin,
+            btn_x + btn_size - margin, btn_y + btn_size - margin,
+        )
+        painter.drawLine(
+            btn_x + btn_size - margin, btn_y + margin,
+            btn_x + margin, btn_y + btn_size - margin,
+        )
+        painter.restore()
+
     def _updateContent(self) -> None:
-        """更新标题和内容文本及尺寸。"""
         self._titleLabel.setText(self._title)
         self._contentLabel.setText(self._content)
 
@@ -454,67 +496,83 @@ class StateToolTip(QWidget):
         self._titleLabel.adjustSize()
         self._contentLabel.adjustSize()
 
-        width = max(self._titleLabel.width(), self._contentLabel.width()) + 56
-        self.setFixedSize(width, STATETOOLTIP_HEIGHT)
+        content_max_w = (
+            self._contentLabel.width()
+            if self._contentLabel.width() <= STATETOOLTIP_MAX_WIDTH
+            else STATETOOLTIP_MAX_WIDTH
+        )
+        width = max(
+            self._titleLabel.width() + 60,
+            content_max_w + 56,
+            STATETOOLTIP_MIN_WIDTH,
+        )
+        height = max(
+            self._titleLabel.height() + self._contentLabel.height() + 32,
+            STATETOOLTIP_HEIGHT,
+        )
+        self.setFixedSize(width, height)
 
-        self._titleLabel.move(32, 9)
-        self._contentLabel.move(12, 27)
-        self._closeButton.move(self.width() - 24, 19)
+        icon_area = 28
+        self._titleLabel.move(
+            STATETOOLTIP_ACCENT_WIDTH + icon_area + 8, 10
+        )
+        self._contentLabel.move(
+            STATETOOLTIP_ACCENT_WIDTH + icon_area + 8,
+            10 + self._titleLabel.height() + 4,
+        )
+        self._contentLabel.setFixedWidth(
+            width - STATETOOLTIP_ACCENT_WIDTH - icon_area - 8 - STATETOOLTIP_CLOSE_BUTTON_SIZE - 12
+        )
 
     def _updateSizeAndPositions(self) -> None:
-        """重新计算内容尺寸和子组件位置。"""
         self._updateContent()
 
-    def setTitle(self, title: str) -> None:
-        """设置提示标题。
+    def _checkValid(self) -> bool:
+        if self._destroyed:
+            return False
+        try:
+            self.isWidgetType()
+            return True
+        except RuntimeError:
+            self._destroyed = True
+            return False
 
-        :param title: 新的标题文本。
-        :type title: str
-        """
+    def setTitle(self, title: str) -> None:
+        if not self._checkValid():
+            return
         self._title = title
         self._titleLabel.setText(title)
         self._titleLabel.adjustSize()
         self._updateSizeAndPositions()
 
     def setContent(self, content: str) -> None:
-        """设置提示内容。
-
-        :param content: 新的内容文本。
-        :type content: str
-        """
+        if not self._checkValid():
+            return
         self._content = content
         self._contentLabel.setText(content)
         self._contentLabel.adjustSize()
         self._updateSizeAndPositions()
 
     def setState(self, isDone: bool) -> None:
-        """设置完成状态。
-
-        设置为 ``True`` 后会切换图标为对勾并在一秒后自动淡出。
-
-        :param isDone: 是否完成。
-        :type isDone: bool
-        """
+        if not self._checkValid():
+            return
         self._isDone = isDone
         self.update()
         if isDone:
             QTimer.singleShot(TOOLTIP_AUTO_CLOSE_DELAY, self._fadeOut)
 
     def _stopTimerAndAnimation(self) -> None:
-        """停止旋转定时器和动画。"""
         if self._rotateTimer.isActive():
             self._rotateTimer.stop()
         if self._animation.state() == QPropertyAnimation.State.Running:
             self._animation.stop()
 
     def _onCloseButtonClicked(self) -> None:
-        """关闭按钮点击处理，发射关闭信号并触发淡出。"""
-        self.closedSignal.emit()
+        self.closed.emit()
         self._fadeOut()
 
     def _fadeOut(self) -> None:
-        """执行淡出动画并在完成后销毁组件。"""
-        if self._isClosing:
+        if self._isClosing or not self._checkValid():
             return
         self._isClosing = True
         self._stopTimerAndAnimation()
@@ -525,54 +583,64 @@ class StateToolTip(QWidget):
         self._animation.start()
 
     def _onFadeOutFinished(self) -> None:
-        """淡出动画完成后的处理，隐藏并销毁组件。"""
-        self._animation.finished.disconnect(self._onFadeOutFinished)
+        if not self._checkValid():
+            return
+        try:
+            self._animation.finished.disconnect(self._onFadeOutFinished)
+        except TypeError:
+            pass
+        self.closed.emit()
         self.hide()
         self.deleteLater()
 
     def _rotateTimerFlow(self) -> None:
-        """旋转动画更新回调，每 50ms 增加旋转角度。"""
+        if not self._checkValid():
+            return
         self._rotateAngle = (self._rotateAngle + self._deltaAngle) % 360
         self.update()
 
-    def eventFilter(self, a0: Optional[QObject], a1: Optional[QEvent]) -> bool:
-        """事件过滤器，监听关闭按钮的鼠标点击事件。
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        btn_size = STATETOOLTIP_CLOSE_BUTTON_SIZE
+        btn_x = self.width() - btn_size - 12
+        btn_y = 8
+        btn_rect = QRect(btn_x, btn_y, btn_size, btn_size)
+        hovered = btn_rect.contains(event.pos())
+        if hovered != self._closeBtnHovered:
+            self._closeBtnHovered = hovered
+            self.update()
+        super().mouseMoveEvent(event)
 
-        :param a0: 事件源对象。
-        :type a0: QObject, optional
-        :param a1: 事件对象。
-        :type a1: QEvent, optional
-        :return: 如果事件被处理则返回 ``True``。
-        :rtype: bool
-        """
-        if a0 == self._closeButton and a1 is not None:
-            if a1.type() == QEvent.Type.MouseButtonPress:
-                self._onCloseButtonClicked()
-                return True
-        return super().eventFilter(a0, a1)
+    def leaveEvent(self, event: QEvent) -> None:
+        if self._closeBtnHovered:
+            self._closeBtnHovered = False
+            self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        btn_size = STATETOOLTIP_CLOSE_BUTTON_SIZE
+        btn_x = self.width() - btn_size - 12
+        btn_y = 8
+        btn_rect = QRect(btn_x, btn_y, btn_size, btn_size)
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and btn_rect.contains(event.pos())
+        ):
+            self._onCloseButtonClicked()
+            return
+        super().mousePressEvent(event)
 
     def hideEvent(self, a0: Optional[QHideEvent]) -> None:
-        """隐藏事件处理，非关闭流程中停止定时器和动画。
-
-        :param a0: 隐藏事件。
-        :type a0: QHideEvent, optional
-        """
         if not self._isClosing:
             self._stopTimerAndAnimation()
         super().hideEvent(a0)
 
     def close(self) -> bool:
-        """手动关闭提示框。
-
-        :return: 关闭操作是否成功。
-        :rtype: bool
-        """
         self._isClosing = True
         self._stopTimerAndAnimation()
         return super().close()
 
     def deleteLater(self) -> None:
-        """停止定时器和动画，断开主题信号，移除事件过滤器，调度删除。"""
+        self._destroyed = True
         self._stopTimerAndAnimation()
         if self._themeConnection is not None:
             try:
@@ -580,42 +648,54 @@ class StateToolTip(QWidget):
             except TypeError:
                 pass
             self._themeConnection = None
-        self._closeButton.removeEventFilter(self)
         super().deleteLater()
 
     def paintEvent(self, a0: Optional[QPaintEvent]) -> None:
-        """绘制状态提示框背景。
-
-        加载状态显示旋转箭头图标，完成状态显示对勾图标。
-
-        :param a0: 绘制事件。
-        :type a0: QPaintEvent, optional
-        """
+        if not self._checkValid():
+            return
         painter = QPainter(self)
         painter.setRenderHints(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
 
         themeMode = self._currentTheme
+        r = self._borderRadius
+        w, h = self.width(), self.height()
 
-        if themeMode == ElaThemeType.ThemeMode.Dark:
-            bgColor = QColor(STATETOOLTIP_DARK_BG_COLOR)
-        else:
-            bgColor = QColor(STATETOOLTIP_LIGHT_BG_COLOR)
-        painter.setBrush(QBrush(bgColor))
-        painter.drawRoundedRect(self.rect(), self._borderRadius, self._borderRadius)
+        bg_color = eTheme.getThemeColor(
+            themeMode, ElaThemeType.ThemeColor.PopupBase
+        )
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, w, h, r, r)
+        painter.fillPath(path, bg_color)
 
-        textColor = eTheme.getThemeColor(themeMode, ElaThemeType.ThemeColor.BasicText)
+        accent_color = self._getAccentColor()
+        painter.save()
+        painter.setClipRect(0, 0, w, h)
+        painter.setBrush(accent_color)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(
+            0, 0, STATETOOLTIP_ACCENT_WIDTH, h, r, r
+        )
+        painter.drawRect(
+            STATETOOLTIP_ACCENT_WIDTH - 2, 0,
+            4, h,
+        )
+        painter.restore()
+
+        text_color = eTheme.getThemeColor(
+            themeMode, ElaThemeType.ThemeColor.BasicText
+        )
+        icon_area_x = STATETOOLTIP_ACCENT_WIDTH + 6
+        icon_area_y = h // 2
 
         if not self._isDone:
             painter.save()
-            painter.translate(19, 18)
+            painter.translate(icon_area_x + 14, icon_area_y)
             painter.rotate(self._rotateAngle)
-
             iconFont = QFont("ElaAwesome")
             iconFont.setPixelSize(STATETOOLTIP_ICON_SIZE)
             painter.setFont(iconFont)
-
-            painter.setPen(textColor)
+            painter.setPen(text_color)
             painter.drawText(
                 QRectF(-8, -8, 16, 16),
                 Qt.AlignmentFlag.AlignCenter,
@@ -623,26 +703,25 @@ class StateToolTip(QWidget):
             )
             painter.restore()
         else:
+            painter.save()
+            painter.translate(icon_area_x + 14, icon_area_y)
             iconFont = QFont("ElaAwesome")
             iconFont.setPixelSize(STATETOOLTIP_ICON_SIZE)
             painter.setFont(iconFont)
-
-            painter.setPen(textColor)
+            painter.setPen(accent_color)
             painter.drawText(
-                QRectF(11, 10, 16, 16),
+                QRectF(-8, -8, 16, 16),
                 Qt.AlignmentFlag.AlignCenter,
                 chr(ElaIconType.IconName.BadgeCheck),
             )
+            painter.restore()
+
+        self._drawCloseButton(painter)
+        painter.end()
 
     def getSuitablePos(self) -> QPoint:
-        """计算一个合适的显示位置，避免与其他 StateToolTip 重叠。
-
-        从父级窗口右上角开始向下遍历，每次向下偏移固定距离，
-        直到找到一个没有与现存 StateToolTip 重叠的位置。
-
-        :return: 计算得到的全局坐标位置。
-        :rtype: QPoint
-        """
+        if not self._checkValid():
+            return QPoint(0, 0)
         parent = self.parent()
         if parent is None or not isinstance(parent, QWidget):
             return QPoint(0, 0)

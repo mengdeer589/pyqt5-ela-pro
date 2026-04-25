@@ -56,16 +56,22 @@ class TestElaSplashScreen:
         mock_show.assert_called_once()
         splash.close()
 
-    @patch.object(ElaSplashScreen, '_createPixmap')
-    def test_initialization_calls_create_pixmap(self, mock_create_pixmap):
-        """Test init calls _createPixmap internally during parent __init__."""
-        mock_pixmap = MagicMock()
-        mock_create_pixmap.return_value = mock_pixmap
+    def test_initialization_calls_build_base_pixmap(self):
+        """Test init calls _build_base_pixmap internally during parent __init__."""
+        splash = ElaSplashScreen()
+        assert splash._base_pixmap is not None
+        assert splash._base_pixmap.width() == 500
+        assert splash._base_pixmap.height() == 350
+        splash.close()
 
-        with patch.object(QSplashScreen, '__init__', return_value=None):
-            splash = ElaSplashScreen()
-
-        mock_create_pixmap.assert_called_once()
+    def test_build_progress_pixmap_returns_pixmap(self):
+        """Test _build_progress_pixmap returns a valid QPixmap."""
+        splash = ElaSplashScreen()
+        pixmap = splash._build_progress_pixmap()
+        assert pixmap is not None
+        assert pixmap.width() == splash._width
+        assert pixmap.height() == splash._height
+        splash.close()
 
     def test_show_message_uses_super(self):
         """Test showMessage delegates to QSplashScreen.showMessage."""
@@ -78,7 +84,7 @@ class TestElaSplashScreen:
         splash.close()
 
     def test_finish_calls_super_finish(self):
-        """Test finish delegates to QSplashScreen.finish and close."""
+        """Test finish delegates to QSplashScreen.finish without extra close."""
         splash = ElaSplashScreen()
 
         with patch.object(QSplashScreen, 'finish') as mock_finish, \
@@ -87,7 +93,38 @@ class TestElaSplashScreen:
             splash.finish(mock_widget)
 
             mock_finish.assert_called_once_with(mock_widget)
-            mock_close.assert_called_once()
+            mock_close.assert_not_called()
+
+    def test_set_progress_updates_progress(self):
+        """Test setProgress updates internal progress value."""
+        splash = ElaSplashScreen()
+
+        splash.setProgress(0.5)
+        assert splash._progress == 0.5
+
+        splash.setProgress(1.0)
+        assert splash._progress == 1.0
+
+        splash.setProgress(-0.1)
+        assert splash._progress == 0.0
+
+        splash.setProgress(1.5)
+        assert splash._progress == 1.0
+
+        splash.close()
+
+    def test_set_progress_reuses_base_pixmap(self):
+        """Test setProgress does not recreate the base pixmap."""
+        splash = ElaSplashScreen()
+        original_base = splash._base_pixmap
+
+        splash.setProgress(0.5)
+        assert splash._base_pixmap is original_base
+
+        splash.setProgress(1.0)
+        assert splash._base_pixmap is original_base
+
+        splash.close()
 
     def test_close_calls_super_close(self):
         """Test close delegates to QSplashScreen.close."""

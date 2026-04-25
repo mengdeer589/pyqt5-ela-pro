@@ -4,6 +4,8 @@
 基于 ``QSplashScreen`` 封装，支持渐变背景、标题、副标题和加载进度显示。
 """
 
+from typing import Optional
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap, QPainter, QColor, QFont, QLinearGradient
 from PyQt5.QtWidgets import QSplashScreen, QApplication
@@ -36,9 +38,14 @@ class ElaSplashScreen(QSplashScreen):
         self._width = width
         self._height = height
         self._progress = 0.0
-        pixmap = self._createPixmap()
+        self._base_pixmap: Optional[QPixmap] = None
+        self._bar_margin = 50
+        self._bar_height = 8
+        self._bar_y = self._height - 100
+        self._bar_width = self._width - self._bar_margin * 2
+        self._build_base_pixmap()
         super().__init__(
-            pixmap,
+            self._build_progress_pixmap(),
             Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint,
         )
 
@@ -47,14 +54,10 @@ class ElaSplashScreen(QSplashScreen):
         super().show()
         QApplication.instance().processEvents()
 
-    def _createPixmap(self) -> QPixmap:
-        """创建启动画面背景图。
-
-        :return: 绘制的 QPixmap。
-        """
+    def _build_base_pixmap(self) -> None:
+        """创建启动画面背景层（渐变背景 + 文字），缓存以便进度更新时复用。"""
         pixmap = QPixmap(self._width, self._height)
         pixmap.fill(Qt.GlobalColor.transparent)
-
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
 
@@ -84,32 +87,28 @@ class ElaSplashScreen(QSplashScreen):
             Qt.AlignmentFlag.AlignCenter,
             self._subtitle,
         )
-
-        barY = self._height - 100
-        barHeight = 8
-        barMargin = 50
-        barWidth = self._width - barMargin * 2
-
-        painter.setPen(Qt.PenStyle.NoPen)
-
-        self._drawProgressBar(painter)
-
         painter.end()
-        return pixmap
+        self._base_pixmap = pixmap
 
-    def _drawProgressBar(self, painter: QPainter) -> None:
-        barY = self._height - 100
-        barHeight = 8
-        barMargin = 50
-        barWidth = self._width - barMargin * 2
+    def _build_progress_pixmap(self) -> QPixmap:
+        """基于缓存的背景层叠加进度条，返回最终 pixmap。"""
+        pixmap = self._base_pixmap.copy() if self._base_pixmap else QPixmap(self._width, self._height)
+        painter = QPainter(pixmap)
 
+        painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(255, 255, 255, 50))
-        painter.drawRoundedRect(barMargin, barY, barWidth, barHeight, 4, 4)
+        painter.drawRoundedRect(
+            self._bar_margin, self._bar_y, self._bar_width, self._bar_height, 4, 4
+        )
 
-        fillWidth = int(barWidth * self._progress)
+        fillWidth = int(self._bar_width * self._progress)
         painter.setBrush(QColor(255, 255, 255))
-        painter.drawRoundedRect(barMargin, barY, fillWidth, barHeight, 4, 4)
+        painter.drawRoundedRect(
+            self._bar_margin, self._bar_y, fillWidth, self._bar_height, 4, 4
+        )
+        painter.end()
+        return pixmap
 
     def setProgress(self, percent: float) -> None:
         """设置进度条百分比。
@@ -118,7 +117,7 @@ class ElaSplashScreen(QSplashScreen):
         :type percent: float
         """
         self._progress = max(0.0, min(1.0, percent))
-        pixmap = self._createPixmap()
+        pixmap = self._build_progress_pixmap()
         self.setPixmap(pixmap)
         self.repaint()
         QApplication.instance().processEvents()
@@ -142,4 +141,3 @@ class ElaSplashScreen(QSplashScreen):
         :param widget: 目标窗口，关闭后显示该窗口。
         """
         super().finish(widget)
-        self.close()

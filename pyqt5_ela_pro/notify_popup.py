@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QPropertyAnimation, QPoint, QTimer, pyqtSignal
+from PyQt5.QtCore import Qt, QPropertyAnimation, QPoint, QTimer, pyqtSignal, QEvent
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
-from PyQt5.QtGui import QPainter
+from PyQt5.QtGui import QPainter, QPaintEvent, QEnterEvent
 
 from PyQt5ElaWidgetTools import (
     eTheme,
@@ -178,11 +178,11 @@ class ElaNotifyPopup(QWidget):
     def _on_timeout(self):
         self._close_animation()
 
-    def enterEvent(self, event):
+    def enterEvent(self, event: QEnterEvent) -> None:
         self._timer.stop()
         super().enterEvent(event)
 
-    def leaveEvent(self, event):
+    def leaveEvent(self, event: QEvent) -> None:
         if self._timeout > 0 and not self._is_showing:
             self._timer.start(self._timeout)
         super().leaveEvent(event)
@@ -198,7 +198,13 @@ class ElaNotifyPopup(QWidget):
     def setTimeout(self, timeout: int) -> None:
         self._timeout = timeout
 
-    def paintEvent(self, event):
+    def deleteLater(self) -> None:
+        self._timer.stop()
+        self._animation.stop()
+        self._close_btn.clicked.disconnect(self._on_close)
+        super().deleteLater()
+
+    def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 

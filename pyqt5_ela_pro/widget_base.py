@@ -13,6 +13,8 @@ from PyQt5.QtGui import QPalette
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaMessageBar, ElaMessageBarType
 
+from ._internal import disconnect_theme_signal
+
 
 class ThemeWidget(QWidget):
     """自动适应主题变化的 ``QWidget`` 基类。

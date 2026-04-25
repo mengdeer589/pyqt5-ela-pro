@@ -307,6 +307,14 @@ class ElaParquetTable(ThemeWidget):
 
         self._load_data()
 
+    def deleteLater(self) -> None:
+        try:
+            self._pager.pageRequest.disconnect(self.goToPage)
+            self._table.clicked.disconnect(self._on_cell_clicked)
+        except (TypeError, RuntimeError):
+            pass
+        super().deleteLater()
+
     def _load_data(self) -> None:
         data = (
             self._lf.slice((self._current_page - 1) * self._page_size, self._page_size)

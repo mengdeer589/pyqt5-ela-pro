@@ -101,7 +101,7 @@ class ElaTrendChart(QWidget):
     def _onThemeChanged(self) -> None:
         self._assignColors()
         self._data_pixmap = None
-        self.repaint()
+        self.update()
 
     def _getThemeColor(self, color_type: ElaThemeType.ThemeColor) -> QColor:
         return eTheme.getThemeColor(eTheme.getThemeMode(), color_type)
@@ -202,13 +202,13 @@ class ElaTrendChart(QWidget):
             }
         )
         self._data_pixmap = None
-        self.repaint()
+        self.update()
 
     def clearCurves(self) -> None:
         """清空所有曲线。"""
         self._curves.clear()
         self._data_pixmap = None
-        self.repaint()
+        self.update()
 
     def setData(self, x, y, name: Optional[str] = None) -> None:
         """设置单条曲线（便捷方法，等同于 clearCurves + addCurve）。
@@ -238,7 +238,7 @@ class ElaTrendChart(QWidget):
         """
         self._view_rect = rect
         self._data_pixmap = None
-        self.repaint()
+        self.update()
 
     def viewRect(self) -> QRectF:
         """返回视图范围。
@@ -279,7 +279,7 @@ class ElaTrendChart(QWidget):
             (max_y - min_y) + 2 * margin_y,
         )
         self._data_pixmap = None
-        self.repaint()
+        self.update()
 
     def setGridVisible(self, visible: bool) -> None:
         """设置网格线是否显示。
@@ -287,7 +287,7 @@ class ElaTrendChart(QWidget):
         :param visible: True 显示，False 隐藏
         """
         self._grid_visible = visible
-        self.repaint()
+        self.update()
 
     def gridVisible(self) -> bool:
         """返回网格线是否显示。
@@ -302,7 +302,7 @@ class ElaTrendChart(QWidget):
         :param visible: True 显示，False 隐藏
         """
         self._legend_visible = visible
-        self.repaint()
+        self.update()
 
     def legendVisible(self) -> bool:
         """返回图例是否显示。
@@ -345,7 +345,7 @@ class ElaTrendChart(QWidget):
         """
         self._line_width = width
         self._data_pixmap = None
-        self.repaint()
+        self.update()
 
     def coordinateToPos(self, coord: QPointF) -> QPoint:
         """将数据坐标转换为屏幕坐标。
@@ -486,7 +486,7 @@ class ElaTrendChart(QWidget):
                 self._indicator_index = curve_idx
                 self._indicator_point = nearest
                 self._indicator_visible = True
-                self.repaint()
+                self.update()
 
                 curve = self._curves[curve_idx]
                 if self._tooltip_func:
@@ -500,7 +500,7 @@ class ElaTrendChart(QWidget):
                 QToolTip.showText(event.globalPos(), tip_text, self)
         else:
             self._indicator_visible = False
-            self.repaint()
+            self.update()
             QToolTip.hideText()
 
         super().mouseMoveEvent(event)
@@ -567,7 +567,7 @@ class ElaTrendChart(QWidget):
 
     def leaveEvent(self, event) -> None:
         self._indicator_visible = False
-        self.repaint()
+        self.update()
         QToolTip.hideText()
         super().leaveEvent(event)
 

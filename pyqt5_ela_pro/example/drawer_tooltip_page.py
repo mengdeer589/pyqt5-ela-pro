@@ -12,7 +12,7 @@ from pyqt5_ela_pro import (
     ElaDrawer,
     ElaDrawerPosition,
     ThemeWidget,
-    ElaPrimaryBtn,
+    ElaPrimaryButton,
     ElaToolTipPosition,
     set_tooltip,
     StateToolTip,
@@ -73,7 +73,7 @@ class DrawerTooltipPage(ExamplePage):
             desc.setTextPixelSize(14)
             content_layout.addWidget(desc)
             content_layout.addStretch()
-            close_btn = ElaPrimaryBtn(content)
+            close_btn = ElaPrimaryButton(parent=content)
             close_btn.setText("关闭抽屉")
             close_btn.setFixedWidth(120)
             close_btn.clicked.connect(drawer.closeDrawer)
@@ -139,35 +139,37 @@ class DrawerTooltipPage(ExamplePage):
         parent_layout.addLayout(btn_layout)
         parent_layout.addSpacing(20)
 
-    def _destroyStateTooltip(self):
-        if self._stateTooltip is not None:
-            self._stateTooltip.hide()
-            self._stateTooltip.deleteLater()
-            self._stateTooltip = None
+    def _checkValid(self, widget) -> bool:
+        try:
+            return widget is not None and widget.isWidgetType()
+        except RuntimeError:
+            return False
 
-    def _showLoadingStateTooltip(self):
-        self._destroyStateTooltip()
-        self._stateTooltip = StateToolTip("正在加载", "请稍候...", self)
-        self._stateTooltip.closedSignal.connect(self._onStateTooltipClosed)
+    def _showStateTooltip(self, title, content, is_done=False):
+        if self._checkValid(self._stateTooltip):
+            self._stateTooltip.setTitle(title)
+            self._stateTooltip.setContent(content)
+            if is_done:
+                self._stateTooltip.setState(True)
+            return
+        self._stateTooltip = StateToolTip(title, content, self)
+        self._stateTooltip.closed.connect(self._onStateTooltipClosed)
         pos = self._stateTooltip.getSuitablePos()
         self._stateTooltip.move(pos)
         self._stateTooltip.show()
+        if is_done:
+            self._stateTooltip.setState(True)
 
+    def _showLoadingStateTooltip(self):
+        self._showStateTooltip("正在加载", "请稍候...")
     def _showSuccessStateTooltip(self):
-        if self._stateTooltip is not None:
-            self._stateTooltip.setTitle("加载完成")
-            self._stateTooltip.setContent("数据已成功加载")
-            self._stateTooltip.setState(True)
-        else:
-            self._stateTooltip = StateToolTip("加载完成", "数据已成功加载", self)
-            self._stateTooltip.closedSignal.connect(self._onStateTooltipClosed)
-            pos = self._stateTooltip.getSuitablePos()
-            self._stateTooltip.move(pos)
-            self._stateTooltip.show()
-            self._stateTooltip.setState(True)
+        self._showStateTooltip("加载完成", "数据已成功加载", is_done=True)
 
     def _onStateTooltipClosed(self):
         self._stateTooltip = None
 
     def _closeStateTooltip(self):
-        self._destroyStateTooltip()
+        if self._checkValid(self._stateTooltip):
+            self._stateTooltip.hide()
+            self._stateTooltip.deleteLater()
+        self._stateTooltip = None

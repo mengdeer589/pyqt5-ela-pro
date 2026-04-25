@@ -14,9 +14,14 @@ from __future__ import annotations
 import logging
 from typing import Optional, Any
 
-import win32api
-import win32con
-import win32gui
+try:
+    import win32api
+    import win32con
+    import win32gui
+except ImportError:
+    win32api = None
+    win32con = None
+    win32gui = None
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 
 from ._internal import catch_error
@@ -54,7 +59,15 @@ class ElaWindowEmbedder(QWidget):
     embed_error = pyqtSignal(str)
     embed_timeout = pyqtSignal()
 
+    @staticmethod
+    def _check_dependencies() -> None:
+        if win32gui is None:
+            raise ImportError(
+                "ElaWindowEmbedder 需要 pywin32，请运行: uv pip install pywin32"
+            )
+
     def __init__(self, parent: Optional[QWidget] = None):
+        self._check_dependencies()
         super().__init__(parent=parent)
 
         self._embedded_info: Optional[dict] = None
@@ -150,6 +163,9 @@ class ElaWindowEmbedder(QWidget):
         window_info = self.get_window_info(hwnd)
         if not window_info:
             return False
+
+        if self._embedded_info:
+            self.release(destroy=True)
 
         try:
             qwindow = QWindow.fromWinId(hwnd)
@@ -356,6 +372,7 @@ class ElaWindowEmbedder(QWidget):
             if destroy:
                 released_hwnd = hwnd
                 self._embedded_info = None
+                self._is_embedded = False
                 self.window_released.emit(released_hwnd)
                 return True
 

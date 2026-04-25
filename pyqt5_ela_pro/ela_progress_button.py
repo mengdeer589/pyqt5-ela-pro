@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt5.QtCore import pyqtSignal, Qt, QRect, QRectF
-from PyQt5.QtGui import QColor, QPainter, QLinearGradient, QPainterPath
+from PyQt5.QtGui import QColor, QPainter, QLinearGradient, QPainterPath, QPaintEvent
 from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaPushButton
@@ -21,13 +21,13 @@ class ElaProgressButton(ElaPushButton):
     继承自 ElaPushButton，支持显示进度条。
     进度由外部通过 setProgress() 控制，不支持长按。
 
-    :param parent: 父控件
     :param text: 按钮文本
     :param progressColor: 进度条颜色，为 None 时使用主题色
+    :param parent: 父控件
 
     Example::
 
-        button = ElaProgressButton(parent, text="下载")
+        button = ElaProgressButton(text="下载", parent=parent)
         button.setProgress(50)  # 显示50%进度
         button.setProgress(100)  # 完成
     """
@@ -36,9 +36,9 @@ class ElaProgressButton(ElaPushButton):
 
     def __init__(
         self,
-        parent: Optional[QWidget] = None,
         text: str = "",
         progressColor: Optional[QColor] = None,
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.setText(text)
@@ -104,11 +104,7 @@ class ElaProgressButton(ElaPushButton):
             self._theme_connection = None
         super().deleteLater()
 
-    def paintEvent(self, event) -> None:
-        if self._progress <= 0:
-            super().paintEvent(event)
-            return
-
+    def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)

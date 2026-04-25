@@ -6,7 +6,9 @@ Splitter 分割器组件
 
 from __future__ import annotations
 
-from PyQt5.QtWidgets import QSplitter, QWidget, QStyle, QStyleOption, QProxyStyle
+from typing import Optional
+
+from PyQt5.QtWidgets import QSplitter, QWidget, QStyle, QStyleOption, QProxyStyle, QBoxLayout
 from PyQt5.QtCore import Qt, QRect
 from PyQt5.QtGui import QPainter, QColor
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
@@ -77,6 +79,7 @@ def create_ela_splitter(
     widgets: list,
     orientation: Qt.Orientation = Qt.Horizontal,
     handleThickness: int = 4,
+    sizes: Optional[list[int]] = None,
     parent: QWidget = None,
 ) -> QSplitter:
     """将组件列表以 ELA 风格 splitter 分割
@@ -84,14 +87,36 @@ def create_ela_splitter(
     :param widgets: 要分割的组件列表（至少 2 个）
     :param orientation: Qt.Horizontal 或 Qt.Vertical
     :param handleThickness: 手柄粗细（默认 4px）
-    :param parent: 父组件
+    :param sizes: 每个子组件的初始尺寸（像素），长度必须与 widgets 一致，可选
+    :param parent: 父组件，为 None 时自动使用 widgets[0] 的父组件
     :returns: 配置好的 QSplitter
-    :raises ValueError: 当组件数量少于 2 个时
+    :raises ValueError: 当组件数量少于 2 个时，或 sizes 长度不匹配时
     """
     if len(widgets) < 2:
         raise ValueError("组件列表至少需要 2 个组件")
+    if sizes is not None and len(sizes) != len(widgets):
+        raise ValueError("sizes 列表长度必须与组件列表长度一致")
+
+    if parent is None and widgets:
+        parent = widgets[0].parentWidget()
 
     splitter = ElaSplitter(orientation, handleThickness, parent)
+
+    if parent is not None and parent.layout() is not None:
+        layout = parent.layout()
+        if isinstance(layout, QBoxLayout):
+            idx = layout.indexOf(widgets[0])
+            if idx >= 0:
+                layout.insertWidget(idx, splitter)
+            else:
+                layout.addWidget(splitter)
+        else:
+            layout.addWidget(splitter)
+
     for widget in widgets:
         splitter.addWidget(widget)
+
+    if sizes is not None:
+        splitter.setSizes(sizes)
+
     return splitter

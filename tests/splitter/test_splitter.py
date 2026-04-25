@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock, patch
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QWidget
+from PyQt5.QtWidgets import QWidget, QBoxLayout
 
 from pyqt5_ela_pro.splitter import (
     ElaSplitter,
@@ -141,3 +141,65 @@ class TestCreateElaSplitter:
         widget1.deleteLater()
         widget2.deleteLater()
         splitter.deleteLater()
+
+    def test_with_sizes_parameter(self):
+        """Test create_ela_splitter accepts sizes parameter (setSizes as hint)."""
+        widget1 = QWidget()
+        widget2 = QWidget()
+
+        splitter = create_ela_splitter(
+            [widget1, widget2],
+            sizes=[200, 300],
+        )
+
+        assert len(splitter.sizes()) == 2
+
+        widget1.deleteLater()
+        widget2.deleteLater()
+        splitter.deleteLater()
+
+    def test_sizes_wrong_length_raises(self):
+        """Test create_ela_splitter raises on mismatched sizes length."""
+        widget1 = QWidget()
+        widget2 = QWidget()
+
+        with pytest.raises(ValueError, match="sizes 列表长度"):
+            create_ela_splitter([widget1, widget2], sizes=[100])
+
+        widget1.deleteLater()
+        widget2.deleteLater()
+
+    def test_parent_auto_detected_and_inserted_into_layout(self):
+        """Test parent auto-detection and layout insertion."""
+        container = QWidget()
+        layout = QBoxLayout(QBoxLayout.TopToBottom)
+        container.setLayout(layout)
+
+        child1 = QWidget()
+        child2 = QWidget()
+        child3 = QWidget()
+        layout.addWidget(child1)
+        layout.addWidget(child2)
+        layout.addWidget(child3)
+
+        splitter = create_ela_splitter([child1, child2])
+
+        assert splitter.parentWidget() is container
+        assert layout.indexOf(splitter) == 0
+        assert splitter.count() == 2
+
+        container.deleteLater()
+
+    def test_parent_auto_detected_adds_when_not_in_layout(self):
+        """Test auto-detection addWidget when first widget not in layout."""
+        container = QWidget()
+        child1 = QWidget(container)
+        child2 = QWidget(container)
+
+        splitter = create_ela_splitter([child1, child2])
+
+        assert splitter.parentWidget() is container
+
+        child1.deleteLater()
+        child2.deleteLater()
+        container.deleteLater()

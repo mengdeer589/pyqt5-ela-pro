@@ -115,13 +115,23 @@ class TestElaTagSearchMultiBox:
         box.deleteLater()
 
     def test_get_target_mark_width_empty(self):
-        """Test _getTargetMarkWidth returns 0 when no items."""
+        """Test _get_target_mark_width helper returns 0 when no items."""
+        from pyqt5_ela_pro.ela_tag_combo_base import _get_target_mark_width
+
         box = ElaTagSearchMultiBox()
 
-        width = box._getTargetMarkWidth()
+        width = _get_target_mark_width(box)
 
         assert width == 0.0
 
+        box.deleteLater()
+
+    def test_pre_init_popup_runs_safely(self):
+        """Test _pre_init_popup helper runs without error."""
+        from pyqt5_ela_pro.ela_tag_combo_base import _pre_init_popup
+
+        box = ElaTagSearchMultiBox()
+        _pre_init_popup(box)
         box.deleteLater()
 
     def test_title_font_size_default_is_13(self):

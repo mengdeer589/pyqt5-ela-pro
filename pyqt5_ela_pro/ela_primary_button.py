@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QRect, QRectF, QSize
-from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen, QFont
+from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen, QFont, QPaintEvent
 from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import (
@@ -81,29 +81,29 @@ def _draw_button_content(
     return text_rect
 
 
-class ElaToolBtn(ElaToolButton):
+class ElaToolButton(ElaToolButton):
     """工具按钮。
 
     继承自 ElaToolButton，支持图标和文字水平排列。
     图标支持主题切换，自动更新颜色。
     外观与 ElaPushButton 一致，支持圆角背景。
 
-    :param parent: 父控件
     :param text: 按钮文本
     :param icon: 图标名称
     :param iconSize: 图标大小，默认 16
+    :param parent: 父控件
 
     Example::
 
-        btn = ElaToolBtn(parent, text="设置", icon=ElaIconType.IconName.Gear)
+        btn = ElaToolButton(text="设置", icon=ElaIconType.IconName.Gear, parent=parent)
     """
 
     def __init__(
         self,
-        parent: Optional[QWidget] = None,
         text: Optional[str] = None,
         icon: Optional[ElaIconType.IconName] = None,
         iconSize: int = 16,
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._border_radius = 3
@@ -115,7 +115,7 @@ class ElaToolBtn(ElaToolButton):
         if icon:
             self.setElaIcon(icon, iconSize)
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        eTheme.themeModeChanged.connect(self._onThemeModeChanged)
+        self._themeConnection = eTheme.themeModeChanged.connect(self._onThemeModeChanged)
 
     def _onThemeModeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self.update()
@@ -160,7 +160,7 @@ class ElaToolBtn(ElaToolButton):
             icon = ElaIcon.getInstance().getElaIcon(self._icon_name, text_color)
             self.setIcon(icon)
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -197,36 +197,43 @@ class ElaToolBtn(ElaToolButton):
             _icon_getter,
         )
 
+    def deleteLater(self) -> None:
+        try:
+            eTheme.themeModeChanged.disconnect(self._themeConnection)
+        except (TypeError, RuntimeError):
+            pass
+        super().deleteLater()
 
-class ElaPrimaryBtn(ElaPushButton):
+
+class ElaPrimaryButton(ElaPushButton):
     """主要按钮。
 
     使用 Primary 主题色的按钮，外观与 ElaToggleButton ON 状态一致。
     支持图标、点击事件等 ElaPushButton 所有功能。
 
-    :param parent: 父控件
     :param text: 按钮文本
     :param icon: 图标名称
     :param iconSize: 图标大小，默认 16
+    :param parent: 父控件
 
     Example::
 
-        btn = ElaPrimaryBtn(parent, text="提交", icon=ElaIconType.IconName.FloppyDisk)
+        btn = ElaPrimaryButton(text="提交", icon=ElaIconType.IconName.FloppyDisk, parent=parent)
         btn.clicked.connect(lambda: print("点击"))
     """
 
     def __init__(
         self,
-        parent: Optional[QWidget] = None,
         text: Optional[str] = None,
         icon: Optional[ElaIconType.IconName] = None,
         iconSize: int = 16,
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
 
         self._border_radius = 3
         self._icon_name: Optional[ElaIconType.IconName] = None
-        self._icon_size = 16
+        self._icon_size = iconSize
 
         if text is not None:
             self.setText(text)
@@ -244,7 +251,7 @@ class ElaPrimaryBtn(ElaPushButton):
         self.setIconSize(QSize(iconSize, iconSize))
         self.update()
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)

@@ -16,23 +16,21 @@ class TestAnimationRegistryCleanup:
 
     def test_registry_cleans_up_on_widget_destroyed(self, qapp, window_widget):
         """Test that destroyed widgets are removed from registry."""
-        key = id(window_widget)
-        assert key not in _animation_registry
+        assert window_widget not in _animation_registry
 
         fade_in(window_widget, duration=50)
-        assert key in _animation_registry
+        assert window_widget in _animation_registry
 
         window_widget.deleteLater()
         qapp.processEvents()
 
     def test_fade_in_ignores_when_animation_running(self, qapp, window_widget):
         """Test that calling fade_in while animation is running is ignored."""
-        key = id(window_widget)
         fade_in(window_widget, duration=500)
-        first_animation = _animation_registry.get(key)
+        first_animation = _animation_registry.get(window_widget)
 
         fade_in(window_widget, duration=500)
-        second_animation = _animation_registry.get(key)
+        second_animation = _animation_registry.get(window_widget)
 
         assert first_animation is second_animation
 
@@ -41,12 +39,11 @@ class TestAnimationRegistryCleanup:
 
     def test_fade_out_ignores_when_animation_running(self, qapp, window_widget):
         """Test that calling fade_out while animation is running is ignored."""
-        key = id(window_widget)
         fade_out(window_widget, duration=500)
-        first_animation = _animation_registry.get(key)
+        first_animation = _animation_registry.get(window_widget)
 
         fade_out(window_widget, duration=500)
-        second_animation = _animation_registry.get(key)
+        second_animation = _animation_registry.get(window_widget)
 
         assert first_animation is second_animation
 
@@ -55,10 +52,8 @@ class TestAnimationRegistryCleanup:
 
     def test_registry_cleanup_on_fade_in_finished(self, qapp, window_widget):
         """Test registry is cleaned up when fade_in animation finishes."""
-        key = id(window_widget)
-
         fade_in(window_widget, duration=50)
-        assert key in _animation_registry
+        assert window_widget in _animation_registry
 
         QTimer.singleShot(200, lambda: None)
         qapp.processEvents()
@@ -83,11 +78,10 @@ class TestFadeIn:
 
     def test_fade_in_creates_animation(self, qapp, window_widget):
         """Test fade_in creates animation in registry."""
-        key = id(window_widget)
         fade_in(window_widget, duration=100)
 
-        assert key in _animation_registry
-        anim = _animation_registry[key]
+        assert window_widget in _animation_registry
+        anim = _animation_registry[window_widget]
         assert isinstance(anim, QPropertyAnimation)
         assert anim.targetObject() is window_widget
 
@@ -98,7 +92,7 @@ class TestFadeIn:
         """Test fade_in respects duration parameter."""
         fade_in(window_widget, duration=2000)
 
-        anim = _animation_registry[id(window_widget)]
+        anim = _animation_registry[window_widget]
         assert anim.duration() == 2000
 
         window_widget.deleteLater()
@@ -129,7 +123,7 @@ class TestFadeOut:
         window_widget.show()
         fade_out(window_widget, duration=50, on_finished=on_finished)
 
-        anim = animation._animation_registry.get(id(window_widget))
+        anim = _animation_registry.get(window_widget)
         if anim:
             anim.finished.emit()
 
@@ -140,12 +134,11 @@ class TestFadeOut:
 
     def test_fade_out_creates_animation(self, qapp, window_widget):
         """Test fade_out creates animation in registry."""
-        key = id(window_widget)
         window_widget.show()
         fade_out(window_widget, duration=100)
 
-        assert key in _animation_registry
-        anim = _animation_registry[key]
+        assert window_widget in _animation_registry
+        anim = _animation_registry[window_widget]
         assert isinstance(anim, QPropertyAnimation)
 
         window_widget.deleteLater()

@@ -11,7 +11,7 @@ from enum import IntEnum
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtSignal, QRect, QEvent
-from PyQt5.QtGui import QColor, QPainter, QPainterPath
+from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPaintEvent, QMouseEvent
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QGraphicsDropShadowEffect
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
@@ -44,7 +44,7 @@ class ElaDrawerPanel(QWidget):
         self._position = position
         self.update()
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, event: QPaintEvent) -> None:
         if not hasattr(self, "_bg_color"):
             return
         painter = QPainter(self)
@@ -89,6 +89,8 @@ class ElaDrawerPanel(QWidget):
 
 
 class ElaDrawerDim(QWidget):
+    clicked = pyqtSignal()
+
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setAutoFillBackground(True)
@@ -99,6 +101,10 @@ class ElaDrawerDim(QWidget):
         palette = self.palette()
         palette.setColor(self.backgroundRole(), color)
         self.setPalette(palette)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        self.clicked.emit()
+        super().mousePressEvent(event)
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
@@ -136,7 +142,7 @@ class ElaDrawer(QWidget):
         self.hide()
 
         self._dim_widget = ElaDrawerDim(self)
-        self._dim_widget.mousePressEvent = lambda e: self._onDimClicked()
+        self._dim_widget.clicked.connect(self._onDimClicked)
         self._dim_widget.hide()
 
         self._drawer_widget = ElaDrawerPanel(self, self._corner_radius, self._position)

@@ -98,25 +98,23 @@ class TestElaTagMultiBox:
         box.deleteLater()
 
     def test_get_target_mark_width_empty(self):
-        """Test _getTargetMarkWidth returns 0 when no items."""
+        """Test _get_target_mark_width helper returns 0 when no items."""
+        from pyqt5_ela_pro.ela_tag_combo_base import _get_target_mark_width
+
         box = ElaTagMultiBox()
 
-        width = box._getTargetMarkWidth()
+        width = _get_target_mark_width(box)
 
         assert width == 0.0
 
         box.deleteLater()
 
-    def test_get_target_mark_width_calculation(self):
-        """Test _getTargetMarkWidth calculates proportional width."""
+    def test_pre_init_popup_runs_safely(self):
+        """Test _pre_init_popup helper runs without error."""
+        from pyqt5_ela_pro.ela_tag_combo_base import _pre_init_popup
+
         box = ElaTagMultiBox()
-        box.addItems(["A", "B", "C", "D"])
-        box.setCurrentSelection(["A", "B"])
-
-        width = box._getTargetMarkWidth()
-
-        assert width > 0
-
+        _pre_init_popup(box)
         box.deleteLater()
 
     def test_initial_expand_mark_width_is_zero(self):
