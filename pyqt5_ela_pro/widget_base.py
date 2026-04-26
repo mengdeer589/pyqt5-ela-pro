@@ -112,4 +112,6 @@ class ElaThemeWidget(QWidget):
         """
         func = getattr(ElaMessageBar, level)
         position_policy = getattr(ElaMessageBarType.PositionPolicy, position)
+        if parent is None:
+            parent=self
         func(position_policy, title, message, duration, parent)
