@@ -20,3 +20,6 @@ BROWSER_CRASh_REPORT.md
 test_*
 20260424/
 window_embedder.py
+.idea/
+example/
+AGENTS.md
