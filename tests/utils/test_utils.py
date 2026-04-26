@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 from PyQt5.QtCore import QPropertyAnimation, QPoint, QTimer, Qt
 from PyQt5.QtWidgets import QWidget
 
-from pyqt5_ela_pro.utils import shake_window
+from pyqt5_ela_pro import shake_window
 
 
 class TestShakeWindow:

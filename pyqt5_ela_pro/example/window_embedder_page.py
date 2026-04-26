@@ -107,6 +107,7 @@ class WindowEmbedderPage(ExamplePage):
             "background: #2b2b2b; border: 1px solid #444;"
         )
         parent_layout.addWidget(self._embedderContainer)
+        _embedderContainerLay=QHBoxLayout(self._embedderContainer)
 
         self._embedder = ElaWindowEmbedder(self._embedderContainer)
         self._embedder.windowEmbedded.connect(self._onWindowEmbedded)
@@ -114,7 +115,7 @@ class WindowEmbedderPage(ExamplePage):
         self._embedder.windowNotFound.connect(self._onWindowNotFound)
         self._embedder.embedError.connect(self._onEmbedError)
         self._embedder.embedTimeout.connect(self._onEmbedTimeout)
-
+        _embedderContainerLay.addWidget(self._embedder)
         self._infoText = ElaText(
             '嵌入区域 - 从下拉框选择窗口后点击"嵌入窗口"',
             self._embedderContainer,

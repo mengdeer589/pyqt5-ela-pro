@@ -52,7 +52,7 @@ exclude = ["ElaWidgetTools*", "PyQt*", "PyQt-Fluent*", "PyQt-SiliconUI*", "build
 include = ["pyqt5_ela_pro*"]
 
 [tool.setuptools.package-data]
-pyqt5_ela_pro = ["icons/*.svg", "icons/*.png", "icons/*.ico", "icons/packages/*.icons", "example/resource/images/*"]
+pyqt5_ela_pro = ["icons/*.svg", "icons/*.png", "icons/*.ico", "icons/packages/*.icons"]
 
 [tool.uv]
 required-environments="sys_platform == 'win32' and platform_machine == 'AMD64'"

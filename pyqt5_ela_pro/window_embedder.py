@@ -178,7 +178,6 @@ class ElaWindowEmbedder(QWidget):
             widget.exstyle = window_info["exstyle"]
             widget.wrect = window_info["wrect"]
 
-            widget.setWindowFlags(Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
             win32gui.SetParent(hwnd, int(self.winId()))
 
             current_style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
@@ -219,7 +218,6 @@ class ElaWindowEmbedder(QWidget):
                         self.width(),
                         self.height(),
                         win32con.SWP_NOZORDER
-                        | win32con.SWP_NOMOVE
                         | win32con.SWP_NOACTIVATE,
                     )
                 except Exception as e:
@@ -473,8 +471,7 @@ class ElaWindowEmbedder(QWidget):
                 width,
                 height,
                 win32con.SWP_NOZORDER
-                | win32con.SWP_NOACTIVATE
-                | win32con.SWP_NOMOVE,
+                | win32con.SWP_NOACTIVATE,
             )
 
     def closeEvent(self, event) -> None:
