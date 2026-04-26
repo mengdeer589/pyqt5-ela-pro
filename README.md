@@ -132,6 +132,8 @@ sys.exit(app.exec_())
 python -m pyqt5_ela_pro.example
 ```
 
+> 运行示例需要安装 `pywin32`（`pip install pywin32`），窗口嵌入和浏览器嵌入功能依赖于此。
+
 将启动一个 ElaWindow 应用，包含以下演示页面：
 
 - 基础组件 — PyQt5ElaWidgetTools 原生组件展示
@@ -150,6 +152,7 @@ python -m pyqt5_ela_pro.example
 - PyQt5 >= 5.15.0
 - PyQt5-ElaWidgetTools >= 0.8.0
 - pypinyin >= 0.50.0
+- pywin32（运行示例及使用窗口嵌入功能时需要）
 
 ## 平台
 
