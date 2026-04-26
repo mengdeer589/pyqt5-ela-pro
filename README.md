@@ -136,7 +136,7 @@ python -m pyqt5_ela_pro.example
 
 将启动一个 ElaWindow 应用，包含以下演示页面：
 
-- 基础组件 — PyQt5ElaWidgetTools 原生组件展示
+- 基础组件 — pyqt5-elawidgettools 原生组件展示
 - 表单与按钮 — 增强按钮 & Tag 输入框
 - 下拉框组件 — 全部 8 种下拉框变体
 - 表格与图表 — ElaDataTable、ElaTrendChart
