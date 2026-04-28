@@ -76,6 +76,16 @@ class ElaTaskbarProgress(QObject):
         else:
             self._window.windowHandleChanged.connect(self._on_window_handle_created)
 
+    def _on_window_handle_created(self) -> None:
+        wh = self._window.windowHandle()
+        if wh is not None:
+            try:
+                self._window.windowHandleChanged.disconnect(self._on_window_handle_created)
+            except (TypeError, RuntimeError):
+                pass
+            self._button.setWindow(wh)
+            self._attached = True
+
     def _is_win_extras_available(self) -> bool:
         return QWinTaskbarButton is not None and callable(QWinTaskbarButton)
 
