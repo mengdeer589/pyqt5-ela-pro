@@ -138,9 +138,7 @@ class ElaProgressButton(ElaPushButton):
 
     def _getBorderColor(self) -> QColor:
         mode = eTheme.getThemeMode()
-        if mode == ElaThemeType.ThemeMode.Light:
-            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorder)
-        return QColor(0, 0, 0, 0)
+        return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBaseLine)
 
     def deleteLater(self) -> None:
         if self._theme_connection is not None:
