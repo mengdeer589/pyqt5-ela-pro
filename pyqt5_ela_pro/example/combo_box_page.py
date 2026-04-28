@@ -68,6 +68,7 @@ class ComboBoxPage(ExamplePage):
         self._demoCapsuleMultiComboBox(main_layout)
         self._demoCapsuleSearchableComboBox(main_layout)
         self._demoCapsuleSearchableMultiComboBox(main_layout)
+        self._demoEmptyCombos(main_layout)
 
     def _createRowLayout(self, parent_layout):
         row_layout = QHBoxLayout()
@@ -297,3 +298,41 @@ class ComboBoxPage(ExamplePage):
         row.addWidget(btn)
         row.addStretch()
         parent_layout.addSpacing(30)
+
+    def _demoEmptyCombos(self, parent_layout):
+        parent_layout.addWidget(
+            self._createSectionHeader(
+                "09. 空选项状态 — 无选项时的外观"
+            )
+        )
+        self._addInfoText(
+            "所有 6 个自定义下拉框在无选项时的显示效果，点击触发按钮不弹出空白菜单",
+            parent_layout,
+        )
+        row = self._createRowLayout(parent_layout)
+        # ElaSearchBox (empty)
+        empty_search = ElaSearchBox(self)
+        empty_search.setFixedWidth(180)
+        row.addWidget(empty_search)
+        # ElaSearchMultiBox (empty)
+        empty_search_multi = ElaSearchMultiBox(self)
+        empty_search_multi.setFixedWidth(180)
+        row.addWidget(empty_search_multi)
+        # ElaTagBox (empty)
+        empty_tag = ElaTagBox(self, title="单选")
+        empty_tag.setFixedWidth(150)
+        row.addWidget(empty_tag)
+        # ElaTagMultiBox (empty)
+        empty_tag_multi = ElaTagMultiBox(self, title="多选")
+        empty_tag_multi.setFixedWidth(150)
+        row.addWidget(empty_tag_multi)
+        # ElaTagSearchBox (empty)
+        empty_tag_search = ElaTagSearchBox(self, title="搜索")
+        empty_tag_search.setFixedWidth(150)
+        row.addWidget(empty_tag_search)
+        # ElaTagSearchMultiBox (empty)
+        empty_tag_search_multi = ElaTagSearchMultiBox(self, title="搜索多选")
+        empty_tag_search_multi.setFixedWidth(150)
+        row.addWidget(empty_tag_search_multi)
+        row.addStretch()
+        parent_layout.addSpacing(20)
