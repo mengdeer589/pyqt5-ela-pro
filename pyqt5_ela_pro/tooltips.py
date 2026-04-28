@@ -227,9 +227,6 @@ _tooltip_dict: weakref.WeakKeyDictionary[QWidget, ElaToolTip] = weakref.WeakKeyD
 _filter_dict: weakref.WeakKeyDictionary[QWidget, _TooltipEventFilter] = (
     weakref.WeakKeyDictionary()
 )
-_cleanup_filter_refs: weakref.WeakKeyDictionary[QWidget, _WidgetCleanupFilter] = (
-    weakref.WeakKeyDictionary()
-)
 
 
 class _TooltipEventFilter(QObject):
@@ -269,25 +266,6 @@ class _TooltipEventFilter(QObject):
         elif a1.type() == QEvent.Type.Leave:
             tooltip.hide()
         return False
-
-
-class _WidgetCleanupFilter(QObject):
-    """当目标 widget 被销毁时自动清理对应的 tooltip 字典条目。"""
-
-    def __init__(self, widget: QWidget) -> None:
-        super().__init__(widget)
-        self._widget_ref = weakref.ref(widget, self._on_widget_destroyed)
-        _cleanup_filter_refs[widget] = self
-
-    def _on_widget_destroyed(self, ref: weakref.ref) -> None:
-        """widget 销毁时的回调，清理全局字典。
-
-        :param ref: 指向已销毁 widget 的弱引用。
-        :type ref: weakref.ref
-        """
-        obj = ref()
-        if obj is not None:
-            remove_tooltip_from_dict(obj)
 
 
 def remove_tooltip_from_dict(widget: QWidget) -> None:
@@ -340,7 +318,12 @@ def set_tooltip(
     _filter_dict[widget] = filter_instance
     widget.installEventFilter(filter_instance)
 
-    _WidgetCleanupFilter(widget)
+    def _auto_remove() -> None:
+        try:
+            remove_tooltip_from_dict(widget)
+        except RuntimeError:
+            pass
+    widget.destroyed.connect(_auto_remove)
 
 
 def remove_tooltip(widget: QWidget) -> None:
@@ -356,8 +339,6 @@ def remove_tooltip(widget: QWidget) -> None:
         tooltip = _tooltip_dict.pop(widget)
         tooltip.hide()
         tooltip.deleteLater()
-    if widget in _cleanup_filter_refs:
-        del _cleanup_filter_refs[widget]
 
 
 class ElaStateToolTip(QWidget):
