@@ -11,7 +11,7 @@ import os
 from typing import Optional
 
 from PyQt5.QtCore import QSize, Qt, QRect, QRectF
-from PyQt5.QtGui import QPainter, QPixmap, QIcon, QColor, QPainterPath, QPaintEvent
+from PyQt5.QtGui import QPainter, QPixmap, QIcon, QColor, QPainterPath, QPaintEvent, QPen
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtWidgets import QPushButton
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
@@ -297,6 +297,12 @@ class _ElaSvgButtonBase(QPushButton):
 
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(bg_color)
+        painter.drawPath(path)
+
+        border_color = eTheme.getThemeColor(eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicBaseLine)
+        border_pen = QPen(border_color, 1)
+        painter.setPen(border_pen)
+        painter.setBrush(Qt.NoBrush)
         painter.drawPath(path)
 
         fm = self.fontMetrics()

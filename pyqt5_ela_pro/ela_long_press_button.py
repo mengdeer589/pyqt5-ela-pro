@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt5.QtCore import pyqtSignal, QTimer, Qt, QRect, QRectF, QPoint, QSize
-from PyQt5.QtGui import QColor, QPainter, QLinearGradient, QPainterPath, QFontMetrics, QPaintEvent, QMouseEvent
+from PyQt5.QtGui import QColor, QPainter, QLinearGradient, QPainterPath, QFontMetrics, QPaintEvent, QMouseEvent, QPen
 from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaPushButton, ElaIcon, ElaIconType
@@ -206,6 +206,12 @@ class ElaLongPressButton(ElaPushButton):
         path.addRoundedRect(QRectF(rect), 3, 3)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase))
+        painter.drawPath(path)
+
+        border_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBaseLine)
+        border_pen = QPen(border_color, 1)
+        painter.setPen(border_pen)
+        painter.setBrush(Qt.NoBrush)
         painter.drawPath(path)
 
         painter.save()
