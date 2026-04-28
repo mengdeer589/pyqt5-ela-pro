@@ -10,8 +10,6 @@ from PyQt5.QtWidgets import QWidget
 from pyqt5_ela_pro.scrollable_menu import (
     ElaScrollableMenu,
     SCROLLABLE_MENU_MIN_HEIGHT,
-    SCROLLABLE_MENU_LIGHT_BG_COLOR,
-    SCROLLABLE_MENU_DARK_BG_COLOR,
 )
 
 
@@ -28,14 +26,6 @@ class TestElaScrollableMenu:
         assert menu.minimumHeight() == SCROLLABLE_MENU_MIN_HEIGHT
 
         menu.deleteLater()
-
-    def test_light_bg_color_constant(self):
-        """Test SCROLLABLE_MENU_LIGHT_BG_COLOR is white."""
-        assert SCROLLABLE_MENU_LIGHT_BG_COLOR == "#ffffff"
-
-    def test_dark_bg_color_constant(self):
-        """Test SCROLLABLE_MENU_DARK_BG_COLOR is dark."""
-        assert SCROLLABLE_MENU_DARK_BG_COLOR == "#202020"
 
     def test_add_widget_action(self):
         """Test addWidgetAction adds widget to scroll layout."""

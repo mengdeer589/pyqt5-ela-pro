@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QShowEvent
+from PyQt5.QtGui import QShowEvent, QPalette, QColor
 from PyQt5.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -25,8 +25,6 @@ from PyQt5ElaWidgetTools import (
 )
 
 
-SCROLLABLE_MENU_LIGHT_BG_COLOR: str = "#ffffff"
-SCROLLABLE_MENU_DARK_BG_COLOR: str = "#202020"
 SCROLLABLE_MENU_MIN_HEIGHT: int = 50
 SCROLLABLE_MENU_LAYOUT_SPACING: int = 2
 SCROLLABLE_MENU_LAYOUT_MARGINS: tuple[int, int, int, int] = (5, 5, 5, 5)
@@ -57,15 +55,8 @@ class ElaScrollableMenu(ElaMenu):
 
         self.scrollArea = ElaScrollArea(self)
         self.scrollWidget = QWidget()
-        self.scrollWidget.setObjectName("menu_scrollWidget")
-        initial_bg = (
-            SCROLLABLE_MENU_DARK_BG_COLOR
-            if eTheme.getThemeMode() == ElaThemeType.ThemeMode.Dark
-            else SCROLLABLE_MENU_LIGHT_BG_COLOR
-        )
-        self.scrollWidget.setStyleSheet(
-            f"#menu_scrollWidget {{ background-color:{initial_bg}; }}"
-        )
+        self.scrollWidget.setAutoFillBackground(True)
+        self._update_scroll_bg(eTheme.getThemeMode())
         self.scrollLayout = QVBoxLayout(self.scrollWidget)
         self.scrollLayout.setSpacing(SCROLLABLE_MENU_LAYOUT_SPACING)
         self.scrollLayout.setContentsMargins(*SCROLLABLE_MENU_LAYOUT_MARGINS)
@@ -96,20 +87,13 @@ class ElaScrollableMenu(ElaMenu):
                 pass
             self._themeConnection = None
 
-    def _change_stylesheet(self, mode: ElaThemeType.ThemeMode) -> None:
-        """根据主题模式切换滚动 widget 的背景色。
+    def _update_scroll_bg(self, mode: ElaThemeType.ThemeMode) -> None:
+        palette = self.scrollWidget.palette()
+        palette.setColor(QPalette.Window, eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase))
+        self.scrollWidget.setPalette(palette)
 
-        :param mode: 当前主题模式（亮色或暗色）。
-        :type mode: ElaThemeType.ThemeMode
-        """
-        if mode == ElaThemeType.ThemeMode.Light:
-            self.scrollWidget.setStyleSheet(
-                f"#menu_scrollWidget {{ background-color:{SCROLLABLE_MENU_LIGHT_BG_COLOR}; }}"
-            )
-        else:
-            self.scrollWidget.setStyleSheet(
-                f"#menu_scrollWidget {{ background-color:{SCROLLABLE_MENU_DARK_BG_COLOR}; }}"
-            )
+    def _change_stylesheet(self, mode: ElaThemeType.ThemeMode) -> None:
+        self._update_scroll_bg(mode)
 
     def addWidgetAction(self, widget: QWidget) -> None:
         """向滚动区域添加一个自定义 widget。

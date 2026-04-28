@@ -24,7 +24,7 @@ class ElaSplitterStyle(QProxyStyle):
         if element == QStyle.CE_Splitter and widget:
             splitter = widget
             mode = eTheme.getThemeMode()
-            color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryNormal)
+            color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBaseLine)
             if splitter.orientation() == Qt.Horizontal:
                 x = option.rect.x()
                 y = 0

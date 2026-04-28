@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 from PyQt5.QtCore import pyqtSignal, QModelIndex
-from PyQt5.QtGui import QIntValidator
+from PyQt5.QtGui import QIntValidator, QPalette
 from PyQt5.QtWidgets import QWidget, QHBoxLayout
 from PyQt5ElaWidgetTools import (
     ElaText,
@@ -97,21 +97,27 @@ class ElaInfoBarWidget(ElaThemeWidget):
         mode = eTheme.getThemeMode()
 
         col_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicDetailsText)
-        self._col_label.setStyleSheet(f"color: {col_color.name()};")
+        self._set_label_color(self._col_label, col_color)
 
         col_index_color = eTheme.getThemeColor(
             mode, ElaThemeType.ThemeColor.PrimaryNormal
         )
-        self._col_index_label.setStyleSheet(f"color: {col_index_color.name()};")
+        self._set_label_color(self._col_index_label, col_index_color)
 
         min_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryHover)
-        self._min_label.setStyleSheet(f"color: {min_color.name()};")
+        self._set_label_color(self._min_label, min_color)
 
         max_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.StatusDanger)
-        self._max_label.setStyleSheet(f"color: {max_color.name()};")
+        self._set_label_color(self._max_label, max_color)
 
         last_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryPress)
-        self._last_label.setStyleSheet(f"color: {last_color.name()};")
+        self._set_label_color(self._last_label, last_color)
+
+    @staticmethod
+    def _set_label_color(label, color):
+        palette = label.palette()
+        palette.setColor(QPalette.WindowText, color)
+        label.setPalette(palette)
 
     def update_info(
         self, col_name: str, col_index: int, min_val: str, max_val: str, last_val: str

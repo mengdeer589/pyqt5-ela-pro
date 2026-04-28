@@ -108,6 +108,16 @@ class ElaLongPressButton(ElaPushButton):
         self.setIconSize(QSize(iconSize, iconSize))
         self.update()
 
+    def _getCurrentBgColor(self) -> QColor:
+        mode = eTheme.getThemeMode()
+        if not self.isEnabled():
+            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicDisable)
+        if self.isDown():
+            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicPress)
+        if self.underMouse():
+            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicHover)
+        return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase)
+
     def _updateProgressColor(self, mode: ElaThemeType.ThemeMode) -> None:
         self._progress_color = eTheme.getThemeColor(
             mode, ElaThemeType.ThemeColor.PrimaryNormal
@@ -201,11 +211,12 @@ class ElaLongPressButton(ElaPushButton):
         )
 
         mode = eTheme.getThemeMode()
+        bg_color = self._getCurrentBgColor()
 
         path = QPainterPath()
         path.addRoundedRect(QRectF(rect), 3, 3)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase))
+        painter.setBrush(bg_color)
         painter.drawPath(path)
 
         border_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBaseLine)

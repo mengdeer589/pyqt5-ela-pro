@@ -253,7 +253,7 @@ class _ElaSvgButtonBase(QPushButton):
 
             path = QPainterPath()
             path.addRoundedRect(x, y, w, h, r, r)
-            alpha = min(60, (self._shadowBorderWidth - i + 1) * 12)
+            alpha = self._shadowBorderWidth - i + 1
             shadow_color.setAlpha(alpha)
             painter.setPen(shadow_color)
             painter.drawPath(path)
