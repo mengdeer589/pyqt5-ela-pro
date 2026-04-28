@@ -13,8 +13,10 @@ from pyqt5_ela_pro import (
     ElaDrawerPosition,
     ElaThemeWidget,
     ElaPrimaryButton,
+    ElaToolTip,
     ElaToolTipPosition,
     set_tooltip,
+    remove_tooltip,
     ElaStateToolTip,
 )
 from .base_page import ExamplePage
@@ -28,11 +30,13 @@ class DrawerTooltipPage(ExamplePage):
     def __init__(self, parent=None):
         self._drawers = {}
         self._stateTooltip = None
+        self._tooltip_demo_btn = None
         super().__init__(parent)
 
     def _addDemoContent(self, main_layout):
         self._demoDrawer(main_layout)
         self._demoTooltip(main_layout)
+        self._demoTooltipDirect(main_layout)
         self._demoStateTooltip(main_layout)
 
     def _addInfoText(self, text, parent_layout):
@@ -116,9 +120,51 @@ class DrawerTooltipPage(ExamplePage):
         parent_layout.addLayout(btn_layout)
         parent_layout.addSpacing(20)
 
+    def _demoTooltipDirect(self, parent_layout):
+        parent_layout.addWidget(
+            self._createSectionHeader("03. ela_ext - remove_tooltip 与 ElaToolTip 直接使用")
+        )
+        self._addInfoText("左侧按钮有 tooltip，点击右侧按钮移除/恢复", parent_layout)
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+        self._tooltip_demo_btn = ElaPushButton("有提示的按钮", self)
+        self._tooltip_demo_btn.setFixedWidth(120)
+        set_tooltip(self._tooltip_demo_btn, "这是一个悬浮提示")
+        btn_layout.addWidget(self._tooltip_demo_btn)
+        self._tooltip_remove_btn = ElaPushButton("移除提示", self)
+        self._tooltip_remove_btn.setFixedWidth(100)
+
+        def _toggle_tooltip():
+            if self._tooltip_demo_btn is None:
+                return
+            if self._tooltip_remove_btn.text() == "移除提示":
+                remove_tooltip(self._tooltip_demo_btn)
+                self._tooltip_remove_btn.setText("恢复提示")
+            else:
+                set_tooltip(self._tooltip_demo_btn, "这是一个悬浮提示")
+                self._tooltip_remove_btn.setText("移除提示")
+
+        self._tooltip_remove_btn.clicked.connect(_toggle_tooltip)
+        btn_layout.addWidget(self._tooltip_remove_btn)
+        btn_layout.addSpacing(20)
+        show_tip_btn = ElaPushButton("显示 ElaToolTip", self)
+        show_tip_btn.setFixedWidth(120)
+
+        def _show_tooltip_direct():
+            tip = ElaToolTip("手动定位的提示框", self.window())
+            tip.showAt(
+                show_tip_btn, position=ElaToolTipPosition.TopRight
+            )
+
+        show_tip_btn.clicked.connect(_show_tooltip_direct)
+        btn_layout.addWidget(show_tip_btn)
+        btn_layout.addStretch()
+        parent_layout.addLayout(btn_layout)
+        parent_layout.addSpacing(20)
+
     def _demoStateTooltip(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("03. ela_ext - ElaStateToolTip 状态提示")
+            self._createSectionHeader("04. ela_ext - ElaStateToolTip 状态提示")
         )
         self._addInfoText("显示加载状态、成功/失败状态的提示", parent_layout)
         btn_layout = QHBoxLayout()

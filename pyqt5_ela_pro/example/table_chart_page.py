@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QFileDialog
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtCore import Qt
 from PyQt5ElaWidgetTools import ElaText, ElaPushButton
-from pyqt5_ela_pro import ElaDataTable, ElaTrendChart
+from pyqt5_ela_pro import ElaDataTable, ElaTrendChart, ElaParquetTable
 from .base_page import ExamplePage
 
 
@@ -40,6 +40,7 @@ class TableChartPage(ExamplePage):
         self._demoAsyncTable(parent_layout)
         self._demoStyleTable(parent_layout)
         self._demoSortTable(parent_layout)
+        self._demoParquetTable(parent_layout)
 
     def _demoChart(self, parent_layout):
         self._demoTrendChart(parent_layout)
@@ -200,6 +201,53 @@ class TableChartPage(ExamplePage):
         parent_layout.addWidget(self._sortTable)
         parent_layout.addLayout(btn_layout)
         parent_layout.addSpacing(20)
+
+    def _demoParquetTable(self, parent_layout):
+        parent_layout.addWidget(
+            self._createSectionHeader("05. ela_ext - ElaParquetTable Parquet 文件查看")
+        )
+        self._addInfoText(
+            "分页浏览 Parquet 文件，显示列统计信息。需要安装 polars",
+            parent_layout,
+        )
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+        open_btn = ElaPushButton("打开 Parquet 文件", self)
+        open_btn.setFixedWidth(130)
+        open_btn.clicked.connect(self._onOpenParquet)
+        btn_layout.addWidget(open_btn)
+        btn_layout.addStretch()
+        parent_layout.addLayout(btn_layout)
+        parent_layout.addSpacing(10)
+
+        self._parquet_table = ElaParquetTable(self)
+        self._parquet_table.setFixedHeight(350)
+        parent_layout.addWidget(self._parquet_table)
+        parent_layout.addSpacing(20)
+
+    def _onOpenParquet(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择 Parquet 文件", "", "Parquet (*.parquet);;所有文件 (*)"
+        )
+        if path:
+            try:
+                self._parquet_table.loadFile(path)
+            except ImportError as e:
+                from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+                ElaMessageBar.error(
+                    ElaMessageBarType.PositionPolicy.Top,
+                    "缺少依赖",
+                    f"需要 polars 库: {e}",
+                    5000, self,
+                )
+            except Exception as e:
+                from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+                ElaMessageBar.error(
+                    ElaMessageBarType.PositionPolicy.Top,
+                    "加载失败",
+                    str(e),
+                    5000, self,
+                )
 
     def _onToggleSort(self):
         self._sortingEnabled = not self._sortingEnabled

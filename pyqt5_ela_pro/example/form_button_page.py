@@ -6,7 +6,7 @@
 - PyQt5ElaWidgetTools: 按钮组件
 """
 
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLineEdit
+from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLineEdit, QCheckBox
 from PyQt5.QtCore import QTimer
 from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaIconType
 from pyqt5_ela_pro import (
@@ -18,6 +18,7 @@ from pyqt5_ela_pro import (
     ElaMessageDialog,
     ElaProgressButton,
     ElaNotifyPopup,
+    ElaScrollableMenu,
     show_notify,
 )
 from .base_page import ExamplePage
@@ -47,6 +48,7 @@ class FormButtonPage(ExamplePage):
         self._demoProgressButton(parent_layout)
         self._demoNotifyPopup(parent_layout)
         self._demoToolButtonExt(parent_layout)
+        self._demoScrollableMenu(parent_layout)
         self._demoMessageDialog(parent_layout)
 
     def _addInfoText(self, text, parent_layout):
@@ -266,9 +268,37 @@ class FormButtonPage(ExamplePage):
         parent_layout.addLayout(btn_layout)
         parent_layout.addSpacing(20)
 
+    def _demoScrollableMenu(self, parent_layout):
+        parent_layout.addWidget(
+            self._createSectionHeader("07. ela_ext - ElaScrollableMenu 可滚动菜单")
+        )
+        self._addInfoText(
+            "点击按钮弹出可滚动菜单，支持任意 widget 和滚动",
+            parent_layout,
+        )
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+        menu_btn = ElaPushButton("打开菜单", self)
+        menu_btn.setFixedWidth(100)
+
+        def _show_menu():
+            menu = ElaScrollableMenu(menu_btn)
+            for i in range(15):
+                cb = QCheckBox(f"选项 {i + 1}", menu.scrollWidget)
+                menu.addWidgetAction(cb)
+            menu.scrollArea.setMinimumHeight(300)
+            menu.scrollArea.setMaximumHeight(400)
+            menu.popup(menu_btn.mapToGlobal(menu_btn.rect().bottomLeft()))
+
+        menu_btn.clicked.connect(_show_menu)
+        btn_layout.addWidget(menu_btn)
+        btn_layout.addStretch()
+        parent_layout.addLayout(btn_layout)
+        parent_layout.addSpacing(20)
+
     def _demoMessageDialog(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("07. pyqt5_ela_pro - ElaMessageDialog 消息对话框")
+            self._createSectionHeader("08. pyqt5_ela_pro - ElaMessageDialog 消息对话框")
         )
         self._addInfoText(
             "简化的消息对话框接口，使用 ElaText 组件渲染内容", parent_layout

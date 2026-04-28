@@ -24,6 +24,9 @@ from pyqt5_ela_pro import (
     ElaAnimatedMixin,
     shake_window,
     ElaDialogBase,
+    svg_to_icon,
+    svg_to_pixmap,
+    svg_icon_loader,
 )
 from pyqt5_ela_pro.svg_icon import (
     ElaSvgIconLoader,
@@ -103,6 +106,7 @@ class AnimationIconPage(ExamplePage):
         self._demoSvgIconBrowser(parent_layout)
         self._demoEsButton(parent_layout)
         self._demoEsSvgButton(parent_layout)
+        self._demoSvgFunctions(parent_layout)
 
     def _demoFadeInOut(self, parent_layout):
         parent_layout.addWidget(
@@ -370,6 +374,93 @@ class AnimationIconPage(ExamplePage):
         icons_row_layout.addStretch()
         parent_layout.addLayout(icons_row_layout)
         parent_layout.addSpacing(30)
+
+    def _demoSvgFunctions(self, parent_layout):
+        parent_layout.addWidget(
+            self._createSectionHeader(
+                "04. ela_ext - svg_to_icon / svg_to_pixmap / svg_icon_loader"
+            )
+        )
+        self._addInfoText(
+            "将 SVG 数据转换为 QIcon/QPixmap，获取全局图标加载器",
+            parent_layout,
+        )
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+
+        icon_btn = ElaPushButton("svg_to_icon", self)
+        icon_btn.setFixedWidth(120)
+        icon_btn.clicked.connect(self._onDemoSvgToIcon)
+        btn_layout.addWidget(icon_btn)
+
+        pixmap_btn = ElaPushButton("svg_to_pixmap", self)
+        pixmap_btn.setFixedWidth(120)
+        pixmap_btn.clicked.connect(self._onDemoSvgToPixmap)
+        btn_layout.addWidget(pixmap_btn)
+
+        loader_btn = ElaPushButton("svg_icon_loader", self)
+        loader_btn.setFixedWidth(120)
+        loader_btn.clicked.connect(self._onDemoSvgLoader)
+        btn_layout.addWidget(loader_btn)
+
+        btn_layout.addStretch()
+        parent_layout.addLayout(btn_layout)
+        parent_layout.addSpacing(20)
+
+    def _onDemoSvgToIcon(self):
+        try:
+            loader = self._getSvgLoader()
+            names = loader.iconNames()
+            if names:
+                icon = svg_to_icon(names[0], size=48)
+                from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+                ElaMessageBar.success(
+                    ElaMessageBarType.PositionPolicy.Top,
+                    "svg_to_icon",
+                    f"已将 '{names[0]}' 转换为 QIcon（48x48）",
+                    3000, self,
+                )
+        except Exception as e:
+            from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+            ElaMessageBar.error(
+                ElaMessageBarType.PositionPolicy.Top,
+                "svg_to_icon",
+                f"失败: {e}",
+                3000, self,
+            )
+
+    def _onDemoSvgToPixmap(self):
+        try:
+            loader = self._getSvgLoader()
+            names = loader.iconNames()
+            if names:
+                pixmap = svg_to_pixmap(names[0], size=48)
+                from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+                ElaMessageBar.success(
+                    ElaMessageBarType.PositionPolicy.Top,
+                    "svg_to_pixmap",
+                    f"已将 '{names[0]}' 转换为 QPixmap（{pixmap.width()}x{pixmap.height()}）",
+                    3000, self,
+                )
+        except Exception as e:
+            from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+            ElaMessageBar.error(
+                ElaMessageBarType.PositionPolicy.Top,
+                "svg_to_pixmap",
+                f"失败: {e}",
+                3000, self,
+            )
+
+    def _onDemoSvgLoader(self):
+        loader = svg_icon_loader()
+        count = len(loader)
+        from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+        ElaMessageBar.success(
+            ElaMessageBarType.PositionPolicy.Top,
+            "svg_icon_loader",
+            f"全局图标加载器已获取，共 {count} 个图标",
+            3000, self,
+        )
 
     def _demoEsSvgButton(self, parent_layout):
         parent_layout.addWidget(
