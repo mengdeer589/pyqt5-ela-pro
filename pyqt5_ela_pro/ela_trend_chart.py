@@ -565,6 +565,13 @@ class ElaTrendChart(QWidget):
         self.update()
         event.accept()
 
+    def deleteLater(self) -> None:
+        try:
+            eTheme.themeModeChanged.disconnect(self._onThemeChanged)
+        except (TypeError, RuntimeError):
+            pass
+        super().deleteLater()
+
     def leaveEvent(self, event) -> None:
         self._indicator_visible = False
         self.update()

@@ -68,6 +68,13 @@ class ElaSplitter(QSplitter):
     def _on_theme_changed(self, mode):
         self.update()
 
+    def deleteLater(self) -> None:
+        try:
+            eTheme.themeModeChanged.disconnect(self._on_theme_changed)
+        except (TypeError, RuntimeError):
+            pass
+        super().deleteLater()
+
     def setHandleWidth(self, width):
         self._handle_thickness = width
         self._style._thickness = width
