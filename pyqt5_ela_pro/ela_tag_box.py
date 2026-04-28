@@ -50,6 +50,8 @@ class ElaTagBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaComboBox):
         self.currentIndexChanged.connect(self._onCurrentIndexChanged)
 
     def showPopup(self) -> None:
+        if self.count() == 0:
+            return
         self._animate_popup_open()
         super().showPopup()
 
