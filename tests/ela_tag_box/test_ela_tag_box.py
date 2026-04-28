@@ -137,6 +137,11 @@ class TestElaTagBox:
         box.deleteLater()
 
     def test_delete_later_cleans_up(self):
-        """Test deleteLater can be called safely."""
+        """Test deleteLater can be called safely (verifies signal disconnects)."""
         box = ElaTagBox()
         box.deleteLater()
+
+    def test_delete_later_disconnects_index_changed(self):
+        """Test deleteLater disconnects currentIndexChanged signal without error."""
+        box = ElaTagBox(title="test")
+        box.deleteLater()  # should not raise TypeError when disconnecting

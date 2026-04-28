@@ -142,3 +142,8 @@ class TestElaTagLineEdit:
         assert isinstance(color, QColor)
 
         edit.deleteLater()
+
+    def test_delete_later_disconnects_text_changed(self):
+        """Test deleteLater disconnects textChanged signal without error."""
+        edit = ElaTagLineEdit(title="test")
+        edit.deleteLater()  # should not raise TypeError when disconnecting

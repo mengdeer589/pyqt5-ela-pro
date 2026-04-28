@@ -158,3 +158,14 @@ class TestElaTrendChart:
         assert chart._line_width == 2.0
 
         chart.deleteLater()
+
+    def test_delete_later_disconnects_theme(self):
+        """Test deleteLater disconnects themeModeChanged signal without error."""
+        chart = ElaTrendChart()
+        chart.deleteLater()  # should not raise TypeError when disconnecting
+
+    def test_has_delete_later(self):
+        """Test deleteLater method exists and can be called."""
+        chart = ElaTrendChart()
+        assert hasattr(chart, 'deleteLater')
+        chart.deleteLater()

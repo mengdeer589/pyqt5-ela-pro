@@ -82,6 +82,11 @@ class TestElaSplitter:
 
         splitter.deleteLater()
 
+    def test_delete_later_disconnects_theme(self):
+        """Test deleteLater disconnects themeModeChanged signal without error."""
+        splitter = ElaSplitter()
+        splitter.deleteLater()  # should not raise TypeError when disconnecting
+
 
 class TestCreateElaSplitter:
     """Test cases for create_ela_splitter function."""

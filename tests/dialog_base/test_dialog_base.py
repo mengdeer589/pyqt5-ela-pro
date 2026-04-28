@@ -22,3 +22,12 @@ class TestElaDialogBase:
         source = inspect.getsource(ElaDialogBase.__init__)
         assert "取消" in source
         assert "确定" in source
+
+    def test_delete_later_disconnects_middle_button(self, qapp):
+        """Test deleteLater disconnects middleButtonClicked."""
+        from PyQt5.QtWidgets import QWidget
+        from pyqt5_ela_pro.dialog_base import ElaDialogBase
+        parent = QWidget()
+        dlg = ElaDialogBase(parent=parent, middleText="稍后提醒")
+        dlg.deleteLater()
+        parent.deleteLater()

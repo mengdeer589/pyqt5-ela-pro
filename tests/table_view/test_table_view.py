@@ -110,3 +110,9 @@ class TestElaDataTable:
         """Test TABLE_THREAD_QUIT_TIMEOUT is defined."""
         from pyqt5_ela_pro.table_view import TABLE_THREAD_QUIT_TIMEOUT
         assert TABLE_THREAD_QUIT_TIMEOUT == 1000
+
+    def test_delete_later_disconnects_section_clicked(self):
+        """Test deleteLater disconnects sectionClicked signal without error."""
+        from pyqt5_ela_pro.table_view import ElaDataTable
+        table = ElaDataTable()
+        table.deleteLater()  # should not raise TypeError when disconnecting

@@ -113,3 +113,8 @@ class TestElaTagSearchBox:
         assert box._title_font_size == 13
 
         box.deleteLater()
+
+    def test_delete_later_disconnects_index_changed(self):
+        """Test deleteLater disconnects currentIndexChanged signal without error."""
+        box = ElaTagSearchBox(title="test")
+        box.deleteLater()  # should not raise TypeError when disconnecting

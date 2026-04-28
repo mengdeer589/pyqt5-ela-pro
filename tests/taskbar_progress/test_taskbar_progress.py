@@ -276,3 +276,24 @@ class TestElaTaskbarProgressMethods:
             tb.reset()
 
             window.deleteLater()
+
+    def test_has_on_window_handle_created_method(self):
+        """Test _on_window_handle_created method exists."""
+        from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
+        assert hasattr(ElaTaskbarProgress, '_on_window_handle_created')
+
+    def test_on_window_handle_created_noop_without_window_handle(self):
+        """Test _on_window_handle_created does not crash without handle."""
+        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
+            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
+
+            window = QWidget()
+            tb = ElaTaskbarProgress(window)
+            tb._button = MagicMock()
+            tb._attached = False
+
+            tb._on_window_handle_created()
+
+            assert tb._attached is False  # no handle, no attachment
+
+            window.deleteLater()

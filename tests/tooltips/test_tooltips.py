@@ -139,6 +139,32 @@ class TestSetTooltip:
         widget.deleteLater()
         qapp.processEvents()
 
+    def test_set_tooltip_does_not_crash_on_widget_destroyed(self, qapp):
+        """Test tooltip cleanup does not crash when widget is destroyed."""
+        widget = QWidget()
+        set_tooltip(widget, "No crash test")
+
+        # deleteLater + defer should not raise
+        widget.deleteLater()
+        qapp.processEvents()
+
+    def test_remove_tooltip_cleans_up_entries(self, qapp):
+        """Test remove_tooltip cleans up global dict entries."""
+        from pyqt5_ela_pro.tooltips import _tooltip_dict, _filter_dict
+
+        widget = QWidget()
+        set_tooltip(widget, "Cleanup test")
+
+        assert widget in _tooltip_dict
+        assert widget in _filter_dict
+
+        remove_tooltip(widget)
+
+        assert widget not in _tooltip_dict
+        assert widget not in _filter_dict
+
+        widget.deleteLater()
+
 
 class TestRemoveTooltip:
     """Test cases for remove_tooltip function."""
