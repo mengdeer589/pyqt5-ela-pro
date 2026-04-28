@@ -203,16 +203,16 @@ class ElaToolTip(QWidget):
         elif position == ElaToolTipPosition.Right:
             x = widgetRect.right() + 6
             y = widgetRect.center().y() - self.height() // 2
-        elif position == ElaToolTipPosition.Top_LEFT:
+        elif position == ElaToolTipPosition.TopLeft:
             x = widgetRect.left()
             y = widgetRect.top() - self.height() - 6
-        elif position == ElaToolTipPosition.Top_RIGHT:
+        elif position == ElaToolTipPosition.TopRight:
             x = widgetRect.right() - self.width()
             y = widgetRect.top() - self.height() - 6
-        elif position == ElaToolTipPosition.Bottom_LEFT:
+        elif position == ElaToolTipPosition.BottomLeft:
             x = widgetRect.left()
             y = widgetRect.bottom() + 6
-        elif position == ElaToolTipPosition.Bottom_RIGHT:
+        elif position == ElaToolTipPosition.BottomRight:
             x = widgetRect.right() - self.width()
             y = widgetRect.bottom() + 6
         else:

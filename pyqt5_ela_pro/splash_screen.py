@@ -4,6 +4,8 @@
 基于 ``QSplashScreen`` 封装，支持渐变背景、标题、副标题和加载进度显示。
 """
 
+from __future__ import annotations
+
 from typing import Optional
 
 from PyQt5.QtCore import Qt
