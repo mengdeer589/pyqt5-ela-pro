@@ -144,6 +144,13 @@ class ElaTagLineEdit(ElaLineEdit):
         y = self.height() - 2
         painter.drawLine(QLine(0, y, self.width(), y))
 
+    def deleteLater(self) -> None:
+        try:
+            self.textChanged.disconnect(self._onTextChanged)
+        except (TypeError, RuntimeError):
+            pass
+        super().deleteLater()
+
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
 

@@ -870,6 +870,12 @@ class ElaDataTable(ElaTableView):
             self.tableViewShow.disconnect(self._applyColumnWidths)
         except (TypeError, RuntimeError):
             pass
+        hh = self.horizontalHeader()
+        if hh:
+            try:
+                hh.sectionClicked.disconnect(self._onHeaderClicked)
+            except (TypeError, RuntimeError):
+                pass
         super().deleteLater()
 
     def columnName(self, column: int) -> Optional[str]:

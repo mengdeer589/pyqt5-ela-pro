@@ -78,5 +78,9 @@ class ElaTagSearchBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaSearchBox):
         )
 
     def deleteLater(self) -> None:
+        try:
+            self.currentIndexChanged.disconnect(self._onCurrentIndexChanged)
+        except (TypeError, RuntimeError):
+            pass
         self._tag_box_delete_later()
         super().deleteLater()

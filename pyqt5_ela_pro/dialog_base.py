@@ -87,5 +87,12 @@ class ElaDialogBase(ElaContentDialog):
                 item.widget().deleteLater()
         self._paramLay.addWidget(widget)
 
+    def deleteLater(self) -> None:
+        try:
+            self.middleButtonClicked.disconnect(self._middleBtnClicked)
+        except (TypeError, RuntimeError):
+            pass
+        super().deleteLater()
+
     def _middleBtnClicked(self) -> None:
         self.done(2)
