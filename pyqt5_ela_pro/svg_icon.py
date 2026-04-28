@@ -253,7 +253,7 @@ class _ElaSvgButtonBase(QPushButton):
 
             path = QPainterPath()
             path.addRoundedRect(x, y, w, h, r, r)
-            alpha = min(255, self._shadowBorderWidth - i + 1)
+            alpha = min(60, (self._shadowBorderWidth - i + 1) * 12)
             shadow_color.setAlpha(alpha)
             painter.setPen(shadow_color)
             painter.drawPath(path)
@@ -264,7 +264,7 @@ class _ElaSvgButtonBase(QPushButton):
         mode = eTheme.getThemeMode()
         if not self.isEnabled():
             return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextDisable)
-        theme_color = self._themeColor if self._themeColor is not None else ElaThemeType.ThemeColor.PrimaryNormal
+        theme_color = self._themeColor if self._themeColor is not None else ElaThemeType.ThemeColor.BasicText
         return eTheme.getThemeColor(mode, theme_color)
 
     def _getIconColorStr(self, text_color: QColor) -> str:
