@@ -220,9 +220,10 @@ class TableChartPage(ExamplePage):
         parent_layout.addLayout(btn_layout)
         parent_layout.addSpacing(10)
 
-        self._parquet_table = ElaParquetTable(self)
-        self._parquet_table.setFixedHeight(350)
-        parent_layout.addWidget(self._parquet_table)
+        self._parquet_table = None
+        self._parquet_info = ElaText("请点击上方按钮选择 .parquet 文件", self)
+        self._parquet_info.setTextPixelSize(14)
+        parent_layout.addWidget(self._parquet_info)
         parent_layout.addSpacing(20)
 
     def _onOpenParquet(self):
@@ -231,7 +232,13 @@ class TableChartPage(ExamplePage):
         )
         if path:
             try:
-                self._parquet_table.loadFile(path)
+                from pyqt5_ela_pro import ElaParquetTable
+                self._parquet_table = ElaParquetTable(path, page_size=50, parent=self)
+                self._parquet_table.setFixedHeight(350)
+                if self._parquet_info:
+                    self._parquet_info.deleteLater()
+                    self._parquet_info = None
+                self.layout().addWidget(self._parquet_table)
             except ImportError as e:
                 from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
                 ElaMessageBar.error(
