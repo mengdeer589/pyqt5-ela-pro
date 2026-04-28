@@ -68,7 +68,7 @@ class ElaNotifyPopup(QWidget):
         header_layout.addWidget(self._title_text, 1)
         header_layout.addStretch()
 
-        self._close_btn = ElaIconButton(ElaIconType.IconName.X, 20, self)
+        self._close_btn = ElaIconButton(ElaIconType.IconName.Xmark, 16, self)
         self._close_btn.setFixedSize(24, 24)
         self._close_btn.clicked.connect(self._on_close)
         header_layout.addWidget(self._close_btn)
