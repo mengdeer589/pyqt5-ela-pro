@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional, Any
 
 try:
@@ -446,7 +447,6 @@ class ElaWindowEmbedder(QWidget):
         if not self._isEmbedded or not self._embeddedWidget or not self._embeddedInfo:
             return
 
-        import time
         current_time = time.time()
         if current_time - self._resizeThrottleTime < 0.1:
             self._resizeCount += 1

@@ -521,7 +521,10 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             self._debug_url_timer.deleteLater()
             self._debug_url_timer = None
         if self._network_mgr:
-            self._network_mgr.finished.disconnect()
+            try:
+                self._network_mgr.finished.disconnect(self._on_debug_url_response)
+            except (TypeError, RuntimeError):
+                pass
             self._network_mgr.deleteLater()
             self._network_mgr = None
         self._debug_url_callback = None

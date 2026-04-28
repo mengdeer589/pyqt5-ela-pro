@@ -93,9 +93,7 @@ class _TagBoxAnimMixin:
 
         self.setFixedHeight(38)
 
-        self._theme_connection = eTheme.themeModeChanged.connect(
-            self._on_tag_theme_changed
-        )
+        eTheme.themeModeChanged.connect(self._on_tag_theme_changed)
 
     @pyqtProperty(float)
     def expandMarkWidth(self) -> float:

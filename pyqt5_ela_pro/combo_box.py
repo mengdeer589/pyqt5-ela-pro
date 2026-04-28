@@ -133,9 +133,7 @@ class ElaSearchMultiBox(ElaMultiSelectComboBox):
         self._currentSelection: list[str] = []
         self._isRestoringSelection = False
         self._pinyin_cache: dict[str, str] = {}
-        self._themeConnection = eTheme.themeModeChanged.connect(
-            self._onThemeModeChanged
-        )
+        eTheme.themeModeChanged.connect(self._onThemeModeChanged)
 
     def addItem(self, text: str) -> None:
         """添加一个选项。
@@ -310,9 +308,7 @@ class ElaSearchBox(ElaComboBox):
         self._searchEdit: Optional[QLineEdit] = None
         self._searchWidget: Optional[QWidget] = None
 
-        self._themeConnection = eTheme.themeModeChanged.connect(
-            self._onThemeModeChanged
-        )
+        eTheme.themeModeChanged.connect(self._onThemeModeChanged)
         self.activated.connect(self._onActivated)
 
     def addItem(self, text: str, userData: Any = None) -> None:  # type: ignore[override]
