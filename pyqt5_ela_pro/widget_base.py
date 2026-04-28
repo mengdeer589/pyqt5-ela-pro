@@ -47,7 +47,7 @@ class ElaThemeWidget(QWidget):
         :param mode: 当前主题模式（亮色或暗色）。
         :type mode: ElaThemeType.ThemeMode
         """
-        bg_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicPress)
+        bg_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase)
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.Window, bg_color)
         self.setPalette(palette)
