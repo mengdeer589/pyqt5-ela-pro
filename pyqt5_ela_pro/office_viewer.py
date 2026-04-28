@@ -65,31 +65,45 @@ class ElaOfficeViewerMixin:
         self.close()
 
         progids = _BACKEND_PROGIDS.get(self._backend, {}).get(self._appName, [])
-        app = None
+
+        # 1) 尝试直接用文档路径创建控件（COM 自动解析 handler）
+        try:
+            self._axWidget.setControl(path)
+            self._axWidget.dynamicCall("SetVisible(bool)", False)
+            self._axWidget.setProperty("DisplayAlerts", False)
+            self._loaded = True
+            return True
+        except Exception:
+            pass
+
+        # 2) 回退：先创建应用实例再 Open
         for progid in progids:
-            if self._axWidget.setControl(progid):
-                app = progid
-                break
+            try:
+                self._axWidget.setControl(progid)
+                self._axWidget.dynamicCall("SetVisible(bool)", False)
+                self._axWidget.setProperty("DisplayAlerts", False)
+                self._axWidget.dynamicCall("Open(const QString&)", path)
+                self._loaded = True
+                return True
+            except Exception:
+                continue
 
-        if app is None:
-            QMessageBox.critical(
-                self,
-                "错误",
-                f"未找到可用的 {self._appName} 程序（{self._backend}）。\n"
-                f"请确认已安装 MS Office 或 WPS。",
-            )
-            return False
-
-        self._axWidget.dynamicCall("SetVisible(bool)", False)
-        self._axWidget.setProperty("DisplayAlerts", False)
-        self._axWidget.setControl(path)
-        self._loaded = True
-        return True
+        QMessageBox.critical(
+            self,
+            "错误",
+            f"未找到可用的 {self._appName} 程序（{self._backend}）。\n"
+            f"请确认已安装 MS Office 或 WPS。",
+        )
+        return False
 
     def close(self) -> None:
         """关闭当前文档并清理资源。"""
         if not self._loaded:
             return
+        try:
+            self._axWidget.dynamicCall("Quit()")
+        except Exception:
+            pass
         try:
             self._axWidget.close()
             self._axWidget.clear()
