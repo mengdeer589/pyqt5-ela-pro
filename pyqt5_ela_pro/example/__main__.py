@@ -13,6 +13,7 @@ from PyQt5ElaWidgetTools import (
     eApp,
     ElaWindow,
 )
+from pyqt5_ela_pro import ElaSplashScreen
 from pyqt5_ela_pro.example import (
     BasicContainerPage,
     FormButtonPage,
@@ -63,6 +64,27 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
     eApp.init()
+
+    splash = ElaSplashScreen(
+        title="pyqt5_ela_pro",
+        subtitle="组件示例",
+        width=500,
+        height=350,
+    )
+    splash.show()
+    splash.showMessage("正在加载组件...")
+    app.processEvents()
+
     window = ExampleWindow()
+
+    splash.showMessage("正在启动...")
+    splash.setProgress(0.8)
+    app.processEvents()
+
+    splash.showMessage("加载完成")
+    splash.setProgress(1.0)
+    app.processEvents()
+
+    splash.finish(window)
     window.show()
     sys.exit(app.exec_())
