@@ -59,8 +59,6 @@ from .widget_base import ElaThemeWidget
 
 from .table_view import ElaDataTable
 
-from .scrollable_menu import ElaScrollableMenu
-
 from .combo_box import (
     ElaSearchBox,
     ElaSearchMultiBox,
@@ -148,7 +146,6 @@ __all__ = [
     "ElaPowerPointViewer",
     "ElaPrimaryButton",
     "ElaProgressButton",
-    "ElaScrollableMenu",
     "ElaSearchBox",
     "ElaSearchMultiBox",
     "ElaSplashScreen",

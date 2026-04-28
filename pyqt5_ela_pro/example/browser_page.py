@@ -4,9 +4,8 @@
 
 import os
 from pathlib import Path
-from PyQt5.QtWidgets import QHBoxLayout
-from PyQt5ElaWidgetTools import ElaText,ElaPushButton,ElaPlainTextEdit
-from PyQt5ElaWidgetTools.ElaWidgetTools import ElaLineEdit
+from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget, QFileDialog
+from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaPlainTextEdit, ElaLineEdit
 
 from pyqt5_ela_pro import ElaBrowserEmbedder
 from .base_page import ExamplePage
@@ -17,7 +16,120 @@ BROWSER_PATH = Path(
         r"Supermium\chrome.exe",
     )
 )
-TEST_URL = "https://www.bilibili.com"
+TEST_URLS = [
+    "https://www.bilibili.com",
+    "https://www.baidu.com",
+    "https://www.qq.com",
+]
+
+
+class _BrowserPanel(QWidget):
+    """单个浏览器面板"""
+
+    def __init__(self, title: str, url: str, browser_path: Path, debug_port: int, parent=None):
+        super().__init__(parent)
+        self.setObjectName(f"BrowserPanel_{debug_port}")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        header = ElaText(title, self)
+        header.setTextPixelSize(14)
+        layout.addWidget(header)
+
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        self._url_input = ElaLineEdit()
+        self._url_input.setFixedHeight(28)
+        self._url_input.setText(url)
+        row.addWidget(self._url_input)
+
+        embed_btn = ElaPushButton("嵌入")
+        embed_btn.setFixedWidth(50)
+        embed_btn.clicked.connect(self._embed)
+        row.addWidget(embed_btn)
+
+        load_btn = ElaPushButton("加载")
+        load_btn.setFixedWidth(50)
+        load_btn.clicked.connect(self._load_url)
+        row.addWidget(load_btn)
+
+        file_btn = ElaPushButton("打开文件")
+        file_btn.setFixedWidth(70)
+        file_btn.clicked.connect(self._open_file)
+        row.addWidget(file_btn)
+
+        release_btn = ElaPushButton("释放")
+        release_btn.setFixedWidth(50)
+        release_btn.clicked.connect(self._release)
+        row.addWidget(release_btn)
+
+        layout.addLayout(row)
+
+        self._browser = ElaBrowserEmbedder(
+            webview_path=browser_path,
+            debug_port=debug_port,
+            browser_args=[
+                f"--user-data-dir={Path.cwd() / 'runtime' / 'cache' / f'browser_{debug_port}'}"
+            ],
+            parent=self,
+        )
+        layout.addWidget(self._browser, 1)
+
+        self._log = ElaPlainTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setFixedHeight(50)
+        layout.addWidget(self._log)
+
+        self._browser.windowEmbedded.connect(lambda h: self._append_log(f"已嵌入 0x{h:X}"))
+        self._browser.windowReleased.connect(lambda h: self._append_log(f"已释放 0x{h:X}"))
+        self._browser.embedError.connect(lambda m: self._append_log(f"错误: {m}"))
+        self._browser.embedCompleted.connect(
+            lambda ok: self._append_log("CDP 就绪" if ok else "CDP 失败")
+        )
+
+    def _append_log(self, msg: str):
+        try:
+            self._log.appendPlainText(msg)
+        except Exception:
+            pass
+
+    def _embed(self):
+        url = self._url_input.text().strip()
+        self._append_log(f"嵌入: {url}")
+        try:
+            self._browser.embed(url, connect_cdp=True)
+        except Exception as e:
+            self._append_log(f"错误: {e}")
+
+    def _load_url(self):
+        url = self._url_input.text().strip()
+        self._append_log(f"加载: {url}")
+        try:
+            self._browser.load_url(url)
+        except Exception as e:
+            self._append_log(f"错误: {e}")
+
+    def _open_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择 HTML 文件", "", "HTML 文件 (*.html *.htm);;所有文件 (*)"
+        )
+        if path:
+            self._append_log(f"加载本地文件: {path}")
+            try:
+                self._browser.load_url(Path(path))
+            except Exception as e:
+                self._append_log(f"错误: {e}")
+
+    def _release(self):
+        try:
+            self._browser.release()
+            self._append_log("已释放")
+        except Exception as e:
+            self._append_log(f"错误: {e}")
+
+    def release(self):
+        self._browser.release()
 
 
 class BrowserExamplePage(ExamplePage):
@@ -26,129 +138,37 @@ class BrowserExamplePage(ExamplePage):
     PAGE_TITLE = "浏览器嵌入"
 
     def __init__(self, parent=None):
-        self._browser = None
+        self._panels = []
         super().__init__(parent)
 
     def _addDemoContent(self, layout):
         if not BROWSER_PATH.exists():
             info = ElaText(
-                f"浏览器不存在: {BROWSER_PATH}\n请设置环境变量 ELA_BROWSER_PATH 指向 chrome.exe", self
+                f"浏览器不存在: {BROWSER_PATH}\n请设置环境变量 ELA_BROWSER_PATH 指向 chrome.exe",
+                self,
             )
             info.setTextPixelSize(14)
             layout.addWidget(info)
             return
 
-        url_layout = QHBoxLayout()
-        self._url_input = ElaLineEdit()
-        self._url_input.setFixedHeight(30)
-        self._url_input.setText(TEST_URL)
-        url_layout.addWidget(self._url_input)
+        rows_layout = QVBoxLayout()
+        rows_layout.setSpacing(10)
 
-        embed_btn = ElaPushButton("嵌入浏览器")
-        embed_btn.clicked.connect(self._embed_browser)
-        url_layout.addWidget(embed_btn)
+        for i, url in enumerate(TEST_URLS):
+            panel = _BrowserPanel(
+                title=f"浏览器 {i + 1}",
+                url=url,
+                browser_path=BROWSER_PATH,
+                debug_port=9223 + i,
+                parent=self,
+            )
+            panel.setMinimumHeight(680)
+            rows_layout.addWidget(panel)
+            self._panels.append(panel)
 
-        release_btn = ElaPushButton("释放浏览器")
-        release_btn.clicked.connect(self._release_browser)
-        url_layout.addWidget(release_btn)
-
-        nav_btn = ElaPushButton("导航")
-        nav_btn.clicked.connect(self._navigate)
-        url_layout.addWidget(nav_btn)
-
-        reload_btn = ElaPushButton("刷新")
-        reload_btn.clicked.connect(self._reload)
-        url_layout.addWidget(reload_btn)
-
-        js_btn = ElaPushButton("执行JS")
-        js_btn.clicked.connect(self._runJS)
-        url_layout.addWidget(js_btn)
-
-        layout.addLayout(url_layout)
-
-        self._browser_widget = ElaBrowserEmbedder(
-            webview_path=BROWSER_PATH,
-            debug_port=9222,
-            browser_args=[
-                f"--user-data-dir={Path.cwd() / 'runtime' / 'cache' / 'browser_demo'}"
-            ],
-            parent=self,
-        )
-        layout.addWidget(self._browser_widget, 1)
-
-        self._status_label = ElaText("状态: 就绪")
-        self._status_label.setTextPixelSize(14)
-        layout.addWidget(self._status_label)
-
-        self._log_output = ElaPlainTextEdit()
-        self._log_output.setReadOnly(True)
-        self._log_output.setFixedHeight(80)
-        layout.addWidget(self._log_output)
-
-        self._browser_widget.windowEmbedded.connect(
-            lambda h: self._log(f"窗口已嵌入: 0x{h:X}")
-        )
-        self._browser_widget.windowReleased.connect(
-            lambda h: self._log(f"窗口已释放: 0x{h:X}")
-        )
-        self._browser_widget.embedError.connect(
-            lambda m: self._log(f"嵌入错误: {m}")
-        )
-        self._browser_widget.embedCompleted.connect(self._on_embed_completed)
-        self._browser_widget.loadStarted.connect(
-            lambda: self._log("页面加载中...")
-        )
-        self._browser_widget.loadFinished.connect(
-            lambda: self._log("页面加载完成")
-        )
-        self._browser_widget.logMessage.connect(self._log)
-
-    def _log(self, msg):
-        try:
-            self._log_output.appendPlainText(msg)
-            self._status_label.setText(f"状态: {msg[:20]}...")
-        except Exception as e:
-            print(e)
-
-    def _on_embed_completed(self, ok: bool):
-        if ok:
-            self._log("CDP 连接就绪，导航/刷新/JS 已可用")
-        else:
-            self._log("CDP 连接失败")
-
-    def _embed_browser(self):
-        url = self._url_input.text().strip()
-        self._log(f"嵌入: {url}")
-        try:
-            self._browser_widget.embed(url, window_title="bilibili", connect_cdp=True)
-        except Exception as e:
-            self._log(f"嵌入错误: {e}")
-
-    def _release_browser(self):
-        try:
-            self._log("释放浏览器")
-            self._browser_widget.release()
-        except Exception as e:
-            self._log(f"释放错误: {e}")
-
-    def _navigate(self):
-        url = self._url_input.text().strip()
-        self._log(f"导航: {url}")
-        self._browser_widget.navigate(url)
-
-    def _reload(self):
-        self._log("刷新")
-        self._browser_widget.reload()
-
-    def _runJS(self):
-        self._browser_widget.runJS("console.log('你好')")
-
-    def _closeBrowser(self):
-        try:
-            self._browser_widget.release()
-        except Exception:
-            pass
+        layout.addLayout(rows_layout)
 
     def deleteLater(self) -> None:
-        self._closeBrowser()
+        for panel in self._panels:
+            panel.release()
         super().deleteLater()

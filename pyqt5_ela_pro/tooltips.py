@@ -51,8 +51,8 @@ TOOLTIP_ROTATE_TIMER_INTERVAL: int = 50
 TOOLTIP_ROTATE_ANGLE_DELTA: int = 20
 
 STATETOOLTIP_BORDER_RADIUS: int = 10
-STATETOOLTIP_TITLE_FONT_SIZE: int = 13
-STATETOOLTIP_CONTENT_FONT_SIZE: int = 12
+STATETOOLTIP_TITLE_FONT_SIZE: int = 14
+STATETOOLTIP_CONTENT_FONT_SIZE: int = 13
 STATETOOLTIP_MIN_WIDTH: int = 200
 STATETOOLTIP_MAX_WIDTH: int = 360
 STATETOOLTIP_HEIGHT: int = 56
@@ -162,6 +162,8 @@ class ElaToolTip(QWidget):
         )
 
         bgColor = eTheme.getThemeColor(themeMode, ElaThemeType.ThemeColor.BasicBase)
+        borderColor = eTheme.getThemeColor(themeMode, ElaThemeType.ThemeColor.BasicBaseLine)
+        painter.setPen(borderColor)
         painter.setBrush(QBrush(bgColor))
         painter.drawRoundedRect(
             QRect(3, 3, self.width() - 6, self.height() - 6),
@@ -477,21 +479,11 @@ class ElaStateToolTip(QWidget):
         self._titleLabel.adjustSize()
         self._contentLabel.adjustSize()
 
-        content_max_w = (
-            self._contentLabel.width()
-            if self._contentLabel.width() <= STATETOOLTIP_MAX_WIDTH
-            else STATETOOLTIP_MAX_WIDTH
-        )
-        width = max(
-            self._titleLabel.width() + 60,
-            content_max_w + 56,
-            STATETOOLTIP_MIN_WIDTH,
-        )
         height = max(
             self._titleLabel.height() + self._contentLabel.height() + 32,
             STATETOOLTIP_HEIGHT,
         )
-        self.setFixedSize(width, height)
+        self.setFixedSize(STATETOOLTIP_MAX_WIDTH, height)
 
         icon_area = 28
         self._titleLabel.move(
@@ -502,7 +494,7 @@ class ElaStateToolTip(QWidget):
             10 + self._titleLabel.height() + 4,
         )
         self._contentLabel.setFixedWidth(
-            width - STATETOOLTIP_ACCENT_WIDTH - icon_area - 8 - STATETOOLTIP_CLOSE_BUTTON_SIZE - 12
+            STATETOOLTIP_MAX_WIDTH - STATETOOLTIP_ACCENT_WIDTH - icon_area - 8 - STATETOOLTIP_CLOSE_BUTTON_SIZE - 12
         )
 
     def _updateSizeAndPositions(self) -> None:

@@ -149,15 +149,35 @@ class DrawerTooltipPage(ExamplePage):
         btn_layout.addSpacing(20)
         show_tip_btn = ElaPushButton("显示 ElaToolTip", self)
         show_tip_btn.setFixedWidth(120)
+        close_tip_btn = ElaPushButton("关闭 ToolTip", self)
+        close_tip_btn.setFixedWidth(100)
+        self._direct_tip = None
 
         def _show_tooltip_direct():
-            tip = ElaToolTip("手动定位的提示框", self.window())
-            tip.showAt(
+            if self._direct_tip is not None:
+                try:
+                    self._direct_tip.hide()
+                    self._direct_tip.deleteLater()
+                except RuntimeError:
+                    pass
+            self._direct_tip = ElaToolTip("手动定位的提示框", self.window())
+            self._direct_tip.showAt(
                 show_tip_btn, position=ElaToolTipPosition.TopRight
             )
 
+        def _close_tooltip_direct():
+            if self._direct_tip is not None:
+                try:
+                    self._direct_tip.hide()
+                    self._direct_tip.deleteLater()
+                except RuntimeError:
+                    pass
+                self._direct_tip = None
+
         show_tip_btn.clicked.connect(_show_tooltip_direct)
+        close_tip_btn.clicked.connect(_close_tooltip_direct)
         btn_layout.addWidget(show_tip_btn)
+        btn_layout.addWidget(close_tip_btn)
         btn_layout.addStretch()
         parent_layout.addLayout(btn_layout)
         parent_layout.addSpacing(20)

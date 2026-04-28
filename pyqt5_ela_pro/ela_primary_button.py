@@ -115,10 +115,7 @@ class ElaThemeToolButton(ElaToolButton):
         if icon:
             self.setElaIcon(icon, iconSize)
         self.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self._themeConnection = eTheme.themeModeChanged.connect(self._onThemeModeChanged)
 
-    def _onThemeModeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
-        self.update()
 
     def _getCurrentBgColor(self) -> QColor:
         mode = eTheme.getThemeMode()
@@ -137,10 +134,7 @@ class ElaThemeToolButton(ElaToolButton):
         return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
 
     def _getBorderColor(self) -> QColor:
-        mode = eTheme.getThemeMode()
-        if mode == ElaThemeType.ThemeMode.Light:
-            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorder)
-        return QColor(0, 0, 0, 0)
+        return eTheme.getThemeColor(eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicBorder)
 
     def setElaIcon(self, iconName: ElaIconType.IconName, iconSize: int = 16) -> None:
         """设置图标。
@@ -197,12 +191,6 @@ class ElaThemeToolButton(ElaToolButton):
             _icon_getter,
         )
 
-    def deleteLater(self) -> None:
-        try:
-            eTheme.themeModeChanged.disconnect(self._themeConnection)
-        except (TypeError, RuntimeError):
-            pass
-        super().deleteLater()
 
 
 class ElaPrimaryButton(ElaPushButton):

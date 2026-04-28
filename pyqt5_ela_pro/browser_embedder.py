@@ -20,7 +20,7 @@ import json
 import time
 import weakref
 from pathlib import Path
-from typing import Optional, Any, Callable
+from typing import Optional, Any, Callable, Union
 
 from PyQt5.QtCore import pyqtSignal, QTimer, QObject, QUrl, QProcess
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
@@ -325,18 +325,22 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._debug_url_max_retries: int = 0
         self._debug_url_callback: Optional[Callable] = None
 
-    def embed(self, url: str, window_title: str, connect_cdp: bool = True) -> None:
+    def embed(self, url: Union[str, Path], window_title: Optional[str] = None, connect_cdp: bool = True) -> None:
         """嵌入浏览器并导航到指定 URL（非阻塞）
 
-        :param url: 目标 URL
-        :param window_title: 浏览器窗口标题（必须指定，用于查找窗口）
+        :param url: 目标 URL 或本地文件 Path
+        :param window_title: 浏览器窗口标题。设置时按标题查找窗口，
+            不设置时自动通过浏览器进程 PID 查找窗口。
         :param connect_cdp: 是否连接 CDP（用于页面加载监控）
             CDP 连接会在窗口嵌入成功后自动启动，完成后触发 embedCompleted 信号
 
         使用示例:
-            browser.embed("http://example.com", window_title="MyBrowser")
+            browser.embed("http://example.com")
+            browser.embed(Path("/path/to/page.html"))
             browser.embedCompleted.connect(lambda ok: print("嵌入完成" if ok else "失败"))
         """
+        if isinstance(url, Path):
+            url = url.as_uri()
         if self._embeddedInfo is not None:
             self._log("已有嵌入窗口，请先调用 release()", 30)
             return
@@ -388,7 +392,30 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         if data.strip():
             self._log(f"[stderr] {data.strip()}", 20)
 
-    def _startEmbedTimer(self, window_title: str, timeout: float = 30) -> None:
+    def _findWindowByPid(self) -> int:
+        """通过进程 PID 查找属于该进程的第一个可见窗口。"""
+        if not win32process or not self._browser_process:
+            return 0
+        pid = self._browser_process.processId()
+        if not pid:
+            return 0
+        results: list[int] = []
+        def enum_callback(hwnd: int, _) -> bool:
+            if win32gui.IsWindowVisible(hwnd):
+                try:
+                    _, window_pid = win32process.GetWindowThreadProcessId(hwnd)
+                    if window_pid == pid:
+                        results.append(hwnd)
+                except Exception:
+                    pass
+            return True
+        try:
+            win32gui.EnumWindows(enum_callback, None)
+        except Exception:
+            return 0
+        return results[0] if results else 0
+
+    def _startEmbedTimer(self, window_title: Optional[str] = None, timeout: float = 30) -> None:
         self._embedTimeout = timeout
         self._embed_start_time = time.time()
         self._browser_embedTimer = QTimer(self)
@@ -396,33 +423,27 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._browser_embedTimer.start(500)
 
     def _onEmbedTimerTimeout(self) -> None:
-        if not self._pending_window_title:
-            if self._browser_embedTimer:
-                self._browser_embedTimer.stop()
-            return
-
         elapsed = time.time() - self._embed_start_time
         if elapsed > self._embedTimeout:
             if self._browser_embedTimer:
                 self._browser_embedTimer.stop()
-            self.windowNotFound.emit(f"等待窗口 '{self._pending_window_title}' 超时")
+            title = self._pending_window_title or "未知标题"
+            self.windowNotFound.emit(f"等待窗口 '{title}' 超时")
             self._pending_window_title = None
             self._cleanup_browser()
             return
 
-        hwnd = self.findWindowByTitle(self._pending_window_title)
-        if hwnd:
-            if (
-                win32process
-                and self._browser_process
-                and self._browser_process.state() == QProcess.Running
-            ):
+        if self._pending_window_title:
+            hwnd = self.findWindowByTitle(self._pending_window_title)
+            if hwnd and win32process and self._browser_process and self._browser_process.state() == QProcess.Running:
                 try:
                     _, pid = win32process.GetWindowThreadProcessId(hwnd)
                     if pid != self._browser_process.processId():
                         hwnd = 0
                 except Exception:
                     hwnd = 0
+        else:
+            hwnd = self._findWindowByPid()
         if hwnd:
             if self._browser_embedTimer:
                 self._browser_embedTimer.stop()
@@ -566,6 +587,19 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         """
         if self._controller:
             self._controller.navigate(url, callback=callback)
+
+    def load_url(self, url: Union[str, Path], callback: Optional[Callable[[Any], None]] = None) -> Optional[int]:
+        """加载指定 URL 或本地文件（非阻塞），与 QWebEnginePage.loadUrl() 行为一致。
+
+        :param url: 目标 URL 或本地文件 Path
+        :param callback: 可选回调，加载完成时调用
+        :returns: 消息 ID（调试用），CDP 未就绪时返回 None
+        """
+        if isinstance(url, Path):
+            url = url.as_uri()
+        if self._controller:
+            return self._controller.navigate(url, callback=callback)
+        return None
 
     def runJS(self, script: str, callback: Optional[Callable[[Any], None]] = None) -> Optional[int]:
         """执行 JavaScript 代码（非阻塞）

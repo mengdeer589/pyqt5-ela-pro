@@ -138,7 +138,7 @@ class AnimationIconPage(ExamplePage):
         btn_layout.setSpacing(15)
         shake_btn = ElaPushButton("抖动窗口", self)
         shake_btn.setFixedWidth(100)
-        shake_btn.clicked.connect(lambda: shake_window(self))
+        shake_btn.clicked.connect(lambda: shake_window(self.window()))
         btn_layout.addWidget(shake_btn)
         btn_layout.addStretch()
         parent_layout.addLayout(btn_layout)
@@ -163,10 +163,11 @@ class AnimationIconPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _onFadeIn(self):
-        fade_in(self)
+        fade_in(self.window())
 
     def _onFadeOut(self):
-        fade_out(self)
+        w = self.window()
+        fade_out(w, on_finished=lambda: fade_in(w, duration=500))
 
     def _openAnimatedDialog(self):
         dialog = _AnimatedDemoDialog(self)
