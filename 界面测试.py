@@ -2,7 +2,7 @@
 import sys
 import os
 
-from pyqt5_ela_pro import ElaPrimaryButton
+from pyqt5_ela_pro import ElaPrimaryButton, ElaThemeWidget
 
 os.environ["QT_LOGGING_RULES"] = "*.debug=false;qt.qpa.fonts.warning=false"
 
@@ -21,12 +21,13 @@ class DemoWindow(ElaWindow):
     def _setup_ui(self):
 
 
-        central = QWidget(self)
+        central = ElaThemeWidget(self)
         self.addPageNode("浏览器示例",central)
         # self.setCentralWidget(central)
         layout = QVBoxLayout(central)
         self.btn=ElaPrimaryButton(text="测试", parent=self)
         layout.addWidget(self.btn)
+        self.btn.clicked.connect(lambda: central.alert("你好",'error'))
 
 
 

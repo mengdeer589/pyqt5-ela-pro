@@ -14,7 +14,7 @@ from .base_page import ExamplePage
 BROWSER_PATH = Path(
     os.environ.get(
         "ELA_BROWSER_PATH",
-        r"E:\python_project\elawidgettools\Supermium\chrome.exe",
+        r"Supermium\chrome.exe",
     )
 )
 TEST_URL = "https://www.bilibili.com"
