@@ -42,7 +42,6 @@ class ExamplePage(ElaThemeWidget):
         self._scrollArea.setWidget(scrollWidget)
 
         containerLayout = QVBoxLayout(self)
-        containerLayout.setContentsMargins(0, 0, 0, 0)
         containerLayout.addWidget(self._scrollArea)
 
     def _addDemoContent(self, main_layout):

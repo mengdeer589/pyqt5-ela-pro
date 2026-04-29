@@ -17,15 +17,16 @@ from pyqt5_ela_pro import ElaSplashScreen
 from pyqt5_ela_pro.example import (
     BasicContainerPage,
     FormButtonPage,
+    ComboBoxPage,
     TableChartPage,
     DrawerTooltipPage,
     AnimationIconPage,
-    ComboBoxPage,
     WindowEmbedderPage,
     ApplicationComponentsPage,
     AdvancedComponentsPage,
-    GraphicsComponentsPage,
     BrowserExamplePage,
+    ApplicationUtilitiesPage,
+    GraphicsComponentsPage,
 )
 
 
@@ -38,17 +39,25 @@ class ExampleWindow(ElaWindow):
         self.setUserInfoCardTitle("组件演示")
         self.setUserInfoCardSubTitle("pyqt5_ela_pro@example.com")
 
-        self.addPageNode("基础组件", BasicContainerPage(self))
-        self.addPageNode("表单与按钮", FormButtonPage(self))
+        # ════════════════════════════════════════════
+        # PyQt5ElaWidgetTools 原生组件
+        # ════════════════════════════════════════════
+        self.addPageNode("基础控件", BasicContainerPage(self))
+        self.addPageNode("应用框架", ApplicationComponentsPage(self))
+
+        # ════════════════════════════════════════════
+        # pyqt5_ela_pro 扩展组件
+        # ════════════════════════════════════════════
+        self.addPageNode("增强按钮", FormButtonPage(self))
         self.addPageNode("下拉框组件", ComboBoxPage(self))
         self.addPageNode("表格与图表", TableChartPage(self))
-        self.addPageNode("抽屉与提示", DrawerTooltipPage(self))
+        self.addPageNode("弹窗与提示", DrawerTooltipPage(self))
         self.addPageNode("动画与图标", AnimationIconPage(self))
+        self.addPageNode("应用辅助", ApplicationUtilitiesPage(self))
+        self.addPageNode("Office 文档预览", AdvancedComponentsPage(self))
         self.addPageNode("窗口嵌入", WindowEmbedderPage(self))
-        self.addPageNode("ela 应用级组件", ApplicationComponentsPage(self))
-        self.addPageNode("高级组件", AdvancedComponentsPage(self))
-        self.addPageNode("图形组件", GraphicsComponentsPage(self))
         self.addPageNode("浏览器嵌入", BrowserExamplePage(self))
+        self.addPageNode("其他组件", GraphicsComponentsPage(self))
 
 
 if __name__ == "__main__":

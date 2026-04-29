@@ -45,11 +45,6 @@ class TableChartPage(ExamplePage):
     def _demoChart(self, parent_layout):
         self._demoTrendChart(parent_layout)
 
-    def _addInfoText(self, text, parent_layout):
-        info = ElaText(text, self)
-        info.setTextPixelSize(14)
-        parent_layout.addWidget(info)
-
     def _demoBasicTable(self, parent_layout):
         parent_layout.addWidget(
             self._createSectionHeader("01. ela_ext - ElaDataTable 基础表格")
@@ -231,6 +226,9 @@ class TableChartPage(ExamplePage):
             self, "选择 Parquet 文件", "", "Parquet (*.parquet);;所有文件 (*)"
         )
         if path:
+            if self._parquet_table:
+                self._parquet_table.deleteLater()
+                self._parquet_table = None
             try:
                 from pyqt5_ela_pro import ElaParquetTable
                 self._parquet_table = ElaParquetTable(path, page_size=50, parent=self)

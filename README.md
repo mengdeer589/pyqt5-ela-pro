@@ -8,10 +8,10 @@ PyQt5 extension widget library based on PyQt5ElaWidgetTools.
 
 ## 特性
 
-- **搜索式下拉框** — ElaSearchBox / ElaSearchMultiBox，支持中文拼音首字母搜索
-- **Tag 风格组件** — ElaTagLineEdit、ElaTagBox / ElaTagMultiBox / ElaTagSearchBox / ElaTagSearchMultiBox
+- **搜索式下拉框** — ElaSearchBox / ElaSearchMultiBox，支持中文拼音首字母搜索，提供 items 属性获取选项列表
+- **Tag 风格组件** — ElaTagLineEdit、ElaTagBox / ElaTagMultiBox / ElaTagSearchBox / ElaTagSearchMultiBox，支持 items 属性获取选项列表
 - **增强按钮** — ElaPrimaryButton、ElaThemeToolButton、ElaLongPressButton、ElaProgressButton、ElaSvgButton、ElaSvgIconButton
-- **外部窗口嵌入** — ElaWindowEmbedder（通过 win32gui 嵌入外部窗口）、ElaBrowserEmbedder（嵌入 Chromium 浏览器）
+- **外部窗口嵌入** — ElaWindowEmbedder（通过 win32gui 嵌入外部窗口）、ElaBrowserEmbedder（嵌入 Chromium 浏览器，支持 load_url()、本地文件 Path 加载）
 - **Office 文档查看** — ElaWordViewer、ElaExcelViewer、ElaPowerPointViewer
 - **数据展示** — ElaDataTable、ElaParquetTable、ElaTrendChart（趋势图）
 - **SVG 图标系统** — ElaSvgIconLoader 加载自定义二进制图标格式，ElaSvgButton / ElaSvgIconButton 展示
@@ -80,7 +80,7 @@ sys.exit(app.exec_())
 | `svg_to_icon(path, size)` | SVG 文件转 QIcon |
 | `svg_to_pixmap(path, size)` | SVG 文件转 QPixmap |
 | `svg_icon_loader(path)` | SVG 图标加载器 |
-| `create_ela_splitter(orientation, widgets)` | 创建主题感知分割器 |
+| `create_ela_splitter(widgets, orientation, ...)` | 创建主题感知分割器 |
 | `show_notify(title, text, ...)` | 弹出通知 |
 
 ### 组件类
@@ -109,10 +109,9 @@ sys.exit(app.exec_())
 | **ElaExcelViewer** | 文档查看 | Excel 文件嵌入查看 |
 | **ElaPowerPointViewer** | 文档查看 | PPT 文件嵌入查看 |
 | **ElaWindowEmbedder** | 窗口嵌入 | 嵌入外部应用窗口 |
-| **ElaBrowserEmbedder** | 窗口嵌入 | 嵌入 Chromium 浏览器 |
+| **ElaBrowserEmbedder** | 窗口嵌入 | 嵌入 Chromium 浏览器，支持 load_url()、embed() 接收 Path 对象 |
 | **ElaDrawer** | 导航 | 侧边抽屉面板 |
 | **ElaDrawerPosition** | 枚举 | 抽屉方向枚举 |
-| **ElaScrollableMenu** | 菜单 | 可滚动弹出菜单 |
 | **ElaToolTip** | 提示 | 自定义工具提示 |
 | **ElaStateToolTip** | 提示 | 状态提示控件 |
 | **ElaToolTipPosition** | 枚举 | 提示位置枚举 |
@@ -138,13 +137,14 @@ python -m pyqt5_ela_pro.example
 
 - 基础组件 — pyqt5-elawidgettools 原生组件展示
 - 表单与按钮 — 增强按钮 & Tag 输入框
-- 下拉框组件 — 全部 8 种下拉框变体
-- 表格与图表 — ElaDataTable、ElaTrendChart
-- 抽屉与提示 — ElaDrawer、ElaToolTip、ElaStateToolTip
-- 动画与图标 — fade_in/out、shake_window、SVG 图标浏览器
+- 下拉框组件 — 全部 6 种自定义下拉框变体 + 空选项演示
+- 表格与图表 — ElaDataTable、ElaTrendChart、ElaParquetTable
+- 抽屉与提示 — ElaDrawer、ElaToolTip、ElaStateToolTip、remove_tooltip 演示
+- 动画与图标 — fade_in/out、shake_window、SVG 图标浏览器、svg_to_icon 等工具函数
+- Office 文档预览 — ElaWordViewer、ElaExcelViewer、ElaPowerPointViewer
 - 窗口嵌入 — 外部窗口嵌入演示
 - 应用级组件 — 启动屏、任务栏进度等
-- 浏览器嵌入 — Chromium 浏览器嵌入
+- 浏览器嵌入 — Chromium 浏览器嵌入（支持多实例、本地文件）
 
 ## 依赖
 
@@ -153,6 +153,7 @@ python -m pyqt5_ela_pro.example
 - PyQt5-ElaWidgetTools >= 0.8.0
 - pypinyin >= 0.50.0
 - pywin32（运行示例及使用窗口嵌入功能时需要）
+- polars（使用 ElaParquetTable 时需要）
 
 ## 平台
 

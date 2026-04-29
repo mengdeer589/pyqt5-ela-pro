@@ -13,7 +13,6 @@ from PyQt5.QtGui import (
     QStandardItemModel,
     QStandardItem,
     QColor,
-    QFont,
 )
 from PyQt5ElaWidgetTools import (
     ElaText,
@@ -150,11 +149,6 @@ class BasicContainerPage(ExamplePage):
         self._demoElaMenu(parent_layout)
         self._demoMenuBar(parent_layout)
         self._demoSuggestBox(parent_layout)
-
-    def _addInfoText(self, text, parent_layout):
-        info = ElaText(text, self)
-        info.setTextPixelSize(14)
-        parent_layout.addWidget(info)
 
     def _demoLineEdit(self, parent_layout):
         parent_layout.addWidget(

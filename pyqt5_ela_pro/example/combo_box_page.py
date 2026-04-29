@@ -76,11 +76,6 @@ class ComboBoxPage(ExamplePage):
         parent_layout.addLayout(row_layout)
         return row_layout
 
-    def _addInfoText(self, text, parent_layout):
-        info = ElaText(text, self)
-        info.setTextPixelSize(14)
-        parent_layout.addWidget(info)
-
     def _demoElaComboBox(self, parent_layout):
         parent_layout.addWidget(
             self._createSectionHeader(

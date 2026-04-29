@@ -56,6 +56,11 @@ class ElaTagMultiBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaMultiSelectComboBox
         self.setMaxVisibleItems(10)
         QTimer.singleShot(0, lambda: _pre_init_popup(self))
 
+    @property
+    def items(self) -> list[str]:
+        """返回当前所有选项列表。"""
+        return [self.itemText(i) for i in range(self.count())]
+
     def showPopup(self) -> None:
         if self.count() == 0:
             return

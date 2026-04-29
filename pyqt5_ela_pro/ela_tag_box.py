@@ -49,6 +49,11 @@ class ElaTagBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaComboBox):
         self._tag_box_init(title)
         self.currentIndexChanged.connect(self._onCurrentIndexChanged)
 
+    @property
+    def items(self) -> list[str]:
+        """返回当前所有选项列表。"""
+        return [self.itemText(i) for i in range(self.count())]
+
     def showPopup(self) -> None:
         if self.count() == 0:
             return

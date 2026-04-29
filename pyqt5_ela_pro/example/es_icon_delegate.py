@@ -4,7 +4,7 @@ SVG 图标渲染代理。
 
 from PyQt5.QtCore import QModelIndex, QSize, Qt
 from PyQt5.QtWidgets import QStyledItemDelegate, QStyleOptionViewItem, QStyle
-from PyQt5.QtGui import QPainter, QFont, QColor
+from PyQt5.QtGui import QPainter, QFont
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
 from pyqt5_ela_pro.svg_icon import svg_to_pixmap

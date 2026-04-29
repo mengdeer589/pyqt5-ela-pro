@@ -8,7 +8,7 @@
 
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLineEdit
 from PyQt5.QtCore import QTimer
-from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaIconType
+from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaIconType, ElaThemeType
 from pyqt5_ela_pro import (
     ElaThemeWidget,
     ElaTagLineEdit,
@@ -18,8 +18,11 @@ from pyqt5_ela_pro import (
     ElaMessageDialog,
     ElaProgressButton,
     ElaNotifyPopup,
+    ElaSvgButton,
+    ElaSvgIconButton,
     show_notify,
 )
+from pyqt5_ela_pro.svg_icon import ElaSvgIconLoader
 from .base_page import ExamplePage
 
 
@@ -32,6 +35,7 @@ class FormButtonPage(ExamplePage):
         self._nameEdit = None
         self._passwordEdit = None
         self._longPressBtn = None
+        self._svg_loader = None
         super().__init__(parent)
 
     def _addDemoContent(self, main_layout):
@@ -41,18 +45,21 @@ class FormButtonPage(ExamplePage):
     def _demoForm(self, parent_layout):
         self._demoTagLineEdit(parent_layout)
 
+    def _getSvgLoader(self):
+        if self._svg_loader is None:
+            self._svg_loader = ElaSvgIconLoader()
+            self._svg_loader.loadFromPackage("fluent_ui_icon_regular.icons")
+        return self._svg_loader
+
     def _demoButton(self, parent_layout):
         self._demoPrimaryButton(parent_layout)
         self._demoLongPressButton(parent_layout)
         self._demoProgressButton(parent_layout)
         self._demoNotifyPopup(parent_layout)
         self._demoToolButtonExt(parent_layout)
+        self._demoEsButton(parent_layout)
+        self._demoEsSvgButton(parent_layout)
         self._demoMessageDialog(parent_layout)
-
-    def _addInfoText(self, text, parent_layout):
-        info = ElaText(text, self)
-        info.setTextPixelSize(14)
-        parent_layout.addWidget(info)
 
     def _demoTagLineEdit(self, parent_layout):
         parent_layout.addWidget(
@@ -266,9 +273,61 @@ class FormButtonPage(ExamplePage):
         parent_layout.addLayout(btn_layout)
         parent_layout.addSpacing(20)
 
+    def _demoEsButton(self, parent_layout):
+        parent_layout.addWidget(
+            self._createSectionHeader(
+                "07. ela_ext - ElaSvgIconButton 基础 SVG 图标按钮"
+            )
+        )
+        self._addInfoText(
+            "继承 ElaPushButton 的外观，使用 SVG 图标，图标颜色与文字一致",
+            parent_layout,
+        )
+        parent_layout.addSpacing(10)
+        self._getSvgLoader()
+        icons_row_layout = QHBoxLayout()
+        icons_row_layout.setSpacing(15)
+        svg_buttons = [
+            ("ic_fluent_zoom_out_regular", "搜索", ElaThemeType.ThemeColor.PrimaryNormal),
+            ("ic_fluent_settings_regular", "设置", ElaThemeType.ThemeColor.PrimaryNormal),
+            ("ic_fluent_delete_regular", "删除", ElaThemeType.ThemeColor.StatusDanger),
+            ("ic_fluent_save_regular", "保存", ElaThemeType.ThemeColor.PrimaryNormal),
+        ]
+        for name, text, theme_color in svg_buttons:
+            btn = ElaSvgIconButton(text, icon_name=name, theme_color=theme_color, parent=self)
+            btn.setFixedWidth(120)
+            icons_row_layout.addWidget(btn)
+        icons_row_layout.addStretch()
+        parent_layout.addLayout(icons_row_layout)
+        parent_layout.addSpacing(30)
+
+    def _demoEsSvgButton(self, parent_layout):
+        parent_layout.addWidget(
+            self._createSectionHeader("08. ela_ext - ElaSvgButton 悬浮/点击主题色效果")
+        )
+        self._addInfoText("鼠标悬浮和点击时显示半透明主题色背景效果", parent_layout)
+        parent_layout.addSpacing(10)
+        self._getSvgLoader()
+        icons_row_layout = QHBoxLayout()
+        icons_row_layout.setSpacing(15)
+        theme_buttons = [
+            ("ic_fluent_zoom_out_regular", "搜索", ElaThemeType.ThemeColor.PrimaryNormal),
+            ("ic_fluent_settings_regular", "设置", ElaThemeType.ThemeColor.PrimaryNormal),
+            ("ic_fluent_delete_regular", "删除", ElaThemeType.ThemeColor.StatusDanger),
+            ("ic_fluent_edit_regular", "编辑", ElaThemeType.ThemeColor.PrimaryPress),
+            ("ic_fluent_copy_regular", "复制", ElaThemeType.ThemeColor.PrimaryNormal),
+        ]
+        for name, text, theme_color in theme_buttons:
+            btn = ElaSvgButton(text, icon_name=name, theme_color=theme_color, parent=self)
+            btn.setFixedWidth(120)
+            icons_row_layout.addWidget(btn)
+        icons_row_layout.addStretch()
+        parent_layout.addLayout(icons_row_layout)
+        parent_layout.addSpacing(20)
+
     def _demoMessageDialog(self, parent_layout):
         parent_layout.addWidget(
-            self._createSectionHeader("08. pyqt5_ela_pro - ElaMessageDialog 消息对话框")
+            self._createSectionHeader("09. pyqt5_ela_pro - ElaMessageDialog 消息对话框")
         )
         self._addInfoText(
             "简化的消息对话框接口，使用 ElaText 组件渲染内容", parent_layout

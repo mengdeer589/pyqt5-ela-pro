@@ -135,6 +135,11 @@ class ElaSearchMultiBox(ElaMultiSelectComboBox):
         self._pinyin_cache: dict[str, str] = {}
         eTheme.themeModeChanged.connect(self._onThemeModeChanged)
 
+    @property
+    def items(self) -> list[str]:
+        """返回当前所有选项列表。"""
+        return [self.itemText(i) for i in range(self.count())]
+
     def addItem(self, text: str) -> None:
         """添加一个选项。
 
@@ -310,6 +315,11 @@ class ElaSearchBox(ElaComboBox):
 
         eTheme.themeModeChanged.connect(self._onThemeModeChanged)
         self.activated.connect(self._onActivated)
+
+    @property
+    def items(self) -> list[str]:
+        """返回当前所有选项列表。"""
+        return [item[0] for item in self._allItems]
 
     def addItem(self, text: str, userData: Any = None) -> None:  # type: ignore[override]
         """添加一个选项。

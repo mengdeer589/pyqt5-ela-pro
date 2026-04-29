@@ -39,11 +39,6 @@ class DrawerTooltipPage(ExamplePage):
         self._demoTooltipDirect(main_layout)
         self._demoStateTooltip(main_layout)
 
-    def _addInfoText(self, text, parent_layout):
-        info = ElaText(text, self)
-        info.setTextPixelSize(14)
-        parent_layout.addWidget(info)
-
     def _demoDrawer(self, parent_layout):
         parent_layout.addWidget(self._createSectionHeader("=== ela_ext - 抽屉组件 ==="))
         self._demoSiSideDrawer(parent_layout)
@@ -228,6 +223,7 @@ class DrawerTooltipPage(ExamplePage):
 
     def _showLoadingStateTooltip(self):
         self._showStateTooltip("正在加载", "请稍候...")
+
     def _showSuccessStateTooltip(self):
         self._showStateTooltip("加载完成", "数据已成功加载", is_done=True)
 

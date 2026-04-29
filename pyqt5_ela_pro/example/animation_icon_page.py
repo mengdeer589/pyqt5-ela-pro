@@ -30,8 +30,6 @@ from pyqt5_ela_pro import (
 )
 from pyqt5_ela_pro.svg_icon import (
     ElaSvgIconLoader,
-    ElaSvgButton,
-    ElaSvgIconButton,
 )
 from .base_page import ExamplePage
 from .icon_model import T_IconModel
@@ -81,11 +79,6 @@ class AnimationIconPage(ExamplePage):
         self._demoIcon(main_layout)
         self._demoSvgIcon(main_layout)
 
-    def _addInfoText(self, text, parent_layout):
-        info = ElaText(text, self)
-        info.setTextPixelSize(14)
-        parent_layout.addWidget(info)
-
     def _demoAnimation(self, parent_layout):
         parent_layout.addWidget(self._createSectionHeader("=== ela_ext - 动画特效 ==="))
         self._demoFadeInOut(parent_layout)
@@ -104,8 +97,6 @@ class AnimationIconPage(ExamplePage):
             self._createSectionHeader("=== ela_ext - SVG图标组件 ===")
         )
         self._demoSvgIconBrowser(parent_layout)
-        self._demoEsButton(parent_layout)
-        self._demoEsSvgButton(parent_layout)
         self._demoSvgFunctions(parent_layout)
 
     def _demoFadeInOut(self, parent_layout):
@@ -192,6 +183,7 @@ class AnimationIconPage(ExamplePage):
         self._iconDelegate = T_IconDelegate(self)
         self._iconView.setModel(self._iconModel)
         self._iconView.setItemDelegate(self._iconDelegate)
+        self._iconView.setFixedHeight(800)
         self._iconView.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
@@ -270,13 +262,11 @@ class AnimationIconPage(ExamplePage):
         )
         self._addInfoText("点击图标以复制其名称", parent_layout)
         parent_layout.addSpacing(10)
-        from PyQt5.QtCore import Qt, QModelIndex as QModelIndex2
-
         svg_list_view = ElaListView(self)
         svg_list_view.setIsTransparent(True)
         svg_list_view.setFlow(QListView.Flow.LeftToRight)
         svg_list_view.setViewMode(QListView.ViewMode.IconMode)
-        svg_list_view.setFixedHeight(400)
+        svg_list_view.setFixedHeight(800)
         svg_list_view.setResizeMode(QListView.ResizeMode.Adjust)
         svg_list_view.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
@@ -332,49 +322,6 @@ class AnimationIconPage(ExamplePage):
         view.clearSelection()
         view.scrollTo(model.index(0, 0))
         view.viewport().update()
-
-    def _demoEsButton(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "02. ela_ext - ElaSvgIconButton 基础 SVG 图标按钮"
-            )
-        )
-        self._addInfoText(
-            "继承 ElaPushButton 的外观，使用 SVG 图标，图标颜色与文字一致",
-            parent_layout,
-        )
-        parent_layout.addSpacing(10)
-        loader = self._getSvgLoader()
-        icons_row_layout = QHBoxLayout()
-        icons_row_layout.setSpacing(15)
-        from PyQt5ElaWidgetTools import ElaThemeType
-
-        svg_buttons = [
-            (
-                "ic_fluent_zoom_out_regular",
-                "搜索",
-                ElaThemeType.ThemeColor.PrimaryNormal,
-            ),
-            (
-                "ic_fluent_settings_regular",
-                "设置",
-                ElaThemeType.ThemeColor.PrimaryNormal,
-            ),
-            ("ic_fluent_delete_regular", "删除", ElaThemeType.ThemeColor.StatusDanger),
-            ("ic_fluent_save_regular", "保存", ElaThemeType.ThemeColor.PrimaryNormal),
-        ]
-        for name, text, theme_color in svg_buttons:
-            btn = ElaSvgIconButton(
-                text,
-                icon_name=name,
-                theme_color=theme_color,
-                parent=self,
-            )
-            btn.setFixedWidth(120)
-            icons_row_layout.addWidget(btn)
-        icons_row_layout.addStretch()
-        parent_layout.addLayout(icons_row_layout)
-        parent_layout.addSpacing(30)
 
     def _demoSvgFunctions(self, parent_layout):
         parent_layout.addWidget(
@@ -463,41 +410,4 @@ class AnimationIconPage(ExamplePage):
             3000, self,
         )
 
-    def _demoEsSvgButton(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("03. ela_ext - ElaSvgButton 悬浮/点击主题色效果")
-        )
-        self._addInfoText("鼠标悬浮和点击时显示半透明主题色背景效果", parent_layout)
-        parent_layout.addSpacing(10)
-        loader = self._getSvgLoader()
-        icons_row_layout = QHBoxLayout()
-        icons_row_layout.setSpacing(15)
-        from PyQt5ElaWidgetTools import ElaThemeType
 
-        theme_buttons = [
-            (
-                "ic_fluent_zoom_out_regular",
-                "搜索",
-                ElaThemeType.ThemeColor.PrimaryNormal,
-            ),
-            (
-                "ic_fluent_settings_regular",
-                "设置",
-                ElaThemeType.ThemeColor.PrimaryNormal,
-            ),
-            ("ic_fluent_delete_regular", "删除", ElaThemeType.ThemeColor.StatusDanger),
-            ("ic_fluent_edit_regular", "编辑", ElaThemeType.ThemeColor.PrimaryPress),
-            ("ic_fluent_copy_regular", "复制", ElaThemeType.ThemeColor.PrimaryNormal),
-        ]
-        for name, text, theme_color in theme_buttons:
-            btn = ElaSvgButton(
-                text,
-                icon_name=name,
-                theme_color=theme_color,
-                parent=self,
-            )
-            btn.setFixedWidth(120)
-            icons_row_layout.addWidget(btn)
-        icons_row_layout.addStretch()
-        parent_layout.addLayout(icons_row_layout)
-        parent_layout.addSpacing(20)

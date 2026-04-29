@@ -4,7 +4,6 @@
 展示 ElaWindowEmbedder 和 ElaBrowserEmbedder 的用法。
 """
 
-from pathlib import Path
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QHBoxLayout, QWidget
 from PyQt5.QtGui import QFont
@@ -13,7 +12,6 @@ from pyqt5_ela_pro import ElaThemeWidget, ElaWindowEmbedder, ElaPrimaryButton
 from .base_page import ExamplePage
 
 import win32gui
-import win32con
 
 
 class WindowEmbedderPage(ExamplePage):

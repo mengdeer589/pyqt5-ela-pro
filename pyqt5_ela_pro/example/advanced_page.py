@@ -6,7 +6,6 @@
 """
 
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QFileDialog
-from PyQt5.QtGui import QFont
 from PyQt5ElaWidgetTools import ElaText, ElaPushButton
 from pyqt5_ela_pro import ElaWordViewer, ElaExcelViewer, ElaPowerPointViewer
 from .base_page import ExamplePage
@@ -27,11 +26,6 @@ class AdvancedComponentsPage(ExamplePage):
         self._demoWordViewer(main_layout)
         self._demoExcelViewer(main_layout)
         self._demoPowerPointViewer(main_layout)
-
-    def _addInfoText(self, text, parent_layout):
-        info = ElaText(text, self)
-        info.setTextPixelSize(14)
-        parent_layout.addWidget(info)
 
     def _demoWordViewer(self, parent_layout):
         parent_layout.addWidget(

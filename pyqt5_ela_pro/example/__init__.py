@@ -14,6 +14,7 @@ from .browser_page import BrowserExamplePage
 from .application_page import ApplicationComponentsPage
 from .advanced_page import AdvancedComponentsPage
 from .graphics_page import GraphicsComponentsPage
+from .application_utils_page import ApplicationUtilitiesPage
 
 __all__ = [
     "ExamplePage",
@@ -28,4 +29,5 @@ __all__ = [
     "ApplicationComponentsPage",
     "AdvancedComponentsPage",
     "GraphicsComponentsPage",
+    "ApplicationUtilitiesPage",
 ]
