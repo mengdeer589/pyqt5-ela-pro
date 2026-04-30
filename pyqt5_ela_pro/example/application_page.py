@@ -26,7 +26,7 @@ class ApplicationComponentsPage(ExamplePage):
         self._demoStatusBar(main_layout)
 
     def _demoAppBar(self, parent_layout):
-        parent_layout.addWidget(self._createSectionHeader("01. ElaAppBar - 应用栏"))
+        parent_layout.addLayout(self._createHeaderRow("01. ElaAppBar - 应用栏", self._demoAppBar))
         self._addInfoText("应用栏组件", parent_layout)
         app_bar = ElaAppBar(self)
         app_bar.setFixedHeight(50)
@@ -34,7 +34,7 @@ class ApplicationComponentsPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoStatusBar(self, parent_layout):
-        parent_layout.addWidget(self._createSectionHeader("02. ElaStatusBar - 状态栏"))
+        parent_layout.addLayout(self._createHeaderRow("02. ElaStatusBar - 状态栏", self._demoStatusBar))
         self._addInfoText("状态栏组件", parent_layout)
         status_bar = ElaStatusBar(self)
         parent_layout.addWidget(status_bar)

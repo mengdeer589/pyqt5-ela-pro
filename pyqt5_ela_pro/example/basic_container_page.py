@@ -151,10 +151,8 @@ class BasicContainerPage(ExamplePage):
         self._demoSuggestBox(parent_layout)
 
     def _demoLineEdit(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "01. PyQt5ElaWidgetTools - ElaLineEdit 单行输入框"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("01. PyQt5ElaWidgetTools - ElaLineEdit 单行输入框", self._demoLineEdit)
         )
         self._addInfoText("标准单行输入框组件", parent_layout)
         edit_layout = QHBoxLayout()
@@ -173,10 +171,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoPlainTextEdit(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "02. PyQt5ElaWidgetTools - ElaPlainTextEdit 多行文本编辑"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("02. PyQt5ElaWidgetTools - ElaPlainTextEdit 多行文本编辑", self._demoPlainTextEdit)
         )
         self._addInfoText("多行文本编辑组件", parent_layout)
         text_edit = ElaPlainTextEdit(self)
@@ -186,8 +182,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoSpinBox(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("03. PyQt5ElaWidgetTools - ElaSpinBox 整数微调框")
+        parent_layout.addLayout(
+            self._createHeaderRow("03. PyQt5ElaWidgetTools - ElaSpinBox 整数微调框", self._demoSpinBox)
         )
         self._addInfoText("整数微调框组件", parent_layout)
         spin_layout = QHBoxLayout()
@@ -200,10 +196,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoDoubleSpinBox(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "04. PyQt5ElaWidgetTools - ElaDoubleSpinBox 浮点数微调框"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("04. PyQt5ElaWidgetTools - ElaDoubleSpinBox 浮点数微调框", self._demoDoubleSpinBox)
         )
         self._addInfoText("浮点数微调框组件", parent_layout)
         dspin_layout = QHBoxLayout()
@@ -217,8 +211,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoSlider(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("05. PyQt5ElaWidgetTools - ElaSlider 滑块")
+        parent_layout.addLayout(
+            self._createHeaderRow("05. PyQt5ElaWidgetTools - ElaSlider 滑块", self._demoSlider)
         )
         self._addInfoText("滑块组件，支持 valueChanged 信号实时反馈", parent_layout)
         slider_layout = QHBoxLayout()
@@ -241,8 +235,8 @@ class BasicContainerPage(ExamplePage):
         self._sliderValueLabel.setText(str(value))
 
     def _demoCalendar(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("06. PyQt5ElaWidgetTools - ElaCalendar 日历")
+        parent_layout.addLayout(
+            self._createHeaderRow("06. PyQt5ElaWidgetTools - ElaCalendar 日历", self._demoCalendar)
         )
         self._addInfoText("日历组件", parent_layout)
         calendar = ElaCalendar(self)
@@ -251,10 +245,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoCalendarPicker(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "07. PyQt5ElaWidgetTools - ElaCalendarPicker 日期选择器"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("07. PyQt5ElaWidgetTools - ElaCalendarPicker 日期选择器", self._demoCalendarPicker)
         )
         self._addInfoText("日期选择器组件", parent_layout)
         picker_layout = QHBoxLayout()
@@ -267,10 +259,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoLCDNumber(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "08. PyQt5ElaWidgetTools - ElaLCDNumber LCD数字显示"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("08. PyQt5ElaWidgetTools - ElaLCDNumber LCD数字显示", self._demoLCDNumber)
         )
         self._addInfoText(
             "LCD数字显示组件，setIsUseAutoClock(True) 自动显示当前时间", parent_layout
@@ -287,8 +277,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoCheckBox(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("01. PyQt5ElaWidgetTools - ElaCheckBox 复选框")
+        parent_layout.addLayout(
+            self._createHeaderRow("01. PyQt5ElaWidgetTools - ElaCheckBox 复选框", self._demoCheckBox)
         )
         self._addInfoText("复选框组件", parent_layout)
         checkbox_layout = QHBoxLayout()
@@ -303,10 +293,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoRadioButton(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "02. PyQt5ElaWidgetTools - ElaRadioButton 单选按钮"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("02. PyQt5ElaWidgetTools - ElaRadioButton 单选按钮", self._demoRadioButton)
         )
         self._addInfoText("单选按钮组件", parent_layout)
         radio_layout = QHBoxLayout()
@@ -324,8 +312,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoToggleSwitch(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("03. PyQt5ElaWidgetTools - ElaToggleSwitch 开关")
+        parent_layout.addLayout(
+            self._createHeaderRow("03. PyQt5ElaWidgetTools - ElaToggleSwitch 开关", self._demoToggleSwitch)
         )
         self._addInfoText("开关组件", parent_layout)
         switch_layout = QHBoxLayout()
@@ -340,10 +328,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoToggleButton(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "04. PyQt5ElaWidgetTools - ElaToggleButton 切换按钮"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("04. PyQt5ElaWidgetTools - ElaToggleButton 切换按钮", self._demoToggleButton)
         )
         self._addInfoText("切换按钮组件", parent_layout)
         btn_layout = QHBoxLayout()
@@ -360,8 +346,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoPushButton(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("05. PyQt5ElaWidgetTools - ElaPushButton 按钮")
+        parent_layout.addLayout(
+            self._createHeaderRow("05. PyQt5ElaWidgetTools - ElaPushButton 按钮", self._demoPushButton)
         )
         self._addInfoText("按钮组件", parent_layout)
         btn_layout = QHBoxLayout()
@@ -378,10 +364,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoToolButton(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "06. PyQt5ElaWidgetTools - ElaToolButton 工具按钮"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("06. PyQt5ElaWidgetTools - ElaToolButton 工具按钮", self._demoToolButton)
         )
         self._addInfoText("工具按钮组件，用于展示图标", parent_layout)
         btn_layout = QHBoxLayout()
@@ -398,10 +382,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoIconButton(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "07. PyQt5ElaWidgetTools - ElaIconButton 图标按钮"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("07. PyQt5ElaWidgetTools - ElaIconButton 图标按钮", self._demoIconButton)
         )
         self._addInfoText("图标按钮组件", parent_layout)
         btn_layout = QHBoxLayout()
@@ -418,10 +400,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoMessageButton(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "08. PyQt5ElaWidgetTools - ElaMessageButton 消息按钮"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("08. PyQt5ElaWidgetTools - ElaMessageButton 消息按钮", self._demoMessageButton)
         )
         self._addInfoText("消息按钮组件，点击显示消息条", parent_layout)
         btn_layout = QHBoxLayout()
@@ -453,8 +433,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoScrollBar(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("09. PyQt5ElaWidgetTools - ElaScrollBar 滚动条")
+        parent_layout.addLayout(
+            self._createHeaderRow("09. PyQt5ElaWidgetTools - ElaScrollBar 滚动条", self._demoScrollBar)
         )
         self._addInfoText("滚动条组件", parent_layout)
         scroll_layout = QHBoxLayout()
@@ -467,8 +447,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoToolBar(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("10. PyQt5ElaWidgetTools - ElaToolBar 工具栏")
+        parent_layout.addLayout(
+            self._createHeaderRow("10. PyQt5ElaWidgetTools - ElaToolBar 工具栏", self._demoToolBar)
         )
         self._addInfoText("工具栏组件，可在工具栏中添加各种组件", parent_layout)
         parent_layout.addSpacing(10)
@@ -488,10 +468,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoBreadcrumbBar(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "01. PyQt5ElaWidgetTools - ElaBreadcrumbBar 面包屑导航"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("01. PyQt5ElaWidgetTools - ElaBreadcrumbBar 面包屑导航", self._demoBreadcrumbBar)
         )
         self._addInfoText("面包屑导航组件，支持点击切换", parent_layout)
         breadcrumb = ElaBreadcrumbBar(self)
@@ -501,8 +479,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoPivot(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("02. PyQt5ElaWidgetTools - ElaPivot Pivot标签")
+        parent_layout.addLayout(
+            self._createHeaderRow("02. PyQt5ElaWidgetTools - ElaPivot Pivot标签", self._demoPivot)
         )
         self._addInfoText("Pivot标签组件，适合切换视图", parent_layout)
         pivot = ElaPivot(self)
@@ -517,8 +495,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoTabBar(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("03. PyQt5ElaWidgetTools - ElaTabBar 标签栏")
+        parent_layout.addLayout(
+            self._createHeaderRow("03. PyQt5ElaWidgetTools - ElaTabBar 标签栏", self._demoTabBar)
         )
         self._addInfoText("标签栏组件", parent_layout)
         tab_bar = ElaTabBar(self)
@@ -529,8 +507,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoTabWidget(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("04. PyQt5ElaWidgetTools - ElaTabWidget 标签页")
+        parent_layout.addLayout(
+            self._createHeaderRow("04. PyQt5ElaWidgetTools - ElaTabWidget 标签页", self._demoTabWidget)
         )
         self._addInfoText("标签页组件，包含多个页面", parent_layout)
         tab_widget = ElaTabWidget(self)
@@ -554,10 +532,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoDrawerArea(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "01. PyQt5ElaWidgetTools - ElaDrawerArea 抽屉区域"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("01. PyQt5ElaWidgetTools - ElaDrawerArea 抽屉区域", self._demoDrawerArea)
         )
         self._addInfoText("点击开关展开/收起抽屉", parent_layout)
         self._drawer_area = ElaDrawerArea(self)
@@ -598,10 +574,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoScrollArea(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "02. PyQt5ElaWidgetTools - ElaScrollArea 滚动区域"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("02. PyQt5ElaWidgetTools - ElaScrollArea 滚动区域", self._demoScrollArea)
         )
         self._addInfoText("区域内包含多个组件，可滚动查看", parent_layout)
         scroll_area = ElaScrollArea(self)
@@ -621,8 +595,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoSplitter(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("04. pyqt5_ela_pro - ElaSplitter 分隔器")
+        parent_layout.addLayout(
+            self._createHeaderRow("04. pyqt5_ela_pro - ElaSplitter 分隔器", self._demoSplitter)
         )
         self._addInfoText(
             "ELA 主题风格的分割器，支持水平和垂直方向，自动响应主题切换",
@@ -660,8 +634,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoTreeView(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("03. PyQt5ElaWidgetTools - ElaTreeView 树视图")
+        parent_layout.addLayout(
+            self._createHeaderRow("03. PyQt5ElaWidgetTools - ElaTreeView 树视图", self._demoTreeView)
         )
         self._addInfoText("树视图组件，支持多层级展示", parent_layout)
         tree_view = ElaTreeView(self)
@@ -679,8 +653,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoTableView(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("04. PyQt5ElaWidgetTools - ElaTableView 表格视图")
+        parent_layout.addLayout(
+            self._createHeaderRow("04. PyQt5ElaWidgetTools - ElaTableView 表格视图", self._demoTableView)
         )
         self._addInfoText("表格视图组件，支持行列数据展示", parent_layout)
         table_view = ElaTableView(self)
@@ -703,8 +677,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoListView(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("05. PyQt5ElaWidgetTools - ElaListView 列表视图")
+        parent_layout.addLayout(
+            self._createHeaderRow("05. PyQt5ElaWidgetTools - ElaListView 列表视图", self._demoListView)
         )
         self._addInfoText("列表视图组件", parent_layout)
         list_view = ElaListView(self)
@@ -718,8 +692,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoProgressBar(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("01. PyQt5ElaWidgetTools - ElaProgressBar 进度条")
+        parent_layout.addLayout(
+            self._createHeaderRow("01. PyQt5ElaWidgetTools - ElaProgressBar 进度条", self._demoProgressBar)
         )
         self._addInfoText("水平进度条，显示当前操作进度", parent_layout)
         parent_layout.addSpacing(10)
@@ -731,10 +705,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoProgressRing(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "02. PyQt5ElaWidgetTools - ElaProgressRing 环形进度"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("02. PyQt5ElaWidgetTools - ElaProgressRing 环形进度", self._demoProgressRing)
         )
         self._addInfoText("环形进度指示器，适用于等待状态", parent_layout)
         parent_layout.addSpacing(10)
@@ -760,8 +732,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoImageCard(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("03. PyQt5ElaWidgetTools - ElaImageCard 图片卡片")
+        parent_layout.addLayout(
+            self._createHeaderRow("03. PyQt5ElaWidgetTools - ElaImageCard 图片卡片", self._demoImageCard)
         )
         self._addInfoText("带图片的卡片组件", parent_layout)
         parent_layout.addSpacing(10)
@@ -773,10 +745,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoInteractiveCard(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "04. PyQt5ElaWidgetTools - ElaInteractiveCard 交互卡片"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("04. PyQt5ElaWidgetTools - ElaInteractiveCard 交互卡片", self._demoInteractiveCard)
         )
         self._addInfoText("可交互的卡片组件，支持点击", parent_layout)
         parent_layout.addSpacing(10)
@@ -791,10 +761,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoPopularCard(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "05. PyQt5ElaWidgetTools - ElaPopularCard 热门卡片"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("05. PyQt5ElaWidgetTools - ElaPopularCard 热门卡片", self._demoPopularCard)
         )
         self._addInfoText("展示热门内容的卡片组件", parent_layout)
         parent_layout.addSpacing(10)
@@ -810,10 +778,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoPromotionCard(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "06. PyQt5ElaWidgetTools - ElaPromotionCard 推广卡片"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("06. PyQt5ElaWidgetTools - ElaPromotionCard 推广卡片", self._demoPromotionCard)
         )
         self._addInfoText("推广促销类卡片组件", parent_layout)
         parent_layout.addSpacing(10)
@@ -830,10 +796,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoReminderCard(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "07. PyQt5ElaWidgetTools - ElaReminderCard 提醒卡片"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("07. PyQt5ElaWidgetTools - ElaReminderCard 提醒卡片", self._demoReminderCard)
         )
         self._addInfoText("提醒通知类卡片组件", parent_layout)
         parent_layout.addSpacing(10)
@@ -847,10 +811,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoAcrylicUrlCard(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "08. PyQt5ElaWidgetTools - ElaAcrylicUrlCard 亚克力URL卡片"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("08. PyQt5ElaWidgetTools - ElaAcrylicUrlCard 亚克力URL卡片", self._demoAcrylicUrlCard)
         )
         self._addInfoText("带亚克力效果的URL链接卡片", parent_layout)
         parent_layout.addSpacing(10)
@@ -865,10 +827,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoKeyBinder(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "09. PyQt5ElaWidgetTools - ElaKeyBinder 快捷键提示"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("09. PyQt5ElaWidgetTools - ElaKeyBinder 快捷键提示", self._demoKeyBinder)
         )
         self._addInfoText("显示快捷键绑定的标签组件", parent_layout)
         parent_layout.addSpacing(10)
@@ -890,10 +850,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoColorDialog(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "01. PyQt5ElaWidgetTools - ElaColorDialog 颜色对话框"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("01. PyQt5ElaWidgetTools - ElaColorDialog 颜色对话框", self._demoColorDialog)
         )
         self._addInfoText("点击按钮打开颜色选择对话框", parent_layout)
         btn_layout = QHBoxLayout()
@@ -915,10 +873,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoContentDialog(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "02. PyQt5ElaWidgetTools - ElaContentDialog 内容对话框"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("02. PyQt5ElaWidgetTools - ElaContentDialog 内容对话框", self._demoContentDialog)
         )
         self._addInfoText("点击按钮打开内容对话框", parent_layout)
         btn_layout = QHBoxLayout()
@@ -966,8 +922,8 @@ class BasicContainerPage(ExamplePage):
         )
 
     def _demoElaMenu(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("01. PyQt5ElaWidgetTools - ElaMenu 菜单")
+        parent_layout.addLayout(
+            self._createHeaderRow("01. PyQt5ElaWidgetTools - ElaMenu 菜单", self._demoElaMenu)
         )
         self._addInfoText("点击按钮打开菜单，点击菜单项可看到反馈", parent_layout)
         btn_layout = QHBoxLayout()
@@ -993,8 +949,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoMenuBar(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("02. PyQt5ElaWidgetTools - ElaMenuBar 菜单栏")
+        parent_layout.addLayout(
+            self._createHeaderRow("02. PyQt5ElaWidgetTools - ElaMenuBar 菜单栏", self._demoMenuBar)
         )
         self._addInfoText("窗口菜单栏组件", parent_layout)
         menu_bar = ElaMenuBar(self)
@@ -1014,8 +970,8 @@ class BasicContainerPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoSuggestBox(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("03. PyQt5ElaWidgetTools - ElaSuggestBox 建议框")
+        parent_layout.addLayout(
+            self._createHeaderRow("03. PyQt5ElaWidgetTools - ElaSuggestBox 建议框", self._demoSuggestBox)
         )
         self._addInfoText("输入时显示建议列表", parent_layout)
         suggest_box = ElaSuggestBox(self)

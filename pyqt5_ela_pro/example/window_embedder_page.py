@@ -47,8 +47,8 @@ class WindowEmbedderPage(ExamplePage):
         self._windowsList.sort(key=lambda x: x[1].lower())
 
     def _demoWindowEmbedder(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("01. ElaWindowEmbedder - 窗口嵌入")
+        parent_layout.addLayout(
+            self._createHeaderRow("01. ElaWindowEmbedder - 窗口嵌入", self._demoWindowEmbedder)
         )
         self._addInfoText(
             "将外部窗口嵌入到 QWidget 中，支持通过 hwnd、窗口标题或类名嵌入。",
@@ -203,8 +203,8 @@ class WindowEmbedderPage(ExamplePage):
         self._showStatus("嵌入超时")
 
     def _demoBrowserEmbedder(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("02. ElaBrowserEmbedder - 浏览器嵌入")
+        parent_layout.addLayout(
+            self._createHeaderRow("02. ElaBrowserEmbedder - 浏览器嵌入", self._demoBrowserEmbedder)
         )
         self._addInfoText(
             "嵌入浏览器窗口，支持 CDP 控制。继承自 ElaWindowEmbedder，额外依赖 psutil 和 websocket-client。",

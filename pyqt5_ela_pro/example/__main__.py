@@ -9,9 +9,13 @@ os.environ["QT_LOGGING_RULES"] = "*.debug=false;qt.qpa.fonts.warning=false"
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
+from PyQt5.QtGui import QStandardItemModel, QStandardItem
 from PyQt5ElaWidgetTools import (
     eApp,
     ElaWindow,
+    ElaDockWidget,
+    ElaText,
+    ElaListView,
 )
 from pyqt5_ela_pro import ElaSplashScreen
 from pyqt5_ela_pro.example import (
@@ -26,7 +30,6 @@ from pyqt5_ela_pro.example import (
     AdvancedComponentsPage,
     BrowserExamplePage,
     ApplicationUtilitiesPage,
-    GraphicsComponentsPage,
 )
 
 
@@ -57,7 +60,34 @@ class ExampleWindow(ElaWindow):
         self.addPageNode("Office 文档预览", AdvancedComponentsPage(self))
         self.addPageNode("窗口嵌入", WindowEmbedderPage(self))
         self.addPageNode("浏览器嵌入", BrowserExamplePage(self))
-        self.addPageNode("其他组件", GraphicsComponentsPage(self))
+
+        # ── DockWidget 停靠面板演示 ────────────────────
+        dock1 = ElaDockWidget("页面导航", self)
+        dock1.setObjectName("DockPageNav")
+        nav_list = ElaListView()
+        nav_model = QStandardItemModel()
+        for name in ["基础控件", "增强按钮", "下拉框组件", "表格与图表", "弹窗与提示"]:
+            nav_model.appendRow(QStandardItem(name))
+        nav_list.setModel(nav_model)
+        dock1.setWidget(nav_list)
+        dock1.setMinimumWidth(180)
+        self.addDockWidget(Qt.RightDockWidgetArea, dock1)
+
+        dock2 = ElaDockWidget("说明", self)
+        dock2.setObjectName("DockInfo")
+        info_text = ElaText(
+            "pyqt5_ela_pro 组件示例\n\n"
+            "左侧导航栏切换页面，\n"
+            "右侧面板可拖拽分离或重新停靠。\n\n"
+            "所有演示代码位于:\npyqt5_ela_pro/example/",
+        )
+        info_text.setTextPixelSize(13)
+        info_text.setWordWrap(True)
+        info_text.setMinimumWidth(180)
+        dock2.setWidget(info_text)
+        self.addDockWidget(Qt.RightDockWidgetArea, dock2)
+        self.tabifyDockWidget(dock1, dock2)
+        dock1.raise_()
 
 
 if __name__ == "__main__":
@@ -86,14 +116,6 @@ if __name__ == "__main__":
 
     window = ExampleWindow()
 
-    splash.showMessage("正在启动...")
-    splash.setProgress(0.8)
-    app.processEvents()
-
-    splash.showMessage("加载完成")
-    splash.setProgress(1.0)
-    app.processEvents()
-
-    splash.finish(window)
     window.show()
+    splash.finish(window)
     sys.exit(app.exec_())

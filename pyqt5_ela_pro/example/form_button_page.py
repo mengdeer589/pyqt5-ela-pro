@@ -53,6 +53,7 @@ class FormButtonPage(ExamplePage):
 
     def _demoButton(self, parent_layout):
         self._demoPrimaryButton(parent_layout)
+        self._demoElaPrimaryButton(parent_layout)
         self._demoLongPressButton(parent_layout)
         self._demoProgressButton(parent_layout)
         self._demoNotifyPopup(parent_layout)
@@ -62,8 +63,8 @@ class FormButtonPage(ExamplePage):
         self._demoMessageDialog(parent_layout)
 
     def _demoTagLineEdit(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("01. pyqt5_ela_pro - ElaTagLineEdit 具名输入框")
+        parent_layout.addLayout(
+            self._createHeaderRow("01. pyqt5_ela_pro - ElaTagLineEdit 具名输入框", self._demoTagLineEdit)
         )
         self._addInfoText(
             "带有标题标签的输入框组件，支持主题适配和错误状态", parent_layout
@@ -108,8 +109,8 @@ class FormButtonPage(ExamplePage):
             self._passwordEdit.clearError()
 
     def _demoPrimaryButton(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("02. PyQt5ElaWidgetTools - ElaPushButton 按钮")
+        parent_layout.addLayout(
+            self._createHeaderRow("02. PyQt5ElaWidgetTools - ElaPushButton 按钮", self._demoPrimaryButton)
         )
         self._addInfoText("按钮组件", parent_layout)
         btn_layout = QHBoxLayout()
@@ -128,9 +129,9 @@ class FormButtonPage(ExamplePage):
         parent_layout.addLayout(btn_layout)
         parent_layout.addSpacing(20)
 
-    def _demoLongPressButton(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("03. ela_ext - ElaPrimaryButton 主要按钮")
+    def _demoElaPrimaryButton(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("03. ela_ext - ElaPrimaryButton 主要按钮", self._demoElaPrimaryButton)
         )
         self._addInfoText(
             "使用 Primary 主题色的按钮，与 ElaToggleButton ON 状态外观一致",
@@ -157,8 +158,9 @@ class FormButtonPage(ExamplePage):
         parent_layout.addLayout(btn_layout)
         parent_layout.addSpacing(20)
 
-        parent_layout.addWidget(
-            self._createSectionHeader("04. ela_ext - ElaLongPressButton 长按按钮")
+    def _demoLongPressButton(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("04. ela_ext - ElaLongPressButton 长按按钮", self._demoLongPressButton)
         )
         self._addInfoText(
             "按住按钮一段时间后才能触发点击事件，适合危险操作防误触", parent_layout
@@ -208,8 +210,8 @@ class FormButtonPage(ExamplePage):
             self._progressBtn.setProgress(current + 10)
 
     def _demoProgressButton(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("05. pyqt5_ela_pro - ElaProgressButton 进度按钮")
+        parent_layout.addLayout(
+            self._createHeaderRow("05. pyqt5_ela_pro - ElaProgressButton 进度按钮", self._demoProgressButton)
         )
         self._addInfoText(
             "显示进度的按钮组件，通过 setProgress() 设置进度 (0-100)", parent_layout
@@ -244,8 +246,8 @@ class FormButtonPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoToolButtonExt(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("06. ela_ext - ElaThemeToolButton 图标文字并排按钮")
+        parent_layout.addLayout(
+            self._createHeaderRow("06. ela_ext - ElaThemeToolButton 图标文字并排按钮", self._demoToolButtonExt)
         )
         self._addInfoText(
             "ToolButton 样式设置为文字在图标旁边，适合工具栏使用", parent_layout
@@ -274,10 +276,8 @@ class FormButtonPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoEsButton(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "07. ela_ext - ElaSvgIconButton 基础 SVG 图标按钮"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("07. ela_ext - ElaSvgIconButton 基础 SVG 图标按钮", self._demoEsButton)
         )
         self._addInfoText(
             "继承 ElaPushButton 的外观，使用 SVG 图标，图标颜色与文字一致",
@@ -302,8 +302,8 @@ class FormButtonPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoEsSvgButton(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("08. ela_ext - ElaSvgButton 悬浮/点击主题色效果")
+        parent_layout.addLayout(
+            self._createHeaderRow("08. ela_ext - ElaSvgButton 悬浮/点击主题色效果", self._demoEsSvgButton)
         )
         self._addInfoText("鼠标悬浮和点击时显示半透明主题色背景效果", parent_layout)
         parent_layout.addSpacing(10)
@@ -326,8 +326,8 @@ class FormButtonPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoMessageDialog(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("09. pyqt5_ela_pro - ElaMessageDialog 消息对话框")
+        parent_layout.addLayout(
+            self._createHeaderRow("09. pyqt5_ela_pro - ElaMessageDialog 消息对话框", self._demoMessageDialog)
         )
         self._addInfoText(
             "简化的消息对话框接口，使用 ElaText 组件渲染内容", parent_layout
@@ -357,8 +357,8 @@ class FormButtonPage(ExamplePage):
             print("您点击了稍后提醒按钮")
 
     def _demoNotifyPopup(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("08. pyqt5_ela_pro - ElaNotifyPopup 通知弹窗")
+        parent_layout.addLayout(
+            self._createHeaderRow("08. pyqt5_ela_pro - ElaNotifyPopup 通知弹窗", self._demoNotifyPopup)
         )
         self._addInfoText(
             "右下角通知弹窗，从屏幕边缘滑入，支持自动关闭和鼠标悬停保持",

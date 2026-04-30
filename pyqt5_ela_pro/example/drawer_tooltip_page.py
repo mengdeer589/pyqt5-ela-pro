@@ -48,8 +48,8 @@ class DrawerTooltipPage(ExamplePage):
         self._demoToolTip(parent_layout)
 
     def _demoSiSideDrawer(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("01. ela_ext - ElaDrawer 四方向抽屉")
+        parent_layout.addLayout(
+            self._createHeaderRow("01. ela_ext - ElaDrawer 四方向抽屉", self._demoSiSideDrawer)
         )
         self._addInfoText("SiliconUI 风格抽屉，支持上下左右四个方向滑入", parent_layout)
         default_font_family = QFont().defaultFamily()
@@ -91,8 +91,8 @@ class DrawerTooltipPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoToolTip(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("02. ela_ext - ElaToolTip 工具提示")
+        parent_layout.addLayout(
+            self._createHeaderRow("02. ela_ext - ElaToolTip 工具提示", self._demoToolTip)
         )
         self._addInfoText("鼠标悬停在按钮上查看提示", parent_layout)
         btn_layout = QHBoxLayout()
@@ -116,8 +116,8 @@ class DrawerTooltipPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoTooltipDirect(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("03. ela_ext - remove_tooltip 与 ElaToolTip 直接使用")
+        parent_layout.addLayout(
+            self._createHeaderRow("03. ela_ext - remove_tooltip 与 ElaToolTip 直接使用", self._demoTooltipDirect)
         )
         self._addInfoText("左侧按钮有 tooltip，点击右侧按钮移除/恢复", parent_layout)
         btn_layout = QHBoxLayout()
@@ -178,8 +178,8 @@ class DrawerTooltipPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoStateTooltip(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("04. ela_ext - ElaStateToolTip 状态提示")
+        parent_layout.addLayout(
+            self._createHeaderRow("04. ela_ext - ElaStateToolTip 状态提示", self._demoStateTooltip)
         )
         self._addInfoText("显示加载状态、成功/失败状态的提示", parent_layout)
         btn_layout = QHBoxLayout()

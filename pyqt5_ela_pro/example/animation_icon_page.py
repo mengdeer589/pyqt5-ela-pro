@@ -100,8 +100,8 @@ class AnimationIconPage(ExamplePage):
         self._demoSvgFunctions(parent_layout)
 
     def _demoFadeInOut(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("01. ela_ext - fade_in / fade_out 淡入淡出动画")
+        parent_layout.addLayout(
+            self._createHeaderRow("01. ela_ext - fade_in / fade_out 淡入淡出动画", self._demoFadeInOut)
         )
         self._addInfoText(
             "对任意 QWidget 执行淡入淡出动画，支持动画完成回调", parent_layout
@@ -121,8 +121,8 @@ class AnimationIconPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoShakeWindow(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("02. ela_ext - shake_window 窗口抖动")
+        parent_layout.addLayout(
+            self._createHeaderRow("02. ela_ext - shake_window 窗口抖动", self._demoShakeWindow)
         )
         self._addInfoText("使窗口产生抖动效果，常用于错误提示", parent_layout)
         btn_layout = QHBoxLayout()
@@ -136,8 +136,8 @@ class AnimationIconPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoAnimatedMixin(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("03. ela_ext - ElaAnimatedMixin 对话框动画混入")
+        parent_layout.addLayout(
+            self._createHeaderRow("03. ela_ext - ElaAnimatedMixin 对话框动画混入", self._demoAnimatedMixin)
         )
         self._addInfoText(
             "通过继承 ElaAnimatedMixin，对话框自动获得 fade_in() / fade_out() 方法",
@@ -165,9 +165,9 @@ class AnimationIconPage(ExamplePage):
         dialog.exec_()
 
     def _demoIconBrowser(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "01. PyQt5ElaWidgetTools - 图标浏览器 所有可用图标"
+        parent_layout.addLayout(
+            self._createHeaderRow(
+                "01. PyQt5ElaWidgetTools - 图标浏览器 所有可用图标", self._demoIconBrowser
             )
         )
         self._addInfoText("一堆常用图标被放置于此，左键单击以复制其枚举", parent_layout)
@@ -228,8 +228,8 @@ class AnimationIconPage(ExamplePage):
         self._iconView.viewport().update()
 
     def _demoIconButtons(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("02. PyQt5ElaWidgetTools - 图标按钮 带图标的按钮")
+        parent_layout.addLayout(
+            self._createHeaderRow("02. PyQt5ElaWidgetTools - 图标按钮 带图标的按钮", self._demoIconButtons)
         )
         self._addInfoText("图标按钮组件演示", parent_layout)
         parent_layout.addSpacing(10)
@@ -257,8 +257,8 @@ class AnimationIconPage(ExamplePage):
         return self._svg_loader
 
     def _demoSvgIconBrowser(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("01. ela_ext - SVG图标浏览器 所有可用图标")
+        parent_layout.addLayout(
+            self._createHeaderRow("01. ela_ext - SVG图标浏览器 所有可用图标", self._demoSvgIconBrowser)
         )
         self._addInfoText("点击图标以复制其名称", parent_layout)
         parent_layout.addSpacing(10)
@@ -324,9 +324,9 @@ class AnimationIconPage(ExamplePage):
         view.viewport().update()
 
     def _demoSvgFunctions(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "04. ela_ext - svg_to_icon / svg_to_pixmap / svg_icon_loader"
+        parent_layout.addLayout(
+            self._createHeaderRow(
+                "04. ela_ext - svg_to_icon / svg_to_pixmap / svg_icon_loader", self._demoSvgFunctions
             )
         )
         self._addInfoText(

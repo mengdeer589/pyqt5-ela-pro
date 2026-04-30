@@ -77,10 +77,8 @@ class ComboBoxPage(ExamplePage):
         return row_layout
 
     def _demoElaComboBox(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "01. PyQt5ElaWidgetTools - ElaComboBox 基础单选下拉框"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("01. PyQt5ElaWidgetTools - ElaComboBox 基础单选下拉框", self._demoElaComboBox)
         )
         self._addInfoText("PyQt5ElaWidgetTools 原生提供的单选下拉框组件", parent_layout)
         row = self._createRowLayout(parent_layout)
@@ -106,10 +104,8 @@ class ComboBoxPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoElaMultiSelectComboBox(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "02. PyQt5ElaWidgetTools - ElaMultiSelectComboBox 基础多选下拉框"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("02. PyQt5ElaWidgetTools - ElaMultiSelectComboBox 基础多选下拉框", self._demoElaMultiSelectComboBox)
         )
         self._addInfoText("PyQt5ElaWidgetTools 原生提供的多选下拉框组件", parent_layout)
         row = self._createRowLayout(parent_layout)
@@ -130,10 +126,8 @@ class ComboBoxPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoSearchableComboBox(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "03. pyqt5_ela_pro - ElaSearchBox 可搜索单选下拉框"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("03. pyqt5_ela_pro - ElaSearchBox 可搜索单选下拉框", self._demoSearchableComboBox)
         )
         self._addInfoText(
             "基于 ElaComboBox 的可搜索下拉框，支持中文拼音首字母搜索",
@@ -156,10 +150,8 @@ class ComboBoxPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoSearchableMultiComboBox(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "04. pyqt5_ela_pro - ElaSearchMultiBox 可搜索多选下拉框"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("04. pyqt5_ela_pro - ElaSearchMultiBox 可搜索多选下拉框", self._demoSearchableMultiComboBox)
         )
         self._addInfoText(
             "基于 ElaMultiSelectComboBox 的可搜索多选下拉框，支持中文拼音首字母搜索",
@@ -183,10 +175,8 @@ class ComboBoxPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoCapsuleComboBox(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "05. pyqt5_ela_pro - ElaTagBox 标签样式单选下拉框"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("05. pyqt5_ela_pro - ElaTagBox 标签样式单选下拉框", self._demoCapsuleComboBox)
         )
         self._addInfoText(
             "带有标题标签的标签样式组合框，展开时显示底部主题色横条动画",
@@ -215,10 +205,8 @@ class ComboBoxPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoCapsuleMultiComboBox(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "06. pyqt5_ela_pro - ElaTagMultiBox 标签样式多选下拉框"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("06. pyqt5_ela_pro - ElaTagMultiBox 标签样式多选下拉框", self._demoCapsuleMultiComboBox)
         )
         self._addInfoText(
             "带有标题标签的标签样式多选下拉框，底部横条宽度根据选中数量动态变化",
@@ -242,10 +230,8 @@ class ComboBoxPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoCapsuleSearchableComboBox(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "07. pyqt5_ela_pro - ElaTagSearchBox 标签样式可搜索单选下拉框"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("07. pyqt5_ela_pro - ElaTagSearchBox 标签样式可搜索单选下拉框", self._demoCapsuleSearchableComboBox)
         )
         self._addInfoText(
             "带有标题标签的标签样式可搜索单选下拉框，结合了搜索和动画效果",
@@ -268,10 +254,8 @@ class ComboBoxPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoCapsuleSearchableMultiComboBox(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "08. pyqt5_ela_pro - ElaTagSearchMultiBox 标签样式可搜索多选下拉框"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("08. pyqt5_ela_pro - ElaTagSearchMultiBox 标签样式可搜索多选下拉框", self._demoCapsuleSearchableMultiComboBox)
         )
         self._addInfoText(
             "带有标题标签的标签样式可搜索多选下拉框，支持拼音搜索和多选",
@@ -295,10 +279,8 @@ class ComboBoxPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoEmptyCombos(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "09. 空选项状态 — 无选项时的外观"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("09. 空选项状态 — 无选项时的外观", self._demoEmptyCombos)
         )
         self._addInfoText(
             "所有 6 个自定义下拉框在无选项时的显示效果，点击触发按钮不弹出空白菜单",

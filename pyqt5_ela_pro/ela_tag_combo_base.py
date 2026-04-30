@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from typing import Protocol
 
 from PyQt5.QtCore import (
     Qt,
@@ -177,8 +178,17 @@ def _get_target_mark_width(widget) -> float:
 # ── paint 辅助函数 ──────────────────────────────────────────────
 
 
+class _TagBoxWidgetProtocol(Protocol):
+    """_draw_tag_background 所需的 widget 接口约束"""
+    def _getBackgroundColor(self) -> QColor: ...
+    def _getTitleColor(self) -> QColor: ...
+    def _getBorderColor(self) -> QColor: ...
+    def width(self) -> int: ...
+    def height(self) -> int: ...
+
+
 def _draw_tag_background(
-    painter: QPainter, widget, shadow_border: int = 3
+    painter: QPainter, widget: _TagBoxWidgetProtocol, shadow_border: int = 3
 ) -> tuple[QRect, QColor, QColor]:
     """绘制圆角背景和底部分隔线。返回 (content_rect, text_color, border_color)。"""
     painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import MagicMock, patch
 from PyQt5.QtCore import Qt, QRect, QPointF, QPoint
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QColor, QPainter, QPixmap
 
 from pyqt5_ela_pro.ela_trend_chart import ElaTrendChart
 
@@ -168,4 +168,49 @@ class TestElaTrendChart:
         """Test deleteLater method exists and can be called."""
         chart = ElaTrendChart()
         assert hasattr(chart, 'deleteLater')
+        chart.deleteLater()
+
+    def test_render_1000_points_performance(self, qapp):
+        """Measure _drawDataLines time for 1000-point chart."""
+        import time
+
+        chart = ElaTrendChart()
+        chart.resize(600, 300)
+        n = 1000
+        x = list(range(n))
+        chart.addCurve(x=x, y=[v * 0.5 for v in range(n)], name="系列A")
+        chart.addCurve(x=x, y=[v * 0.3 for v in range(n)], name="系列B")
+        chart.addCurve(x=x, y=[v * 0.7 for v in range(n)], name="系列C")
+        chart.adjustViewRect()
+
+        chart_rect = chart._getChartRect()
+        pixmap = QPixmap(chart_rect.size())
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        # Measure 100 iterations of _drawDataLines
+        start = time.perf_counter()
+        for _ in range(100):
+            painter = QPainter(pixmap)
+            chart._drawDataLines(painter, chart_rect)
+            painter.end()
+        elapsed = time.perf_counter() - start
+        avg_ms = elapsed / 100 * 1000
+        print(f"\n  _drawDataLines 1000pts×3curves: {avg_ms:.3f}ms per frame")
+
+        chart.deleteLater()
+
+    def test_data_path_created_in_add_curve(self):
+        """Test data_path QPainterPath is created by addCurve."""
+        chart = ElaTrendChart()
+        chart.addCurve(x=[0, 1, 2], y=[3, 4, 5], name="test")
+        assert "data_path" in chart._curves[0]
+        assert not chart._curves[0]["data_path"].isEmpty()
+        chart.deleteLater()
+
+    def test_pan_snapshot_attribute(self):
+        """Test pan snapshot attribute exists."""
+        chart = ElaTrendChart()
+        chart.setInteractionEnabled(True)
+        assert hasattr(chart, '_pan_snapshot')
+        assert chart._pan_snapshot is None
         chart.deleteLater()

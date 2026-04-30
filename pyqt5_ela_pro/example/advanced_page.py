@@ -28,8 +28,8 @@ class AdvancedComponentsPage(ExamplePage):
         self._demoPowerPointViewer(main_layout)
 
     def _demoWordViewer(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("01. ela_ext - ElaWordViewer Word 文档预览")
+        parent_layout.addLayout(
+            self._createHeaderRow("01. ela_ext - ElaWordViewer Word 文档预览", self._demoWordViewer)
         )
         self._addInfoText(
             "通过 ActiveX 嵌入 Word 文档查看器（需安装 MS Office 或 WPS）",
@@ -50,8 +50,8 @@ class AdvancedComponentsPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoExcelViewer(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("02. ela_ext - ElaExcelViewer Excel 文档预览")
+        parent_layout.addLayout(
+            self._createHeaderRow("02. ela_ext - ElaExcelViewer Excel 文档预览", self._demoExcelViewer)
         )
         self._addInfoText(
             "通过 ActiveX 嵌入 Excel 文档查看器（需安装 MS Office 或 WPS）",
@@ -72,10 +72,8 @@ class AdvancedComponentsPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoPowerPointViewer(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader(
-                "03. ela_ext - ElaPowerPointViewer PPT 文档预览"
-            )
+        parent_layout.addLayout(
+            self._createHeaderRow("03. ela_ext - ElaPowerPointViewer PPT 文档预览", self._demoPowerPointViewer)
         )
         self._addInfoText(
             "通过 ActiveX 嵌入 PowerPoint 文档查看器（需安装 MS Office 或 WPS）",

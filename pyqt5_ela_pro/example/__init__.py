@@ -13,7 +13,7 @@ from .window_embedder_page import WindowEmbedderPage
 from .browser_page import BrowserExamplePage
 from .application_page import ApplicationComponentsPage
 from .advanced_page import AdvancedComponentsPage
-from .graphics_page import GraphicsComponentsPage
+
 from .application_utils_page import ApplicationUtilitiesPage
 
 __all__ = [
@@ -28,6 +28,6 @@ __all__ = [
     "BrowserExamplePage",
     "ApplicationComponentsPage",
     "AdvancedComponentsPage",
-    "GraphicsComponentsPage",
+
     "ApplicationUtilitiesPage",
 ]

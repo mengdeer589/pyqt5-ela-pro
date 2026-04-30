@@ -10,7 +10,7 @@ import random
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QFileDialog
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtCore import Qt
-from PyQt5ElaWidgetTools import ElaText, ElaPushButton
+from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaLineEdit, ElaComboBox
 from pyqt5_ela_pro import ElaDataTable, ElaTrendChart, ElaParquetTable
 from .base_page import ExamplePage
 
@@ -46,8 +46,8 @@ class TableChartPage(ExamplePage):
         self._demoTrendChart(parent_layout)
 
     def _demoBasicTable(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("01. ela_ext - ElaDataTable 基础表格")
+        parent_layout.addLayout(
+            self._createHeaderRow("01. ela_ext - ElaDataTable 基础表格", self._demoBasicTable)
         )
         self._addInfoText(
             "使用 setTableData() 填充静态数据，支持列表和字典两种格式", parent_layout
@@ -67,8 +67,8 @@ class TableChartPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoAsyncTable(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("02. ela_ext - ElaDataTable 异步加载")
+        parent_layout.addLayout(
+            self._createHeaderRow("02. ela_ext - ElaDataTable 异步加载", self._demoAsyncTable)
         )
         self._addInfoText(
             "使用 setTableDataAsync() 在后台线程加载大量数据", parent_layout
@@ -100,8 +100,8 @@ class TableChartPage(ExamplePage):
         parent_layout.addSpacing(30)
 
     def _demoStyleTable(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("03. ela_ext - ElaDataTable 单元格样式")
+        parent_layout.addLayout(
+            self._createHeaderRow("03. ela_ext - ElaDataTable 单元格样式", self._demoStyleTable)
         )
         self._addInfoText(
             "设置前景色、背景色、字体、对齐方式、行背景高亮", parent_layout
@@ -146,8 +146,8 @@ class TableChartPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoSortTable(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("04. ela_ext - ElaDataTable 表头排序")
+        parent_layout.addLayout(
+            self._createHeaderRow("04. ela_ext - ElaDataTable 表头排序", self._demoSortTable)
         )
         self._addInfoText(
             "点击表头可排序，再次点击切换升序/降序，支持对齐方式设置", parent_layout
@@ -198,8 +198,8 @@ class TableChartPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoParquetTable(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("05. ela_ext - ElaParquetTable Parquet 文件查看")
+        parent_layout.addLayout(
+            self._createHeaderRow("05. ela_ext - ElaParquetTable Parquet 文件查看", self._demoParquetTable)
         )
         self._addInfoText(
             "分页浏览 Parquet 文件，显示列统计信息。需要安装 polars",
@@ -284,8 +284,8 @@ class TableChartPage(ExamplePage):
         self._asyncTable.setTableDataAsync(large_data, callback=self._onAsyncLoaded)
 
     def _demoTrendChart(self, parent_layout):
-        parent_layout.addWidget(
-            self._createSectionHeader("02. ela_ext - ElaTrendChart 趋势图")
+        parent_layout.addLayout(
+            self._createHeaderRow("02. ela_ext - ElaTrendChart 趋势图", self._demoTrendChart)
         )
         self._addInfoText(
             "支持多曲线绘制、主题切换、网格线显示、交互式指示器\n"
@@ -319,6 +319,13 @@ class TableChartPage(ExamplePage):
         refresh_btn.setFixedWidth(100)
         refresh_btn.clicked.connect(self._onRefreshChartData)
         btn_layout.addWidget(refresh_btn)
+        data_count_label = ElaText("数据点数:", self)
+        data_count_label.setTextPixelSize(14)
+        btn_layout.addWidget(data_count_label)
+        self._data_count_input = ElaLineEdit(self)
+        self._data_count_input.setFixedWidth(80)
+        self._data_count_input.setText("100")
+        btn_layout.addWidget(self._data_count_input)
         self._interact_btn = ElaPushButton("启用交互", self)
         self._interact_btn.setFixedWidth(100)
         self._interact_btn.clicked.connect(self._toggleChartInteraction)
@@ -330,7 +337,13 @@ class TableChartPage(ExamplePage):
         svg_btn = ElaPushButton("导出SVG", self)
         svg_btn.setFixedWidth(80)
         svg_btn.clicked.connect(self._exportSvg)
-        btn_layout.addWidget(svg_btn)
+        type_label = ElaText("图表类型:", self)
+        type_label.setTextPixelSize(14)
+        btn_layout.addWidget(type_label)
+        self._chart_type_combo = ElaComboBox(self)
+        self._chart_type_combo.setFixedWidth(120)
+        self._chart_type_combo.addItems(["折线图", "散点图"])
+        btn_layout.addWidget(self._chart_type_combo)
         btn_layout.addStretch()
         parent_layout.addWidget(self._trendChart)
         parent_layout.addLayout(btn_layout)
@@ -376,12 +389,25 @@ class TableChartPage(ExamplePage):
     def _onRefreshChartData(self):
         if not self._trendChart:
             return
-        x_data = list(range(100))
+        text = self._data_count_input.text() if self._data_count_input else "100"
+        try:
+            count = max(1, int(text))
+        except ValueError:
+            count = 100
+        x_data = list(range(count))
         y1_data = [random.uniform(50, 100) for _ in x_data]
         y2_data = [random.uniform(40, 80) for _ in x_data]
         y3_data = [random.uniform(60, 90) for _ in x_data]
         self._trendChart.clearCurves()
-        self._trendChart.addCurve(x=x_data, y=y1_data, name="系列A")
-        self._trendChart.addCurve(x=x_data, y=y2_data, name="系列B")
-        self._trendChart.addCurve(x=x_data, y=y3_data, name="系列C")
+
+        chart_type = self._chart_type_combo.currentText() if self._chart_type_combo else "折线图"
+        t = "scatter" if chart_type == "散点图" else "line"
+        if t == "scatter":
+            self._trendChart.addCurve(x=x_data, y=y1_data, name="圆形", curve_type=t, dot_shape="circle")
+            self._trendChart.addCurve(x=x_data, y=y2_data, name="方块", curve_type=t, dot_shape="square")
+            self._trendChart.addCurve(x=x_data, y=y3_data, name="菱形", curve_type=t, dot_shape="diamond")
+        else:
+            self._trendChart.addCurve(x=x_data, y=y1_data, name="实线", curve_type=t, line_style="solid")
+            self._trendChart.addCurve(x=x_data, y=y2_data, name="虚线", curve_type=t, line_style="dash")
+            self._trendChart.addCurve(x=x_data, y=y3_data, name="点线", curve_type=t, line_style="dot")
         self._trendChart.adjustViewRect()

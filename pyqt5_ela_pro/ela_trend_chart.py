@@ -8,7 +8,11 @@ TrendChart 趋势图组件。
 from __future__ import annotations
 
 import math
-from typing import Optional, Callable
+from typing import Optional, Callable, Literal
+
+CurveType = Literal["line", "scatter"]
+DotShape = Literal["circle", "square", "diamond", "triangle"]
+LineStyle = Literal["solid", "dash", "dot", "dash_dot"]
 
 from PyQt5.QtCore import Qt, QRect, QRectF, QPointF, QPoint
 from PyQt5.QtGui import (
@@ -95,6 +99,9 @@ class ElaTrendChart(QWidget):
         self._panning = False
         self._pan_start_pos = QPoint(0, 0)
         self._pan_start_rect = QRectF()
+        self._pan_snapshot: Optional[QPixmap] = None
+        self._dot_size = 3.0
+        self._dot_shape: DotShape = "circle"
 
         eTheme.themeModeChanged.connect(self._onThemeChanged)
 
@@ -174,16 +181,25 @@ class ElaTrendChart(QWidget):
 
         return QRect(legend_x, legend_y, legend_width, legend_height)
 
-    def addCurve(self, x, y, name: Optional[str] = None) -> None:
+    def addCurve(
+        self,
+        x,
+        y,
+        name: Optional[str] = None,
+        curve_type: CurveType = "line",
+        line_style: LineStyle = "solid",
+        dot_shape: DotShape = "circle",
+        dot_size: Optional[float] = None,
+    ) -> None:
         """添加一条曲线。
 
         :param x: x 轴可迭代数据
         :param y: y 轴可迭代数据
         :param name: 曲线名称，用于 tooltip 显示
-
-        Example::
-
-            chart.addCurve(x=[1, 2, 3], y=[4, 5, 6], name="系列A")
+        :param curve_type: 曲线类型，"line" / "scatter"
+        :param line_style: 线形，"solid" / "dash" / "dot" / "dash_dot"
+        :param dot_shape: 散点形状，"circle" / "square" / "diamond" / "triangle"
+        :param dot_size: 散点大小（半径），None 时使用全局 setDotSize
         """
         x_list = list(x)
         y_list = list(y)
@@ -193,12 +209,22 @@ class ElaTrendChart(QWidget):
         colors = self._getColors()
         color = colors[len(self._curves) % len(colors)]
 
+        path = QPainterPath()
+        path.moveTo(x_list[0], y_list[0])
+        for px, py in zip(x_list[1:], y_list[1:]):
+            path.lineTo(px, py)
+
         self._curves.append(
             {
                 "x": x_list,
                 "y": y_list,
                 "name": name or f"曲线{len(self._curves) + 1}",
                 "color": color,
+                "data_path": path,
+                "type": curve_type,
+                "line_style": line_style,
+                "dot_shape": dot_shape,
+                "dot_size": dot_size,
             }
         )
         self._data_pixmap = None
@@ -347,6 +373,24 @@ class ElaTrendChart(QWidget):
         self._data_pixmap = None
         self.update()
 
+    def setDotSize(self, size: float) -> None:
+        """设置散点图数据点大小。
+
+        :param size: 散点半径（像素）
+        """
+        self._dot_size = size
+        self._data_pixmap = None
+        self.update()
+
+    def setDotShape(self, shape: DotShape) -> None:
+        """设置散点图全局默认形状。
+
+        :param shape: 散点形状，"circle" / "square" / "diamond" / "triangle"
+        """
+        self._dot_shape = shape
+        self._data_pixmap = None
+        self.update()
+
     def coordinateToPos(self, coord: QPointF) -> QPoint:
         """将数据坐标转换为屏幕坐标。
 
@@ -402,44 +446,87 @@ class ElaTrendChart(QWidget):
         coord = self.posToCoordinate(pos)
         nearest_curve_idx = -1
         nearest_point = QPointF(0, 0)
-        min_dist = float("inf")
+        min_screen_dist = float("inf")
 
         for i, curve in enumerate(self._curves):
             for j in range(len(curve["x"])):
-                px = curve["x"][j]
-                py = curve["y"][j]
-                dist = (px - coord.x()) ** 2 + (py - coord.y()) ** 2
-                if dist < min_dist:
-                    min_dist = dist
+                screen_pos = self.coordinateToPos(QPointF(curve["x"][j], curve["y"][j]))
+                dx = screen_pos.x() - pos.x()
+                dy = screen_pos.y() - pos.y()
+                dist = dx * dx + dy * dy
+                if dist > 3600:
+                    continue
+                if dist < min_screen_dist:
+                    min_screen_dist = dist
                     nearest_curve_idx = i
-                    nearest_point = QPointF(px, py)
+                    nearest_point = QPointF(curve["x"][j], curve["y"][j])
 
         return nearest_curve_idx, nearest_point
 
     def _drawDataLines(self, painter: QPainter, chart: QRect) -> None:
-        """将数据曲线直接绘制到 painter（矢量）。"""
+        """通过 painter 坐标变换绘制预建的数据路径。"""
+        if not self._curves:
+            return
+        view = self._view_rect
+        if view.width() <= 0 or view.height() <= 0:
+            return
+        sx = chart.width() / view.width()
+        sy = chart.height() / view.height()
+        painter.save()
+        painter.translate(0, chart.height())
+        painter.scale(sx, -sy)
+        painter.translate(-view.left(), -view.top())
         for curve in self._curves:
-            path = QPainterPath()
-            first = True
+            t = curve.get("type", "line")
+            color = curve["color"]
+            dp = curve.get("data_path")
 
-            for j in range(len(curve["x"])):
-                screen_pos = self.coordinateToPos(QPointF(curve["x"][j], curve["y"][j]))
-                screen_pos = QPoint(
-                    screen_pos.x() - chart.left(), screen_pos.y() - chart.top()
-                )
+            if t == "line" or t == "area":
+                if dp is None:
+                    continue
+                pen = QPen(color, self._line_width)
+                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                pen.setCosmetic(True)
+                ls = curve.get("line_style", "solid")
+                if ls == "dash":
+                    pen.setDashPattern([6, 3])
+                elif ls == "dot":
+                    pen.setDashPattern([2, 3])
+                elif ls == "dash_dot":
+                    pen.setDashPattern([6, 3, 2, 3])
+                painter.setPen(pen)
+                painter.drawPath(dp)
 
-                if first:
-                    path.moveTo(screen_pos)
-                    first = False
-                else:
-                    path.lineTo(screen_pos)
+            if t == "scatter":
+                ds = curve.get("dot_size")
+                if ds is None:
+                    ds = self._dot_size
+                shape = curve.get("dot_shape", "circle")
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(color)
+                for px, py in zip(curve["x"], curve["y"]):
+                    if shape == "circle":
+                        painter.drawEllipse(QPointF(px, py), ds, ds)
+                    elif shape == "square":
+                        painter.drawRect(QRectF(px - ds, py - ds, ds * 2, ds * 2))
+                    elif shape == "diamond":
+                        p = QPainterPath()
+                        p.moveTo(px, py - ds)
+                        p.lineTo(px + ds, py)
+                        p.lineTo(px, py + ds)
+                        p.lineTo(px - ds, py)
+                        p.closeSubpath()
+                        painter.drawPath(p)
+                    elif shape == "triangle":
+                        p = QPainterPath()
+                        p.moveTo(px, py - ds)
+                        p.lineTo(px + ds, py + ds)
+                        p.lineTo(px - ds, py + ds)
+                        p.closeSubpath()
+                        painter.drawPath(p)
 
-            pen = QPen(curve["color"])
-            pen.setWidthF(self._line_width)
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-            painter.setPen(pen)
-            painter.drawPath(path)
+        painter.restore()
 
     def _renderDataLine(self) -> None:
         """渲染所有数据线到像素缓存。"""
@@ -473,8 +560,10 @@ class ElaTrendChart(QWidget):
                 self._pan_start_rect.width(),
                 self._pan_start_rect.height(),
             )
-            self._data_pixmap = None
-            self.update()
+            if self._pan_snapshot is not None:
+                painter = QPainter(self)
+                painter.drawPixmap(self._pan_start_pos - event.pos(), self._pan_snapshot)
+                painter.end()
             return
 
         pos = event.pos()
@@ -511,6 +600,7 @@ class ElaTrendChart(QWidget):
             self._panning = True
             self._pan_start_pos = event.pos()
             self._pan_start_rect = QRectF(self._view_rect)
+            self._pan_snapshot = self.grab()
             self.setCursor(Qt.ClosedHandCursor)
             return
         if (
@@ -531,6 +621,8 @@ class ElaTrendChart(QWidget):
         super().mouseReleaseEvent(event)
         if self._panning and event.button() == Qt.MouseButton.LeftButton:
             self._panning = False
+            self._pan_snapshot = None
+            self._data_pixmap = None
             self.setCursor(Qt.ArrowCursor)
 
     def mouseDoubleClickEvent(self, event) -> None:
@@ -599,18 +691,18 @@ class ElaTrendChart(QWidget):
         if self._grid_visible:
             self._drawGrid(painter, chart)
 
-        if vector_lines and self._curves:
-            painter.save()
-            painter.translate(chart.topLeft())
-            self._drawDataLines(painter, chart)
-            painter.restore()
+        if self._data_pixmap is not None and self._last_size == QPoint(
+            self.width(), self.height()
+        ) and not self._panning:
+            painter.drawPixmap(chart.topLeft(), self._data_pixmap)
         else:
-            if self._data_pixmap is None or self._last_size != QPoint(
-                self.width(), self.height()
-            ):
+            if self._curves:
+                painter.save()
+                painter.translate(chart.topLeft())
+                self._drawDataLines(painter, chart)
+                painter.restore()
+            if not self._panning:
                 self._renderDataLine()
-            if self._data_pixmap:
-                painter.drawPixmap(chart.topLeft(), self._data_pixmap)
 
         self._drawIndicator(painter, chart)
         self._drawAxisLabels(painter, chart)

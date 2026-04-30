@@ -118,8 +118,13 @@ class _LoadThread(QThread):
 
     def run(self) -> None:
         """执行加载操作。若未取消则发射 ``finished`` 信号。"""
-        if not self._isCanceled:
-            self.finished.emit(list(self._rows))
+        rows = []
+        for item in self._rows:
+            if self._isCanceled:
+                self._isCanceled = False
+                return
+            rows.append(item)
+        self.finished.emit(rows)
         self._isCanceled = False
 
 
