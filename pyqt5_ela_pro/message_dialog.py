@@ -20,10 +20,10 @@ class ElaMessageDialog(ElaDialogBase):
 
     提供一个简化的接口来显示文本消息，使用 ElaText 组件渲染内容。
 
-    :param parent: 父级 widget
     :param title: 对话框标题
     :param message: 消息文本
     :param middleText: 中间按钮文本，为 None 时隐藏中间按钮
+    :param parent: 父级 widget
 
     Example::
 
@@ -38,10 +38,10 @@ class ElaMessageDialog(ElaDialogBase):
         self,
         title: str = "标题",
         message: str = "",
-        parent: Optional[QWidget] = None,
         middleText: str | None = None,
+        parent: Optional[QWidget] = None,
     ) -> None:
-        super().__init__(title, parent, middleText)
+        super().__init__(title=title, middleText=middleText, parent=parent)
         self.setMessage(message)
 
     def setMessage(self, message: str) -> None:
@@ -74,6 +74,6 @@ class ElaMessageDialog(ElaDialogBase):
         :param middleText: 中间按钮文本，为 None 时隐藏中间按钮
         :return: 点击的按钮对应的返回值（0=左按钮取消, 1=右按钮确定, 2=中间按钮）
         """
-        dialog = ElaMessageDialog(title, message, parent, middleText)
+        dialog = ElaMessageDialog(title=title, message=message, middleText=middleText, parent=parent)
         dialog.setWindowTitle(title)
         return dialog.exec_()

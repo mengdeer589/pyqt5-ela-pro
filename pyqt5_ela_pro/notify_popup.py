@@ -26,20 +26,20 @@ class ElaNotifyPopup(QWidget):
 
     从屏幕右下角滑入显示，支持自动超时关闭和鼠标悬停保持。
 
-    :param parent: 父组件
     :param title: 通知标题
     :param content: 通知内容
     :param timeout: 超时时长（毫秒），默认 5000ms，0 表示不自动关闭
+    :param parent: 父组件
     """
 
     closed = pyqtSignal()
 
     def __init__(
         self,
-        parent: Optional[QWidget] = None,
         title: str = "",
         content: str = "",
         timeout: int = 10000,
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
 

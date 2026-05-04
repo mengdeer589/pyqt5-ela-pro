@@ -34,12 +34,12 @@ class ElaTagMultiBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaMultiSelectComboBox
     带有标题标签的多选下拉框，标题在左侧，值在右侧。
     继承自 PyQt5ElaWidgetTools.ElaMultiSelectComboBox。
 
-    :param parent: 父控件
     :param title: 标题文字
+    :param parent: 父控件
 
     Example::
 
-        combo = ElaTagMultiBox(parent, title="语言")
+        combo = ElaTagMultiBox(title="语言", parent=parent)
         combo.addItem("Python")
         combo.addItem("C++")
         combo.addItem("JavaScript")
@@ -47,8 +47,8 @@ class ElaTagMultiBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaMultiSelectComboBox
 
     def __init__(
         self,
-        parent: Optional[QWidget] = None,
         title: str = "",
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._tag_box_init(title)

@@ -63,7 +63,7 @@ from PyQt5ElaWidgetTools import (
     ElaMenuBar,
     ElaSuggestBox,
 )
-from pyqt5_ela_pro import ElaThemeWidget, create_ela_splitter, ElaSplitter
+from pyqt5_ela_pro import ElaThemeWidget, create_ela_splitter, ElaSplitter, ElaDivider
 from .base_page import ExamplePage, _res
 
 
@@ -126,6 +126,7 @@ class BasicContainerPage(ExamplePage):
         self._demoDrawerArea(parent_layout)
         self._demoScrollArea(parent_layout)
         self._demoSplitter(parent_layout)
+        self._demoDivider(parent_layout)
         self._demoTreeView(parent_layout)
         self._demoTableView(parent_layout)
         self._demoListView(parent_layout)
@@ -631,6 +632,70 @@ class BasicContainerPage(ExamplePage):
         splitter = create_ela_splitter([widget1, widget2, widget3], Qt.Horizontal)
         splitter.setMinimumHeight(80)
         parent_layout.addWidget(splitter)
+        parent_layout.addSpacing(20)
+
+    def _demoDivider(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("05. pyqt5_ela_pro - ElaDivider 分割线", self._demoDivider)
+        )
+        self._addInfoText(
+            "Ant Design 风格分割线，支持水平/垂直、带文字、实线/虚线",
+            parent_layout,
+        )
+        parent_layout.addSpacing(8)
+
+        # Horizontal dividers
+        row = QHBoxLayout()
+        row.setSpacing(20)
+        for t, o in [("Left", "left"), ("Center", "center"), ("Right", "right")]:
+            col = QVBoxLayout()
+            lbl = ElaText(t, self)
+            lbl.setTextPixelSize(12)
+            col.addWidget(lbl)
+            col.addWidget(ElaDivider(text=t, orientation=o, parent=self))
+            row.addLayout(col)
+        row.addStretch()
+        parent_layout.addLayout(row)
+        parent_layout.addSpacing(8)
+
+        # Dashed + plain
+        row = QHBoxLayout()
+        row.setSpacing(20)
+        col = QVBoxLayout()
+        l1 = ElaText("Plain", self); l1.setTextPixelSize(12)
+        col.addWidget(l1)
+        col.addWidget(ElaDivider(parent=self))
+        row.addLayout(col)
+        col = QVBoxLayout()
+        l2 = ElaText("Dashed", self); l2.setTextPixelSize(12)
+        col.addWidget(l2)
+        col.addWidget(ElaDivider(variant="dashed", parent=self))
+        row.addLayout(col)
+        col = QVBoxLayout()
+        l3 = ElaText("Dashed w/ text", self); l3.setTextPixelSize(12)
+        col.addWidget(l3)
+        col.addWidget(ElaDivider(text="OR", variant="dashed", parent=self))
+        row.addLayout(col)
+        row.addStretch()
+        parent_layout.addLayout(row)
+        parent_layout.addSpacing(12)
+
+        # Vertical dividers
+        row = QHBoxLayout()
+        row.setSpacing(20)
+        info = ElaText("Vertical:", self)
+        info.setTextPixelSize(12)
+        row.addWidget(info)
+        for t, o in [("Top", "top"), ("Center", "center"), ("Bottom", "bottom")]:
+            w = QWidget(self)
+            w.setFixedSize(60, 100)
+            wl = QHBoxLayout(w)
+            wl.addStretch()
+            wl.addWidget(ElaDivider(text=t, orientation=o, vertical=True, parent=w))
+            wl.addStretch()
+            row.addWidget(w)
+        row.addStretch()
+        parent_layout.addLayout(row)
         parent_layout.addSpacing(20)
 
     def _demoTreeView(self, parent_layout):

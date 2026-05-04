@@ -8,13 +8,13 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import pyqtSignal, Qt, QRect, QRectF, QSize
+from PyQt5.QtCore import pyqtSignal, QRect, QRectF, QSize
 from PyQt5.QtGui import QColor, QPainter, QLinearGradient, QPainterPath, QPaintEvent
 from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaPushButton, ElaIcon, ElaIconType
 
-from .ela_primary_button import _draw_button_content
+from ._internal import _draw_button_content
 
 
 class ElaProgressButton(ElaPushButton):

@@ -17,14 +17,16 @@ class ElaDialogBase(ElaContentDialog):
 
     默认提供底部按钮栏（取消/确定），可设置标题和主体内容组件。
 
-    :param parent: 父级 widget（必须提供）。
-    :type parent: QWidget
+    :param title: 对话框标题
+    :type title: str
     :param middleText: 中间按钮文本，为 ``None`` 时隐藏中间按钮。
     :type middleText: str, optional
+    :param parent: 父级 widget（必须提供）。
+    :type parent: QWidget
 
     Example::
 
-        dlg = ElaDialogBase(parent, middleText="稍后提醒")
+        dlg = ElaDialogBase(title="退出", middleText="稍后提醒", parent=parent)
         dlg.setTitle("退出")
         dlg.setParamWidget(my_content_widget)
         dlg.exec_()
@@ -33,8 +35,8 @@ class ElaDialogBase(ElaContentDialog):
     def __init__(
         self,
         title: str = "标题",
-        parent: Optional[QWidget] = None,
         middleText: str | None = None,
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
         self._titleWidget: Optional[ElaText] = None

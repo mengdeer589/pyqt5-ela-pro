@@ -11,7 +11,8 @@ import traceback
 from functools import wraps
 from typing import Any, Callable, Optional, TypeVar
 
-from PyQt5.QtGui import QPainter
+from PyQt5.QtCore import Qt, QRect, QSize
+from PyQt5.QtGui import QColor, QPainter
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -64,3 +65,61 @@ def safe_call(func: Optional[Callable[..., Any]], *args, **kwargs) -> Any:
     except Exception:
         print(f"Error calling {func}: {traceback.format_exc()}", file=sys.stderr)
         return None
+
+
+def _draw_button_content(
+    painter: QPainter,
+    text: str,
+    icon_name,
+    icon_size: int,
+    shadow_border: int,
+    widget_width: int,
+    widget_height: int,
+    text_color: QColor,
+    icon_getter,
+) -> QRect:
+    """绘制按钮图标和文字布局。
+
+    :return: 文字区域 QRect
+    """
+    if icon_name is not None:
+        icon_sz = QSize(icon_size, icon_size)
+        spacing = 8
+        content_height = widget_height - 2 * shadow_border
+
+        fm = painter.fontMetrics()
+        text_width = fm.horizontalAdvance(text)
+        total_content_width = icon_sz.width() + spacing + text_width
+        start_x = (
+            shadow_border
+            + (widget_width - 2 * shadow_border - total_content_width) // 2
+        )
+
+        icon_y = shadow_border + (content_height - icon_sz.height()) // 2
+        icon_rect = QRect(start_x, icon_y, icon_sz.width(), icon_sz.height())
+
+        text_rect = QRect(
+            icon_rect.right() + spacing,
+            shadow_border,
+            text_width,
+            content_height,
+        )
+        icon = icon_getter(icon_name, text_color)
+        painter.drawPixmap(icon_rect, icon.pixmap(icon_sz))
+    else:
+        rect = QRect(
+            shadow_border,
+            shadow_border,
+            widget_width - 2 * shadow_border,
+            widget_height - 2 * shadow_border,
+        )
+        text_rect = rect
+
+    painter.setPen(text_color)
+    painter.setFont(painter.font())
+    painter.drawText(
+        text_rect,
+        Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter,
+        text,
+    )
+    return text_rect

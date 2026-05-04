@@ -27,9 +27,9 @@ class ElaDrawerPosition(IntEnum):
 class ElaDrawerPanel(QWidget):
     def __init__(
         self,
-        parent: Optional[QWidget] = None,
         corner_radius: int = 12,
         position: ElaDrawerPosition = ElaDrawerPosition.Right,
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._corner_radius = corner_radius
@@ -127,9 +127,9 @@ class ElaDrawer(QWidget):
 
     def __init__(
         self,
-        parent: Optional[QWidget] = None,
         position: ElaDrawerPosition = ElaDrawerPosition.Right,
         drawer_size: int = 360,
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._position = position
@@ -145,7 +145,7 @@ class ElaDrawer(QWidget):
         self._dim_widget.clicked.connect(self._onDimClicked)
         self._dim_widget.hide()
 
-        self._drawer_widget = ElaDrawerPanel(self, self._corner_radius, self._position)
+        self._drawer_widget = ElaDrawerPanel(corner_radius=self._corner_radius, position=self._position, parent=self)
 
         shadow = QGraphicsDropShadowEffect(self._drawer_widget)
         shadow.setColor(QColor(0, 0, 0, 60))

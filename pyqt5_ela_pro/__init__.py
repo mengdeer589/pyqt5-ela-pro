@@ -88,8 +88,6 @@ from .ela_long_press_button import ElaLongPressButton
 
 from .ela_tag_line_edit import ElaTagLineEdit
 
-from .ela_primary_button import ElaPrimaryButton, ElaThemeToolButton
-
 from .ela_tag_box import ElaTagBox
 
 from .ela_tag_multi_box import ElaTagMultiBox
@@ -114,6 +112,10 @@ from .browser_embedder import ElaBrowserEmbedder
 
 from .splitter import ElaSplitter
 
+from .ela_button import ElaButton
+
+from .ela_divider import ElaDivider
+
 from .ela_progress_button import ElaProgressButton
 
 from .notify_popup import ElaNotifyPopup
@@ -133,9 +135,11 @@ __all__ = [
     "show_notify",
     # ── Components ──
     "ElaAnimatedMixin",
+    "ElaButton",
     "ElaBrowserEmbedder",
     "ElaDataTable",
     "ElaDialogBase",
+    "ElaDivider",
     "ElaDrawer",
     "ElaDrawerPosition",
     "ElaExcelViewer",
@@ -144,7 +148,6 @@ __all__ = [
     "ElaNotifyPopup",
     "ElaParquetTable",
     "ElaPowerPointViewer",
-    "ElaPrimaryButton",
     "ElaProgressButton",
     "ElaSearchBox",
     "ElaSearchMultiBox",
@@ -160,7 +163,6 @@ __all__ = [
     "ElaTagSearchBox",
     "ElaTagSearchMultiBox",
     "ElaTaskbarProgress",
-    "ElaThemeToolButton",
     "ElaThemeWidget",
     "ElaToolTip",
     "ElaToolTipPosition",

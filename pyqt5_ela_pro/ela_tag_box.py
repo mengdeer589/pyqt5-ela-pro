@@ -31,19 +31,19 @@ class ElaTagBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaComboBox):
     带有标题标签的组合框，只读模式。
     继承自 ElaComboBox，使用原生弹出菜单。
 
-    :param parent: 父控件
     :param title: 标题文字
+    :param parent: 父控件
 
     Example::
 
-        combo = ElaTagBox(parent, title="语言")
+        combo = ElaTagBox(title="语言", parent=parent)
         combo.addItems(["Python", "C++", "JavaScript"])
     """
 
     def __init__(
         self,
-        parent: Optional[QWidget] = None,
         title: str = "",
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._tag_box_init(title)

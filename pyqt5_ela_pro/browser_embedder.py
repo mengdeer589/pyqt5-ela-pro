@@ -361,7 +361,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             "--no-first-run",
             "--disable-sync",
             # "--kiosk",
-            f"--window-position=-9999,-9999",
+            "--window-position=-9999,-9999",
             f"--remote-debugging-port={self._debug_port}",
             "--remote-allow-origins=*",
         ]

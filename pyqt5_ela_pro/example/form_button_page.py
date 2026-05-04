@@ -6,15 +6,14 @@
 - PyQt5ElaWidgetTools: 按钮组件
 """
 
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QLineEdit
-from PyQt5.QtCore import QTimer
+from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaIconType, ElaThemeType
 from pyqt5_ela_pro import (
     ElaThemeWidget,
+    ElaButton,
     ElaTagLineEdit,
     ElaLongPressButton,
-    ElaPrimaryButton,
-    ElaThemeToolButton,
     ElaMessageDialog,
     ElaProgressButton,
     ElaNotifyPopup,
@@ -53,13 +52,12 @@ class FormButtonPage(ExamplePage):
 
     def _demoButton(self, parent_layout):
         self._demoPrimaryButton(parent_layout)
-        self._demoElaPrimaryButton(parent_layout)
         self._demoLongPressButton(parent_layout)
         self._demoProgressButton(parent_layout)
         self._demoNotifyPopup(parent_layout)
-        self._demoToolButtonExt(parent_layout)
         self._demoEsButton(parent_layout)
         self._demoEsSvgButton(parent_layout)
+        self._demoElaButton(parent_layout)
         self._demoMessageDialog(parent_layout)
 
     def _demoTagLineEdit(self, parent_layout):
@@ -71,15 +69,15 @@ class FormButtonPage(ExamplePage):
         )
         edit_layout = QVBoxLayout()
         edit_layout.setSpacing(15)
-        self._nameEdit = ElaTagLineEdit(self, title="用户名")
+        self._nameEdit = ElaTagLineEdit(title="用户名", parent=self)
         self._nameEdit.setFixedWidth(300)
         self._nameEdit.setText("admin")
         edit_layout.addWidget(self._nameEdit)
-        self._passwordEdit = ElaTagLineEdit(self, title="密码")
+        self._passwordEdit = ElaTagLineEdit(title="密码", parent=self)
         self._passwordEdit.setFixedWidth(300)
         self._passwordEdit.setEchoMode(QLineEdit.Password)
         edit_layout.addWidget(self._passwordEdit)
-        email_edit = ElaTagLineEdit(self, title="邮箱")
+        email_edit = ElaTagLineEdit(title="邮箱", parent=self)
         email_edit.setFixedWidth(300)
         email_edit.setText("test@example.com")
         edit_layout.addWidget(email_edit)
@@ -122,35 +120,6 @@ class FormButtonPage(ExamplePage):
         )
         btn_layout.addWidget(primary_btn)
         primary_btn_disabled = ElaPushButton("禁用", self)
-        primary_btn_disabled.setFixedWidth(120)
-        primary_btn_disabled.setEnabled(False)
-        btn_layout.addWidget(primary_btn_disabled)
-        btn_layout.addStretch()
-        parent_layout.addLayout(btn_layout)
-        parent_layout.addSpacing(20)
-
-    def _demoElaPrimaryButton(self, parent_layout):
-        parent_layout.addLayout(
-            self._createHeaderRow("03. ela_ext - ElaPrimaryButton 主要按钮", self._demoElaPrimaryButton)
-        )
-        self._addInfoText(
-            "使用 Primary 主题色的按钮，与 ElaToggleButton ON 状态外观一致",
-            parent_layout,
-        )
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(15)
-        primary_btn = ElaPrimaryButton(parent=self)
-        primary_btn.setText("主要按钮")
-        primary_btn.setFixedWidth(120)
-        primary_btn.clicked.connect(lambda: print("ElaPrimaryButton clicked"))
-        btn_layout.addWidget(primary_btn)
-        primary_btn_icon = ElaPrimaryButton(parent=self)
-        primary_btn_icon.setText("带图标")
-        primary_btn_icon.setFixedWidth(120)
-        primary_btn_icon.setElaIcon(ElaIconType.IconName.FloppyDisk, 16)
-        btn_layout.addWidget(primary_btn_icon)
-        primary_btn_disabled = ElaPrimaryButton(parent=self)
-        primary_btn_disabled.setText("禁用状态")
         primary_btn_disabled.setFixedWidth(120)
         primary_btn_disabled.setEnabled(False)
         btn_layout.addWidget(primary_btn_disabled)
@@ -245,36 +214,6 @@ class FormButtonPage(ExamplePage):
         parent_layout.addLayout(auto_layout)
         parent_layout.addSpacing(20)
 
-    def _demoToolButtonExt(self, parent_layout):
-        parent_layout.addLayout(
-            self._createHeaderRow("06. ela_ext - ElaThemeToolButton 图标文字并排按钮", self._demoToolButtonExt)
-        )
-        self._addInfoText(
-            "ToolButton 样式设置为文字在图标旁边，适合工具栏使用", parent_layout
-        )
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(15)
-        tool_btn = ElaThemeToolButton(parent=self)
-        tool_btn.setText("保存")
-        tool_btn.setFixedWidth(100)
-        tool_btn.setElaIcon(ElaIconType.IconName.FloppyDisk)
-        tool_btn.clicked.connect(lambda: print("保存 clicked"))
-        btn_layout.addWidget(tool_btn)
-        tool_btn_icon = ElaThemeToolButton(parent=self)
-        tool_btn_icon.setText("编辑")
-        tool_btn_icon.setFixedWidth(100)
-        tool_btn_icon.setElaIcon(ElaIconType.IconName.Pencil)
-        tool_btn_icon.clicked.connect(lambda: print("编辑 clicked"))
-        btn_layout.addWidget(tool_btn_icon)
-        tool_btn_disabled = ElaThemeToolButton(parent=self)
-        tool_btn_disabled.setText("禁用")
-        tool_btn_disabled.setFixedWidth(100)
-        tool_btn_disabled.setEnabled(False)
-        btn_layout.addWidget(tool_btn_disabled)
-        btn_layout.addStretch()
-        parent_layout.addLayout(btn_layout)
-        parent_layout.addSpacing(20)
-
     def _demoEsButton(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow("07. ela_ext - ElaSvgIconButton 基础 SVG 图标按钮", self._demoEsButton)
@@ -323,6 +262,94 @@ class FormButtonPage(ExamplePage):
             icons_row_layout.addWidget(btn)
         icons_row_layout.addStretch()
         parent_layout.addLayout(icons_row_layout)
+        parent_layout.addSpacing(20)
+
+    def _demoElaButton(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("09. ela_ext - ElaButton 统一按钮", self._demoElaButton)
+        )
+        self._addInfoText(
+            "Ant Design 风格按钮 — 横向 6 种变体，纵向 16 种色彩主题",
+            parent_layout,
+        )
+        parent_layout.addSpacing(8)
+
+        variants = ["outlined", "dashed", "solid", "filled", "text", "link"]
+        colors = [
+            "default", "primary", "danger",
+            "blue", "purple", "cyan", "green",
+            "magenta", "pink", "red", "orange",
+            "yellow", "volcano", "geekblue", "lime", "gold",
+        ]
+        # Display labels for colors
+        color_labels = {
+            "default": "Default", "primary": "Primary", "danger": "Danger",
+            "blue": "Blue", "purple": "Purple", "cyan": "Cyan", "green": "Green",
+            "magenta": "Magenta", "pink": "Pink", "red": "Red", "orange": "Orange",
+            "yellow": "Yellow", "volcano": "Volcano", "geekblue": "Geekblue",
+            "lime": "Lime", "gold": "Gold",
+        }
+
+        grid = QGridLayout()
+        grid.setSpacing(6)
+
+        # Header row
+        corner = ElaText("颜色\\变体", self)
+        corner.setTextPixelSize(12)
+        grid.addWidget(corner, 0, 0, Qt.AlignmentFlag.AlignCenter)
+        for j, v in enumerate(variants):
+            lbl = ElaText(v.capitalize(), self)
+            lbl.setTextPixelSize(12)
+            grid.addWidget(lbl, 0, j + 1, Qt.AlignmentFlag.AlignCenter)
+
+        # Data rows
+        for i, c in enumerate(colors):
+            clbl = ElaText(color_labels[c], self)
+            clbl.setTextPixelSize(12)
+            grid.addWidget(clbl, i + 1, 0, Qt.AlignmentFlag.AlignCenter)
+            for j, v in enumerate(variants):
+                btn = ElaButton(color_labels[c], variant=v, color=c, parent=self)
+                grid.addWidget(btn, i + 1, j + 1)
+
+        parent_layout.addLayout(grid)
+        parent_layout.addSpacing(12)
+
+        # ── Extra: danger, disabled, sizes, icons ──
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        for label, v, c, d in [
+            ("危险 Solid", "solid", "default", True),
+            ("危险 Outlined", "outlined", "default", True),
+        ]:
+            b = ElaButton(label, variant=v, danger=d, parent=self)
+            row.addWidget(b)
+        disabled_s = ElaButton("禁用 Solid", variant="solid", parent=self)
+        disabled_s.setEnabled(False)
+        row.addWidget(disabled_s)
+        disabled_o = ElaButton("禁用 Outlined", variant="outlined", parent=self)
+        disabled_o.setEnabled(False)
+        row.addWidget(disabled_o)
+        for sz in ("small", "middle", "large"):
+            b = ElaButton(sz.capitalize(), variant="outlined", size=sz, parent=self)
+            row.addWidget(b)
+        row.addStretch()
+        parent_layout.addLayout(row)
+        parent_layout.addSpacing(8)
+
+        # ── Icon buttons ──
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        for text, icon, v, c in [
+            ("保存", ElaIconType.IconName.FloppyDisk, "solid", "primary"),
+            ("编辑", ElaIconType.IconName.Pencil, "outlined", "default"),
+            ("复制", ElaIconType.IconName.Copy, "solid", "danger"),
+            ("设置", ElaIconType.IconName.Gear, "dashed", "primary"),
+            ("标记", ElaIconType.IconName.BadgeCheck, "filled", "purple"),
+            ("旋转", ElaIconType.IconName.ArrowRotateRight, "text", "default"),
+        ]:
+            row.addWidget(ElaButton(text, icon=icon, variant=v, color=c, parent=self))
+        row.addStretch()
+        parent_layout.addLayout(row)
         parent_layout.addSpacing(20)
 
     def _demoMessageDialog(self, parent_layout):

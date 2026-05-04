@@ -8,8 +8,6 @@ Windows 任务栏进度条组件。
 
 from __future__ import annotations
 
-import sys
-
 from typing import Optional
 
 from PyQt5.QtCore import pyqtSignal, QObject

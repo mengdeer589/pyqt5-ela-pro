@@ -8,7 +8,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QPlainTextEdit, QPushButton, QApplication, QWidget
 from PyQt5.QtGui import QFont, QColor, QTextCharFormat, QTextCursor, QPalette
 from PyQt5ElaWidgetTools import ElaScrollArea, ElaText, ElaPushButton, ElaThemeType, ElaIconType, ElaMessageBar, ElaMessageBarType
-from pyqt5_ela_pro import ElaThemeWidget, ElaDialogBase, ElaPrimaryButton
+from pyqt5_ela_pro import ElaThemeWidget, ElaDialogBase, ElaButton
 
 RESOURCE_PATH = os.path.join(os.path.dirname(__file__), "resource", "images")
 
@@ -107,9 +107,7 @@ class ExamplePage(ElaThemeWidget):
         container_layout.setContentsMargins(0, 0, 0, 0)
         container_layout.setSpacing(4)
         container_layout.addWidget(edit)
-        copy_btn = ElaPrimaryButton(parent=container)
-        copy_btn.setText("复制代码")
-        copy_btn.setElaIcon(ElaIconType.IconName.Copy, 16)
+        copy_btn = ElaButton("复制代码", icon=ElaIconType.IconName.Copy, iconSize=16, variant="solid", color="primary", parent=container)
         copy_btn.clicked.connect(
             lambda: (
                 QApplication.clipboard().setText(source),

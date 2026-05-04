@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import pyqtSignal, QTimer, Qt, QRect, QRectF, QPoint, QSize
-from PyQt5.QtGui import QColor, QPainter, QLinearGradient, QPainterPath, QFontMetrics, QPaintEvent, QMouseEvent, QPen
+from PyQt5.QtCore import pyqtSignal, QTimer, Qt, QRect, QRectF, QSize
+from PyQt5.QtGui import QColor, QPainter, QLinearGradient, QPainterPath, QPaintEvent, QMouseEvent, QPen
 from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaPushButton, ElaIcon, ElaIconType

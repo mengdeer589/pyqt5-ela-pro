@@ -10,10 +10,6 @@ from __future__ import annotations
 import math
 from typing import Optional, Callable, Literal
 
-CurveType = Literal["line", "scatter"]
-DotShape = Literal["circle", "square", "diamond", "triangle"]
-LineStyle = Literal["solid", "dash", "dot", "dash_dot"]
-
 from PyQt5.QtCore import Qt, QRect, QRectF, QPointF, QPoint
 from PyQt5.QtGui import (
     QColor,
@@ -28,6 +24,10 @@ from PyQt5.QtWidgets import QWidget, QToolTip
 from PyQt5.QtSvg import QSvgGenerator
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
+
+CurveType = Literal["line", "scatter"]
+DotShape = Literal["circle", "square", "diamond", "triangle"]
+LineStyle = Literal["solid", "dash", "dot", "dash_dot"]
 
 
 class ElaTrendChart(QWidget):
@@ -443,7 +443,6 @@ class ElaTrendChart(QWidget):
         if not self._curves:
             return -1, QPointF(0, 0)
 
-        coord = self.posToCoordinate(pos)
         nearest_curve_idx = -1
         nearest_point = QPointF(0, 0)
         min_screen_dist = float("inf")

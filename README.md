@@ -15,8 +15,7 @@ PyQt5 extension widget library based on PyQt5ElaWidgetTools.
 - 所有下拉框组件均提供 `items` 属性获取选项列表
 
 ### 按钮
-- **ElaPrimaryButton** — 主色调按钮
-- **ElaThemeToolButton** — 主题感知工具栏按钮
+- **ElaButton** — 统一按钮组件（6 种变体、16 色主题、Ant Design 风格）
 - **ElaLongPressButton** — 长按触发（防误触）
 - **ElaProgressButton** — 含进度指示的按钮
 - **ElaSvgButton / ElaSvgIconButton** — 基于 SVG 图标的按钮
@@ -78,7 +77,7 @@ import sys
 from PyQt5.QtWidgets import QApplication, QVBoxLayout, QWidget
 from PyQt5ElaWidgetTools import eApp, ElaWindow
 
-from pyqt5_ela_pro import ElaPrimaryButton, show_notify, fade_in
+from pyqt5_ela_pro import ElaButton, show_notify, fade_in
 
 app = QApplication(sys.argv)
 eApp.init()
@@ -91,7 +90,7 @@ class MainWindow(ElaWindow):
 
         page = QWidget(self)
         layout = QVBoxLayout(page)
-        btn = ElaPrimaryButton("Hello, pyqt5-ela-pro")
+        btn = ElaButton("Hello, pyqt5-ela-pro", variant="solid", color="primary")
         btn.clicked.connect(lambda: show_notify("提示", "按钮被点击了！"))
         layout.addWidget(btn)
 
@@ -180,8 +179,7 @@ pyqt5_ela_pro/              # 核心组件包
 | **ElaTagSearchBox** | 输入 | Tag + 搜索 单选下拉框 |
 | **ElaTagSearchMultiBox** | 输入 | Tag + 搜索 多选下拉框 |
 | **ElaTagLineEdit** | 输入 | Tag 风格输入框 |
-| **ElaPrimaryButton** | 按钮 | 主色调按钮 |
-| **ElaThemeToolButton** | 按钮 | 主题感知工具栏按钮 |
+| **ElaButton** | 按钮 | 统一按钮（Ant Design 风格，6 变体 × 16 色） |
 | **ElaLongPressButton** | 按钮 | 长按触发按钮 |
 | **ElaProgressButton** | 按钮 | 含进度指示的按钮 |
 | **ElaSvgButton** | 按钮 | SVG 推按钮 |
@@ -223,7 +221,7 @@ python -m pyqt5_ela_pro.example
 |---|---|
 | 基础控件 | 原生 PyQt5ElaWidgetTools 组件：输入框、按钮、滑块、日历、卡片、菜单等 |
 | 应用框架 | ElaAppBar、ElaStatusBar |
-| 增强按钮 | ElaPrimaryButton、ElaTagLineEdit、长按按钮、进度按钮、SVG 按钮等 |
+| 增强按钮 | ElaButton、ElaTagLineEdit、长按按钮、进度按钮、SVG 按钮等 |
 | 下拉框组件 | 全部 9 种下拉框变体 + 空选项演示 |
 | 表格与图表 | ElaDataTable（基础/异步/样式/排序）、ElaParquetTable、ElaTrendChart |
 | 弹窗与提示 | ElaDrawer、ElaToolTip、ElaStateToolTip |

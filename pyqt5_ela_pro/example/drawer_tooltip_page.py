@@ -12,7 +12,7 @@ from pyqt5_ela_pro import (
     ElaDrawer,
     ElaDrawerPosition,
     ElaThemeWidget,
-    ElaPrimaryButton,
+    ElaButton,
     ElaToolTip,
     ElaToolTipPosition,
     set_tooltip,
@@ -59,7 +59,7 @@ class DrawerTooltipPage(ExamplePage):
             ("顶部抽屉", ElaDrawerPosition.Top, 200),
             ("底部抽屉", ElaDrawerPosition.Bottom, 200),
         ]:
-            drawer = ElaDrawer(self, position=pos, drawer_size=size)
+            drawer = ElaDrawer(position=pos, drawer_size=size, parent=self)
             content = ElaThemeWidget()
             content_layout = QVBoxLayout(content)
             content_layout.setContentsMargins(16, 16, 16, 16)
@@ -72,8 +72,7 @@ class DrawerTooltipPage(ExamplePage):
             desc.setTextPixelSize(14)
             content_layout.addWidget(desc)
             content_layout.addStretch()
-            close_btn = ElaPrimaryButton(parent=content)
-            close_btn.setText("关闭抽屉")
+            close_btn = ElaButton("关闭抽屉", variant="solid", color="primary", parent=content)
             close_btn.setFixedWidth(120)
             close_btn.clicked.connect(drawer.closeDrawer)
             content_layout.addWidget(close_btn)

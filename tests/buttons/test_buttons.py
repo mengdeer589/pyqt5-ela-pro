@@ -1,4 +1,4 @@
-"""Tests for buttons modules: ElaPrimaryBtn, ElaToolBtn, ElaLongPressBtn, ElaProgressButton."""
+"""Tests for buttons modules: ElaLongPressBtn, ElaProgressButton."""
 
 from __future__ import annotations
 
@@ -7,100 +7,8 @@ from unittest.mock import MagicMock, patch
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QWidget
 
-from pyqt5_ela_pro.ela_primary_button import ElaPrimaryButton as ElaPrimaryBtn, ElaThemeToolButton as ElaToolBtn
 from pyqt5_ela_pro.ela_long_press_button import ElaLongPressButton as ElaLongPressBtn
 from pyqt5_ela_pro.ela_progress_button import ElaProgressButton
-
-
-class TestElaToolBtn:
-    """Test cases for ElaToolBtn class."""
-
-    def test_initialization_with_defaults(self):
-        """Test tool button initializes correctly."""
-        btn = ElaToolBtn()
-
-        assert btn._border_radius == 3
-        assert btn.height() == 38
-
-        btn.deleteLater()
-
-    def test_initialization_with_text(self):
-        """Test tool button accepts text parameter."""
-        btn = ElaToolBtn(text="设置")
-
-        assert btn.text() == "设置"
-
-        btn.deleteLater()
-
-    def test_has_theme_connection(self):
-        """Test tool button can be created and deleted."""
-        btn = ElaToolBtn()
-        assert btn is not None
-        btn.deleteLater()
-
-    def test_set_ela_icon(self):
-        """Test setElaIcon stores icon name and size."""
-        btn = ElaToolBtn()
-        btn.setElaIcon(None, 16)
-
-        assert btn._icon_name is None
-        assert btn._icon_size == 16
-
-        btn.deleteLater()
-
-    def test_border_radius_is_3_by_default(self):
-        """Test default border radius is 3."""
-        btn = ElaToolBtn()
-        assert btn._border_radius == 3
-        btn.deleteLater()
-
-
-class TestElaPrimaryBtn:
-    """Test cases for ElaPrimaryBtn class."""
-
-    def test_initialization_with_defaults(self):
-        """Test primary button initializes correctly."""
-        btn = ElaPrimaryBtn()
-
-        assert btn._border_radius == 3
-
-        btn.deleteLater()
-
-    def test_initialization_with_text(self):
-        """Test primary button accepts text parameter."""
-        btn = ElaPrimaryBtn(text="提交")
-
-        assert btn.text() == "提交"
-
-        btn.deleteLater()
-
-    def test_set_border_radius(self):
-        """Test setBorderRadius updates border radius."""
-        btn = ElaPrimaryBtn()
-        btn.setBorderRadius(8)
-
-        assert btn._border_radius == 8
-
-        btn.deleteLater()
-
-    def test_border_radius_returns_value(self):
-        """Test borderRadius returns current value."""
-        btn = ElaPrimaryBtn()
-        btn.setBorderRadius(10)
-
-        assert btn.borderRadius() == 10
-
-        btn.deleteLater()
-
-    def test_set_ela_icon(self):
-        """Test setElaIcon stores icon name and size."""
-        btn = ElaPrimaryBtn()
-        btn.setElaIcon(None, 20)
-
-        assert btn._icon_name is None
-        assert btn._icon_size == 20
-
-        btn.deleteLater()
 
 
 class TestElaLongPressBtn:

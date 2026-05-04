@@ -114,7 +114,7 @@ class TestElaDrawer:
     def test_initialization_with_defaults(self):
         """Test drawer initializes with default values."""
         parent = QWidget()
-        drawer = ElaDrawer(parent)
+        drawer = ElaDrawer(parent=parent)
 
         assert drawer._position == ElaDrawerPosition.Right
         assert drawer._drawer_size == 360
@@ -128,7 +128,7 @@ class TestElaDrawer:
     def test_initialization_with_custom_values(self):
         """Test drawer accepts custom position and drawer_size."""
         parent = QWidget()
-        drawer = ElaDrawer(parent, position=ElaDrawerPosition.Left, drawer_size=400)
+        drawer = ElaDrawer(position=ElaDrawerPosition.Left, drawer_size=400, parent=parent)
 
         assert drawer._position == ElaDrawerPosition.Left
         assert drawer._drawer_size == 400
@@ -139,7 +139,7 @@ class TestElaDrawer:
     def test_has_closed_signal(self):
         """Test drawer has closed signal."""
         parent = QWidget()
-        drawer = ElaDrawer(parent)
+        drawer = ElaDrawer(parent=parent)
 
         assert hasattr(drawer, 'closed')
         assert callable(drawer.closed)
@@ -150,7 +150,7 @@ class TestElaDrawer:
     def test_has_showed_signal(self):
         """Test drawer has showed signal."""
         parent = QWidget()
-        drawer = ElaDrawer(parent)
+        drawer = ElaDrawer(parent=parent)
 
         assert hasattr(drawer, 'opened')
         assert callable(drawer.opened)
@@ -161,7 +161,7 @@ class TestElaDrawer:
     def test_initial_state_is_hidden(self):
         """Test drawer is initially hidden."""
         parent = QWidget()
-        drawer = ElaDrawer(parent)
+        drawer = ElaDrawer(parent=parent)
 
         assert not drawer.isVisible()
 
@@ -171,7 +171,7 @@ class TestElaDrawer:
     def test_initial_opened_is_false(self):
         """Test opened() returns False initially."""
         parent = QWidget()
-        drawer = ElaDrawer(parent)
+        drawer = ElaDrawer(parent=parent)
 
         assert drawer.isOpened() is False
 
@@ -181,7 +181,7 @@ class TestElaDrawer:
     def test_set_content_widget(self):
         """Test setContentWidget returns self for chaining."""
         parent = QWidget()
-        drawer = ElaDrawer(parent)
+        drawer = ElaDrawer(parent=parent)
         content = QWidget()
 
         result = drawer.setContentWidget(content)
@@ -194,7 +194,7 @@ class TestElaDrawer:
     def test_set_drawer_size(self):
         """Test setDrawerSize updates drawer size."""
         parent = QWidget()
-        drawer = ElaDrawer(parent)
+        drawer = ElaDrawer(parent=parent)
 
         drawer.setDrawerSize(500)
 
@@ -206,7 +206,7 @@ class TestElaDrawer:
     def test_set_corner_radius(self):
         """Test setCornerRadius updates corner radius."""
         parent = QWidget()
-        drawer = ElaDrawer(parent)
+        drawer = ElaDrawer(parent=parent)
 
         drawer.setCornerRadius(20)
 
@@ -218,7 +218,7 @@ class TestElaDrawer:
     def test_set_close_on_dim_clicked(self):
         """Test setCloseOnDimClicked updates flag."""
         parent = QWidget()
-        drawer = ElaDrawer(parent)
+        drawer = ElaDrawer(parent=parent)
 
         drawer.setCloseOnDimClicked(False)
 
@@ -230,7 +230,7 @@ class TestElaDrawer:
     def test_set_animation_duration(self):
         """Test setAnimationDuration updates duration."""
         parent = QWidget()
-        drawer = ElaDrawer(parent)
+        drawer = ElaDrawer(parent=parent)
 
         drawer.setAnimationDuration(500)
 
@@ -242,5 +242,5 @@ class TestElaDrawer:
     def test_delete_later_disconnects_theme_signal(self):
         """Test deleteLater disconnects theme signal."""
         parent = QWidget()
-        drawer = ElaDrawer(parent)
+        drawer = ElaDrawer(parent=parent)
         drawer.deleteLater()

@@ -13,7 +13,7 @@ from typing import Optional
 from PyQt5.QtCore import QSize, Qt, QRect, QRectF
 from PyQt5.QtGui import QPainter, QPixmap, QIcon, QColor, QPainterPath, QPaintEvent, QPen
 from PyQt5.QtSvg import QSvgRenderer
-from PyQt5.QtWidgets import QPushButton
+from PyQt5.QtWidgets import QPushButton, QWidget
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
 

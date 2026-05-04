@@ -21,19 +21,19 @@ class ElaTagLineEdit(ElaLineEdit):
     带有标题标签的输入框，标题显示在输入框左侧。
     支持主题适配，包含空闲、聚焦、错误三种状态。
 
-    :param parent: 父控件
     :param title: 标题文字
+    :param parent: 父控件
 
     Example::
 
-        edit = ElaTagLineEdit(parent, title="用户名")
+        edit = ElaTagLineEdit(title="用户名", parent=parent)
         edit.setText("admin")
     """
 
     def __init__(
         self,
-        parent: Optional[QWidget] = None,
         title: str = "Untitled",
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
 

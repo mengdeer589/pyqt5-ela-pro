@@ -30,19 +30,19 @@ class ElaTagSearchBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaSearchBox):
     带有标题标签的可搜索下拉框，支持汉字拼音首字母搜索。
     继承自 ElaSearchBox，使用胶囊样式。
 
-    :param parent: 父控件
     :param title: 标题文字
+    :param parent: 父控件
 
     Example::
 
-        combo = ElaTagSearchBox(parent, title="语言")
+        combo = ElaTagSearchBox(title="语言", parent=parent)
         combo.addItems(["Python", "C++", "JavaScript", "上海", "北京"])
     """
 
     def __init__(
         self,
-        parent: Optional[QWidget] = None,
         title: str = "",
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._tag_box_init(title)
