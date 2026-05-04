@@ -23,6 +23,7 @@ from .ela_tag_combo_base import (
     _draw_tag_mark,
     _draw_single_value_text,
 )
+from ._internal import _adjust_combobox_popup
 
 
 class ElaTagBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaComboBox):
@@ -59,6 +60,7 @@ class ElaTagBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaComboBox):
             return
         self._animate_popup_open()
         super().showPopup()
+        _adjust_combobox_popup(self)
 
     def hidePopup(self) -> None:
         self._animate_popup_close()

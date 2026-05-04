@@ -26,6 +26,8 @@ from PyQt5ElaWidgetTools import (
 
 from pypinyin import lazy_pinyin
 
+from ._internal import _adjust_combobox_popup
+
 
 def _build_search_widget(
     text_changed_callback,
@@ -189,6 +191,7 @@ class ElaSearchMultiBox(ElaMultiSelectComboBox):
         self._isRestoringSelection = True
         self._restoreSelection()
         super().showPopup()
+        _adjust_combobox_popup(self)
         self._isRestoringSelection = False
 
         container = self.findChild(QWidget, "ElaComboBoxContainer")
@@ -366,6 +369,7 @@ class ElaSearchBox(ElaComboBox):
             return
         self._proxyModel.setKeyword("")
         super().showPopup()
+        _adjust_combobox_popup(self)
 
         container = self.findChild(QWidget, "ElaComboBoxContainer")
         if container is None:

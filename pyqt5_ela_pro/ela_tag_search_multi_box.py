@@ -25,6 +25,7 @@ from .ela_tag_combo_base import (
     _draw_tag_mark,
     _draw_multi_value_text,
 )
+from ._internal import _adjust_combobox_popup
 
 
 class ElaTagSearchMultiBox(
@@ -60,6 +61,7 @@ class ElaTagSearchMultiBox(
             return
         self._expand_mark_width = _get_target_mark_width(self)
         super().showPopup()
+        _adjust_combobox_popup(self)
         if self._searchEdit:
             self._applySearchEditPalette()
 

@@ -11,7 +11,7 @@ import traceback
 from functools import wraps
 from typing import Any, Callable, Optional, TypeVar
 
-from PyQt5.QtCore import Qt, QRect, QSize
+from PyQt5.QtCore import Qt, QPoint, QRect, QSize
 from PyQt5.QtGui import QColor, QPainter
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -123,3 +123,42 @@ def _draw_button_content(
         text,
     )
     return text_rect
+
+
+def _adjust_combobox_popup(combo_box) -> None:
+    """在 super().showPopup() 之后调用。用最终弹窗高度判断是否需要移到上方。"""
+    from PyQt5.QtWidgets import QApplication, QWidget
+
+    container = combo_box.findChild(QWidget, "ElaComboBoxContainer")
+    if not container or not container.isVisible():
+        return
+
+    combo_global = combo_box.mapToGlobal(QPoint(0, 0))
+    combo_top = combo_global.y()
+    combo_bottom = combo_top + combo_box.height()
+
+    screen = QApplication.screenAt(combo_global)
+    if not screen:
+        return
+    screen_geo = screen.availableGeometry()
+
+    # 计算最终容器高度（与 C++ 公式一致）
+    n = combo_box.maxVisibleItems()
+    if combo_box.count() < n:
+        n = combo_box.count()
+    final_height = n * 35 + 8
+
+    # 下方所需总空间：组合框底 + 3px 间距 + 弹窗高度
+    needed_below = combo_bottom + 3 + final_height
+
+    if needed_below > screen_geo.bottom():
+        # 移到上方
+        new_y = combo_top - 3 - final_height
+        if new_y >= screen_geo.top():
+            container.move(container.x(), new_y)
+        else:
+            # 上方也不够 → 压缩高度
+            max_h = combo_top - 3 - screen_geo.top()
+            if max_h > 50:
+                container.setFixedHeight(int(max_h))
+                container.move(container.x(), screen_geo.top())
