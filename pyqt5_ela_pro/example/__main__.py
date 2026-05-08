@@ -7,7 +7,7 @@ import os
 
 os.environ["QT_LOGGING_RULES"] = "*.debug=false;qt.qpa.fonts.warning=false"
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
 from PyQt5ElaWidgetTools import (
@@ -20,15 +20,17 @@ from PyQt5ElaWidgetTools import (
 from pyqt5_ela_pro import ElaSplashScreen
 from pyqt5_ela_pro.example import (
     BasicContainerPage,
+    ContainerDisplayPage,
+    ExtensionComponentsPage,
     FormButtonPage,
     ComboBoxPage,
     TableChartPage,
     DrawerTooltipPage,
     AnimationIconPage,
     WindowEmbedderPage,
+    BrowserExamplePage,
     ApplicationComponentsPage,
     AdvancedComponentsPage,
-    BrowserExamplePage,
     ApplicationUtilitiesPage,
 )
 
@@ -46,6 +48,8 @@ class ExampleWindow(ElaWindow):
         # PyQt5ElaWidgetTools 原生组件
         # ════════════════════════════════════════════
         self.addPageNode("基础控件", BasicContainerPage(self))
+        self.addPageNode("容器展示", ContainerDisplayPage(self))
+        self.addPageNode("扩展组件", ExtensionComponentsPage(self))
         self.addPageNode("应用框架", ApplicationComponentsPage(self))
 
         # ════════════════════════════════════════════
@@ -103,19 +107,35 @@ if __name__ == "__main__":
 
     app = QApplication(sys.argv)
     eApp.init()
-
-    splash = ElaSplashScreen(
-        title="pyqt5_ela_pro",
-        subtitle="组件示例",
-        width=500,
-        height=350,
-    )
-    splash.show()
-    splash.showMessage("正在加载组件...")
-    app.processEvents()
-
+    #
+    # splash = ElaSplashScreen()
+    # splash.setTitle("pyqt5_ela_pro")
+    # splash.setSubTitle("组件示例")
+    # splash.show()
+    #
+    # messages = [
+    #     "正在加载组件...",
+    #     "正在初始化主题...",
+    #     "正在构建页面...",
+    #     "正在准备就绪...",
+    # ]
+    # step = [0]
+    # timer = QTimer()
+    # timer.setInterval(100)
+    #
+    # def next_step():
+    #     if step[0] < len(messages):
+    #         splash.setValue(int((step[0] + 1) / len(messages) * 100))
+    #         splash.setStatusText(messages[step[0]])
+    #         step[0] += 1
+    #     else:
+    #         timer.stop()
+    #         window = ExampleWindow()
+    #         app.processEvents()
+    #         splash.finish(window)
+    #
+    # timer.timeout.connect(next_step)
+    # timer.start()
     window = ExampleWindow()
-
     window.show()
-    splash.finish(window)
     sys.exit(app.exec_())

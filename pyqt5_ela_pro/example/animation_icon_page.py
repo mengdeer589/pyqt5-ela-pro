@@ -40,7 +40,7 @@ from .es_icon_delegate import EsIconDelegate
 
 class _AnimatedDemoDialog(ElaAnimatedMixin, ElaDialogBase):
     def __init__(self, parent=None):
-        super().__init__("ElaAnimatedMixin 演示", parent)
+        super().__init__("ElaAnimatedMixin 演示", parent=parent)
         content_widget = QWidget(self)
         content_layout = QVBoxLayout(content_widget)
         content_layout.setContentsMargins(0, 10, 0, 0)
@@ -360,7 +360,7 @@ class AnimationIconPage(ExamplePage):
             loader = self._getSvgLoader()
             names = loader.iconNames()
             if names:
-                icon = svg_to_icon(names[0], size=48)
+                svg_to_icon(names[0], size=48)
                 from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
                 ElaMessageBar.success(
                     ElaMessageBarType.PositionPolicy.Top,

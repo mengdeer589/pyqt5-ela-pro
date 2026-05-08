@@ -4,6 +4,8 @@
 
 from .base_page import ExamplePage
 from .basic_container_page import BasicContainerPage
+from .container_display_page import ContainerDisplayPage
+from .extension_components_page import ExtensionComponentsPage
 from .form_button_page import FormButtonPage
 from .combo_box_page import ComboBoxPage
 from .table_chart_page import TableChartPage
@@ -19,6 +21,8 @@ from .application_utils_page import ApplicationUtilitiesPage
 __all__ = [
     "ExamplePage",
     "BasicContainerPage",
+    "ContainerDisplayPage",
+    "ExtensionComponentsPage",
     "FormButtonPage",
     "ComboBoxPage",
     "TableChartPage",

@@ -26,7 +26,34 @@ from PyQt5ElaWidgetTools import (
 
 from pypinyin import lazy_pinyin
 
-from ._internal import _adjust_combobox_popup
+from ._internal import _adjust_combobox_popup, disconnect_theme_signal
+
+
+class _SearchComboMixin:
+    """Mixin providing shared search widget methods for combo boxes."""
+
+    def _cleanupSearchWidget(self) -> None:
+        if getattr(self, '_searchWidget', None):
+            self._searchWidget.deleteLater()
+            self._searchWidget = None
+            self._searchEdit = None
+
+    def _applySearchEditPalette(self) -> None:
+        if getattr(self, '_searchEdit', None):
+            _apply_search_edit_palette(self._searchEdit)
+
+    def _onThemeModeChanged(self, *args) -> None:
+        self._applySearchEditPalette()
+
+    def _setupSearchInPopup(self, container: QWidget) -> None:
+        layout = container.layout()
+        if layout is None:
+            return
+        self._searchWidget, self._searchEdit = _build_search_widget(
+            self._onSearchTextChanged
+        )
+        if isinstance(layout, QBoxLayout):
+            layout.insertWidget(0, self._searchWidget)
 
 
 def _build_search_widget(
@@ -113,7 +140,7 @@ class ElaSearchProxyModel(QSortFilterProxyModel):
         return self._keyword in text.lower() or self._keyword in pinyin_str
 
 
-class ElaSearchMultiBox(ElaMultiSelectComboBox):
+class ElaSearchMultiBox(_SearchComboMixin, ElaMultiSelectComboBox):
     """可搜索多选下拉框。
 
     基于 ``ElaMultiSelectComboBox`` 扩展，在弹出列表顶部增加了一个搜索框，
@@ -206,74 +233,6 @@ class ElaSearchMultiBox(ElaMultiSelectComboBox):
         if self._currentSelection:
             super().setCurrentSelection(self._currentSelection)
 
-    def _setupSearchInPopup(self, container: QWidget) -> None:
-        """在弹窗中创建搜索框组件。
-
-        :param container: 弹窗容器 widget。
-        :type container: QWidget
-        """
-        layout = container.layout()
-        if layout is None:
-            return
-
-        self._searchWidget, self._searchEdit = _build_search_widget(
-            self._onSearchTextChanged
-        )
-
-        if isinstance(layout, QBoxLayout):
-            layout.insertWidget(0, self._searchWidget)
-
-    def _applySearchEditPalette(self) -> None:
-        """应用主题颜色到搜索框。"""
-        if self._searchEdit:
-            _apply_search_edit_palette(self._searchEdit)
-
-    def _onThemeModeChanged(self, *args) -> None:
-        self._applySearchEditPalette()
-
-    def _onSearchTextChanged(self, text: str) -> None:
-        """搜索框文本变化时过滤项目。
-
-        :param text: 输入的搜索文本。
-        :type text: str
-        """
-        if self._isRestoringSelection:
-            return
-
-        text_lower = text.lower()
-        view = self.view()
-        if view is None:
-            return
-
-        for i in range(self.count()):
-            item_text = self.itemText(i)
-            if item_text not in self._pinyin_cache:
-                self._pinyin_cache[item_text] = "".join(lazy_pinyin(item_text)).lower()
-            pinyin_str = self._pinyin_cache[item_text]
-            visible = (
-                not text_lower
-                or text_lower in item_text.lower()
-                or text_lower in pinyin_str
-            )
-            view.setRowHidden(i, not visible)
-
-        if text_lower and self._currentSelection:
-            first_match_idx = -1
-            for i in range(self.count()):
-                if not view.isRowHidden(i):
-                    first_match_idx = i
-                    break
-            if first_match_idx >= 0:
-                index = self.model().index(first_match_idx, 0)
-                view.scrollTo(index)
-
-    def _cleanupSearchWidget(self) -> None:
-        """删除搜索框组件。"""
-        if self._searchWidget:
-            self._searchWidget.deleteLater()
-            self._searchWidget = None
-            self._searchEdit = None
-
     def hidePopup(self) -> None:
         """关闭弹窗时保存选中状态。"""
         self._currentSelection = super().getCurrentSelection()
@@ -286,14 +245,40 @@ class ElaSearchMultiBox(ElaMultiSelectComboBox):
     def deleteLater(self) -> None:
         """清理搜索框，断开信号，调度自身删除。"""
         self._cleanupSearchWidget()
-        try:
-            eTheme.themeModeChanged.disconnect(self._onThemeModeChanged)
-        except (TypeError, RuntimeError):
-            pass
+        disconnect_theme_signal(self._onThemeModeChanged)
         super().deleteLater()
 
+    def _onSearchTextChanged(self, text: str) -> None:
+        """搜索框文本变化时过滤项目。"""
+        if self._isRestoringSelection:
+            return
+        text_lower = text.lower()
+        view = self.view()
+        if view is None:
+            return
+        for i in range(self.count()):
+            item_text = self.itemText(i)
+            if item_text not in self._pinyin_cache:
+                self._pinyin_cache[item_text] = "".join(lazy_pinyin(item_text)).lower()
+            pinyin_str = self._pinyin_cache[item_text]
+            visible = (
+                not text_lower
+                or text_lower in item_text.lower()
+                or text_lower in pinyin_str
+            )
+            view.setRowHidden(i, not visible)
+        if text_lower and self._currentSelection:
+            first_match_idx = -1
+            for i in range(self.count()):
+                if not view.isRowHidden(i):
+                    first_match_idx = i
+                    break
+            if first_match_idx >= 0:
+                index = self.model().index(first_match_idx, 0)
+                view.scrollTo(index)
 
-class ElaSearchBox(ElaComboBox):
+
+class ElaSearchBox(_SearchComboMixin, ElaComboBox):
     """可搜索下拉框。
 
     基于标准 ``ElaComboBox`` 扩展，在弹出列表顶部增加了一个搜索框，
@@ -356,13 +341,6 @@ class ElaSearchBox(ElaComboBox):
         self._sourceModel.setStringList([])
         self.setCurrentIndex(-1)
 
-    def _cleanupSearchWidget(self) -> None:
-        """删除搜索框组件。"""
-        if self._searchWidget:
-            self._searchWidget.deleteLater()
-            self._searchWidget = None
-            self._searchEdit = None
-
     def showPopup(self) -> None:
         """显示下拉弹窗，在弹窗顶部插入搜索框。"""
         if self.count() == 0:
@@ -389,31 +367,6 @@ class ElaSearchBox(ElaComboBox):
                 self._searchEdit.clear()
                 self._searchEdit.blockSignals(False)
                 self._searchEdit.setFocus()
-
-    def _setupSearchInPopup(self, container: QWidget) -> None:
-        """在弹窗中创建搜索框组件。
-
-        :param container: 弹窗容器 widget。
-        :type container: QWidget
-        """
-        layout = container.layout()
-        if layout is None:
-            return
-
-        self._searchWidget, self._searchEdit = _build_search_widget(
-            self._onSearchTextChanged
-        )
-
-        if isinstance(layout, QBoxLayout):
-            layout.insertWidget(0, self._searchWidget)
-
-    def _applySearchEditPalette(self) -> None:
-        """应用主题颜色到搜索框。"""
-        if self._searchEdit:
-            _apply_search_edit_palette(self._searchEdit)
-
-    def _onThemeModeChanged(self, *args) -> None:
-        self._applySearchEditPalette()
 
     def _onSearchTextChanged(self, text: str) -> None:
         """搜索框文本变化时更新过滤关键词。
@@ -448,8 +401,5 @@ class ElaSearchBox(ElaComboBox):
             self.activated.disconnect(self._onActivated)
         except (TypeError, RuntimeError):
             pass
-        try:
-            eTheme.themeModeChanged.disconnect(self._onThemeModeChanged)
-        except (TypeError, RuntimeError):
-            pass
+        disconnect_theme_signal(self._onThemeModeChanged)
         super().deleteLater()

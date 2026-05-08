@@ -16,6 +16,8 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QGraphicsDropShadowEffect
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
+from ._internal import disconnect_theme_signal
+
 
 class ElaDrawerPosition(IntEnum):
     Left = 0
@@ -341,8 +343,5 @@ class ElaDrawer(QWidget):
                 self._drawer_widget.setGeometry(end_rect)
 
     def deleteLater(self) -> None:
-        try:
-            eTheme.themeModeChanged.disconnect(self._onThemeModeChanged)
-        except (TypeError, RuntimeError):
-            pass
+        disconnect_theme_signal(self._onThemeModeChanged)
         super().deleteLater()

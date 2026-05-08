@@ -1,145 +1,278 @@
 """
-启动画面组件。
+启动画面组件，风格参考 ElaWidgetTools 的 ElaSplashScreen。
 
-基于 ``QSplashScreen`` 封装，支持渐变背景、标题、副标题和加载进度显示。
+全 QPainter 自定义绘制，支持主题自适应、Logo、淡入淡出动画、可拖动。
+
+用法::
+
+    splash = ElaSplashScreen(parent=self)
+    splash.setTitle("My App")
+    splash.setSubTitle("Version 1.0")
+    splash.show()
+    # ... loading ...
+    splash.setValue(100)
+    splash.finish(main_window)
 """
 
 from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap, QPainter, QColor, QFont, QLinearGradient
-from PyQt5.QtWidgets import QSplashScreen, QApplication
+from PyQt5.QtCore import Qt, QRect, QRectF, QPoint, QTimer, pyqtSignal
+from PyQt5.QtGui import QPainter, QPainterPath, QPen, QPixmap, QPaintEvent, QMouseEvent
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QApplication
+
+from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaText, ElaTextType, ElaProgressBar, ElaProgressRing
+
+from ._internal import disconnect_theme_signal
 
 
-class ElaSplashScreen(QSplashScreen):
+class ElaSplashScreen(QWidget):
     """启动画面组件。
 
-    继承自 QSplashScreen，支持渐变背景、标题、副标题和加载进度显示。
+    全 QPainter 自定义绘制，支持 Logo、标题、副标题、状态文字、进度条/环，
+    主题自适应、淡入淡出动画、鼠标拖动。
 
-    :param title: 标题文本。
-    :type title: str
-    :param subtitle: 副标题文本。
-    :type subtitle: str
-    :param width: 启动画面宽度，默认 500。
-    :type width: int
-    :param height: 启动画面高度，默认 350。
-    :type height: int
+    :param parent: 父控件
     """
 
-    def __init__(
-        self,
-        title: str = "ElaWidgetTools",
-        subtitle: str = "Fluent UI For QWidget",
-        width: int = 500,
-        height: int = 350,
-    ):
-        self._title = title
-        self._subtitle = subtitle
-        self._width = width
-        self._height = height
-        self._progress = 0.0
-        self._base_pixmap: Optional[QPixmap] = None
-        self._bar_margin = 50
-        self._bar_height = 8
-        self._bar_y = self._height - 100
-        self._bar_width = self._width - self._bar_margin * 2
-        self._build_base_pixmap()
-        super().__init__(
-            self._build_progress_pixmap(),
-            Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint,
-        )
+    closed = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(None)
+
+        self._border_radius = 12
+        self._minimum = 0
+        self._maximum = 100
+        self._value = 0
+        self._is_show_progress_bar = True
+        self._is_show_progress_ring = False
+        self._is_closable = False
+        self._logo = QPixmap()
+        self._is_dragging = False
+        self._drag_start = QPoint()
+
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setFixedSize(580, 400)
+
+        self._theme_mode = eTheme.getThemeMode()
+
+        # Title
+        self._title_text = ElaText(self)
+        self._title_text.setTextStyle(ElaTextType.TextStyle.TitleLarge)
+        self._title_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Subtitle
+        self._subtitle_text = ElaText(self)
+        self._subtitle_text.setTextStyle(ElaTextType.TextStyle.Subtitle)
+        self._subtitle_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._subtitle_text.setWordWrap(True)
+        self._subtitle_text.setMinimumWidth(400)
+
+        # Status
+        self._status_text = ElaText(self)
+        self._status_text.setTextStyle(ElaTextType.TextStyle.Body)
+        self._status_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Progress bar
+        self._progress_bar = ElaProgressBar(self)
+        self._progress_bar.setMinimum(0)
+        self._progress_bar.setMaximum(100)
+        self._progress_bar.setFixedHeight(24)
+
+        # Progress ring
+        self._progress_ring = ElaProgressRing(self)
+        self._progress_ring.setFixedSize(48, 48)
+        self._progress_ring.setIsBusying(True)
+        self._progress_ring.setVisible(False)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(36, 50, 36, 36)
+        layout.setSpacing(6)
+        layout.addStretch(2)
+        layout.addWidget(self._title_text, 0, Qt.AlignmentFlag.AlignCenter)
+        layout.addSpacing(4)
+        layout.addWidget(self._subtitle_text, 0, Qt.AlignmentFlag.AlignCenter)
+        layout.addStretch(1)
+        layout.addWidget(self._progress_ring, 0, Qt.AlignmentFlag.AlignCenter)
+        layout.addSpacing(8)
+        layout.addWidget(self._status_text, 0, Qt.AlignmentFlag.AlignCenter)
+        layout.addSpacing(12)
+        layout.addWidget(self._progress_bar)
+        layout.addStretch(1)
+
+        eTheme.themeModeChanged.connect(self._onThemeChanged)
+
+    # ── Public API ────────────────────────────────────────
+
+    def setBorderRadius(self, r: int) -> None:
+        self._border_radius = r
+        self.update()
+
+    def borderRadius(self) -> int:
+        return self._border_radius
+
+    def setTitle(self, title: str) -> None:
+        self._title_text.setText(title)
+
+    def title(self) -> str:
+        return self._title_text.text()
+
+    def setSubTitle(self, text: str) -> None:
+        self._subtitle_text.setText(text)
+
+    def subTitle(self) -> str:
+        return self._subtitle_text.text()
+
+    def setStatusText(self, text: str) -> None:
+        self._status_text.setText(text)
+
+    def statusText(self) -> str:
+        return self._status_text.text()
+
+    def setLogo(self, logo: QPixmap) -> None:
+        self._logo = logo
+        self.update()
+
+    def logo(self) -> QPixmap:
+        return self._logo
+
+    def setMinimum(self, n: int) -> None:
+        self._minimum = n
+        self._progress_bar.setMinimum(n)
+
+    def minimum(self) -> int:
+        return self._minimum
+
+    def setMaximum(self, n: int) -> None:
+        self._maximum = n
+        self._progress_bar.setMaximum(n)
+
+    def maximum(self) -> int:
+        return self._maximum
+
+    def setValue(self, n: int) -> None:
+        self._value = n
+        self._progress_bar.setValue(n)
+        self._progress_ring.setValue(n)
+
+    def value(self) -> int:
+        return self._value
+
+    def setShowProgressBar(self, show: bool) -> None:
+        self._is_show_progress_bar = show
+        self._progress_bar.setVisible(show)
+
+    def isShowProgressBar(self) -> bool:
+        return self._is_show_progress_bar
+
+    def setShowProgressRing(self, show: bool) -> None:
+        self._is_show_progress_ring = show
+        self._progress_ring.setVisible(show)
+
+    def isShowProgressRing(self) -> bool:
+        return self._is_show_progress_ring
+
+    def setClosable(self, closable: bool) -> None:
+        self._is_closable = closable
+
+    def isClosable(self) -> bool:
+        return self._is_closable
 
     def show(self) -> None:
-        """显示启动画面。"""
+        screen = QApplication.primaryScreen()
+        if screen:
+            sg = screen.availableGeometry()
+            self.move((sg.width() - self.width()) // 2, (sg.height() - self.height()) // 2)
+        self._progress_bar.setVisible(self._is_show_progress_bar)
+        self._progress_ring.setVisible(self._is_show_progress_ring)
+        self.setWindowOpacity(1.0)
         super().show()
-        QApplication.instance().processEvents()
 
-    def _build_base_pixmap(self) -> None:
-        """创建启动画面背景层（渐变背景 + 文字），缓存以便进度更新时复用。"""
-        pixmap = QPixmap(self._width, self._height)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing)
+    def close(self) -> None:
+        super().close()
+        self.closed.emit()
 
-        gradient = QLinearGradient(0, 0, 0, self._height)
-        gradient.setColorAt(0, QColor(0, 120, 215))
-        gradient.setColorAt(1, QColor(0, 60, 120))
-        painter.setBrush(gradient)
+    def finish(self, main_window: QWidget) -> None:
+        self._fade_target = main_window
+        self._fade_opacity = 1.0
+        self._fade_timer = QTimer(self)
+        self._fade_timer.setInterval(20)
+        self._fade_timer.timeout.connect(self._onFadeTick)
+        self._fade_timer.start()
+
+    # ── Internal ──────────────────────────────────────────
+
+    def _onFadeTick(self) -> None:
+        self._fade_opacity -= 0.05
+        if self._fade_opacity <= 0:
+            self._fade_timer.stop()
+            target = self._fade_target
+            self.setWindowOpacity(1.0)
+            self.closed.emit()
+            super().close()
+            if target:
+                target.show()
+                target.raise_()
+                target.activateWindow()
+            return
+        self.setWindowOpacity(self._fade_opacity)
+
+    def _onThemeChanged(self, mode) -> None:
+        self._theme_mode = mode
+        self.update()
+
+    def deleteLater(self) -> None:
+        disconnect_theme_signal(self._onThemeChanged)
+        super().deleteLater()
+
+    # ── Events ────────────────────────────────────────────
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._is_dragging = True
+            self._drag_start = event.globalPos() - self.frameGeometry().topLeft()
+            event.accept()
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._is_dragging:
+            self.move(event.globalPos() - self._drag_start)
+            event.accept()
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        self._is_dragging = False
+
+    # ── Paint ─────────────────────────────────────────────
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
+        mode = self._theme_mode
+        br = self._border_radius
+        sb = 6
+        fg = QRect(sb, sb, self.width() - 2 * sb, self.height() - 2 * sb)
+
+        # Shadow
+        eTheme.drawEffectShadow(painter, self.rect(), sb, br)
+
+        # Background
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(fg), br, br)
+        painter.setClipPath(path)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(0, 0, self._width, self._height, 0, 0)
+        painter.setBrush(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.DialogBase))
+        painter.drawRoundedRect(QRectF(fg), br, br)
 
-        painter.setPen(QColor(255, 255, 255))
-        titleFont = QFont()
-        titleFont.setPointSize(28)
-        titleFont.setBold(True)
-        painter.setFont(titleFont)
-        painter.drawText(
-            pixmap.rect().adjusted(0, 80, 0, -120),
-            Qt.AlignmentFlag.AlignCenter,
-            self._title,
-        )
+        # Logo
+        if not self._logo.isNull():
+            ls = min(80, min(fg.width(), fg.height()) // 3)
+            lr = QRect(fg.x() + (fg.width() - ls) // 2, fg.y() + 30, ls, ls)
+            painter.drawPixmap(lr, self._logo.scaled(ls, ls, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
 
-        subtitleFont = QFont()
-        subtitleFont.setPointSize(14)
-        painter.setFont(subtitleFont)
-        painter.drawText(
-            pixmap.rect().adjusted(0, 150, 0, -80),
-            Qt.AlignmentFlag.AlignCenter,
-            self._subtitle,
-        )
-        painter.end()
-        self._base_pixmap = pixmap
-
-    def _build_progress_pixmap(self) -> QPixmap:
-        """基于缓存的背景层叠加进度条，返回最终 pixmap。"""
-        pixmap = self._base_pixmap.copy() if self._base_pixmap else QPixmap(self._width, self._height)
-        painter = QPainter(pixmap)
-
-        painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(255, 255, 255, 50))
-        painter.drawRoundedRect(
-            self._bar_margin, self._bar_y, self._bar_width, self._bar_height, 4, 4
-        )
-
-        fillWidth = int(self._bar_width * self._progress)
-        painter.setBrush(QColor(255, 255, 255))
-        painter.drawRoundedRect(
-            self._bar_margin, self._bar_y, fillWidth, self._bar_height, 4, 4
-        )
-        painter.end()
-        return pixmap
-
-    def setProgress(self, percent: float) -> None:
-        """设置进度条百分比。
-
-        :param percent: 进度百分比，范围 0.0 ~ 1.0。
-        :type percent: float
-        """
-        self._progress = max(0.0, min(1.0, percent))
-        pixmap = self._build_progress_pixmap()
-        self.setPixmap(pixmap)
-        self.repaint()
-        QApplication.instance().processEvents()
-
-    def showMessage(self, message: str) -> None:
-        """显示加载消息。
-
-        :param message: 要显示的消息文本。
-        :type message: str
-        """
-        super().showMessage(
-            message,
-            Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignCenter,
-            QColor(255, 255, 255),
-        )
-        QApplication.instance().processEvents()
-
-    def finish(self, widget) -> None:
-        """关闭启动画面。
-
-        :param widget: 目标窗口，关闭后显示该窗口。
-        """
-        super().finish(widget)
+        # Border
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBorder), 1))
+        painter.drawRoundedRect(QRectF(fg), br, br)

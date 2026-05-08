@@ -25,6 +25,8 @@ from PyQt5.QtSvg import QSvgGenerator
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
+from ._internal import disconnect_theme_signal
+
 CurveType = Literal["line", "scatter"]
 DotShape = Literal["circle", "square", "diamond", "triangle"]
 LineStyle = Literal["solid", "dash", "dot", "dash_dot"]
@@ -657,10 +659,7 @@ class ElaTrendChart(QWidget):
         event.accept()
 
     def deleteLater(self) -> None:
-        try:
-            eTheme.themeModeChanged.disconnect(self._onThemeChanged)
-        except (TypeError, RuntimeError):
-            pass
+        disconnect_theme_signal(self._onThemeChanged)
         super().deleteLater()
 
     def leaveEvent(self, event) -> None:

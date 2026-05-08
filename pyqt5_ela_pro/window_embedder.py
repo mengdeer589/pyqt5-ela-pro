@@ -23,7 +23,7 @@ except ImportError:
     win32api = None
     win32con = None
     win32gui = None
-from PyQt5.QtCore import Qt, pyqtSignal, QTimer
+from PyQt5.QtCore import pyqtSignal, QTimer
 
 from ._internal import catch_error
 from PyQt5.QtGui import QWindow

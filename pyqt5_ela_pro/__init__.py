@@ -86,7 +86,15 @@ from .office_viewer import ElaWordViewer, ElaExcelViewer, ElaPowerPointViewer
 
 from .ela_long_press_button import ElaLongPressButton
 
+from .ela_markdown_viewer import ElaMarkdownViewer
+
 from .ela_tag_line_edit import ElaTagLineEdit
+
+from .ela_confirm_dialog import ElaConfirmDialog
+
+from .ela_info_badge import ElaInfoBadge
+
+from .ela_password_edit import ElaPasswordEdit
 
 from .ela_tag_box import ElaTagBox
 
@@ -96,7 +104,19 @@ from .ela_tag_search_box import ElaTagSearchBox
 
 from .ela_tag_search_multi_box import ElaTagSearchMultiBox
 
+from .ela_split_button import ElaSplitButton
+
+from .ela_spotlight import ElaSpotlight
+
+from .ela_steps import ElaSteps
+
+from .ela_timeline import ElaTimeline
+
+from .ela_toast import ElaToast
+
 from .ela_trend_chart import ElaTrendChart
+
+from .ela_upload_area import ElaUploadArea
 
 from .ela_side_drawer import ElaDrawer, ElaDrawerPosition
 
@@ -114,9 +134,19 @@ from .splitter import ElaSplitter
 
 from .ela_button import ElaButton
 
+from .ela_chip import ElaChip
+
 from .ela_divider import ElaDivider
 
+from .ela_dropdown_button import ElaDropDownButton
+
+from .ela_pagination import ElaPagination
+
+from .ela_password_edit import ElaPasswordEdit
+
 from .ela_progress_button import ElaProgressButton
+
+from .ela_rating_control import ElaRatingControl
 
 from .notify_popup import ElaNotifyPopup
 
@@ -136,24 +166,35 @@ __all__ = [
     # ── Components ──
     "ElaAnimatedMixin",
     "ElaButton",
+    "ElaChip",
     "ElaBrowserEmbedder",
+    "ElaConfirmDialog",
     "ElaDataTable",
     "ElaDialogBase",
     "ElaDivider",
     "ElaDrawer",
     "ElaDrawerPosition",
+    "ElaDropDownButton",
     "ElaExcelViewer",
+    "ElaInfoBadge",
     "ElaLongPressButton",
+    "ElaMarkdownViewer",
     "ElaMessageDialog",
     "ElaNotifyPopup",
     "ElaParquetTable",
+    "ElaPasswordEdit",
+    "ElaPagination",
     "ElaPowerPointViewer",
     "ElaProgressButton",
+    "ElaRatingControl",
     "ElaSearchBox",
     "ElaSearchMultiBox",
     "ElaSplashScreen",
+    "ElaSplitButton",
     "ElaSplitter",
+    "ElaSpotlight",
     "ElaStateToolTip",
+    "ElaSteps",
     "ElaSvgButton",
     "ElaSvgIconButton",
     "ElaSvgIconLoader",
@@ -164,9 +205,12 @@ __all__ = [
     "ElaTagSearchMultiBox",
     "ElaTaskbarProgress",
     "ElaThemeWidget",
+    "ElaTimeline",
+    "ElaToast",
     "ElaToolTip",
     "ElaToolTipPosition",
     "ElaTrendChart",
+    "ElaUploadArea",
     "ElaWindowEmbedder",
     "ElaWordViewer",
     "__version__",

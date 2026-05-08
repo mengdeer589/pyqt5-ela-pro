@@ -15,6 +15,8 @@ from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaPushButton, ElaIcon, ElaIconType
 
+from ._internal import disconnect_theme_signal
+
 
 class ElaLongPressButton(ElaPushButton):
     """长按按钮。
@@ -62,12 +64,12 @@ class ElaLongPressButton(ElaPushButton):
 
         self._mouse_pressed_timer = QTimer(self)
         self._mouse_pressed_timer.setInterval(16)
-        self._mouse_pressed_timer.timeout.connect(self._onMousePressed)
+        self._mouse_pressed_timer.timeout.connect(self._onMousePressedTick)
 
         self._go_backwards_timer = QTimer(self)
-        self._go_backwards_timer.setSingleShot(True)
-        self._go_backwards_timer.setInterval(500)
-        self._go_backwards_timer.timeout.connect(self._resetProgress)
+        self._go_backwards_timer.setInterval(16)
+        self._go_backwards_timer.timeout.connect(self._onGoBackwardsTick)
+        self._backward_step = 0.0
 
         self._theme_connection = self._updateProgressColor
         self._updateProgressColor(eTheme.getThemeMode())
@@ -125,12 +127,7 @@ class ElaLongPressButton(ElaPushButton):
         self.update()
 
     def deleteLater(self) -> None:
-        if self._theme_connection is not None:
-            try:
-                eTheme.themeModeChanged.disconnect(self._theme_connection)
-            except (TypeError, RuntimeError):
-                pass
-            self._theme_connection = None
+        disconnect_theme_signal(self._theme_connection)
         self._mouse_pressed_timer.stop()
         self._go_backwards_timer.stop()
         super().deleteLater()
@@ -153,7 +150,7 @@ class ElaLongPressButton(ElaPushButton):
         steps = self._duration / 16.0
         return 1.0 / steps if steps >= 1 else 1.0
 
-    def _onMousePressed(self) -> None:
+    def _onMousePressedTick(self) -> None:
         new_progress = min(1.0, self._progress + self._stepLength())
 
         if new_progress >= 1.0:
@@ -169,15 +166,13 @@ class ElaLongPressButton(ElaPushButton):
             self.progressChanged.emit(self._progress)
             self.update()
 
-    def _goBackwards(self, delay: int = 0) -> None:
-        self._go_backwards_timer.setInterval(delay)
-        self._go_backwards_timer.start()
-
-    def _resetProgress(self) -> None:
-        self._progress = 0.0
-        self._triggered = False
-        self.progressChanged.emit(0.0)
+    def _onGoBackwardsTick(self) -> None:
+        self._progress = max(0.0, self._progress - self._backward_step)
+        self.progressChanged.emit(self._progress)
         self.update()
+        if self._progress <= 0:
+            self._go_backwards_timer.stop()
+            self._triggered = False
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if not self.isEnabled():
@@ -186,11 +181,14 @@ class ElaLongPressButton(ElaPushButton):
         if not self._mouse_pressed_timer.isActive():
             self._mouse_pressed_timer.start()
             self._go_backwards_timer.stop()
+            self._triggered = False
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         super().mouseReleaseEvent(event)
         self._mouse_pressed_timer.stop()
-        self._go_backwards_timer.start()
+        if not self._triggered and self._progress > 0:
+            self._backward_step = self._stepLength() * 3
+            self._go_backwards_timer.start()
 
     def paintEvent(self, event: QPaintEvent) -> None:
         if self._progress <= 0:

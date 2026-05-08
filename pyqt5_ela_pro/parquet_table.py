@@ -11,17 +11,16 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 from PyQt5.QtCore import pyqtSignal, QModelIndex
-from PyQt5.QtGui import QIntValidator, QPalette
+from PyQt5.QtGui import QPalette
 from PyQt5.QtWidgets import QWidget, QHBoxLayout
 from PyQt5ElaWidgetTools import (
     ElaText,
-    ElaPushButton,
-    ElaLineEdit,
     eTheme,
     ElaThemeType,
 )
 
 from . import ElaThemeWidget
+from .ela_pagination import ElaPagination
 from .table_view import ElaDataTable
 
 
@@ -37,8 +36,6 @@ else:
 INFO_BAR_HEIGHT: int = 40
 INFO_BAR_SPACING: int = 10
 INFO_BAR_LABEL_SPACING: int = 20
-PAGER_HEIGHT: int = 50
-PAGER_SPACING: int = 12
 
 
 class ElaInfoBarWidget(ElaThemeWidget):
@@ -141,109 +138,10 @@ class ElaInfoBarWidget(ElaThemeWidget):
         self._max_label.setText("最大值: -")
         self._last_label.setText("最后一行: -")
 
-
-class ElaPagerWidget(ElaThemeWidget):
-    """翻页控件组合，包含记录数、上下页、页码跳转。"""
-
-    pageRequest = pyqtSignal(int)
-
-    def __init__(
-        self,
-        total_rows: int,
-        total_cols: int,
-        current_page: int,
-        parent: Optional[QWidget] = None,
-    ) -> None:
-        super().__init__(parent)
-        self._total_rows = total_rows
-        self._total_cols = total_cols
-        self._current_page = current_page
-        self._total_pages = 1
-
-        self._setup_ui()
-
-    def _setup_ui(self) -> None:
-        self.setFixedHeight(PAGER_HEIGHT)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(15, 0, 15, 0)
-        layout.setSpacing(PAGER_SPACING)
-
-        self._total_label = ElaText(self)  # type: ignore
-        self._total_label.setText(f"共 {self._total_rows} 行 × {self._total_cols} 列")
-        self._total_label.setTextPixelSize(13)
-        self._total_label.setMinimumWidth(180)
-
-        self._prev_btn = ElaPushButton("上一页", self)
-        self._prev_btn.setFixedWidth(70)
-        self._prev_btn.clicked.connect(self._on_prev_clicked)
-
-        self._page_label = ElaText("第", self)
-        self._page_label.setTextPixelSize(13)
-
-        self._page_edit = ElaLineEdit(self)
-        self._page_edit.setFixedWidth(60)
-        self._page_edit.setValidator(QIntValidator(1, self._total_pages))
-        self._page_edit.setPlaceholderText("页码")
-        self._page_edit.returnPressed.connect(self._on_page_edit_entered)
-
-        self._page_of_label = ElaText("页 / 共", self)
-        self._page_of_label.setTextPixelSize(13)
-
-        self._total_pages_label = ElaText(f"{self._total_pages} 页", self)
-        self._total_pages_label.setTextPixelSize(13)
-
-        self._next_btn = ElaPushButton("下一页", self)
-        self._next_btn.setFixedWidth(70)
-        self._next_btn.clicked.connect(self._on_next_clicked)
-
-        layout.addWidget(self._total_label)
-        layout.addStretch(1)
-        layout.addWidget(self._prev_btn)
-        layout.addWidget(self._page_label)
-        layout.addWidget(self._page_edit)
-        layout.addWidget(self._page_of_label)
-        layout.addWidget(self._total_pages_label)
-        layout.addWidget(self._next_btn)
-        layout.addStretch(1)
-
-        self._update_button_states()
-
-    def _update_button_states(self) -> None:
-        self._prev_btn.setEnabled(self._current_page > 1)
-        self._next_btn.setEnabled(self._current_page < self._total_pages)
-        self._page_edit.setText(str(self._current_page))
-
-    def _on_prev_clicked(self) -> None:
-        if self._current_page > 1:
-            self.pageRequest.emit(self._current_page - 1)
-
-    def _on_next_clicked(self) -> None:
-        if self._current_page < self._total_pages:
-            self.pageRequest.emit(self._current_page + 1)
-
-    def _on_page_edit_entered(self) -> None:
-        text = self._page_edit.text()
-        if text:
-            try:
-                target = int(text)
-                if 1 <= target <= self._total_pages:
-                    self.pageRequest.emit(target)
-            except ValueError:
-                pass
-
-    def update_state(
-        self, total_rows: int, total_cols: int, current_page: int, total_pages: int
-    ) -> None:
-        self._total_rows = total_rows
-        self._total_cols = total_cols
-        self._current_page = current_page
-        self._total_pages = total_pages
-
-        self._total_label.setText(f"共 {self._total_rows} 行 × {self._total_cols} 列")
-        self._total_pages_label.setText(f"{self._total_pages} 页")
-        self._page_edit.setValidator(QIntValidator(1, self._total_pages))
-        self._update_button_states()
+    def _update_bg_color(self, mode: ElaThemeType.ThemeMode) -> None:
+        super()._update_bg_color(mode)
+        if hasattr(self, '_col_label'):
+            self._apply_colors()
 
 
 class ElaParquetTable(ElaThemeWidget):
@@ -296,26 +194,35 @@ class ElaParquetTable(ElaThemeWidget):
     def _setup_ui(self) -> None:
         self._table = ElaDataTable(self)
         self._info_bar = ElaInfoBarWidget(self)
-        self._pager = ElaPagerWidget(
-            total_rows=self._total_rows,
-            total_cols=0,
-            current_page=self._current_page,
-            parent=self,
-        )
+
+        self._pager_container = QWidget(self)
+        pager_layout = QHBoxLayout(self._pager_container)
+        pager_layout.setContentsMargins(15, 0, 15, 0)
+        pager_layout.setSpacing(12)
+
+        self._total_label = ElaText(self)
+        self._total_label.setTextPixelSize(13)
+        self._total_label.setMinimumWidth(180)
+
+        self._pagination = ElaPagination(self)
+        self._pagination.setJumperVisible(True)
+        self._pagination.currentPageChanged.connect(self.goToPage)
+
+        pager_layout.addWidget(self._total_label)
+        pager_layout.addStretch(1)
+        pager_layout.addWidget(self._pagination)
 
         self._main_lay = self.createLayout("v", self)
         self._main_lay.addWidget(self._table, 1)
         self._main_lay.addWidget(self._info_bar, 0)
-        self._main_lay.addWidget(self._pager, 0)
+        self._main_lay.addWidget(self._pager_container, 0)
 
-        self._pager.pageRequest.connect(self.goToPage)
         self._table.clicked.connect(self._on_cell_clicked)
 
         self._load_data()
 
     def deleteLater(self) -> None:
         try:
-            self._pager.pageRequest.disconnect(self.goToPage)
             self._table.clicked.disconnect(self._on_cell_clicked)
         except (TypeError, RuntimeError):
             pass
@@ -333,9 +240,9 @@ class ElaParquetTable(ElaThemeWidget):
         total_pages = max(
             1, (self._total_rows + self._page_size - 1) // self._page_size
         )
-        self._pager.update_state(
-            self._total_rows, total_cols, self._current_page, total_pages
-        )
+        self._total_label.setText(f"共 {self._total_rows} 行 × {total_cols} 列")
+        self._pagination.setTotalPages(total_pages)
+        self._pagination.setCurrentPage(self._current_page)
 
         self.loadingFinished.emit(self._total_rows)
 

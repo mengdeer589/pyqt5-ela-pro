@@ -16,6 +16,8 @@ from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtWidgets import QPushButton, QWidget
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
+from ._internal import disconnect_theme_signal
+
 
 def _render_svg(svg_data: str, size: int, color: Optional[str] = None) -> QPixmap:
     """将 SVG 数据渲染为 QPixmap（内部公用方法）。"""
@@ -350,10 +352,7 @@ class _ElaSvgButtonBase(QPushButton):
         self.update()
 
     def deleteLater(self) -> None:
-        try:
-            eTheme.themeModeChanged.disconnect(self._onThemeModeChanged)
-        except (TypeError, RuntimeError):
-            pass
+        disconnect_theme_signal(self._onThemeModeChanged)
         super().deleteLater()
 
 

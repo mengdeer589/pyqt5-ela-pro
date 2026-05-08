@@ -14,6 +14,8 @@ from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaLineEdit
 
+from ._internal import disconnect_theme_signal
+
 
 class ElaTagLineEdit(ElaLineEdit):
     """具名输入框。
@@ -45,6 +47,9 @@ class ElaTagLineEdit(ElaLineEdit):
         self._updateMargins()
 
         self.textChanged.connect(self._onTextChanged)
+
+        self._theme_mode = eTheme.getThemeMode()
+        eTheme.themeModeChanged.connect(self._onThemeChanged)
 
     def setTitle(self, title: str) -> None:
         """设置标题文字。
@@ -87,6 +92,10 @@ class ElaTagLineEdit(ElaLineEdit):
         self.setTextMargins(title_width, 0, 10, 0)
 
     def _onTextChanged(self, text: str) -> None:
+        self.update()
+
+    def _onThemeChanged(self, mode) -> None:
+        self._theme_mode = mode
         self.update()
 
     def _getTitleColor(self) -> QColor:
@@ -149,6 +158,7 @@ class ElaTagLineEdit(ElaLineEdit):
             self.textChanged.disconnect(self._onTextChanged)
         except (TypeError, RuntimeError):
             pass
+        disconnect_theme_signal(self._onThemeChanged)
         super().deleteLater()
 
     def paintEvent(self, event) -> None:

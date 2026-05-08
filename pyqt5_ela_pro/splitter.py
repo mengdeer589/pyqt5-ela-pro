@@ -8,95 +8,167 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtWidgets import QSplitter, QWidget, QStyle, QProxyStyle, QBoxLayout
-from PyQt5.QtCore import Qt, QRect
+from PyQt5.QtCore import Qt, QRectF, QEvent
+from PyQt5.QtGui import QPainter, QPen, QPaintEvent, QMouseEvent
+from PyQt5.QtWidgets import QSplitter, QSplitterHandle, QWidget, QBoxLayout
+
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
+from ._internal import disconnect_theme_signal
 
-class ElaSplitterStyle(QProxyStyle):
-    """QSplitter 手柄样式 - ELA 主题风格"""
 
-    def __init__(self, thickness=40):
-        super().__init__()
-        self._thickness = thickness
+class ElaSplitterHandle(QSplitterHandle):
+    """ELA 风格分割器手柄，带中心线和圆角 grip 条。
 
-    def drawControl(self, element, option, painter, widget=None):
-        if element == QStyle.CE_Splitter and widget:
-            splitter = widget
-            mode = eTheme.getThemeMode()
-            color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBaseLine)
-            if splitter.orientation() == Qt.Horizontal:
-                x = option.rect.x()
-                y = 0
-                w = self._thickness
-                h = splitter.height()
+    支持 Normal / Hover / Pressed 三种状态颜色。
+    """
+
+    def __init__(self, orientation: Qt.Orientation, parent: QSplitter) -> None:
+        super().__init__(orientation, parent)
+        self._is_hover = False
+        self._is_pressed = False
+        self._grip_length = 36
+        self.setMouseTracking(True)
+
+        self._theme_mode = eTheme.getThemeMode()
+        eTheme.themeModeChanged.connect(self._onThemeChanged)
+
+    def setGripLength(self, length: int) -> None:
+        self._grip_length = length
+        self.update()
+
+    def getGripLength(self) -> int:
+        return self._grip_length
+
+    def _onThemeChanged(self, mode) -> None:
+        self._theme_mode = mode
+        self.update()
+
+    def deleteLater(self) -> None:
+        disconnect_theme_signal(self._onThemeChanged)
+        super().deleteLater()
+
+    def enterEvent(self, event: QEvent) -> None:
+        self._is_hover = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:
+        self._is_hover = False
+        self._is_pressed = False
+        self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        self._is_pressed = True
+        self.update()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        self._is_pressed = False
+        self.update()
+        super().mouseReleaseEvent(event)
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        try:
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+            w, h, mode = self.width(), self.height(), self._theme_mode
+            is_horiz = self.orientation() == Qt.Orientation.Horizontal
+
+            if self._is_pressed:
+                grip_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryNormal)
+            elif self._is_hover:
+                grip_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextPress)
             else:
-                x = 0
-                y = option.rect.y()
-                w = splitter.width()
-                h = self._thickness
-            rect = QRect(x, y, w, h)
-            painter.fillRect(rect, color)
-            return
-        super().drawControl(element, option, painter, widget)
+                grip_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorderDeep)
+
+            line_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorder)
+            painter.setPen(QPen(line_color, 1))
+
+            if is_horiz:
+                cx = w // 2
+                painter.drawLine(cx, 0, cx, h)
+                gy = (h - self._grip_length) // 2
+                grip_rect = QRectF(cx - 2, gy, 4, self._grip_length)
+            else:
+                cy = h // 2
+                painter.drawLine(0, cy, w, cy)
+                gx = (w - self._grip_length) // 2
+                grip_rect = QRectF(gx, cy - 2, self._grip_length, 4)
+
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(grip_color)
+            painter.drawRoundedRect(grip_rect, 2, 2)
+        except Exception:
+            import traceback
+            traceback.print_exc()
 
 
 class ElaSplitter(QSplitter):
     """ELA 主题风格的分割器
 
-    支持水平和垂直方向，自动响应主题切换，不使用 QSS。
+    支持水平和垂直方向，自动响应主题切换，自定义 Handle 带 grip 效果。
 
     :param orientation: Qt.Horizontal 或 Qt.Vertical
-    :param handleThickness: 手柄粗细（默认 4px）
     :param parent: 父组件
     """
 
     def __init__(
         self,
-        orientation: Qt.Orientation = Qt.Horizontal,
-        handleThickness: int = 4,
-        parent: QWidget = None,
-    ):
-        super().__init__(orientation, parent)
-        self._handle_thickness = handleThickness
-        self._style = ElaSplitterStyle(handleThickness)
-        self.setStyle(self._style)
-        super().setHandleWidth(handleThickness)
+        orientation: Qt.Orientation | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        if orientation is not None:
+            super().__init__(orientation, parent)
+        else:
+            super().__init__(parent)
+
+        self._handle_width = 6
+        self._grip_length = 36
+
+        self.setHandleWidth(self._handle_width)
         self.setChildrenCollapsible(False)
-        eTheme.themeModeChanged.connect(self._on_theme_changed)
 
-    def _on_theme_changed(self, mode):
-        self.update()
+    def createHandle(self):
+        handle = ElaSplitterHandle(self.orientation(), self)
+        handle.setGripLength(self._grip_length)
+        return handle
 
-    def deleteLater(self) -> None:
-        try:
-            eTheme.themeModeChanged.disconnect(self._on_theme_changed)
-        except (TypeError, RuntimeError):
-            pass
-        super().deleteLater()
-
-    def setHandleWidth(self, width):
-        self._handle_thickness = width
-        self._style._thickness = width
+    def setHandleWidth(self, width: int) -> None:
+        self._handle_width = width
         super().setHandleWidth(width)
+
+    def handleWidth(self) -> int:
+        return self._handle_width
+
+    def setGripLength(self, length: int) -> None:
+        self._grip_length = length
+        for i in range(self.count()):
+            h = self.handle(i)
+            if h and isinstance(h, ElaSplitterHandle):
+                h.setGripLength(length)
+
+    def gripLength(self) -> int:
+        return self._grip_length
 
 
 def create_ela_splitter(
     widgets: list,
     orientation: Qt.Orientation = Qt.Horizontal,
-    handleThickness: int = 4,
+    handleThickness: int = 6,
     sizes: Optional[list[int]] = None,
     parent: QWidget = None,
 ) -> QSplitter:
-    """将组件列表以 ELA 风格 splitter 分割
+    """将组件列表以 ELA 风格 splitter 分割。
 
     :param widgets: 要分割的组件列表（至少 2 个）
     :param orientation: Qt.Horizontal 或 Qt.Vertical
-    :param handleThickness: 手柄粗细（默认 4px）
-    :param sizes: 每个子组件的初始尺寸（像素），长度必须与 widgets 一致，可选
-    :param parent: 父组件，为 None 时自动使用 widgets[0] 的父组件
-    :returns: 配置好的 QSplitter
-    :raises ValueError: 当组件数量少于 2 个时，或 sizes 长度不匹配时
+    :param handleThickness: 手柄粗细（默认 6px）
+    :param sizes: 每个子组件的初始尺寸（像素），可选
+    :param parent: 父组件
+    :returns: 配置好的 ElaSplitter
     """
     if len(widgets) < 2:
         raise ValueError("组件列表至少需要 2 个组件")
@@ -106,7 +178,8 @@ def create_ela_splitter(
     if parent is None and widgets:
         parent = widgets[0].parentWidget()
 
-    splitter = ElaSplitter(orientation, handleThickness, parent)
+    splitter = ElaSplitter(orientation, parent)
+    splitter.setHandleWidth(handleThickness)
 
     if parent is not None and parent.layout() is not None:
         layout = parent.layout()

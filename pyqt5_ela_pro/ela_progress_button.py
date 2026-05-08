@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaPushButton, ElaIcon, ElaIconType
 
-from ._internal import _draw_button_content
+from ._internal import _draw_button_content, disconnect_theme_signal
 
 
 class ElaProgressButton(ElaPushButton):
@@ -141,12 +141,8 @@ class ElaProgressButton(ElaPushButton):
         return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBaseLine)
 
     def deleteLater(self) -> None:
-        if self._theme_connection is not None:
-            try:
-                eTheme.themeModeChanged.disconnect(self._theme_connection)
-            except (TypeError, RuntimeError):
-                pass
-            self._theme_connection = None
+        disconnect_theme_signal(self._theme_connection)
+        self._theme_connection = None
         super().deleteLater()
 
     def paintEvent(self, event: QPaintEvent) -> None:

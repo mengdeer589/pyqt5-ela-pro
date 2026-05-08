@@ -13,6 +13,8 @@ from PyQt5.QtGui import QPalette
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaMessageBar, ElaMessageBarType
 
+from ._internal import disconnect_theme_signal
+
 
 class ElaThemeWidget(QWidget):
     """自动适应主题变化的 ``QWidget`` 基类。
@@ -55,10 +57,7 @@ class ElaThemeWidget(QWidget):
     def deleteLater(self) -> None:
         """断开主题信号连接，并调度 widget 进行删除。"""
         if self._themeConnection is not None:
-            try:
-                eTheme.themeModeChanged.disconnect(self._themeConnection)
-            except (TypeError, RuntimeError):
-                pass
+            disconnect_theme_signal(self._themeConnection)
             self._themeConnection = None
         super().deleteLater()
 

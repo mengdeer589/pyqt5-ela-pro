@@ -17,16 +17,18 @@ from typing import Any, Optional
 import weakref
 
 from PyQt5.QtCore import (
+    QObject,
     QPropertyAnimation,
     Qt,
     QTimer,
     pyqtSignal,
     QPoint,
     QRect,
-    QRectF,
-    QObject,
     QEvent,
+    QRectF,
 )
+
+from ._internal import disconnect_theme_signal
 from PyQt5.QtGui import (
     QPainter,
     QFont,
@@ -615,12 +617,8 @@ class ElaStateToolTip(QWidget):
     def deleteLater(self) -> None:
         self._destroyed = True
         self._stopTimerAndAnimation()
-        if self._themeConnection is not None:
-            try:
-                eTheme.themeModeChanged.disconnect(self._themeConnection)
-            except TypeError:
-                pass
-            self._themeConnection = None
+        disconnect_theme_signal(self._themeConnection)
+        self._themeConnection = None
         super().deleteLater()
 
     def paintEvent(self, a0: Optional[QPaintEvent]) -> None:

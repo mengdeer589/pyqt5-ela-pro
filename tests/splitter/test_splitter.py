@@ -1,4 +1,4 @@
-"""Tests for splitter module: ElaSplitter, ElaSplitterStyle, create_ela_splitter."""
+"""Tests for splitter module: ElaSplitter, ElaSplitterHandle, create_ela_splitter."""
 
 from __future__ import annotations
 
@@ -9,25 +9,9 @@ from PyQt5.QtWidgets import QWidget, QBoxLayout
 
 from pyqt5_ela_pro.splitter import (
     ElaSplitter,
-    ElaSplitterStyle,
+    ElaSplitterHandle,
     create_ela_splitter,
 )
-
-
-class TestElaSplitterStyle:
-    """Test cases for ElaSplitterStyle class."""
-
-    def test_initialization(self):
-        """Test splitter style initializes with thickness."""
-        style = ElaSplitterStyle(thickness=40)
-
-        assert style._thickness == 40
-
-    def test_initialization_with_default_thickness(self):
-        """Test splitter style uses default thickness of 40."""
-        style = ElaSplitterStyle()
-
-        assert style._thickness == 40
 
 
 class TestElaSplitter:
@@ -38,7 +22,7 @@ class TestElaSplitter:
         splitter = ElaSplitter()
 
         assert splitter.orientation() == Qt.Horizontal
-        assert splitter._handle_thickness == 4
+        assert splitter._handle_width == 6
 
         splitter.deleteLater()
 
@@ -50,14 +34,6 @@ class TestElaSplitter:
 
         splitter.deleteLater()
 
-    def test_initialization_with_custom_handle_thickness(self):
-        """Test splitter accepts custom handle thickness."""
-        splitter = ElaSplitter(handleThickness=10)
-
-        assert splitter._handle_thickness == 10
-
-        splitter.deleteLater()
-
     def test_children_not_collapsible_by_default(self):
         """Test splitter children are not collapsible by default."""
         splitter = ElaSplitter()
@@ -66,26 +42,137 @@ class TestElaSplitter:
 
         splitter.deleteLater()
 
-    def test_set_handle_width_is_noop(self):
-        """Test setHandleWidth logs warning (width controlled by constructor)."""
+    def test_set_handle_width(self):
+        """Test setHandleWidth updates handle width."""
         splitter = ElaSplitter()
+        splitter.setHandleWidth(10)
 
-        splitter.setHandleWidth(100)
+        assert splitter._handle_width == 10
 
+        splitter.deleteLater()
+
+    def test_handle_width_returns_value(self):
+        """Test handleWidth returns current width."""
+        splitter = ElaSplitter()
+        splitter.setHandleWidth(8)
+
+        assert splitter.handleWidth() == 8
+
+        splitter.deleteLater()
+
+    def test_set_grip_length(self):
+        """Test setGripLength updates grip length."""
+        splitter = ElaSplitter()
+        splitter.setGripLength(50)
+
+        assert splitter._grip_length == 50
+
+        splitter.deleteLater()
+
+    def test_grip_length_returns_value(self):
+        """Test gripLength returns current grip length."""
+        splitter = ElaSplitter()
+        splitter.setGripLength(24)
+
+        assert splitter.gripLength() == 24
+
+        splitter.deleteLater()
+
+    def test_create_handle_returns_ela_splitter_handle(self):
+        """Test createHandle returns an ElaSplitterHandle."""
+        splitter = ElaSplitter()
+        handle = splitter.createHandle()
+
+        assert isinstance(handle, ElaSplitterHandle)
+
+        handle.deleteLater()
+        splitter.deleteLater()
+
+    def test_handle_has_grip_length_set(self):
+        """Test createHandle sets grip length on handle."""
+        splitter = ElaSplitter()
+        splitter.setGripLength(50)
+        handle = splitter.createHandle()
+
+        assert handle.getGripLength() == 50
+
+        handle.deleteLater()
+        splitter.deleteLater()
+
+
+class TestElaSplitterHandle:
+    """Test cases for ElaSplitterHandle class."""
+
+    def test_initialization(self):
+        """Test handle initializes with orientation and parent."""
+        splitter = ElaSplitter()
+        handle = ElaSplitterHandle(Qt.Horizontal, splitter)
+
+        assert handle.orientation() == Qt.Horizontal
+        assert handle.parent() is splitter
+
+        handle.deleteLater()
+        splitter.deleteLater()
+
+    def test_set_grip_length(self):
+        """Test setGripLength updates grip length."""
+        splitter = ElaSplitter()
+        handle = ElaSplitterHandle(Qt.Horizontal, splitter)
+
+        handle.setGripLength(50)
+
+        assert handle._grip_length == 50
+
+        handle.deleteLater()
+        splitter.deleteLater()
+
+    def test_grip_length_returns_value(self):
+        """Test getGripLength returns current length."""
+        splitter = ElaSplitter()
+        handle = ElaSplitterHandle(Qt.Horizontal, splitter)
+        handle.setGripLength(24)
+
+        assert handle.getGripLength() == 24
+
+        handle.deleteLater()
+        splitter.deleteLater()
+
+    def test_initial_is_not_hovered(self):
+        """Test handle is not hovered initially."""
+        splitter = ElaSplitter()
+        handle = ElaSplitterHandle(Qt.Horizontal, splitter)
+
+        assert handle._is_hover is False
+
+        handle.deleteLater()
+        splitter.deleteLater()
+
+    def test_initial_is_not_pressed(self):
+        """Test handle is not pressed initially."""
+        splitter = ElaSplitter()
+        handle = ElaSplitterHandle(Qt.Horizontal, splitter)
+
+        assert handle._is_pressed is False
+
+        handle.deleteLater()
         splitter.deleteLater()
 
     def test_has_theme_connection(self):
-        """Test splitter connects to theme change signal."""
+        """Test handle connects to theme change signal."""
         splitter = ElaSplitter()
+        handle = ElaSplitterHandle(Qt.Horizontal, splitter)
 
-        assert hasattr(splitter, '_on_theme_changed')
+        assert hasattr(handle, '_onThemeChanged')
 
+        handle.deleteLater()
         splitter.deleteLater()
 
     def test_delete_later_disconnects_theme(self):
-        """Test deleteLater disconnects themeModeChanged signal without error."""
+        """Test deleteLater disconnects theme signal without error."""
         splitter = ElaSplitter()
-        splitter.deleteLater()  # should not raise TypeError when disconnecting
+        handle = ElaSplitterHandle(Qt.Horizontal, splitter)
+        handle.deleteLater()
+        splitter.deleteLater()
 
 
 class TestCreateElaSplitter:
@@ -148,7 +235,7 @@ class TestCreateElaSplitter:
         splitter.deleteLater()
 
     def test_with_sizes_parameter(self):
-        """Test create_ela_splitter accepts sizes parameter (setSizes as hint)."""
+        """Test create_ela_splitter accepts sizes parameter."""
         widget1 = QWidget()
         widget2 = QWidget()
 

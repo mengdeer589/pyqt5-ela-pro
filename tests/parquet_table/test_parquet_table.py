@@ -1,4 +1,4 @@
-"""Tests for parquet_table module: ElaParquetTable, ElaInfoBarWidget, ElaPagerWidget."""
+"""Tests for parquet_table module: ElaParquetTable, ElaInfoBarWidget."""
 
 from __future__ import annotations
 
@@ -8,11 +8,8 @@ from PyQt5.QtCore import Qt, pyqtSignal
 
 from pyqt5_ela_pro.parquet_table import (
     ElaInfoBarWidget,
-    ElaPagerWidget,
     INFO_BAR_HEIGHT,
     INFO_BAR_SPACING,
-    PAGER_HEIGHT,
-    PAGER_SPACING,
 )
 
 
@@ -26,14 +23,6 @@ class TestConstants:
     def test_info_bar_spacing(self):
         """Test INFO_BAR_SPACING is 10."""
         assert INFO_BAR_SPACING == 10
-
-    def test_pager_height(self):
-        """Test PAGER_HEIGHT is 50."""
-        assert PAGER_HEIGHT == 50
-
-    def test_pager_spacing(self):
-        """Test PAGER_SPACING is 12."""
-        assert PAGER_SPACING == 12
 
 
 class TestElaInfoBarWidget:
@@ -83,81 +72,6 @@ class TestElaInfoBarWidget:
         assert "当前列" in bar._col_label.text()
 
         bar.deleteLater()
-
-
-class TestElaPagerWidget:
-    """Test cases for ElaPagerWidget class."""
-
-    def test_initialization(self):
-        """Test pager initializes correctly."""
-        pager = ElaPagerWidget(total_rows=100, total_cols=5, current_page=1)
-
-        assert pager._total_rows == 100
-        assert pager._total_cols == 5
-        assert pager._current_page == 1
-        assert pager._total_pages == 1
-
-        pager.deleteLater()
-
-    def test_fixed_height_is_pager_height(self):
-        """Test pager has fixed height of PAGER_HEIGHT."""
-        pager = ElaPagerWidget(total_rows=100, total_cols=5, current_page=1)
-
-        assert pager.height() == PAGER_HEIGHT
-
-        pager.deleteLater()
-
-    def test_has_page_request_signal(self):
-        """Test pager has pageRequest signal."""
-        pager = ElaPagerWidget(total_rows=100, total_cols=5, current_page=1)
-
-        assert hasattr(pager, 'pageRequest')
-        assert callable(pager.pageRequest)
-
-        pager.deleteLater()
-
-    def test_update_state(self):
-        """Test update_state updates pager state."""
-        pager = ElaPagerWidget(total_rows=100, total_cols=5, current_page=1)
-
-        pager.update_state(total_rows=200, total_cols=10, current_page=2, total_pages=20)
-
-        assert pager._total_rows == 200
-        assert pager._total_cols == 10
-        assert pager._current_page == 2
-        assert pager._total_pages == 20
-
-        pager.deleteLater()
-
-    def test_prev_button_disabled_on_first_page(self):
-        """Test prev button is disabled on first page."""
-        pager = ElaPagerWidget(total_rows=100, total_cols=5, current_page=1)
-
-        assert pager._prev_btn.isEnabled() is False
-
-        pager.deleteLater()
-
-    def test_next_button_disabled_on_last_page(self):
-        """Test next button is disabled on last page."""
-        pager = ElaPagerWidget(total_rows=100, total_cols=5, current_page=10)
-
-        pager._total_pages = 10
-        pager._update_button_states()
-
-        assert pager._next_btn.isEnabled() is False
-
-        pager.deleteLater()
-
-    def test_total_pages_calculation(self):
-        """Test total pages calculation with page size."""
-        pager = ElaPagerWidget(total_rows=100, total_cols=5, current_page=1)
-        pager._page_size = 10
-
-        pager._total_pages = (100 + 10 - 1) // 10
-
-        assert pager._total_pages == 10
-
-        pager.deleteLater()
 
 
 class TestElaParquetTableImport:

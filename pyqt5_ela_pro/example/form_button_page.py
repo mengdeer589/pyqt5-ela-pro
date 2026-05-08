@@ -8,10 +8,14 @@
 
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaIconType, ElaThemeType
+from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaIconType, ElaThemeType, ElaMenu
 from pyqt5_ela_pro import (
     ElaThemeWidget,
     ElaButton,
+    ElaConfirmDialog,
+    ElaDropDownButton,
+    ElaSplitButton,
+    ElaToast,
     ElaTagLineEdit,
     ElaLongPressButton,
     ElaMessageDialog,
@@ -58,7 +62,11 @@ class FormButtonPage(ExamplePage):
         self._demoEsButton(parent_layout)
         self._demoEsSvgButton(parent_layout)
         self._demoElaButton(parent_layout)
+        self._demoDropDownButton(parent_layout)
+        self._demoSplitButton(parent_layout)
+        self._demoToast(parent_layout)
         self._demoMessageDialog(parent_layout)
+        self._demoConfirmDialog(parent_layout)
 
     def _demoTagLineEdit(self, parent_layout):
         parent_layout.addLayout(
@@ -352,6 +360,103 @@ class FormButtonPage(ExamplePage):
         parent_layout.addLayout(row)
         parent_layout.addSpacing(20)
 
+    def _demoDropDownButton(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("09a. pyqt5_ela_pro - ElaDropDownButton 下拉按钮", self._demoDropDownButton)
+        )
+        self._addInfoText(
+            "点击展开 ElaMenu 下拉菜单", parent_layout
+        )
+        row = QHBoxLayout()
+        row.setSpacing(15)
+
+        btn = ElaDropDownButton(parent=self)
+        btn.setText("操作")
+        menu = ElaMenu(btn)
+        menu.addAction("选项一")
+        menu.addAction("选项二")
+        menu.addSeparator()
+        menu.addAction("选项三")
+        btn.setMenu(menu)
+        row.addWidget(btn)
+
+        btn2 = ElaDropDownButton(parent=self)
+        btn2.setText("设置")
+        btn2.setElaIcon(ElaIconType.IconName.Gear)
+        menu2 = ElaMenu(btn2)
+        menu2.addAction("偏好设置")
+        menu2.addAction("账户")
+        btn2.setMenu(menu2)
+        row.addWidget(btn2)
+
+        row.addStretch()
+        parent_layout.addLayout(row)
+        parent_layout.addSpacing(20)
+
+    def _demoSplitButton(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("10. pyqt5_ela_pro - ElaSplitButton 拆分按钮", self._demoSplitButton)
+        )
+        self._addInfoText(
+            "左侧点击触发操作，右侧弹出下拉菜单", parent_layout
+        )
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+
+        btn = ElaSplitButton(parent=self)
+        btn.setText("保存")
+        btn.setElaIcon(ElaIconType.IconName.FloppyDisk)
+        btn.clicked.connect(lambda: print("保存 clicked"))
+        btn_layout.addWidget(btn)
+
+        menu_btn = ElaSplitButton(parent=self)
+        menu_btn.setText("更多")
+        menu_btn.setElaIcon(ElaIconType.IconName.Gear)
+        menu = ElaMenu(menu_btn)
+        menu.addAction("操作一")
+        menu.addAction("操作二")
+        menu.addSeparator()
+        menu.addAction("操作三")
+        menu_btn.setMenu(menu)
+        menu_btn.clicked.connect(lambda: print("更多 clicked"))
+        btn_layout.addWidget(menu_btn)
+
+        no_icon = ElaSplitButton(parent=self)
+        no_icon.setText("纯文字")
+        menu2 = ElaMenu(no_icon)
+        menu2.addAction("选项A")
+        menu2.addAction("选项B")
+        no_icon.setMenu(menu2)
+        no_icon.clicked.connect(lambda: print("纯文字 clicked"))
+        btn_layout.addWidget(no_icon)
+
+        btn_layout.addStretch()
+        parent_layout.addLayout(btn_layout)
+        parent_layout.addSpacing(20)
+
+    def _demoToast(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("11. pyqt5_ela_pro - ElaToast 通知提示", self._demoToast)
+        )
+        self._addInfoText(
+            "非模态通知，支持成功/信息/警告/错误四种类型，自动淡入→停留→淡出", parent_layout
+        )
+        row = QHBoxLayout()
+        row.setSpacing(15)
+        for text, slot in [
+            ("成功", lambda: ElaToast.success("操作成功完成！")),
+            ("信息", lambda: ElaToast.info("这是一条信息提示")),
+            ("警告", lambda: ElaToast.warning("请注意，磁盘空间不足")),
+            ("错误", lambda: ElaToast.error("发生错误，请重试")),
+        ]:
+            btn = ElaPushButton(text, self)
+            btn.setFixedWidth(80)
+            btn.clicked.connect(slot)
+            row.addWidget(btn)
+        row.addStretch()
+        parent_layout.addLayout(row)
+        parent_layout.addSpacing(20)
+
     def _demoMessageDialog(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow("09. pyqt5_ela_pro - ElaMessageDialog 消息对话框", self._demoMessageDialog)
@@ -382,6 +487,35 @@ class FormButtonPage(ExamplePage):
             print("您点击了确定按钮")
         elif result == 2:
             print("您点击了稍后提醒按钮")
+
+    def _demoConfirmDialog(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("10. ela_ext - ElaConfirmDialog 确认对话框", self._demoConfirmDialog)
+        )
+        self._addInfoText(
+            "全 QPainter 自绘的确认对话框，支持 bottom（下方）和 top（上方）弹出位置",
+            parent_layout,
+        )
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+        btn_bottom = ElaPushButton("下方弹出", self)
+        btn_bottom.setFixedWidth(100)
+        btn_bottom.clicked.connect(lambda: self._onShowConfirmDialog(btn_bottom, "bottom"))
+        btn_layout.addWidget(btn_bottom)
+        btn_top = ElaPushButton("上方弹出", self)
+        btn_top.setFixedWidth(100)
+        btn_top.clicked.connect(lambda: self._onShowConfirmDialog(btn_top, "top"))
+        btn_layout.addWidget(btn_top)
+        btn_layout.addStretch()
+        parent_layout.addLayout(btn_layout)
+        parent_layout.addSpacing(20)
+
+    def _onShowConfirmDialog(self, btn, position="bottom"):
+        result = ElaConfirmDialog.show(btn, "提示", f"确定要执行此操作吗？（{position}）", position=position)
+        if result:
+            print("用户点击了确认")
+        else:
+            print("用户点击了取消")
 
     def _demoNotifyPopup(self, parent_layout):
         parent_layout.addLayout(
