@@ -89,18 +89,32 @@ class ElaTagMultiBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaMultiSelectComboBox
 
         view = self.view()
         is_popup_visible = view.isVisible() if view else False
-        mark_width = _get_target_mark_width(self) if is_popup_visible else self._expand_mark_width
+        mark_width = (
+            _get_target_mark_width(self)
+            if is_popup_visible
+            else self._expand_mark_width
+        )
         _draw_tag_mark(painter, self, mark_width)
 
         title_rect = _draw_tag_title(
-            painter, content_rect, self._title_text,
-            self._title_font_size, text_color, self.font(),
+            painter,
+            content_rect,
+            self._title_text,
+            self._title_font_size,
+            text_color,
+            self.font(),
         )
         _draw_multi_value_text(
-            painter, content_rect, title_rect, self.getCurrentSelection(),
+            painter,
+            content_rect,
+            title_rect,
+            self.getCurrentSelection(),
         )
         _draw_tag_arrow(
-            painter, content_rect, text_color, self._expand_icon_rotate,
+            painter,
+            content_rect,
+            text_color,
+            self._expand_icon_rotate,
         )
 
     def deleteLater(self) -> None:

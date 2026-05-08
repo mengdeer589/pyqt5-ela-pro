@@ -23,31 +23,19 @@ from PyQt5.QtGui import QPainter, QPaintEvent, QPen
 from PyQt5.QtWidgets import QSizePolicy, QWidget
 from PyQt5ElaWidgetTools import ElaThemeType, eTheme
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 ElaDividerOrientation = Literal["left", "center", "right", "top", "bottom"]
 ElaDividerVariant = Literal["solid", "dashed"]
 
 
-class ElaDivider(QWidget):
-    """分割线组件。
-
-    支持水平（默认）和垂直方向，可在分割线中嵌入文字，
-    文字支持左/中/右（水平）或上/中/下（垂直）定位。
-
-    :param text: 分割线中的文字，为空则不显示文字
-    :param orientation: 文字位置
-        - 水平模式: ``"left"`` / ``"center"`` / ``"right"``
-        - 垂直模式: ``"top"`` / ``"center"`` / ``"bottom"``
-    :param variant: 线条样式，``"solid"`` 实线 / ``"dashed"`` 虚线
-    :param vertical: ``False`` 水平分割线 / ``True`` 垂直分割线
-    :param parent: 父控件
-    """
+class ElaDivider(_ThemeAwareMixin, QWidget):
+    """分割线组件。"""
 
     def __init__(
         self,
         text: str = "",
-        orientation: str = "center",
+        orientation: ElaDividerOrientation = "center",
         variant: ElaDividerVariant = "solid",
         vertical: bool = False,
         parent: Optional[QWidget] = None,
@@ -58,13 +46,14 @@ class ElaDivider(QWidget):
         self._orientation = orientation
         self._variant = variant
         self._vertical = vertical
+        self._theme_mode = eTheme.getThemeMode()
 
         if vertical:
             self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         else:
             self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        self._onThemeChanged(eTheme.getThemeMode())
+        self._onThemeChanged(self._theme_mode)
         eTheme.themeModeChanged.connect(self._onThemeChanged)
 
     # ── Public API ────────────────────────────────────────
@@ -76,7 +65,7 @@ class ElaDivider(QWidget):
     def text(self) -> str:
         return self._text
 
-    def setOrientation(self, orientation: str) -> None:
+    def setOrientation(self, orientation: ElaDividerOrientation) -> None:
         self._orientation = orientation
         self.update()
 
@@ -104,11 +93,8 @@ class ElaDivider(QWidget):
     # ── Internal ──────────────────────────────────────────
 
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
+        self._theme_mode = mode
         self.update()
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeChanged)
-        super().deleteLater()
 
     def sizeHint(self) -> QSize:
         fm = self.fontMetrics()
@@ -128,7 +114,7 @@ class ElaDivider(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
-        mode = eTheme.getThemeMode()
+        mode = self._theme_mode
         line_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBaseLine)
         text_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
 

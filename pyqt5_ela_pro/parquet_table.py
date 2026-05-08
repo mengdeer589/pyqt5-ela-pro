@@ -91,7 +91,7 @@ class ElaInfoBarWidget(ElaThemeWidget):
         self._apply_colors()
 
     def _apply_colors(self) -> None:
-        mode = eTheme.getThemeMode()
+        mode = self._theme_mode
 
         col_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicDetailsText)
         self._set_label_color(self._col_label, col_color)
@@ -140,7 +140,7 @@ class ElaInfoBarWidget(ElaThemeWidget):
 
     def _update_bg_color(self, mode: ElaThemeType.ThemeMode) -> None:
         super()._update_bg_color(mode)
-        if hasattr(self, '_col_label'):
+        if hasattr(self, "_col_label"):
             self._apply_colors()
 
 
@@ -290,14 +290,11 @@ class ElaParquetTable(ElaThemeWidget):
         if not isinstance(dtype, numeric_types):
             return None
 
-        stats_df = (
-            self._lf.select(
-                pl.col(column_name).min().alias("min"),
-                pl.col(column_name).max().alias("max"),
-                pl.col(column_name).last().alias("last"),
-            )
-            .collect()
-        )
+        stats_df = self._lf.select(
+            pl.col(column_name).min().alias("min"),
+            pl.col(column_name).max().alias("max"),
+            pl.col(column_name).last().alias("last"),
+        ).collect()
         return {
             "min": stats_df["min"][0],
             "max": stats_df["max"][0],
@@ -330,16 +327,16 @@ class ElaParquetTable(ElaThemeWidget):
         self._current_page = 1
         self._load_data()
 
-    def getTotalRows(self) -> int:
+    def totalRows(self) -> int:
         return self._total_rows
 
-    def getCurrentPage(self) -> int:
+    def currentPage(self) -> int:
         return self._current_page
 
-    def getPageSize(self) -> int:
+    def pageSize(self) -> int:
         return self._page_size
 
-    def getTotalPages(self) -> int:
+    def totalPages(self) -> int:
         return max(1, (self._total_rows + self._page_size - 1) // self._page_size)
 
     def loadData(self, parquet_path: str) -> None:

@@ -17,7 +17,7 @@ from PyQt5ElaWidgetTools import (
     ElaThemeType,
     ElaText,
     ElaIconButton,
-    ElaIconType
+    ElaIconType,
 )
 
 
@@ -119,7 +119,9 @@ class ElaNotifyPopup(QWidget):
             return screen.availableGeometry()
         return QApplication.instance().desktop().availableGeometry()
 
-    def showNotification(self, title: str = "", content: str = "", timeout: int = -1) -> None:
+    def showNotification(
+        self, title: str = "", content: str = "", timeout: int = -1
+    ) -> None:
         if title:
             self.setTitle(title)
         if content:
@@ -229,7 +231,9 @@ class ElaNotifyManager:
             cls._instance._popups = []
         return cls._instance
 
-    def showNotification(self, title: str = "", content: str = "", timeout: int = 5000) -> None:
+    def showNotification(
+        self, title: str = "", content: str = "", timeout: int = 5000
+    ) -> None:
         popup = ElaNotifyPopup(title=title, content=content, timeout=timeout)
         popup.closed.connect(lambda: self._onPopupClosed(popup))
         self._popups.append(popup)
@@ -240,4 +244,5 @@ class ElaNotifyManager:
             self._popups.remove(popup)
 
 
-show_notify = ElaNotifyManager().showNotification
+def show_notify(title: str = "", content: str = "", timeout: int = 5000) -> None:
+    return ElaNotifyManager().showNotification(title, content, timeout)

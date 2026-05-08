@@ -7,7 +7,7 @@ import os
 
 os.environ["QT_LOGGING_RULES"] = "*.debug=false;qt.qpa.fonts.warning=false"
 
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
 from PyQt5ElaWidgetTools import (
@@ -17,7 +17,6 @@ from PyQt5ElaWidgetTools import (
     ElaText,
     ElaListView,
 )
-from pyqt5_ela_pro import ElaSplashScreen
 from pyqt5_ela_pro.example import (
     BasicContainerPage,
     ContainerDisplayPage,

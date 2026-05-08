@@ -10,7 +10,6 @@ from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QGridLayout, QLineEdit
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaIconType, ElaThemeType, ElaMenu
 from pyqt5_ela_pro import (
-    ElaThemeWidget,
     ElaButton,
     ElaConfirmDialog,
     ElaDropDownButton,
@@ -20,7 +19,6 @@ from pyqt5_ela_pro import (
     ElaLongPressButton,
     ElaMessageDialog,
     ElaProgressButton,
-    ElaNotifyPopup,
     ElaSvgButton,
     ElaSvgIconButton,
     show_notify,
@@ -179,7 +177,7 @@ class FormButtonPage(ExamplePage):
             self._progressTimerBtn.setText("停止定时更新")
 
     def _onProgressTimerTick(self):
-        current = self._progressBtn.getProgress()
+        current = self._progressBtn.progress()
         if current >= 100:
             self._progressTimer.stop()
             self._progressTimerBtn.setText("启动定时更新")

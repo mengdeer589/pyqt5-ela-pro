@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+from enum import IntEnum
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QRectF, QSize, QEvent
@@ -28,10 +29,10 @@ from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 
-class ElaInfoBadge(QWidget):
+class ElaInfoBadge(_ThemeAwareMixin, QWidget):
     """角标组件。
 
     可附加到任意控件的右上角，支持 Dot / Value / Icon 三种显示模式，
@@ -42,12 +43,12 @@ class ElaInfoBadge(QWidget):
     :param parent: 父控件
     """
 
-    class BadgeMode:
+    class BadgeMode(IntEnum):
         Dot = 0
         Value = 1
         Icon = 2
 
-    class Severity:
+    class Severity(IntEnum):
         Attention = 0
         Informational = 1
         Success = 2
@@ -71,6 +72,7 @@ class ElaInfoBadge(QWidget):
 
         self.setObjectName("ElaInfoBadge")
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._icon_font = QFont("ElaAwesome")
 
         if value is not None:
             self._badge_mode = self.BadgeMode.Value
@@ -80,7 +82,6 @@ class ElaInfoBadge(QWidget):
             self._icon = icon
 
         self._theme_mode = eTheme.getThemeMode()
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
 
     # ── Public API ────────────────────────────────────────
 
@@ -89,7 +90,7 @@ class ElaInfoBadge(QWidget):
         self._updateGeometry()
         self.update()
 
-    def getBadgeMode(self) -> int:
+    def badgeMode(self) -> int:
         return self._badge_mode
 
     def setValue(self, value: int) -> None:
@@ -104,21 +105,21 @@ class ElaInfoBadge(QWidget):
         self._max_value = max_value
         self.update()
 
-    def getMaxValue(self) -> int:
+    def maxValue(self) -> int:
         return self._max_value
 
     def setElaIcon(self, icon: ElaIconType.IconName) -> None:
         self._icon = icon
         self.update()
 
-    def getElaIcon(self) -> ElaIconType.IconName:
+    def elaIcon(self) -> ElaIconType.IconName:
         return self._icon
 
     def setSeverity(self, severity: int) -> None:
         self._severity = severity
         self.update()
 
-    def getSeverity(self) -> int:
+    def severity(self) -> int:
         return self._severity
 
     def attachTo(self, target: QWidget) -> None:
@@ -168,13 +169,16 @@ class ElaInfoBadge(QWidget):
         self.update()
 
     def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeChanged)
+        self._theme_cleanup()
         if self._target:
             self._target.removeEventFilter(self)
         super().deleteLater()
 
     def eventFilter(self, watched, event) -> bool:
-        if watched == self._target and event.type() in (QEvent.Type.Resize, QEvent.Type.Move):
+        if watched == self._target and event.type() in (
+            QEvent.Type.Resize,
+            QEvent.Type.Move,
+        ):
             self._updatePosition()
             self.raise_()
         return super().eventFilter(watched, event)
@@ -204,7 +208,11 @@ class ElaInfoBadge(QWidget):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(r, h / 2.0, h / 2.0)
 
-            text = str(self._value) if self._value <= self._max_value else f"{self._max_value}+"
+            text = (
+                str(self._value)
+                if self._value <= self._max_value
+                else f"{self._max_value}+"
+            )
             font = self.font()
             font.setPixelSize(10)
             font.setBold(True)
@@ -219,17 +227,22 @@ class ElaInfoBadge(QWidget):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawEllipse(r)
 
-            icon_font = QFont("ElaAwesome")
-            icon_font.setPixelSize(int(self.height() * 0.55))
-            painter.setFont(icon_font)
+            self._icon_font.setPixelSize(int(self.height() * 0.55))
+            painter.setFont(self._icon_font)
             painter.setPen(Qt.GlobalColor.white)
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, chr(int(self._icon)))
+            painter.drawText(
+                self.rect(), Qt.AlignmentFlag.AlignCenter, chr(int(self._icon))
+            )
 
     def sizeHint(self) -> QSize:
         if self._badge_mode == self.BadgeMode.Dot:
             return QSize(10, 10)
         if self._badge_mode == self.BadgeMode.Value:
-            text = str(self._value) if self._value <= self._max_value else f"{self._max_value}+"
+            text = (
+                str(self._value)
+                if self._value <= self._max_value
+                else f"{self._max_value}+"
+            )
             font = QFont()
             font.setPixelSize(10)
             font.setBold(True)

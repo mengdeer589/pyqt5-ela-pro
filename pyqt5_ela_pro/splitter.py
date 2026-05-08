@@ -14,10 +14,10 @@ from PyQt5.QtWidgets import QSplitter, QSplitterHandle, QWidget, QBoxLayout
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 
-class ElaSplitterHandle(QSplitterHandle):
+class ElaSplitterHandle(_ThemeAwareMixin, QSplitterHandle):
     """ELA 风格分割器手柄，带中心线和圆角 grip 条。
 
     支持 Normal / Hover / Pressed 三种状态颜色。
@@ -31,7 +31,6 @@ class ElaSplitterHandle(QSplitterHandle):
         self.setMouseTracking(True)
 
         self._theme_mode = eTheme.getThemeMode()
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
 
     def setGripLength(self, length: int) -> None:
         self._grip_length = length
@@ -40,13 +39,9 @@ class ElaSplitterHandle(QSplitterHandle):
     def getGripLength(self) -> int:
         return self._grip_length
 
-    def _onThemeChanged(self, mode) -> None:
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self._theme_mode = mode
         self.update()
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeChanged)
-        super().deleteLater()
 
     def enterEvent(self, event: QEvent) -> None:
         self._is_hover = True
@@ -78,11 +73,17 @@ class ElaSplitterHandle(QSplitterHandle):
             is_horiz = self.orientation() == Qt.Orientation.Horizontal
 
             if self._is_pressed:
-                grip_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryNormal)
+                grip_color = eTheme.getThemeColor(
+                    mode, ElaThemeType.ThemeColor.PrimaryNormal
+                )
             elif self._is_hover:
-                grip_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextPress)
+                grip_color = eTheme.getThemeColor(
+                    mode, ElaThemeType.ThemeColor.BasicTextPress
+                )
             else:
-                grip_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorderDeep)
+                grip_color = eTheme.getThemeColor(
+                    mode, ElaThemeType.ThemeColor.BasicBorderDeep
+                )
 
             line_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorder)
             painter.setPen(QPen(line_color, 1))
@@ -103,6 +104,7 @@ class ElaSplitterHandle(QSplitterHandle):
             painter.drawRoundedRect(grip_rect, 2, 2)
         except Exception:
             import traceback
+
             traceback.print_exc()
 
 

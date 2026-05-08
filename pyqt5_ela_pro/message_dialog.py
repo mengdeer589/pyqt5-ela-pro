@@ -74,6 +74,8 @@ class ElaMessageDialog(ElaDialogBase):
         :param middleText: 中间按钮文本，为 None 时隐藏中间按钮
         :return: 点击的按钮对应的返回值（0=左按钮取消, 1=右按钮确定, 2=中间按钮）
         """
-        dialog = ElaMessageDialog(title=title, message=message, middleText=middleText, parent=parent)
+        dialog = ElaMessageDialog(
+            title=title, message=message, middleText=middleText, parent=parent
+        )
         dialog.setWindowTitle(title)
         return dialog.exec_()

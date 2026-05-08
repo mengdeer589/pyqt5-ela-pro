@@ -13,16 +13,34 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QRectF, QPoint, QPointF, QSizeF, QObject, pyqtSignal, QPropertyAnimation, QEasingCurve, QAbstractAnimation, QEvent
+from PyQt5.QtCore import (
+    Qt,
+    QRectF,
+    QPoint,
+    QPointF,
+    QSizeF,
+    QObject,
+    pyqtSignal,
+    QPropertyAnimation,
+    QEasingCurve,
+    QAbstractAnimation,
+    QEvent,
+)
 from PyQt5.QtGui import QPainter, QPainterPath, QPen, QColor, QPaintEvent, QMouseEvent
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
 
-from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaText, ElaTextType, ElaPushButton
+from PyQt5ElaWidgetTools import (
+    eTheme,
+    ElaThemeType,
+    ElaText,
+    ElaTextType,
+    ElaPushButton,
+)
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 
-class ElaSpotlight(QWidget):
+class ElaSpotlight(_ThemeAwareMixin, QWidget):
     """引导遮罩。
 
     覆盖在父控件之上，用遮罩突出显示目标控件，并显示提示文字。
@@ -34,7 +52,13 @@ class ElaSpotlight(QWidget):
     finished = pyqtSignal()
 
     class SpotlightStep:
-        def __init__(self, target: QWidget, title: str = "", content: str = "", is_circle: bool = False):
+        def __init__(
+            self,
+            target: QWidget,
+            title: str = "",
+            content: str = "",
+            is_circle: bool = False,
+        ):
             self.target = target
             self.title = title
             self.content = content
@@ -97,7 +121,6 @@ class ElaSpotlight(QWidget):
         tip_layout.addLayout(btn_layout)
 
         self._theme_mode = eTheme.getThemeMode()
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
 
     # ── Public API ────────────────────────────────────────
 
@@ -186,9 +209,13 @@ class ElaSpotlight(QWidget):
 
         if len(self._steps) > 1:
             self._prev_btn.setVisible(self._current_step > 0)
-            self._next_btn.setText("完成" if self._current_step >= len(self._steps) - 1 else "下一步")
+            self._next_btn.setText(
+                "完成" if self._current_step >= len(self._steps) - 1 else "下一步"
+            )
             self._step_indicator.setVisible(True)
-            self._step_indicator.setText(f"{self._current_step + 1} / {len(self._steps)}")
+            self._step_indicator.setText(
+                f"{self._current_step + 1} / {len(self._steps)}"
+            )
 
         target_rect = self._getTargetRect(step.target)
 
@@ -220,18 +247,19 @@ class ElaSpotlight(QWidget):
 
         self._tip_widget.move(tx, ty)
 
-        mode = eTheme.getThemeMode()
-        bg = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.DialogBase).name()
-        border = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBorder).name()
-        self._tip_widget.setStyleSheet(f"background-color: {bg}; border-radius: 8px; border: 1px solid {border};")
+        bg = eTheme.getThemeColor(
+            self._theme_mode, ElaThemeType.ThemeColor.DialogBase
+        ).name()
+        border = eTheme.getThemeColor(
+            self._theme_mode, ElaThemeType.ThemeColor.PopupBorder
+        ).name()
+        self._tip_widget.setStyleSheet(
+            f"background-color: {bg}; border-radius: 8px; border: 1px solid {border};"
+        )
 
-    def _onThemeChanged(self, mode) -> None:
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self._theme_mode = mode
         self.update()
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeChanged)
-        super().deleteLater()
 
     # ── Events ────────────────────────────────────────────
 
@@ -239,12 +267,16 @@ class ElaSpotlight(QWidget):
         if watched == self.parent() and event.type() == QEvent.Type.Resize:
             self.setGeometry(0, 0, self.parent().width(), self.parent().height())
             if self._is_active and 0 <= self._current_step < len(self._steps):
-                self._spotlight_rect = self._getTargetRect(self._steps[self._current_step].target)
+                self._spotlight_rect = self._getTargetRect(
+                    self._steps[self._current_step].target
+                )
                 self._updateTipPosition()
         return super().eventFilter(watched, event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        if self._spotlight_rect.isValid() and not self._spotlight_rect.contains(event.pos()):
+        if self._spotlight_rect.isValid() and not self._spotlight_rect.contains(
+            event.pos()
+        ):
             if len(self._steps) <= 1:
                 self.finish()
         event.accept()
@@ -260,10 +292,15 @@ class ElaSpotlight(QWidget):
             if self._spotlight_rect.isValid():
                 hole = QPainterPath()
                 if self._is_circle:
-                    r = max(self._spotlight_rect.width(), self._spotlight_rect.height()) / 2.0
+                    r = (
+                        max(self._spotlight_rect.width(), self._spotlight_rect.height())
+                        / 2.0
+                    )
                     hole.addEllipse(self._spotlight_rect.center(), r, r)
                 else:
-                    hole.addRoundedRect(self._spotlight_rect, self._border_radius, self._border_radius)
+                    hole.addRoundedRect(
+                        self._spotlight_rect, self._border_radius, self._border_radius
+                    )
                 overlay = overlay.subtracted(hole)
 
             alpha = int(self._overlay_alpha * self._opacity)
@@ -272,14 +309,20 @@ class ElaSpotlight(QWidget):
             painter.drawPath(overlay)
 
             if self._spotlight_rect.isValid():
-                mode = eTheme.getThemeMode()
-                border_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryNormal)
+                border_color = eTheme.getThemeColor(
+                    self._theme_mode, ElaThemeType.ThemeColor.PrimaryNormal
+                )
                 painter.setPen(QPen(border_color, 2))
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 if self._is_circle:
-                    r = max(self._spotlight_rect.width(), self._spotlight_rect.height()) / 2.0
+                    r = (
+                        max(self._spotlight_rect.width(), self._spotlight_rect.height())
+                        / 2.0
+                    )
                     painter.drawEllipse(self._spotlight_rect.center(), r, r)
                 else:
-                    painter.drawRoundedRect(self._spotlight_rect, self._border_radius, self._border_radius)
+                    painter.drawRoundedRect(
+                        self._spotlight_rect, self._border_radius, self._border_radius
+                    )
         except Exception as e:
             print(f"ElaSpotlight paint error: {e}")

@@ -78,7 +78,9 @@ class ElaTaskbarProgress(QObject):
         wh = self._window.windowHandle()
         if wh is not None:
             try:
-                self._window.windowHandleChanged.disconnect(self._on_window_handle_created)
+                self._window.windowHandleChanged.disconnect(
+                    self._on_window_handle_created
+                )
             except (TypeError, RuntimeError):
                 pass
             self._button.setWindow(wh)

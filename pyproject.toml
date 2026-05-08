@@ -56,3 +56,6 @@ pyqt5_ela_pro = ["icons/*.svg", "icons/*.png", "icons/*.ico", "icons/packages/*.
 
 [tool.uv]
 required-environments="sys_platform == 'win32' and platform_machine == 'AMD64'"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

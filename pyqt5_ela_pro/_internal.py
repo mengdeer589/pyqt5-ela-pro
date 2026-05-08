@@ -125,6 +125,38 @@ def _draw_button_content(
     return text_rect
 
 
+class _ThemeAwareMixin:
+    """Mixin that auto-connects theme signals and cleans up on destroy.
+
+    Subclasses must define _onThemeChanged(self, mode) and call
+    super().__init__(parent) or self._init_theme_aware().
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._theme_connected = True
+        from PyQt5ElaWidgetTools import eTheme
+
+        eTheme.themeModeChanged.connect(self._onThemeChanged)
+        self.destroyed.connect(self._theme_cleanup)
+
+    def _init_theme_aware(self) -> None:
+        self._theme_connected = True
+        from PyQt5ElaWidgetTools import eTheme
+
+        eTheme.themeModeChanged.connect(self._onThemeChanged)
+        self.destroyed.connect(self._theme_cleanup)
+
+    def _theme_cleanup(self) -> None:
+        if self._theme_connected:
+            disconnect_theme_signal(self._onThemeChanged)
+            self._theme_connected = False
+
+    def deleteLater(self) -> None:
+        self._theme_cleanup()
+        super().deleteLater()
+
+
 def _adjust_combobox_popup(combo_box) -> None:
     """在 super().showPopup() 之后调用。用最终弹窗高度判断是否需要移到上方。"""
     from PyQt5.QtWidgets import QApplication, QWidget

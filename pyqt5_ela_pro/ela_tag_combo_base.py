@@ -37,36 +37,32 @@ class _TagBoxThemeMixin:
     def _getTitleColor(self) -> QColor:
         if not self.isEnabled():
             return eTheme.getThemeColor(
-                eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicTextDisable
+                self._theme_mode, ElaThemeType.ThemeColor.BasicTextDisable
             )
-        return eTheme.getThemeColor(
-            eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicText
-        )
+        return eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicText)
 
     def _getBackgroundColor(self) -> QColor:
-        current_theme = eTheme.getThemeMode()
         if not self.isEnabled():
             return eTheme.getThemeColor(
-                current_theme, ElaThemeType.ThemeColor.BasicDisable
+                self._theme_mode, ElaThemeType.ThemeColor.BasicDisable
             )
         if self.hasFocus():
             return eTheme.getThemeColor(
-                current_theme, ElaThemeType.ThemeColor.DialogBase
+                self._theme_mode, ElaThemeType.ThemeColor.DialogBase
             )
         if self.underMouse():
             return eTheme.getThemeColor(
-                current_theme, ElaThemeType.ThemeColor.BasicHover
+                self._theme_mode, ElaThemeType.ThemeColor.BasicHover
             )
-        return eTheme.getThemeColor(current_theme, ElaThemeType.ThemeColor.BasicBase)
+        return eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicBase)
 
     def _getBorderColor(self) -> QColor:
         if self.hasFocus():
             return eTheme.getThemeColor(
-                eTheme.getThemeMode(), ElaThemeType.ThemeColor.PrimaryNormal
+                self._theme_mode, ElaThemeType.ThemeColor.PrimaryNormal
             )
-        current_theme = eTheme.getThemeMode()
         return eTheme.getThemeColor(
-            current_theme, ElaThemeType.ThemeColor.BasicBaseLine
+            self._theme_mode, ElaThemeType.ThemeColor.BasicBaseLine
         )
 
 
@@ -93,6 +89,7 @@ class _TagBoxAnimMixin:
         self._rotate_animation.setEasingCurve(QEasingCurve.InOutSine)
 
         self.setFixedHeight(38)
+        self._theme_mode = eTheme.getThemeMode()
 
         eTheme.themeModeChanged.connect(self._on_tag_theme_changed)
 
@@ -124,6 +121,7 @@ class _TagBoxAnimMixin:
         return self._title_text
 
     def _on_tag_theme_changed(self, *args) -> None:
+        self._theme_mode = eTheme.getThemeMode()
         self.update()
 
     def _animate_popup_open(self) -> None:
@@ -180,6 +178,7 @@ def _get_target_mark_width(widget) -> float:
 
 class _TagBoxWidgetProtocol(Protocol):
     """_draw_tag_background 所需的 widget 接口约束"""
+
     def _getBackgroundColor(self) -> QColor: ...
     def _getTitleColor(self) -> QColor: ...
     def _getBorderColor(self) -> QColor: ...
@@ -270,9 +269,7 @@ def _draw_tag_arrow(
         20,
         content_rect.height(),
     )
-    icon = ElaIcon.getInstance().getElaIcon(
-        ElaIconType.IconName.AngleDown, text_color
-    )
+    icon = ElaIcon.getInstance().getElaIcon(ElaIconType.IconName.AngleDown, text_color)
     icon_pixmap = icon.pixmap(17, 17)
 
     painter.save()

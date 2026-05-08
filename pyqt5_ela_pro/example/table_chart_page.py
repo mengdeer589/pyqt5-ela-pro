@@ -7,11 +7,11 @@
 
 import random
 
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QFileDialog
+from PyQt5.QtWidgets import QHBoxLayout, QFileDialog
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtCore import Qt
 from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaLineEdit, ElaComboBox
-from pyqt5_ela_pro import ElaDataTable, ElaTrendChart, ElaParquetTable
+from pyqt5_ela_pro import ElaDataTable, ElaTrendChart
 from .base_page import ExamplePage
 
 

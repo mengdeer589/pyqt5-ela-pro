@@ -5,8 +5,8 @@
 仅 Windows 平台有效。
 """
 
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QFileDialog
-from PyQt5ElaWidgetTools import ElaText, ElaPushButton
+from PyQt5.QtWidgets import QHBoxLayout, QFileDialog
+from PyQt5ElaWidgetTools import ElaPushButton
 from pyqt5_ela_pro import ElaWordViewer, ElaExcelViewer, ElaPowerPointViewer
 from .base_page import ExamplePage
 

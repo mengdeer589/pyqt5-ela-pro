@@ -13,10 +13,10 @@ from PyQt5.QtGui import QPalette
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaMessageBar, ElaMessageBarType
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 
-class ElaThemeWidget(QWidget):
+class ElaThemeWidget(_ThemeAwareMixin, QWidget):
     """自动适应主题变化的 ``QWidget`` 基类。
 
     在构造时查询当前主题模式，并通过 ``QPalette.Window`` 应用相应的背景色。
@@ -39,9 +39,12 @@ class ElaThemeWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setObjectName("ElaThemeWidget")
-        self._themeConnection = self._update_bg_color
-        self._update_bg_color(eTheme.getThemeMode())
-        eTheme.themeModeChanged.connect(self._themeConnection)
+        self._theme_mode = eTheme.getThemeMode()
+        self._update_bg_color(self._theme_mode)
+
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
+        self._theme_mode = mode
+        self._update_bg_color(mode)
 
     def _update_bg_color(self, mode: ElaThemeType.ThemeMode) -> None:
         """根据给定的主题模式更新 widget 的背景调色板。
@@ -54,16 +57,9 @@ class ElaThemeWidget(QWidget):
         palette.setColor(QPalette.ColorRole.Window, bg_color)
         self.setPalette(palette)
 
-    def deleteLater(self) -> None:
-        """断开主题信号连接，并调度 widget 进行删除。"""
-        if self._themeConnection is not None:
-            disconnect_theme_signal(self._themeConnection)
-            self._themeConnection = None
-        super().deleteLater()
-
     def createLayout(
         self,
-        layoutType: Literal["h", "v"]='h',
+        layoutType: Literal["h", "v"] = "h",
         parent: QWidget | None = None,
     ) -> QHBoxLayout | QVBoxLayout:
         """创建布局。
@@ -112,5 +108,5 @@ class ElaThemeWidget(QWidget):
         func = getattr(ElaMessageBar, level)
         position_policy = getattr(ElaMessageBarType.PositionPolicy, position)
         if parent is None:
-            parent=self
+            parent = self
         func(position_policy, title, message, duration, parent)

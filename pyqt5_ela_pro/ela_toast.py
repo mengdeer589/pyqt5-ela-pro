@@ -17,28 +17,43 @@
 from __future__ import annotations
 
 import traceback
+from enum import IntEnum
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QRect, QRectF, QPoint, QPropertyAnimation, QEasingCurve, QTimer, QAbstractAnimation
+from PyQt5.QtCore import (
+    Qt,
+    QRect,
+    QRectF,
+    QPoint,
+    QPropertyAnimation,
+    QEasingCurve,
+    QTimer,
+    QAbstractAnimation,
+)
 from PyQt5.QtGui import QPainter, QPainterPath, QFont, QFontMetrics, QColor, QPaintEvent
 from PyQt5.QtWidgets import QWidget, QApplication
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 
-class ElaToast(QWidget):
+class _ToastType(IntEnum):
+    Success = 0
+    Info = 1
+    Warning = 2
+    Error = 3
+
+
+class ElaToast(_ThemeAwareMixin, QWidget):
     """通知提示。私有构造，使用静态方法创建。"""
 
-    class _Type:
-        Success = 0
-        Info = 1
-        Warning = 2
-        Error = 3
-
     def __init__(
-        self, toast_type: int, text: str, display_msec: int, parent: Optional[QWidget] = None
+        self,
+        toast_type: _ToastType,
+        text: str,
+        display_msec: int,
+        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(None)
 
@@ -49,17 +64,21 @@ class ElaToast(QWidget):
         self._shadow_border = 4
 
         self.setObjectName("ElaToast")
-        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
+        self.setWindowFlags(
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.NoDropShadowWindowHint
+        )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
         self._theme_mode = eTheme.getThemeMode()
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
+        self._icon_font = QFont("ElaAwesome")
+        self._text_font = QFont()
 
         # Size
-        tf = QFont()
-        tf.setPixelSize(14)
-        fm = QFontMetrics(tf)
+        self._text_font.setPixelSize(14)
+        fm = QFontMetrics(self._text_font)
         tw = fm.horizontalAdvance(text)
         total_w = max(200, min(400, tw + 80))
         self.setFixedHeight(48)
@@ -70,7 +89,9 @@ class ElaToast(QWidget):
         if parent:
             parent_global = parent.mapToGlobal(QPoint(0, 0))
             pw = parent.width()
-            pos = QPoint(parent_global.x() + (pw - self.width()) // 2, parent_global.y() + 60)
+            pos = QPoint(
+                parent_global.x() + (pw - self.width()) // 2, parent_global.y() + 60
+            )
         else:
             screen = QApplication.primaryScreen()
             if screen:
@@ -78,26 +99,39 @@ class ElaToast(QWidget):
                 pos = QPoint(sg.x() + (sg.width() - self.width()) // 2, sg.y() + 60)
         self.move(pos)
 
+    def _present(self) -> None:
         self.show()
         self._run_animation()
 
     # ── Static public API ─────────────────────────────────
 
     @staticmethod
-    def success(text: str, display_msec: int = 2000, parent: Optional[QWidget] = None) -> None:
-        ElaToast(ElaToast._Type.Success, text, display_msec, parent)
+    def success(
+        text: str, display_msec: int = 2000, parent: Optional[QWidget] = None
+    ) -> None:
+        toast = ElaToast(_ToastType.Success, text, display_msec, parent)
+        toast._present()
 
     @staticmethod
-    def info(text: str, display_msec: int = 2000, parent: Optional[QWidget] = None) -> None:
-        ElaToast(ElaToast._Type.Info, text, display_msec, parent)
+    def info(
+        text: str, display_msec: int = 2000, parent: Optional[QWidget] = None
+    ) -> None:
+        toast = ElaToast(_ToastType.Info, text, display_msec, parent)
+        toast._present()
 
     @staticmethod
-    def warning(text: str, display_msec: int = 2000, parent: Optional[QWidget] = None) -> None:
-        ElaToast(ElaToast._Type.Warning, text, display_msec, parent)
+    def warning(
+        text: str, display_msec: int = 2000, parent: Optional[QWidget] = None
+    ) -> None:
+        toast = ElaToast(_ToastType.Warning, text, display_msec, parent)
+        toast._present()
 
     @staticmethod
-    def error(text: str, display_msec: int = 2000, parent: Optional[QWidget] = None) -> None:
-        ElaToast(ElaToast._Type.Error, text, display_msec, parent)
+    def error(
+        text: str, display_msec: int = 2000, parent: Optional[QWidget] = None
+    ) -> None:
+        toast = ElaToast(_ToastType.Error, text, display_msec, parent)
+        toast._present()
 
     # ── Internal ──────────────────────────────────────────
 
@@ -123,13 +157,9 @@ class ElaToast(QWidget):
         self._fade_out.finished.connect(self.close)
         self._fade_out.start(QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
 
-    def _onThemeChanged(self, mode) -> None:
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self._theme_mode = mode
         self.update()
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeChanged)
-        super().deleteLater()
 
     # ── Paint ─────────────────────────────────────────────
 
@@ -145,22 +175,30 @@ class ElaToast(QWidget):
             fg = QRect(sb, sb, self.width() - 2 * sb, self.height() - 2 * sb)
 
             # Background
-            painter.setPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBorder))
-            painter.setBrush(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBase))
+            painter.setPen(
+                eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBorder)
+            )
+            painter.setBrush(
+                eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBase)
+            )
             painter.drawRoundedRect(fg, br, br)
 
             # Indicator & icon
-            if self._toast_type == self._Type.Success:
+            if self._toast_type == _ToastType.Success:
                 ind_color = QColor(0x0F, 0x7B, 0x0F)
                 icon_enum = ElaIconType.IconName.Check
-            elif self._toast_type == self._Type.Info:
-                ind_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryNormal)
+            elif self._toast_type == _ToastType.Info:
+                ind_color = eTheme.getThemeColor(
+                    mode, ElaThemeType.ThemeColor.PrimaryNormal
+                )
                 icon_enum = ElaIconType.IconName.CircleInfo
-            elif self._toast_type == self._Type.Warning:
+            elif self._toast_type == _ToastType.Warning:
                 ind_color = QColor(0xF7, 0x93, 0x0E)
                 icon_enum = ElaIconType.IconName.CircleExclamation
             else:
-                ind_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.StatusDanger)
+                ind_color = eTheme.getThemeColor(
+                    mode, ElaThemeType.ThemeColor.StatusDanger
+                )
                 icon_enum = ElaIconType.IconName.CircleXmark
 
             # Indicator bar (clip to foreground)
@@ -174,19 +212,25 @@ class ElaToast(QWidget):
             painter.restore()
 
             # Icon
-            icon_font = QFont("ElaAwesome")
-            icon_font.setPixelSize(16)
-            painter.setFont(icon_font)
+            self._icon_font.setPixelSize(16)
+            painter.setFont(self._icon_font)
             painter.setPen(ind_color)
-            painter.drawText(QRect(fg.x() + 14, fg.y(), 20, fg.height()),
-                             Qt.AlignmentFlag.AlignCenter, chr(int(icon_enum)))
+            painter.drawText(
+                QRect(fg.x() + 14, fg.y(), 20, fg.height()),
+                Qt.AlignmentFlag.AlignCenter,
+                chr(int(icon_enum)),
+            )
 
             # Text
-            text_font = QFont()
-            text_font.setPixelSize(14)
-            painter.setFont(text_font)
-            painter.setPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText))
-            painter.drawText(QRect(fg.x() + 42, fg.y(), fg.width() - 52, fg.height()),
-                             Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self._text)
+            self._text_font.setPixelSize(14)
+            painter.setFont(self._text_font)
+            painter.setPen(
+                eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
+            )
+            painter.drawText(
+                QRect(fg.x() + 42, fg.y(), fg.width() - 52, fg.height()),
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                self._text,
+            )
         except Exception:
             print(traceback.format_exc())

@@ -17,15 +17,22 @@ import traceback
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QRect, QRectF, QSize, pyqtSignal
-from PyQt5.QtGui import QPainter, QPainterPath, QFont, QPaintEvent, QMouseEvent, QIntValidator
+from PyQt5.QtGui import (
+    QPainter,
+    QPainterPath,
+    QFont,
+    QPaintEvent,
+    QMouseEvent,
+    QIntValidator,
+)
 from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaLineEdit
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 
-class ElaPagination(QWidget):
+class ElaPagination(_ThemeAwareMixin, QWidget):
     """分页组件。
 
     :param parent: 父控件
@@ -46,6 +53,7 @@ class ElaPagination(QWidget):
         self.setObjectName("ElaPagination")
         self.setMouseTracking(True)
         self.setFixedHeight(self._button_size + 8)
+        self._icon_font = QFont("ElaAwesome")
 
         self._jumper_edit = ElaLineEdit(self)
         self._jumper_edit.setFixedHeight(self._button_size)
@@ -56,7 +64,6 @@ class ElaPagination(QWidget):
         self._jumper_edit.returnPressed.connect(self._onJumperEntered)
 
         self._theme_mode = eTheme.getThemeMode()
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
 
     def setCurrentPage(self, n: int) -> None:
         if n != self._current_page and 1 <= n <= self._total_pages:
@@ -64,7 +71,7 @@ class ElaPagination(QWidget):
             self.currentPageChanged.emit(n)
             self.update()
 
-    def getCurrentPage(self) -> int:
+    def currentPage(self) -> int:
         return self._current_page
 
     def setTotalPages(self, n: int) -> None:
@@ -74,7 +81,7 @@ class ElaPagination(QWidget):
         self.updateGeometry()
         self.update()
 
-    def getTotalPages(self) -> int:
+    def totalPages(self) -> int:
         return self._total_pages
 
     def setButtonSize(self, n: int) -> None:
@@ -83,14 +90,14 @@ class ElaPagination(QWidget):
         self.updateGeometry()
         self.update()
 
-    def getButtonSize(self) -> int:
+    def buttonSize(self) -> int:
         return self._button_size
 
     def setPagerCount(self, n: int) -> None:
         self._pager_count = n
         self.update()
 
-    def getPagerCount(self) -> int:
+    def pagerCount(self) -> int:
         return self._pager_count
 
     def setJumperVisible(self, v: bool) -> None:
@@ -102,13 +109,9 @@ class ElaPagination(QWidget):
     def isJumperVisible(self) -> bool:
         return self._jumper_visible
 
-    def _onThemeChanged(self, mode) -> None:
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self._theme_mode = mode
         self.update()
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeChanged)
-        super().deleteLater()
 
     # ── Internal ──────────────────────────────────────────
 
@@ -130,11 +133,11 @@ class ElaPagination(QWidget):
         if not left_ellipsis and right_ellipsis:
             for i in range(1, pc - 1):
                 pages.append(i)
-            pages.append(-1)   # right ellipsis
+            pages.append(-1)  # right ellipsis
             pages.append(total)
         elif left_ellipsis and not right_ellipsis:
             pages.append(1)
-            pages.append(-3)   # left ellipsis
+            pages.append(-3)  # left ellipsis
             for i in range(total - (pc - 3), total + 1):
                 pages.append(i)
         else:
@@ -161,7 +164,7 @@ class ElaPagination(QWidget):
             rects.append((QRect(x, y, size, size), page))
             x += size + spacing
 
-        rects.append((QRect(x, y, size, size), -2))   # next
+        rects.append((QRect(x, y, size, size), -2))  # next
         return rects
 
     def _updateJumperPosition(self) -> None:
@@ -216,7 +219,9 @@ class ElaPagination(QWidget):
                 elif val == -2 and self._current_page < self._total_pages:
                     new_page = self._current_page + 1
                 elif val == -1:
-                    new_page = min(self._current_page + self._pager_count - 2, self._total_pages)
+                    new_page = min(
+                        self._current_page + self._pager_count - 2, self._total_pages
+                    )
                 elif val == -3:
                     new_page = max(self._current_page - (self._pager_count - 2), 1)
                 elif val > 0:
@@ -242,13 +247,19 @@ class ElaPagination(QWidget):
             primary = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryNormal)
             base = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase)
             hover = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicHover)
-            disable_bg = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicDisable)
+            disable_bg = eTheme.getThemeColor(
+                mode, ElaThemeType.ThemeColor.BasicDisable
+            )
             text = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
-            text_dis = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextDisable)
+            text_dis = eTheme.getThemeColor(
+                mode, ElaThemeType.ThemeColor.BasicTextDisable
+            )
 
             for i, (r, val) in enumerate(self._getButtonRects()):
                 is_current = val > 0 and val == self._current_page
-                is_disabled = (val == 0 and self._current_page <= 1) or (val == -2 and self._current_page >= self._total_pages)
+                is_disabled = (val == 0 and self._current_page <= 1) or (
+                    val == -2 and self._current_page >= self._total_pages
+                )
                 is_hovered = i == self._hover_index
 
                 painter.setPen(Qt.PenStyle.NoPen)
@@ -272,21 +283,17 @@ class ElaPagination(QWidget):
                 else:
                     painter.setPen(text)
 
-                if val == 0:
-                    icon_font = QFont("ElaAwesome")
-                    icon_font.setPixelSize(16)
-                    painter.setFont(icon_font)
-                    painter.drawText(r, Qt.AlignmentFlag.AlignCenter, chr(0xea84))
-                elif val == -2:
-                    icon_font = QFont("ElaAwesome")
-                    icon_font.setPixelSize(16)
-                    painter.setFont(icon_font)
-                    painter.drawText(r, Qt.AlignmentFlag.AlignCenter, chr(0xea85))
-                elif val in (-1, -3):
-                    icon_font = QFont("ElaAwesome")
-                    icon_font.setPixelSize(16)
-                    painter.setFont(icon_font)
-                    painter.drawText(r, Qt.AlignmentFlag.AlignCenter, chr(0xec4d))
+                if val == 0 or val == -2 or val in (-1, -3):
+                    self._icon_font.setPixelSize(16)
+                    painter.setFont(self._icon_font)
+                    icon_char = (
+                        chr(0xEA84)
+                        if val == 0
+                        else chr(0xEA85)
+                        if val == -2
+                        else chr(0xEC4D)
+                    )
+                    painter.drawText(r, Qt.AlignmentFlag.AlignCenter, icon_char)
                 else:
                     tf = self.font()
                     tf.setPixelSize(14)

@@ -15,8 +15,8 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PyQt5.QtCore import Qt, QSortFilterProxyModel, QStringListModel, QModelIndex
-from PyQt5.QtGui import  QPalette, QColor
-from PyQt5.QtWidgets import  QWidget, QVBoxLayout, QLineEdit, QBoxLayout
+from PyQt5.QtGui import QPalette, QColor
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QBoxLayout
 from PyQt5ElaWidgetTools import (
     ElaThemeType,
     eTheme,
@@ -26,23 +26,23 @@ from PyQt5ElaWidgetTools import (
 
 from pypinyin import lazy_pinyin
 
-from ._internal import _adjust_combobox_popup, disconnect_theme_signal
+from ._internal import _adjust_combobox_popup, _ThemeAwareMixin
 
 
 class _SearchComboMixin:
     """Mixin providing shared search widget methods for combo boxes."""
 
     def _cleanupSearchWidget(self) -> None:
-        if getattr(self, '_searchWidget', None):
+        if getattr(self, "_searchWidget", None):
             self._searchWidget.deleteLater()
             self._searchWidget = None
             self._searchEdit = None
 
     def _applySearchEditPalette(self) -> None:
-        if getattr(self, '_searchEdit', None):
+        if getattr(self, "_searchEdit", None):
             _apply_search_edit_palette(self._searchEdit)
 
-    def _onThemeModeChanged(self, *args) -> None:
+    def _onThemeChanged(self, *args) -> None:
         self._applySearchEditPalette()
 
     def _setupSearchInPopup(self, container: QWidget) -> None:
@@ -85,7 +85,10 @@ def _apply_search_edit_palette(search_edit: QLineEdit) -> None:
     """应用主题颜色到搜索框。"""
     theme_mode = eTheme.getThemeMode()
     palette = search_edit.palette()
-    palette.setColor(QPalette.Text, eTheme.getThemeColor(theme_mode, ElaThemeType.ThemeColor.BasicText))
+    palette.setColor(
+        QPalette.Text,
+        eTheme.getThemeColor(theme_mode, ElaThemeType.ThemeColor.BasicText),
+    )
     palette.setColor(
         QPalette.PlaceholderText,
         QColor(0, 0, 0, 128) if theme_mode == 0 else QColor(186, 186, 186),
@@ -140,7 +143,7 @@ class ElaSearchProxyModel(QSortFilterProxyModel):
         return self._keyword in text.lower() or self._keyword in pinyin_str
 
 
-class ElaSearchMultiBox(_SearchComboMixin, ElaMultiSelectComboBox):
+class ElaSearchMultiBox(_ThemeAwareMixin, _SearchComboMixin, ElaMultiSelectComboBox):
     """可搜索多选下拉框。
 
     基于 ``ElaMultiSelectComboBox`` 扩展，在弹出列表顶部增加了一个搜索框，
@@ -162,7 +165,6 @@ class ElaSearchMultiBox(_SearchComboMixin, ElaMultiSelectComboBox):
         self._currentSelection: list[str] = []
         self._isRestoringSelection = False
         self._pinyin_cache: dict[str, str] = {}
-        eTheme.themeModeChanged.connect(self._onThemeModeChanged)
 
     @property
     def items(self) -> list[str]:
@@ -175,7 +177,7 @@ class ElaSearchMultiBox(_SearchComboMixin, ElaMultiSelectComboBox):
         :param text: 选项文本。
         :type text: str
         """
-        self._pinyin_cache.pop(text, None)
+        self._pinyin_cache[text] = "".join(lazy_pinyin(text)).lower()
         super().addItem(text)
 
     def addItems(self, texts: list[str]) -> None:
@@ -185,7 +187,7 @@ class ElaSearchMultiBox(_SearchComboMixin, ElaMultiSelectComboBox):
         :type texts: list[str]
         """
         for text in texts:
-            self._pinyin_cache.pop(text, None)
+            self._pinyin_cache[text] = "".join(lazy_pinyin(text)).lower()
         super().addItems(texts)
 
     def clear(self) -> None:
@@ -203,7 +205,7 @@ class ElaSearchMultiBox(_SearchComboMixin, ElaMultiSelectComboBox):
         self._currentSelection = list(selection)
         super().setCurrentSelection(self._currentSelection)
 
-    def getCurrentSelection(self) -> list[str]:
+    def currentSelection(self) -> list[str]:
         """获取当前选中项文本列表。
 
         :return: 选中的文本列表。
@@ -243,9 +245,8 @@ class ElaSearchMultiBox(_SearchComboMixin, ElaMultiSelectComboBox):
         super().hidePopup()
 
     def deleteLater(self) -> None:
-        """清理搜索框，断开信号，调度自身删除。"""
+        self._theme_cleanup()
         self._cleanupSearchWidget()
-        disconnect_theme_signal(self._onThemeModeChanged)
         super().deleteLater()
 
     def _onSearchTextChanged(self, text: str) -> None:
@@ -278,7 +279,7 @@ class ElaSearchMultiBox(_SearchComboMixin, ElaMultiSelectComboBox):
                 view.scrollTo(index)
 
 
-class ElaSearchBox(_SearchComboMixin, ElaComboBox):
+class ElaSearchBox(_ThemeAwareMixin, _SearchComboMixin, ElaComboBox):
     """可搜索下拉框。
 
     基于标准 ``ElaComboBox`` 扩展，在弹出列表顶部增加了一个搜索框，
@@ -301,7 +302,6 @@ class ElaSearchBox(_SearchComboMixin, ElaComboBox):
         self._searchEdit: Optional[QLineEdit] = None
         self._searchWidget: Optional[QWidget] = None
 
-        eTheme.themeModeChanged.connect(self._onThemeModeChanged)
         self.activated.connect(self._onActivated)
 
     @property
@@ -396,10 +396,10 @@ class ElaSearchBox(_SearchComboMixin, ElaComboBox):
 
     def deleteLater(self) -> None:
         """清理搜索框，断开信号，调度自身删除。"""
+        self._theme_cleanup()
         self._cleanupSearchWidget()
         try:
             self.activated.disconnect(self._onActivated)
         except (TypeError, RuntimeError):
             pass
-        disconnect_theme_signal(self._onThemeModeChanged)
         super().deleteLater()

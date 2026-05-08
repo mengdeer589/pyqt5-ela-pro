@@ -28,7 +28,7 @@ from PyQt5.QtCore import (
     QRectF,
 )
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 from PyQt5.QtGui import (
     QPainter,
     QFont,
@@ -36,7 +36,9 @@ from PyQt5.QtGui import (
     QColor,
     QPaintEvent,
     QHideEvent,
-    QMouseEvent, QPen, QPainterPath,
+    QMouseEvent,
+    QPen,
+    QPainterPath,
 )
 from PyQt5.QtWidgets import QWidget, QLabel, QGraphicsDropShadowEffect
 
@@ -164,7 +166,9 @@ class ElaToolTip(QWidget):
         )
 
         bgColor = eTheme.getThemeColor(themeMode, ElaThemeType.ThemeColor.BasicBase)
-        borderColor = eTheme.getThemeColor(themeMode, ElaThemeType.ThemeColor.BasicBaseLine)
+        borderColor = eTheme.getThemeColor(
+            themeMode, ElaThemeType.ThemeColor.BasicBaseLine
+        )
         painter.setPen(borderColor)
         painter.setBrush(QBrush(bgColor))
         painter.drawRoundedRect(
@@ -227,7 +231,9 @@ class ElaToolTip(QWidget):
         self.show()
 
 
-_tooltip_dict: weakref.WeakKeyDictionary[QWidget, ElaToolTip] = weakref.WeakKeyDictionary()
+_tooltip_dict: weakref.WeakKeyDictionary[QWidget, ElaToolTip] = (
+    weakref.WeakKeyDictionary()
+)
 _filter_dict: weakref.WeakKeyDictionary[QWidget, _TooltipEventFilter] = (
     weakref.WeakKeyDictionary()
 )
@@ -327,6 +333,7 @@ def set_tooltip(
             remove_tooltip_from_dict(widget)
         except RuntimeError:
             pass
+
     widget.destroyed.connect(_auto_remove)
 
 
@@ -345,7 +352,7 @@ def remove_tooltip(widget: QWidget) -> None:
         tooltip.deleteLater()
 
 
-class ElaStateToolTip(QWidget):
+class ElaStateToolTip(_ThemeAwareMixin, QWidget):
     """带状态指示的提示组件。
 
     支持两种状态：加载中（显示旋转图标）和完成（显示对勾图标）。
@@ -398,10 +405,6 @@ class ElaStateToolTip(QWidget):
         shadow.setBlurRadius(20)
         self.setGraphicsEffect(shadow)
 
-        self._themeConnection = eTheme.themeModeChanged.connect(
-            self._onThemeModeChanged
-        )
-
         self.setMouseTracking(True)
         self._setup_ui()
         self._connectSignals()
@@ -420,7 +423,7 @@ class ElaStateToolTip(QWidget):
     def _connectSignals(self) -> None:
         self._rotateTimer.start()
 
-    def _onThemeModeChanged(self, mode: int) -> None:
+    def _onThemeChanged(self, mode: int) -> None:
         self._currentTheme = mode
         self.update()
 
@@ -462,12 +465,16 @@ class ElaStateToolTip(QWidget):
 
         margin = 6
         painter.drawLine(
-            btn_x + margin, btn_y + margin,
-            btn_x + btn_size - margin, btn_y + btn_size - margin,
+            btn_x + margin,
+            btn_y + margin,
+            btn_x + btn_size - margin,
+            btn_y + btn_size - margin,
         )
         painter.drawLine(
-            btn_x + btn_size - margin, btn_y + margin,
-            btn_x + margin, btn_y + btn_size - margin,
+            btn_x + btn_size - margin,
+            btn_y + margin,
+            btn_x + margin,
+            btn_y + btn_size - margin,
         )
         painter.restore()
 
@@ -488,15 +495,18 @@ class ElaStateToolTip(QWidget):
         self.setFixedSize(STATETOOLTIP_MAX_WIDTH, height)
 
         icon_area = 28
-        self._titleLabel.move(
-            STATETOOLTIP_ACCENT_WIDTH + icon_area + 8, 10
-        )
+        self._titleLabel.move(STATETOOLTIP_ACCENT_WIDTH + icon_area + 8, 10)
         self._contentLabel.move(
             STATETOOLTIP_ACCENT_WIDTH + icon_area + 8,
             10 + self._titleLabel.height() + 4,
         )
         self._contentLabel.setFixedWidth(
-            STATETOOLTIP_MAX_WIDTH - STATETOOLTIP_ACCENT_WIDTH - icon_area - 8 - STATETOOLTIP_CLOSE_BUTTON_SIZE - 12
+            STATETOOLTIP_MAX_WIDTH
+            - STATETOOLTIP_ACCENT_WIDTH
+            - icon_area
+            - 8
+            - STATETOOLTIP_CLOSE_BUTTON_SIZE
+            - 12
         )
 
     def _updateSizeAndPositions(self) -> None:
@@ -596,9 +606,8 @@ class ElaStateToolTip(QWidget):
         btn_x = self.width() - btn_size - 12
         btn_y = 8
         btn_rect = QRect(btn_x, btn_y, btn_size, btn_size)
-        if (
-            event.button() == Qt.MouseButton.LeftButton
-            and btn_rect.contains(event.pos())
+        if event.button() == Qt.MouseButton.LeftButton and btn_rect.contains(
+            event.pos()
         ):
             self._onCloseButtonClicked()
             return
@@ -617,8 +626,7 @@ class ElaStateToolTip(QWidget):
     def deleteLater(self) -> None:
         self._destroyed = True
         self._stopTimerAndAnimation()
-        disconnect_theme_signal(self._themeConnection)
-        self._themeConnection = None
+        self._theme_cleanup()
         super().deleteLater()
 
     def paintEvent(self, a0: Optional[QPaintEvent]) -> None:
@@ -632,9 +640,7 @@ class ElaStateToolTip(QWidget):
         r = self._borderRadius
         w, h = self.width(), self.height()
 
-        bg_color = eTheme.getThemeColor(
-            themeMode, ElaThemeType.ThemeColor.PopupBase
-        )
+        bg_color = eTheme.getThemeColor(themeMode, ElaThemeType.ThemeColor.PopupBase)
         path = QPainterPath()
         path.addRoundedRect(0, 0, w, h, r, r)
         painter.fillPath(path, bg_color)
@@ -644,18 +650,16 @@ class ElaStateToolTip(QWidget):
         painter.setClipRect(0, 0, w, h)
         painter.setBrush(accent_color)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(
-            0, 0, STATETOOLTIP_ACCENT_WIDTH, h, r, r
-        )
+        painter.drawRoundedRect(0, 0, STATETOOLTIP_ACCENT_WIDTH, h, r, r)
         painter.drawRect(
-            STATETOOLTIP_ACCENT_WIDTH - 2, 0,
-            4, h,
+            STATETOOLTIP_ACCENT_WIDTH - 2,
+            0,
+            4,
+            h,
         )
         painter.restore()
 
-        text_color = eTheme.getThemeColor(
-            themeMode, ElaThemeType.ThemeColor.BasicText
-        )
+        text_color = eTheme.getThemeColor(themeMode, ElaThemeType.ThemeColor.BasicText)
         icon_area_x = STATETOOLTIP_ACCENT_WIDTH + 6
         icon_area_y = h // 2
 

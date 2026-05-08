@@ -21,10 +21,10 @@ from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 
-class ElaTimeline(QWidget):
+class ElaTimeline(_ThemeAwareMixin, QWidget):
     """时间线组件。
 
     :param parent: 父控件
@@ -49,9 +49,9 @@ class ElaTimeline(QWidget):
         self._items: list[ElaTimeline.TimelineItem] = []
         self._current_step = 0
         self.setObjectName("ElaTimeline")
+        self._icon_font = QFont("ElaAwesome")
 
         self._theme_mode = eTheme.getThemeMode()
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
 
     def addItem(self, item: TimelineItem) -> None:
         self._items.append(item)
@@ -63,23 +63,19 @@ class ElaTimeline(QWidget):
         self.updateGeometry()
         self.update()
 
-    def getItemCount(self) -> int:
+    def itemCount(self) -> int:
         return len(self._items)
 
     def setCurrentStep(self, index: int) -> None:
         self._current_step = max(0, min(index, len(self._items) - 1))
         self.update()
 
-    def getCurrentStep(self) -> int:
+    def currentStep(self) -> int:
         return self._current_step
 
-    def _onThemeChanged(self, mode) -> None:
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self._theme_mode = mode
         self.update()
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeChanged)
-        super().deleteLater()
 
     def paintEvent(self, event: QPaintEvent) -> None:
         if not self._items:
@@ -122,7 +118,11 @@ class ElaTimeline(QWidget):
             cfm = QFontMetrics(content_font)
             cth = 0
             if item.content:
-                br = cfm.boundingRect(QRect(0, 0, content_w, 10000), Qt.TextFlag.TextWordWrap, item.content)
+                br = cfm.boundingRect(
+                    QRect(0, 0, content_w, 10000),
+                    Qt.TextFlag.TextWordWrap,
+                    item.content,
+                )
                 cth = br.height()
 
             ich = th + (4 + cth if cth > 0 else 0)
@@ -134,19 +134,30 @@ class ElaTimeline(QWidget):
             ts_font.setPixelSize(12)
             painter.setFont(ts_font)
             painter.setPen(details)
-            painter.drawText(QRect(0, cc_y - ts_font.pixelSize() // 2, left_margin - 10, ts_font.pixelSize()),
-                             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, item.timestamp)
+            painter.drawText(
+                QRect(
+                    0,
+                    cc_y - ts_font.pixelSize() // 2,
+                    left_margin - 10,
+                    ts_font.pixelSize(),
+                ),
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                item.timestamp,
+            )
 
             # Circle
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(primary if i == self._current_step else border)
             if has_icon:
                 painter.drawEllipse(QRectF(line_x - icr, cc_y - icr, icd, icd))
-                icon_font = QFont("ElaAwesome")
-                icon_font.setPixelSize(12)
-                painter.setFont(icon_font)
+                self._icon_font.setPixelSize(12)
+                painter.setFont(self._icon_font)
                 painter.setPen(Qt.GlobalColor.white)
-                painter.drawText(QRectF(line_x - icr, cc_y - icr, icd, icd), Qt.AlignmentFlag.AlignCenter, chr(int(item.icon)))
+                painter.drawText(
+                    QRectF(line_x - icr, cc_y - icr, icd, icd),
+                    Qt.AlignmentFlag.AlignCenter,
+                    chr(int(item.icon)),
+                )
             else:
                 painter.drawEllipse(QRectF(left_margin, cc_y - cr, cd, cd))
 
@@ -158,14 +169,23 @@ class ElaTimeline(QWidget):
             # Title
             painter.setFont(title_font)
             painter.setPen(text)
-            painter.drawText(QRect(content_x, cy, content_w, th), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, item.title)
+            painter.drawText(
+                QRect(content_x, cy, content_w, th),
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                item.title,
+            )
 
             # Content
             if item.content:
                 painter.setFont(content_font)
                 painter.setPen(details)
-                painter.drawText(QRect(content_x, cy + th + 4, content_w, cth),
-                                 Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, item.content)
+                painter.drawText(
+                    QRect(content_x, cy + th + 4, content_w, cth),
+                    Qt.TextFlag.TextWordWrap
+                    | Qt.AlignmentFlag.AlignLeft
+                    | Qt.AlignmentFlag.AlignTop,
+                    item.content,
+                )
 
             cy += ih + gap
 
@@ -187,7 +207,11 @@ class ElaTimeline(QWidget):
             cfm = QFontMetrics(content_font)
             cth = 0
             if item.content:
-                br = cfm.boundingRect(QRect(0, 0, content_w, 10000), Qt.TextFlag.TextWordWrap, item.content)
+                br = cfm.boundingRect(
+                    QRect(0, 0, content_w, 10000),
+                    Qt.TextFlag.TextWordWrap,
+                    item.content,
+                )
                 cth = br.height()
             ich = th2 + (4 + cth if cth > 0 else 0)
             th += max(60, ich + 10) + gap

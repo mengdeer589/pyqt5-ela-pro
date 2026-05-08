@@ -25,16 +25,16 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QPoint, QRect, pyqtSignal, QEvent
+from PyQt5.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QEvent
 from PyQt5.QtGui import QColor, QPainter, QPen, QPaintEvent, QMouseEvent, QFont
 from PyQt5.QtWidgets import QDialog, QWidget, QVBoxLayout, QHBoxLayout
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 
-class _ElaConfirmButton(QWidget):
+class _ElaConfirmButton(_ThemeAwareMixin, QWidget):
     """确认/取消图标按钮，全 QPainter 自绘。"""
 
     clicked = pyqtSignal()
@@ -42,25 +42,18 @@ class _ElaConfirmButton(QWidget):
     TYPE_CONFIRM = 0
     TYPE_CANCEL = 1
 
-    def __init__(
-        self, button_type: int, parent: Optional[QWidget] = None
-    ) -> None:
+    def __init__(self, button_type: int, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._type = button_type
         self._is_hovered = False
         self._is_pressed = False
+        self._theme_mode = eTheme.getThemeMode()
         self.setFixedHeight(40)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        self._onThemeChanged(eTheme.getThemeMode())
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
-
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
+        self._theme_mode = mode
         self.update()
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeChanged)
-        super().deleteLater()
 
     def enterEvent(self, event: QEvent) -> None:
         self._is_hovered = True
@@ -96,9 +89,18 @@ class _ElaConfirmButton(QWidget):
         elif self._is_hovered:
             painter.fillRect(self.rect(), QColor(0, 0, 0, 10))
 
-        mode = eTheme.getThemeMode()
-        color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
-        painter.setPen(QPen(color, 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        color = eTheme.getThemeColor(
+            self._theme_mode, ElaThemeType.ThemeColor.BasicText
+        )
+        painter.setPen(
+            QPen(
+                color,
+                2,
+                Qt.PenStyle.SolidLine,
+                Qt.PenCapStyle.RoundCap,
+                Qt.PenJoinStyle.RoundJoin,
+            )
+        )
 
         cx = self.width() // 2
         cy = self.height() // 2
@@ -112,7 +114,7 @@ class _ElaConfirmButton(QWidget):
             painter.drawLine(cx - off, cy + off, cx + off, cy - off)
 
 
-class ElaConfirmDialog(QDialog):
+class ElaConfirmDialog(_ThemeAwareMixin, QDialog):
     """确认对话框。
 
     全 QPainter 自绘，带有标题、正文和两个图标按钮（确认 ✓ / 取消 ✕）。
@@ -160,7 +162,6 @@ class ElaConfirmDialog(QDialog):
         layout.addLayout(btn_layout)
 
         self._onThemeChanged(eTheme.getThemeMode())
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
 
     # ── Public API ────────────────────────────────────────
 
@@ -221,6 +222,10 @@ class ElaConfirmDialog(QDialog):
 
     def showEvent(self, event):
         super().showEvent(event)
+        if self.parent():
+            QTimer.singleShot(0, self._positionDialog)
+
+    def _positionDialog(self) -> None:
         if not self.parent():
             return
         if self._position == "top":
@@ -238,11 +243,8 @@ class ElaConfirmDialog(QDialog):
         self.reject()
 
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
+        self._theme_mode = mode
         self.update()
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeChanged)
-        super().deleteLater()
 
     # ── Paint ─────────────────────────────────────────────
 
@@ -252,7 +254,7 @@ class ElaConfirmDialog(QDialog):
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
-        mode = eTheme.getThemeMode()
+        mode = self._theme_mode
         w = self.width()
         h = self.height()
         br = self._border_radius
@@ -267,7 +269,11 @@ class ElaConfirmDialog(QDialog):
         title_font.setWeight(QFont.Weight.Bold)
         painter.setFont(title_font)
         painter.setPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText))
-        painter.drawText(QRect(15, 15, w - 30, 25), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, self._title)
+        painter.drawText(
+            QRect(15, 15, w - 30, 25),
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+            self._title,
+        )
 
         # Content
         content_font = self.font()
@@ -278,10 +284,14 @@ class ElaConfirmDialog(QDialog):
         if content_h > 0:
             painter.drawText(
                 QRect(15, 45, w - 30, content_h),
-                Qt.TextFlag.TextWordWrap | Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+                Qt.TextFlag.TextWordWrap
+                | Qt.AlignmentFlag.AlignLeft
+                | Qt.AlignmentFlag.AlignTop,
                 self._content,
             )
 
         # Separator line above buttons
-        painter.setPen(QPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorder), 1))
+        painter.setPen(
+            QPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorder), 1)
+        )
         painter.drawLine(0, h - 40, w, h - 40)

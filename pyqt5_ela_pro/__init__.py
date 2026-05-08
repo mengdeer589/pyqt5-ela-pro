@@ -92,9 +92,9 @@ from .ela_tag_line_edit import ElaTagLineEdit
 
 from .ela_confirm_dialog import ElaConfirmDialog
 
-from .ela_info_badge import ElaInfoBadge
-
 from .ela_password_edit import ElaPasswordEdit
+
+from .ela_info_badge import ElaInfoBadge
 
 from .ela_tag_box import ElaTagBox
 
@@ -141,8 +141,6 @@ from .ela_divider import ElaDivider
 from .ela_dropdown_button import ElaDropDownButton
 
 from .ela_pagination import ElaPagination
-
-from .ela_password_edit import ElaPasswordEdit
 
 from .ela_progress_button import ElaProgressButton
 

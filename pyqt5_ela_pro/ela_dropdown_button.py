@@ -21,15 +21,23 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QRect, QRectF, QSize, QPoint, QEvent
-from PyQt5.QtGui import QPainter, QPainterPath, QPen, QFont, QFontMetrics, QPaintEvent, QMouseEvent
+from PyQt5.QtGui import (
+    QPainter,
+    QPainterPath,
+    QPen,
+    QFont,
+    QFontMetrics,
+    QPaintEvent,
+    QMouseEvent,
+)
 from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType, ElaMenu
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 
-class ElaDropDownButton(QWidget):
+class ElaDropDownButton(_ThemeAwareMixin, QWidget):
     """下拉按钮。
 
     点击展开 ElaMenu。
@@ -51,9 +59,10 @@ class ElaDropDownButton(QWidget):
         self.setObjectName("ElaDropDownButton")
         self.setFixedHeight(35)
         self.setMouseTracking(True)
+        self._icon_font = QFont("ElaAwesome")
+        self._arrow_font = QFont("ElaAwesome")
 
         self._theme_mode = eTheme.getThemeMode()
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
 
     def setText(self, text: str) -> None:
         self._text = text
@@ -68,7 +77,7 @@ class ElaDropDownButton(QWidget):
         self.updateGeometry()
         self.update()
 
-    def getElaIcon(self) -> ElaIconType.IconName:
+    def elaIcon(self) -> ElaIconType.IconName:
         return self._icon
 
     def setBorderRadius(self, r: int) -> None:
@@ -81,16 +90,12 @@ class ElaDropDownButton(QWidget):
     def setMenu(self, menu: ElaMenu) -> None:
         self._menu = menu
 
-    def getMenu(self) -> Optional[ElaMenu]:
+    def menu(self) -> Optional[ElaMenu]:
         return self._menu
 
-    def _onThemeChanged(self, mode) -> None:
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self._theme_mode = mode
         self.update()
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeChanged)
-        super().deleteLater()
 
     # ── Events ────────────────────────────────────────────
 
@@ -132,20 +137,46 @@ class ElaDropDownButton(QWidget):
 
         br = self._border_radius
         path = QPainterPath()
-        path.addRoundedRect(QRectF(0.5, 0.5, self.width() - 1, self.height() - 1), br, br)
+        path.addRoundedRect(
+            QRectF(0.5, 0.5, self.width() - 1, self.height() - 1), br, br
+        )
 
         if self._is_pressed:
-            painter.fillPath(path, eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicPress))
+            painter.fillPath(
+                path,
+                eTheme.getThemeColor(
+                    self._theme_mode, ElaThemeType.ThemeColor.BasicPress
+                ),
+            )
         elif self._is_hover:
-            painter.fillPath(path, eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicHover))
+            painter.fillPath(
+                path,
+                eTheme.getThemeColor(
+                    self._theme_mode, ElaThemeType.ThemeColor.BasicHover
+                ),
+            )
         else:
-            painter.fillPath(path, eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicBase))
+            painter.fillPath(
+                path,
+                eTheme.getThemeColor(
+                    self._theme_mode, ElaThemeType.ThemeColor.BasicBase
+                ),
+            )
 
         if self._theme_mode == ElaThemeType.ThemeMode.Light:
-            painter.setPen(QPen(eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicBorder), 1))
+            painter.setPen(
+                QPen(
+                    eTheme.getThemeColor(
+                        self._theme_mode, ElaThemeType.ThemeColor.BasicBorder
+                    ),
+                    1,
+                )
+            )
             painter.drawPath(path)
 
-        text_color = eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicText)
+        text_color = eTheme.getThemeColor(
+            self._theme_mode, ElaThemeType.ThemeColor.BasicText
+        )
         arrow_w = 20
         arrow_margin = 8
         content_left = 10
@@ -154,14 +185,14 @@ class ElaDropDownButton(QWidget):
         # Calculate content size
         icon_w = 0
         if self._icon != ElaIconType.IconName.None_:
-            icon_font = QFont("ElaAwesome")
-            icon_font.setPixelSize(16)
-            icon_w = QFontMetrics(icon_font).horizontalAdvance(chr(int(self._icon)))
+            self._icon_font.setPixelSize(16)
+            icon_w = QFontMetrics(self._icon_font).horizontalAdvance(
+                chr(int(self._icon))
+            )
 
         text_w = 0
         if self._text:
             text_font = self.font()
-            text_font.setPixelSize(14)
             text_w = QFontMetrics(text_font).horizontalAdvance(self._text)
 
         gap = 6 if (icon_w > 0 and text_w > 0) else 0
@@ -170,35 +201,43 @@ class ElaDropDownButton(QWidget):
 
         # Icon
         if self._icon != ElaIconType.IconName.None_:
-            icon_font = QFont("ElaAwesome")
-            icon_font.setPixelSize(16)
-            painter.setFont(icon_font)
+            self._icon_font.setPixelSize(16)
+            painter.setFont(self._icon_font)
             painter.setPen(text_color)
-            painter.drawText(QRect(dx, 0, icon_w, self.height()), Qt.AlignmentFlag.AlignCenter, chr(int(self._icon)))
+            painter.drawText(
+                QRect(dx, 0, icon_w, self.height()),
+                Qt.AlignmentFlag.AlignCenter,
+                chr(int(self._icon)),
+            )
             dx += icon_w + gap
 
         # Text
         if self._text:
-            text_font = self.font()
-            text_font.setPixelSize(14)
-            painter.setFont(text_font)
+            painter.setFont(self.font())
             painter.setPen(text_color)
-            painter.drawText(QRect(dx, 0, text_w, self.height()), Qt.AlignmentFlag.AlignCenter, self._text)
+            painter.drawText(
+                QRect(dx, 0, text_w, self.height()),
+                Qt.AlignmentFlag.AlignCenter,
+                self._text,
+            )
 
         # Arrow
-        arrow_font = QFont("ElaAwesome")
-        arrow_font.setPixelSize(16)
-        painter.setFont(arrow_font)
+        self._arrow_font.setPixelSize(16)
+        painter.setFont(self._arrow_font)
         painter.setPen(text_color)
-        painter.drawText(QRect(self.width() - arrow_w - arrow_margin, 0, arrow_w, self.height()),
-                         Qt.AlignmentFlag.AlignCenter, chr(int(ElaIconType.IconName.AngleDown)))
+        painter.drawText(
+            QRect(self.width() - arrow_w - arrow_margin, 0, arrow_w, self.height()),
+            Qt.AlignmentFlag.AlignCenter,
+            chr(int(ElaIconType.IconName.AngleDown)),
+        )
 
     def sizeHint(self) -> QSize:
         icon_w = 0
         if self._icon != ElaIconType.IconName.None_:
-            icon_font = QFont("ElaAwesome")
-            icon_font.setPixelSize(16)
-            icon_w = QFontMetrics(icon_font).horizontalAdvance(chr(int(self._icon)))
+            self._icon_font.setPixelSize(16)
+            icon_w = QFontMetrics(self._icon_font).horizontalAdvance(
+                chr(int(self._icon))
+            )
 
         text_w = 0
         if self._text:

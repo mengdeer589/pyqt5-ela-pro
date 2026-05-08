@@ -15,16 +15,24 @@ import traceback
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QRectF, QFileInfo, QEvent, pyqtSignal
-from PyQt5.QtGui import QPainter, QPainterPath, QPen, QFont, QPaintEvent, QMouseEvent, QEnterEvent
+from PyQt5.QtGui import (
+    QPainter,
+    QPainterPath,
+    QPen,
+    QFont,
+    QPaintEvent,
+    QMouseEvent,
+    QEnterEvent,
+)
 from PyQt5.QtWidgets import QWidget, QFileDialog, QApplication
 from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QDragMoveEvent, QDragLeaveEvent
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 
-class ElaUploadArea(QWidget):
+class ElaUploadArea(_ThemeAwareMixin, QWidget):
     """文件上传区域。
 
     支持拖拽和点击选择文件，可配置后缀过滤、大小限制、数量限制。
@@ -59,9 +67,13 @@ class ElaUploadArea(QWidget):
         self.setAcceptDrops(True)
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._icon_font = QFont("ElaAwesome")
+        self._title_font = QFont()
+        self._sub_font = QFont()
+        self._fi_font = QFont("ElaAwesome")
+        self._x_font = QFont("ElaAwesome")
 
         self._theme_mode = eTheme.getThemeMode()
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
 
     # ── Public API ────────────────────────────────────────
 
@@ -119,10 +131,10 @@ class ElaUploadArea(QWidget):
     def setAcceptedMimeFilter(self, filter_str: str) -> None:
         self._mime_filter = filter_str
 
-    def getAcceptedMimeFilter(self) -> str:
+    def acceptedMimeFilter(self) -> str:
         return self._mime_filter
 
-    def getSelectedFiles(self) -> list[str]:
+    def selectedFiles(self) -> list[str]:
         return list(self._file_paths)
 
     def clearFiles(self) -> None:
@@ -131,13 +143,9 @@ class ElaUploadArea(QWidget):
 
     # ── Internal ──────────────────────────────────────────
 
-    def _onThemeChanged(self, mode) -> None:
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self._theme_mode = mode
         self.update()
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeChanged)
-        super().deleteLater()
 
     def _validateFile(self, file_path: str) -> tuple[bool, str]:
         info = QFileInfo(file_path)
@@ -228,7 +236,9 @@ class ElaUploadArea(QWidget):
         if self._file_paths:
             start_y = 46
             lh = 22
-            max_display = min(len(self._file_paths), max(1, (self.height() - start_y - 10) // lh))
+            max_display = min(
+                len(self._file_paths), max(1, (self.height() - start_y - 10) // lh)
+            )
             cy = event.pos().y()
             cx = event.pos().x()
             for i in range(max_display):
@@ -268,76 +278,161 @@ class ElaUploadArea(QWidget):
             path.addRoundedRect(rect, br, br)
 
             if self._is_drag_over:
-                painter.setPen(QPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryNormal), 2, Qt.PenStyle.DashLine))
-                painter.setBrush(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBaseDeepAlpha))
+                painter.setPen(
+                    QPen(
+                        eTheme.getThemeColor(
+                            mode, ElaThemeType.ThemeColor.PrimaryNormal
+                        ),
+                        2,
+                        Qt.PenStyle.DashLine,
+                    )
+                )
+                painter.setBrush(
+                    eTheme.getThemeColor(
+                        mode, ElaThemeType.ThemeColor.BasicBaseDeepAlpha
+                    )
+                )
             elif self._is_hover:
-                painter.setPen(QPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorderHover), 2, Qt.PenStyle.DashLine))
-                painter.setBrush(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicHoverAlpha))
+                painter.setPen(
+                    QPen(
+                        eTheme.getThemeColor(
+                            mode, ElaThemeType.ThemeColor.BasicBorderHover
+                        ),
+                        2,
+                        Qt.PenStyle.DashLine,
+                    )
+                )
+                painter.setBrush(
+                    eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicHoverAlpha)
+                )
             else:
-                painter.setPen(QPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorder), 2, Qt.PenStyle.DashLine))
+                painter.setPen(
+                    QPen(
+                        eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorder),
+                        2,
+                        Qt.PenStyle.DashLine,
+                    )
+                )
                 painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(path)
 
             cy = self.height() // 2
 
             if not self._file_paths:
-                icon_font = QFont("ElaAwesome")
-                icon_font.setPixelSize(36)
-                painter.setFont(icon_font)
-                painter.setPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryNormal if self._is_drag_over else ElaThemeType.ThemeColor.BasicTextNoFocus))
-                painter.drawText(QRectF(0, cy - 48, self.width(), 40), Qt.AlignmentFlag.AlignCenter, chr(int(ElaIconType.IconName.CloudArrowUp)))
+                self._icon_font.setPixelSize(36)
+                painter.setFont(self._icon_font)
+                painter.setPen(
+                    eTheme.getThemeColor(
+                        mode,
+                        ElaThemeType.ThemeColor.PrimaryNormal
+                        if self._is_drag_over
+                        else ElaThemeType.ThemeColor.BasicTextNoFocus,
+                    )
+                )
+                painter.drawText(
+                    QRectF(0, cy - 48, self.width(), 40),
+                    Qt.AlignmentFlag.AlignCenter,
+                    chr(int(ElaIconType.IconName.CloudArrowUp)),
+                )
 
-                title_font = QFont()
-                title_font.setPixelSize(15)
-                title_font.setBold(True)
-                painter.setFont(title_font)
-                painter.setPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText))
-                painter.drawText(QRectF(0, cy, self.width(), 24), Qt.AlignmentFlag.AlignCenter, self._title)
+                self._title_font.setPixelSize(15)
+                self._title_font.setBold(True)
+                painter.setFont(self._title_font)
+                painter.setPen(
+                    eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
+                )
+                painter.drawText(
+                    QRectF(0, cy, self.width(), 24),
+                    Qt.AlignmentFlag.AlignCenter,
+                    self._title,
+                )
 
-                sub_font = QFont()
-                sub_font.setPixelSize(12)
-                painter.setFont(sub_font)
-                painter.setPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextNoFocus))
-                painter.drawText(QRectF(0, cy + 26, self.width(), 20), Qt.AlignmentFlag.AlignCenter, self._sub_title)
+                self._sub_font.setPixelSize(12)
+                painter.setFont(self._sub_font)
+                painter.setPen(
+                    eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextNoFocus)
+                )
+                painter.drawText(
+                    QRectF(0, cy + 26, self.width(), 20),
+                    Qt.AlignmentFlag.AlignCenter,
+                    self._sub_title,
+                )
             else:
-                icon_font = QFont("ElaAwesome")
-                icon_font.setPixelSize(24)
-                painter.setFont(icon_font)
-                painter.setPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextNoFocus))
-                painter.drawText(QRectF(0, 12, self.width(), 28), Qt.AlignmentFlag.AlignCenter, chr(int(ElaIconType.IconName.CloudArrowUp)))
+                self._icon_font.setPixelSize(24)
+                painter.setFont(self._icon_font)
+                painter.setPen(
+                    eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextNoFocus)
+                )
+                painter.drawText(
+                    QRectF(0, 12, self.width(), 28),
+                    Qt.AlignmentFlag.AlignCenter,
+                    chr(int(ElaIconType.IconName.CloudArrowUp)),
+                )
 
                 start_y = 46
                 lh = 22
-                max_display = min(len(self._file_paths), max(1, (self.height() - start_y - 10) // lh))
+                max_display = min(
+                    len(self._file_paths), max(1, (self.height() - start_y - 10) // lh)
+                )
 
                 for i in range(max_display):
                     info = QFileInfo(self._file_paths[i])
                     display = info.fileName()
 
                     # File icon
-                    fi_font = QFont("ElaAwesome")
-                    fi_font.setPixelSize(12)
-                    painter.setFont(fi_font)
-                    painter.setPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryNormal))
-                    painter.drawText(QRectF(12, start_y + i * lh, 16, lh), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter, chr(int(ElaIconType.IconName.File)))
+                    self._fi_font.setPixelSize(12)
+                    painter.setFont(self._fi_font)
+                    painter.setPen(
+                        eTheme.getThemeColor(
+                            mode, ElaThemeType.ThemeColor.PrimaryNormal
+                        )
+                    )
+                    painter.drawText(
+                        QRectF(12, start_y + i * lh, 16, lh),
+                        Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter,
+                        chr(int(ElaIconType.IconName.File)),
+                    )
 
                     # Filename
                     painter.setFont(QApplication.font())
-                    painter.setPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText))
+                    painter.setPen(
+                        eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
+                    )
                     name_r = QRectF(32, start_y + i * lh, self.width() - 60, lh)
-                    elided = painter.fontMetrics().elidedText(display, Qt.TextElideMode.ElideMiddle, int(name_r.width()))
-                    painter.drawText(name_r, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, elided)
+                    elided = painter.fontMetrics().elidedText(
+                        display, Qt.TextElideMode.ElideMiddle, int(name_r.width())
+                    )
+                    painter.drawText(
+                        name_r,
+                        Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                        elided,
+                    )
 
                     # X button
-                    x_font = QFont("ElaAwesome")
-                    x_font.setPixelSize(10)
-                    painter.setFont(x_font)
-                    painter.setPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextNoFocus))
-                    painter.drawText(QRectF(self.width() - 28, start_y + i * lh, 16, lh), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter, chr(int(ElaIconType.IconName.Xmark)))
+                    self._x_font.setPixelSize(10)
+                    painter.setFont(self._x_font)
+                    painter.setPen(
+                        eTheme.getThemeColor(
+                            mode, ElaThemeType.ThemeColor.BasicTextNoFocus
+                        )
+                    )
+                    painter.drawText(
+                        QRectF(self.width() - 28, start_y + i * lh, 16, lh),
+                        Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter,
+                        chr(int(ElaIconType.IconName.Xmark)),
+                    )
 
                 if len(self._file_paths) > max_display:
                     painter.setFont(QApplication.font())
-                    painter.setPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextNoFocus))
-                    painter.drawText(QRectF(0, start_y + max_display * lh, self.width(), lh), Qt.AlignmentFlag.AlignCenter, f"...还有 {len(self._file_paths) - max_display} 个文件")
+                    painter.setPen(
+                        eTheme.getThemeColor(
+                            mode, ElaThemeType.ThemeColor.BasicTextNoFocus
+                        )
+                    )
+                    painter.drawText(
+                        QRectF(0, start_y + max_display * lh, self.width(), lh),
+                        Qt.AlignmentFlag.AlignCenter,
+                        f"...还有 {len(self._file_paths) - max_display} 个文件",
+                    )
         except Exception:
             print(traceback.format_exc())

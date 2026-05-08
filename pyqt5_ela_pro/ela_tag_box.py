@@ -74,14 +74,24 @@ class ElaTagBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaComboBox):
         content_rect, text_color, _ = _draw_tag_background(painter, self)
         _draw_tag_mark(painter, self, self._expand_mark_width)
         title_rect = _draw_tag_title(
-            painter, content_rect, self._title_text,
-            self._title_font_size, text_color, self.font(),
+            painter,
+            content_rect,
+            self._title_text,
+            self._title_font_size,
+            text_color,
+            self.font(),
         )
         _draw_single_value_text(
-            painter, content_rect, title_rect, self.currentText(),
+            painter,
+            content_rect,
+            title_rect,
+            self.currentText(),
         )
         _draw_tag_arrow(
-            painter, content_rect, text_color, self._expand_icon_rotate,
+            painter,
+            content_rect,
+            text_color,
+            self._expand_icon_rotate,
         )
 
     def deleteLater(self) -> None:

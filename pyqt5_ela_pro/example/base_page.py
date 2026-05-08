@@ -7,7 +7,7 @@ import inspect
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QPlainTextEdit, QPushButton, QApplication, QWidget
 from PyQt5.QtGui import QFont, QColor, QTextCharFormat, QTextCursor, QPalette
-from PyQt5ElaWidgetTools import ElaScrollArea, ElaText, ElaThemeType, ElaIconType, ElaMessageBar, ElaMessageBarType
+from PyQt5ElaWidgetTools import ElaScrollArea, ElaText, ElaIconType, ElaMessageBar, ElaMessageBarType
 from pyqt5_ela_pro import ElaThemeWidget, ElaDialogBase, ElaButton
 
 RESOURCE_PATH = os.path.join(os.path.dirname(__file__), "resource", "images")

@@ -25,14 +25,14 @@ from PyQt5.QtSvg import QSvgGenerator
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 CurveType = Literal["line", "scatter"]
 DotShape = Literal["circle", "square", "diamond", "triangle"]
 LineStyle = Literal["solid", "dash", "dot", "dash_dot"]
 
 
-class ElaTrendChart(QWidget):
+class ElaTrendChart(_ThemeAwareMixin, QWidget):
     """TrendChart 趋势图组件。
 
     支持多曲线绘制、主题切换、网格线显示和交互式指示器。
@@ -104,16 +104,16 @@ class ElaTrendChart(QWidget):
         self._pan_snapshot: Optional[QPixmap] = None
         self._dot_size = 3.0
         self._dot_shape: DotShape = "circle"
+        self._theme_mode = eTheme.getThemeMode()
 
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
-
-    def _onThemeChanged(self) -> None:
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
+        self._theme_mode = mode
         self._assignColors()
         self._data_pixmap = None
         self.update()
 
     def _getThemeColor(self, color_type: ElaThemeType.ThemeColor) -> QColor:
-        return eTheme.getThemeColor(eTheme.getThemeMode(), color_type)
+        return eTheme.getThemeColor(self._theme_mode, color_type)
 
     def _getBackgroundColor(self) -> QColor:
         return self._getThemeColor(ElaThemeType.ThemeColor.BasicBase)
@@ -563,7 +563,9 @@ class ElaTrendChart(QWidget):
             )
             if self._pan_snapshot is not None:
                 painter = QPainter(self)
-                painter.drawPixmap(self._pan_start_pos - event.pos(), self._pan_snapshot)
+                painter.drawPixmap(
+                    self._pan_start_pos - event.pos(), self._pan_snapshot
+                )
                 painter.end()
             return
 
@@ -658,10 +660,6 @@ class ElaTrendChart(QWidget):
         self.update()
         event.accept()
 
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeChanged)
-        super().deleteLater()
-
     def leaveEvent(self, event) -> None:
         self._indicator_visible = False
         self.update()
@@ -689,9 +687,11 @@ class ElaTrendChart(QWidget):
         if self._grid_visible:
             self._drawGrid(painter, chart)
 
-        if self._data_pixmap is not None and self._last_size == QPoint(
-            self.width(), self.height()
-        ) and not self._panning:
+        if (
+            self._data_pixmap is not None
+            and self._last_size == QPoint(self.width(), self.height())
+            and not self._panning
+        ):
             painter.drawPixmap(chart.topLeft(), self._data_pixmap)
         else:
             if self._curves:

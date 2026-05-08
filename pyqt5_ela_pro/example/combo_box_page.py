@@ -8,16 +8,14 @@
                      ElaTagSearchBox, ElaTagSearchMultiBox
 """
 
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout
+from PyQt5.QtWidgets import QHBoxLayout
 
 from PyQt5ElaWidgetTools import (
     ElaComboBox,
     ElaMultiSelectComboBox,
     ElaPushButton,
-    ElaText,
 )
 from pyqt5_ela_pro import (
-    ElaThemeWidget,
     ElaSearchBox,
     ElaSearchMultiBox,
     ElaTagBox,
@@ -118,7 +116,7 @@ class ComboBoxPage(ExamplePage):
         btn.setFixedWidth(100)
         btn.clicked.connect(
             lambda: ElaMessageDialog.show(
-                self, "当前选中", f"当前选中: {multi.getCurrentSelection()}"
+                self, "当前选中", f"当前选中: {multi.currentSelection()}"
             )
         )
         row.addWidget(btn)
@@ -167,7 +165,7 @@ class ComboBoxPage(ExamplePage):
         btn.setFixedWidth(100)
         btn.clicked.connect(
             lambda: ElaMessageDialog.show(
-                self, "当前选中", f"当前选中: {multi.getCurrentSelection()}"
+                self, "当前选中", f"当前选中: {multi.currentSelection()}"
             )
         )
         row.addWidget(btn)
@@ -222,7 +220,7 @@ class ComboBoxPage(ExamplePage):
         btn.setFixedWidth(100)
         btn.clicked.connect(
             lambda: ElaMessageDialog.show(
-                self, "当前选中", f"当前选中: {multi.getCurrentSelection()}"
+                self, "当前选中", f"当前选中: {multi.currentSelection()}"
             )
         )
         row.addWidget(btn)
@@ -271,7 +269,7 @@ class ComboBoxPage(ExamplePage):
         btn.setFixedWidth(100)
         btn.clicked.connect(
             lambda: ElaMessageDialog.show(
-                self, "当前选中", f"当前选中: {multi.getCurrentSelection()}"
+                self, "当前选中", f"当前选中: {multi.currentSelection()}"
             )
         )
         row.addWidget(btn)

@@ -23,15 +23,23 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QRectF, QSize, pyqtSignal, QPoint, QEvent
-from PyQt5.QtGui import QPainter, QPainterPath, QPen, QFont, QFontMetrics, QPaintEvent, QMouseEvent
+from PyQt5.QtGui import (
+    QPainter,
+    QPainterPath,
+    QPen,
+    QFont,
+    QFontMetrics,
+    QPaintEvent,
+    QMouseEvent,
+)
 from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType, ElaMenu
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 
-class ElaSplitButton(QWidget):
+class ElaSplitButton(_ThemeAwareMixin, QWidget):
     """拆分按钮。
 
     左侧为主操作区域（文字 + 可选图标），右侧为下拉箭头。
@@ -58,13 +66,14 @@ class ElaSplitButton(QWidget):
         self.setObjectName("ElaSplitButton")
         self.setFixedHeight(35)
         self.setMouseTracking(True)
+        self._icon_font = QFont("ElaAwesome")
+        self._arrow_font = QFont("ElaAwesome")
 
         font = self.font()
         font.setPixelSize(15)
         self.setFont(font)
 
         self._theme_mode = eTheme.getThemeMode()
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
 
     # ── Public API ────────────────────────────────────────
 
@@ -81,7 +90,7 @@ class ElaSplitButton(QWidget):
         self.updateGeometry()
         self.update()
 
-    def getElaIcon(self) -> ElaIconType.IconName:
+    def elaIcon(self) -> ElaIconType.IconName:
         return self._icon
 
     def setBorderRadius(self, radius: int) -> None:
@@ -94,7 +103,7 @@ class ElaSplitButton(QWidget):
     def setMenu(self, menu: ElaMenu) -> None:
         self._menu = menu
 
-    def getMenu(self) -> Optional[ElaMenu]:
+    def menu(self) -> Optional[ElaMenu]:
         return self._menu
 
     # ── Internal ──────────────────────────────────────────
@@ -102,10 +111,6 @@ class ElaSplitButton(QWidget):
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self._theme_mode = mode
         self.update()
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeChanged)
-        super().deleteLater()
 
     # ── Events ────────────────────────────────────────────
 
@@ -137,7 +142,10 @@ class ElaSplitButton(QWidget):
         split_x = self.width() - self._dropdown_width
         left_hovered = event.pos().x() < split_x
         right_hovered = not left_hovered
-        if self._is_left_hovered != left_hovered or self._is_right_hovered != right_hovered:
+        if (
+            self._is_left_hovered != left_hovered
+            or self._is_right_hovered != right_hovered
+        ):
             self._is_left_hovered = left_hovered
             self._is_right_hovered = right_hovered
             self.update()
@@ -168,14 +176,32 @@ class ElaSplitButton(QWidget):
         right_rect = QRectF(split_x, 0, self._dropdown_width, h)
         full_rect = QRectF(0, 0, w, h)
 
-        base_color = eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicBase)
-        hover_color = eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicHover)
-        press_color = eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicPress)
-        text_color = eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicText)
-        border_color = eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicBorder)
+        base_color = eTheme.getThemeColor(
+            self._theme_mode, ElaThemeType.ThemeColor.BasicBase
+        )
+        hover_color = eTheme.getThemeColor(
+            self._theme_mode, ElaThemeType.ThemeColor.BasicHover
+        )
+        press_color = eTheme.getThemeColor(
+            self._theme_mode, ElaThemeType.ThemeColor.BasicPress
+        )
+        text_color = eTheme.getThemeColor(
+            self._theme_mode, ElaThemeType.ThemeColor.BasicText
+        )
+        border_color = eTheme.getThemeColor(
+            self._theme_mode, ElaThemeType.ThemeColor.BasicBorder
+        )
 
-        left_color = press_color if self._is_left_pressed else (hover_color if self._is_left_hovered else base_color)
-        right_color = press_color if self._is_right_pressed else (hover_color if self._is_right_hovered else base_color)
+        left_color = (
+            press_color
+            if self._is_left_pressed
+            else (hover_color if self._is_left_hovered else base_color)
+        )
+        right_color = (
+            press_color
+            if self._is_right_pressed
+            else (hover_color if self._is_right_hovered else base_color)
+        )
 
         path = QPainterPath()
         path.addRoundedRect(full_rect, br, br)
@@ -201,9 +227,8 @@ class ElaSplitButton(QWidget):
 
         painter.setPen(text_color)
         if self._icon != ElaIconType.IconName.None_:
-            icon_font = QFont("ElaAwesome")
-            icon_font.setPixelSize(18)
-            fm_icon = QFontMetrics(icon_font)
+            self._icon_font.setPixelSize(18)
+            fm_icon = QFontMetrics(self._icon_font)
             icon_w = fm_icon.horizontalAdvance(chr(int(self._icon)))
 
             text_font = self.font()
@@ -214,28 +239,44 @@ class ElaSplitButton(QWidget):
             total_w = icon_w + spacing + text_w
             start_x = left_rect.x() + (left_rect.width() - total_w) // 2
 
-            painter.setFont(icon_font)
-            painter.drawText(QRectF(start_x, left_rect.y(), icon_w, left_rect.height()),
-                             Qt.AlignmentFlag.AlignCenter, chr(int(self._icon)))
+            painter.setFont(self._icon_font)
+            painter.drawText(
+                QRectF(start_x, left_rect.y(), icon_w, left_rect.height()),
+                Qt.AlignmentFlag.AlignCenter,
+                chr(int(self._icon)),
+            )
 
             if self._text:
                 painter.setFont(text_font)
-                painter.drawText(QRectF(start_x + icon_w + spacing, left_rect.y(), text_w, left_rect.height()),
-                                 Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self._text)
+                painter.drawText(
+                    QRectF(
+                        start_x + icon_w + spacing,
+                        left_rect.y(),
+                        text_w,
+                        left_rect.height(),
+                    ),
+                    Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                    self._text,
+                )
         else:
             painter.setFont(self.font())
             painter.drawText(left_rect, Qt.AlignmentFlag.AlignCenter, self._text)
 
-        arrow_font = QFont("ElaAwesome")
-        arrow_font.setPixelSize(14)
-        painter.setFont(arrow_font)
+        self._arrow_font.setPixelSize(14)
+        painter.setFont(self._arrow_font)
         painter.setPen(text_color)
-        painter.drawText(right_rect, Qt.AlignmentFlag.AlignCenter, chr(int(ElaIconType.IconName.AngleDown)))
+        painter.drawText(
+            right_rect,
+            Qt.AlignmentFlag.AlignCenter,
+            chr(int(ElaIconType.IconName.AngleDown)),
+        )
 
     def sizeHint(self) -> QSize:
         fm = QFontMetrics(self.font())
         text_w = 0 if not self._text else fm.horizontalAdvance(self._text)
         icon_w = 24 if self._icon != ElaIconType.IconName.None_ else 0
-        spacing = 0 if (not self._text or self._icon == ElaIconType.IconName.None_) else 8
+        spacing = (
+            0 if (not self._text or self._icon == ElaIconType.IconName.None_) else 8
+        )
         left_w = icon_w + spacing + text_w + 20
         return QSize(left_w + self._dropdown_width, 35)

@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QGraphicsDropShadowEffect
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 
 class ElaDrawerPosition(IntEnum):
@@ -36,6 +36,7 @@ class ElaDrawerPanel(QWidget):
         super().__init__(parent)
         self._corner_radius = corner_radius
         self._position = position
+        self._bg_color = QColor(0, 0, 0, 0)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
     def setBgColor(self, color: QColor) -> None:
@@ -47,8 +48,6 @@ class ElaDrawerPanel(QWidget):
         self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:
-        if not hasattr(self, "_bg_color"):
-            return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
@@ -113,7 +112,7 @@ class ElaDrawerDim(QWidget):
         painter.fillRect(self.rect(), self._bg_color)
 
 
-class ElaDrawer(QWidget):
+class ElaDrawer(_ThemeAwareMixin, QWidget):
     """
     SiliconUI 风格侧边抽屉组件。
 
@@ -147,7 +146,9 @@ class ElaDrawer(QWidget):
         self._dim_widget.clicked.connect(self._onDimClicked)
         self._dim_widget.hide()
 
-        self._drawer_widget = ElaDrawerPanel(corner_radius=self._corner_radius, position=self._position, parent=self)
+        self._drawer_widget = ElaDrawerPanel(
+            corner_radius=self._corner_radius, position=self._position, parent=self
+        )
 
         shadow = QGraphicsDropShadowEffect(self._drawer_widget)
         shadow.setColor(QColor(0, 0, 0, 60))
@@ -181,10 +182,9 @@ class ElaDrawer(QWidget):
         if parent:
             parent.installEventFilter(self)
 
-        self._onThemeModeChanged(eTheme.getThemeMode())
-        eTheme.themeModeChanged.connect(self._onThemeModeChanged)
+        self._onThemeChanged(eTheme.getThemeMode())
 
-    def _onThemeModeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         bg_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase)
         self._drawer_widget.setBgColor(bg_color)
         dim_color = QColor(0, 0, 0, 102)
@@ -341,7 +341,3 @@ class ElaDrawer(QWidget):
             if parent:
                 end_rect = self._getEndRect(parent)
                 self._drawer_widget.setGeometry(end_rect)
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeModeChanged)
-        super().deleteLater()

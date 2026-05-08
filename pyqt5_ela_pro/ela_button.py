@@ -31,14 +31,13 @@ from PyQt5.QtWidgets import QPushButton, QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIcon, ElaIconType
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
+from ._colors import get_color_scheme
 
 
 # ── Type aliases ─────────────────────────────────────────────
 
-ElaButtonVariant = Literal[
-    "outlined", "dashed", "solid", "filled", "text", "link"
-]
+ElaButtonVariant = Literal["outlined", "dashed", "solid", "filled", "text", "link"]
 ElaButtonColor = Literal[
     "default",
     "primary",
@@ -60,317 +59,6 @@ ElaButtonColor = Literal[
 ElaButtonSize = Literal["small", "middle", "large"]
 
 
-# ── Color palette ────────────────────────────────────────────
-
-# Each named color defines:
-#   accent         — main accent color (text/border/solid-bg)
-#   accentHover    — hover variant of accent
-#   accentActive   — active/pressed variant of accent
-#   accentBg       — semi-transparent bg tint (for filled variant, outlined hover)
-#   accentBgHover  — hover variant of bg tint
-#   textColor      — contrasting text color on solid bg (usually white)
-#
-# 'default' color uses the primary accent palette; the "neutral"
-# appearance (gray border, dark text for outlined) is handled in paintEvent.
-
-_COLOR_PALETTE: dict[str, dict[str, dict[str, str]]] = {
-    "default": {
-        "light": {
-            "accent": "#1677ff",
-            "accentHover": "#4096ff",
-            "accentActive": "#0958d9",
-            "accentBg": "#e6f4ff",
-            "accentBgHover": "#bae0ff",
-            "textColor": "#ffffff",
-        },
-        "dark": {
-            "accent": "#1668dc",
-            "accentHover": "#3c89e8",
-            "accentActive": "#1554ad",
-            "accentBg": "#111d2c",
-            "accentBgHover": "#15325b",
-            "textColor": "#ffffff",
-        },
-    },
-    "primary": {
-        "light": {
-            "accent": "#1677ff",
-            "accentHover": "#4096ff",
-            "accentActive": "#0958d9",
-            "accentBg": "#e6f4ff",
-            "accentBgHover": "#bae0ff",
-            "textColor": "#ffffff",
-        },
-        "dark": {
-            "accent": "#1668dc",
-            "accentHover": "#3c89e8",
-            "accentActive": "#1554ad",
-            "accentBg": "#111d2c",
-            "accentBgHover": "#15325b",
-            "textColor": "#ffffff",
-        },
-    },
-    "danger": {
-        "light": {
-            "accent": "#ff4d4f",
-            "accentHover": "#ff7875",
-            "accentActive": "#d9363e",
-            "accentBg": "#fff2f0",
-            "accentBgHover": "#ffd8d2",
-            "textColor": "#ffffff",
-        },
-        "dark": {
-            "accent": "#dc4446",
-            "accentHover": "#e86a6b",
-            "accentActive": "#ad393a",
-            "accentBg": "#2c1415",
-            "accentBgHover": "#4a1f20",
-            "textColor": "#ffffff",
-        },
-    },
-    "blue": {
-        "light": {
-            "accent": "#1677ff",
-            "accentHover": "#4096ff",
-            "accentActive": "#0958d9",
-            "accentBg": "#e6f4ff",
-            "accentBgHover": "#bae0ff",
-            "textColor": "#ffffff",
-        },
-        "dark": {
-            "accent": "#1668dc",
-            "accentHover": "#3c89e8",
-            "accentActive": "#1554ad",
-            "accentBg": "#111d2c",
-            "accentBgHover": "#15325b",
-            "textColor": "#ffffff",
-        },
-    },
-    "purple": {
-        "light": {
-            "accent": "#722ed1",
-            "accentHover": "#9254de",
-            "accentActive": "#531dab",
-            "accentBg": "#f9f0ff",
-            "accentBgHover": "#efdbff",
-            "textColor": "#ffffff",
-        },
-        "dark": {
-            "accent": "#642ab8",
-            "accentHover": "#854eca",
-            "accentActive": "#51219a",
-            "accentBg": "#1e1330",
-            "accentBgHover": "#2e1c4a",
-            "textColor": "#ffffff",
-        },
-    },
-    "cyan": {
-        "light": {
-            "accent": "#13c2c2",
-            "accentHover": "#36cfc9",
-            "accentActive": "#08979c",
-            "accentBg": "#e6fffb",
-            "accentBgHover": "#b5f5ec",
-            "textColor": "#ffffff",
-        },
-        "dark": {
-            "accent": "#10adad",
-            "accentHover": "#2fc7c7",
-            "accentActive": "#0c8a8a",
-            "accentBg": "#112828",
-            "accentBgHover": "#1a3d3d",
-            "textColor": "#ffffff",
-        },
-    },
-    "green": {
-        "light": {
-            "accent": "#52c41a",
-            "accentHover": "#73d13d",
-            "accentActive": "#389e0d",
-            "accentBg": "#f6ffed",
-            "accentBgHover": "#e8fcd9",
-            "textColor": "#ffffff",
-        },
-        "dark": {
-            "accent": "#49aa17",
-            "accentHover": "#66c430",
-            "accentActive": "#3a8c12",
-            "accentBg": "#16280e",
-            "accentBgHover": "#243d16",
-            "textColor": "#ffffff",
-        },
-    },
-    "magenta": {
-        "light": {
-            "accent": "#eb2f96",
-            "accentHover": "#f06292",
-            "accentActive": "#c41d7f",
-            "accentBg": "#fff0f6",
-            "accentBgHover": "#ffd6e7",
-            "textColor": "#ffffff",
-        },
-        "dark": {
-            "accent": "#c92980",
-            "accentHover": "#dd5099",
-            "accentActive": "#a81e6b",
-            "accentBg": "#2c1120",
-            "accentBgHover": "#421a31",
-            "textColor": "#ffffff",
-        },
-    },
-    "pink": {
-        "light": {
-            "accent": "#eb2f96",
-            "accentHover": "#f06292",
-            "accentActive": "#c41d7f",
-            "accentBg": "#fff0f6",
-            "accentBgHover": "#ffd6e7",
-            "textColor": "#ffffff",
-        },
-        "dark": {
-            "accent": "#c92980",
-            "accentHover": "#dd5099",
-            "accentActive": "#a81e6b",
-            "accentBg": "#2c1120",
-            "accentBgHover": "#421a31",
-            "textColor": "#ffffff",
-        },
-    },
-    "red": {
-        "light": {
-            "accent": "#f5222d",
-            "accentHover": "#ff4d4f",
-            "accentActive": "#cf1322",
-            "accentBg": "#fff1f0",
-            "accentBgHover": "#ffd8d2",
-            "textColor": "#ffffff",
-        },
-        "dark": {
-            "accent": "#d91d28",
-            "accentHover": "#e8474f",
-            "accentActive": "#b0141e",
-            "accentBg": "#2c1012",
-            "accentBgHover": "#45171b",
-            "textColor": "#ffffff",
-        },
-    },
-    "orange": {
-        "light": {
-            "accent": "#fa8c16",
-            "accentHover": "#ffa940",
-            "accentActive": "#d46b08",
-            "accentBg": "#fff7e6",
-            "accentBgHover": "#ffe7ba",
-            "textColor": "#ffffff",
-        },
-        "dark": {
-            "accent": "#d97a13",
-            "accentHover": "#e8993a",
-            "accentActive": "#b0640e",
-            "accentBg": "#2c1c0e",
-            "accentBgHover": "#452b14",
-            "textColor": "#ffffff",
-        },
-    },
-    "yellow": {
-        "light": {
-            "accent": "#fadb14",
-            "accentHover": "#ffec3d",
-            "accentActive": "#d4b106",
-            "accentBg": "#feffe6",
-            "accentBgHover": "#ffffb8",
-            "textColor": "#000000",
-        },
-        "dark": {
-            "accent": "#d9bd12",
-            "accentHover": "#e8d13a",
-            "accentActive": "#b09e0a",
-            "accentBg": "#2c280e",
-            "accentBgHover": "#453e14",
-            "textColor": "#000000",
-        },
-    },
-    "volcano": {
-        "light": {
-            "accent": "#fa541c",
-            "accentHover": "#ff7a45",
-            "accentActive": "#d4380d",
-            "accentBg": "#fff2e8",
-            "accentBgHover": "#ffd8bf",
-            "textColor": "#ffffff",
-        },
-        "dark": {
-            "accent": "#d94818",
-            "accentHover": "#e86e3a",
-            "accentActive": "#b03810",
-            "accentBg": "#2c1610",
-            "accentBgHover": "#452214",
-            "textColor": "#ffffff",
-        },
-    },
-    "geekblue": {
-        "light": {
-            "accent": "#2f54eb",
-            "accentHover": "#597ef7",
-            "accentActive": "#1d39c4",
-            "accentBg": "#f0f5ff",
-            "accentBgHover": "#d6e4ff",
-            "textColor": "#ffffff",
-        },
-        "dark": {
-            "accent": "#2a47cc",
-            "accentHover": "#4d68e0",
-            "accentActive": "#2038a8",
-            "accentBg": "#12182c",
-            "accentBgHover": "#1c2645",
-            "textColor": "#ffffff",
-        },
-    },
-    "lime": {
-        "light": {
-            "accent": "#a0d911",
-            "accentHover": "#bae637",
-            "accentActive": "#7cb305",
-            "accentBg": "#fcffe6",
-            "accentBgHover": "#f4ffb8",
-            "textColor": "#000000",
-        },
-        "dark": {
-            "accent": "#8cbd0e",
-            "accentHover": "#a3d430",
-            "accentActive": "#729b0a",
-            "accentBg": "#1c280e",
-            "accentBgHover": "#2b3d14",
-            "textColor": "#000000",
-        },
-    },
-    "gold": {
-        "light": {
-            "accent": "#faad14",
-            "accentHover": "#ffd666",
-            "accentActive": "#d48806",
-            "accentBg": "#fffbe6",
-            "accentBgHover": "#fff1b8",
-            "textColor": "#000000",
-        },
-        "dark": {
-            "accent": "#d99612",
-            "accentHover": "#e8b43a",
-            "accentActive": "#b07c0a",
-            "accentBg": "#2c220e",
-            "accentBgHover": "#453414",
-            "textColor": "#000000",
-        },
-    },
-}
-
-
-def _get_scheme(color_name: str, mode: ElaThemeType.ThemeMode) -> dict[str, QColor]:
-    mode_key = "light" if mode == ElaThemeType.ThemeMode.Light else "dark"
-    raw = _COLOR_PALETTE[color_name][mode_key]
-    return {k: QColor(v) for k, v in raw.items()}
-
-
 # ── Size presets ─────────────────────────────────────────────
 
 _SIZE_MAP: dict[str, dict[str, int]] = {
@@ -382,7 +70,8 @@ _SIZE_MAP: dict[str, dict[str, int]] = {
 
 # ── ElaButton ────────────────────────────────────────────────
 
-class ElaButton(QPushButton):
+
+class ElaButton(_ThemeAwareMixin, QPushButton):
     """统一风格按钮组件。
 
     支持 6 种变体、16 种色彩主题、3 种尺寸，自动适配深浅色主题。
@@ -421,8 +110,8 @@ class ElaButton(QPushButton):
         if text:
             self.setText(text)
 
+        self._theme_mode = eTheme.getThemeMode()
         self._apply_size(size)
-        self._onThemeChanged(eTheme.getThemeMode())
         eTheme.themeModeChanged.connect(self._onThemeChanged)
 
     # ── Public API ────────────────────────────────────────
@@ -459,9 +148,7 @@ class ElaButton(QPushButton):
                 return name
         return "middle"
 
-    def setElaIcon(
-        self, iconName: ElaIconType.IconName, iconSize: int = 16
-    ) -> None:
+    def setElaIcon(self, iconName: ElaIconType.IconName, iconSize: int = 16) -> None:
         self._icon_name = iconName
         self._icon_size = iconSize
         self.setIconSize(QSize(iconSize, iconSize))
@@ -487,9 +174,10 @@ class ElaButton(QPushButton):
         return "danger" if self._danger else self._color_name
 
     def _is_dark(self) -> bool:
-        return eTheme.getThemeMode() == ElaThemeType.ThemeMode.Dark
+        return self._theme_mode == ElaThemeType.ThemeMode.Dark
 
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
+        self._theme_mode = mode
         self.update()
 
     # ── Color helpers ─────────────────────────────────────
@@ -520,7 +208,7 @@ class ElaButton(QPushButton):
         return QColor(255, 255, 255, 30) if self._is_dark() else QColor(0, 0, 0, 38)
 
     def _scheme(self) -> dict[str, QColor]:
-        return _get_scheme(self._effective_color(), eTheme.getThemeMode())
+        return get_color_scheme(self._effective_color(), self._theme_mode)
 
     # ── Events ────────────────────────────────────────────
 
@@ -533,10 +221,6 @@ class ElaButton(QPushButton):
         self._hovered = False
         self.update()
         super().leaveEvent(event)
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeChanged)
-        super().deleteLater()
 
     # ── Paint ─────────────────────────────────────────────
 
@@ -562,14 +246,12 @@ class ElaButton(QPushButton):
         neutral_outlined = (
             cname == "default"
             and variant in ("outlined", "dashed")
-            and not hovered and not pressed and not disabled
-        )
-        # Neutral state: 'default' color in text variant
-        neutral_text = (
-            cname == "default"
-            and variant == "text"
+            and not hovered
+            and not pressed
             and not disabled
         )
+        # Neutral state: 'default' color in text variant
+        neutral_text = cname == "default" and variant == "text" and not disabled
 
         scheme = self._scheme()
 
@@ -581,7 +263,11 @@ class ElaButton(QPushButton):
             else:
                 bg = self._disabled_bg()
         elif variant == "solid":
-            bg = scheme["accentActive"] if pressed else (scheme["accentHover"] if hovered else scheme["accent"])
+            bg = (
+                scheme["accentActive"]
+                if pressed
+                else (scheme["accentHover"] if hovered else scheme["accent"])
+            )
         elif variant in ("outlined", "dashed"):
             if neutral_outlined:
                 bg = Qt.GlobalColor.transparent
@@ -643,7 +329,9 @@ class ElaButton(QPushButton):
             elif hovered:
                 text_color = scheme["accentHover"]
             else:
-                text_color = scheme["accent"] if cname != "default" else self._neutral_text()
+                text_color = (
+                    scheme["accent"] if cname != "default" else self._neutral_text()
+                )
         elif variant == "filled":
             if pressed:
                 text_color = scheme["accentActive"]
@@ -652,7 +340,9 @@ class ElaButton(QPushButton):
             else:
                 text_color = scheme["accent"]
         elif variant == "text":
-            text_color = scheme["accent"] if cname != "default" else self._neutral_text()
+            text_color = (
+                scheme["accent"] if cname != "default" else self._neutral_text()
+            )
         else:  # link
             if pressed:
                 text_color = scheme["accentActive"]
@@ -689,13 +379,21 @@ class ElaButton(QPushButton):
             icon = ElaIcon.getInstance().getElaIcon(icon_name, text_color)
             painter.drawPixmap(ir, icon.pixmap(sz))
             tr = QRect(ir.right() + spacing, sb, tw, ch)
-            painter.drawText(tr, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, btn_text)
+            painter.drawText(
+                tr, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, btn_text
+            )
             # Link underline
             if variant == "link" and hovered and not disabled:
-                painter.drawLine(tr.left(), ir.bottom() + 1, tr.right(), ir.bottom() + 1)
+                painter.drawLine(
+                    tr.left(), ir.bottom() + 1, tr.right(), ir.bottom() + 1
+                )
         else:
             tr = QRect(sb, sb, w - 2 * sb, h - 2 * sb)
-            painter.drawText(tr, Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter, btn_text)
+            painter.drawText(
+                tr,
+                Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter,
+                btn_text,
+            )
             # Link underline
             if variant == "link" and hovered and not disabled:
                 fm = painter.fontMetrics()

@@ -42,7 +42,9 @@ class ElaPasswordEdit(ElaLineEdit):
 
     def setIsPasswordVisible(self, visible: bool) -> None:
         self._is_password_visible = visible
-        self.setEchoMode(QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password)
+        self.setEchoMode(
+            QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password
+        )
         self._updateEyeIcon()
 
     def isPasswordVisible(self) -> bool:
@@ -52,7 +54,13 @@ class ElaPasswordEdit(ElaLineEdit):
         self.setIsPasswordVisible(not self._is_password_visible)
 
     def _updateEyeIcon(self) -> None:
-        icon_name = ElaIconType.IconName.EyeSlash if self._is_password_visible else ElaIconType.IconName.Eye
-        color = eTheme.getThemeColor(eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicText)
+        icon_name = (
+            ElaIconType.IconName.EyeSlash
+            if self._is_password_visible
+            else ElaIconType.IconName.Eye
+        )
+        color = eTheme.getThemeColor(
+            eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicText
+        )
         icon = ElaIcon.getInstance().getElaIcon(icon_name, color)
         self._toggle_action.setIcon(icon)

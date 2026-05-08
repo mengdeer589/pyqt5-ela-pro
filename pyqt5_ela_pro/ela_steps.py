@@ -20,10 +20,10 @@ from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 
-class ElaSteps(QWidget):
+class ElaSteps(_ThemeAwareMixin, QWidget):
     """步骤条组件。
 
     :param parent: 父控件
@@ -40,22 +40,22 @@ class ElaSteps(QWidget):
 
         self.setObjectName("ElaSteps")
         self.setFixedHeight(70)
+        self._icon_font = QFont("ElaAwesome")
 
         self._theme_mode = eTheme.getThemeMode()
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
 
     def setCurrentStep(self, n: int) -> None:
         self._current_step = max(0, min(n, self._step_count - 1))
         self.update()
 
-    def getCurrentStep(self) -> int:
+    def currentStep(self) -> int:
         return self._current_step
 
     def setStepCount(self, n: int) -> None:
         self._step_count = max(1, n)
         self.update()
 
-    def getStepCount(self) -> int:
+    def stepCount(self) -> int:
         return self._step_count
 
     def setStepTitles(self, titles: list[str]) -> None:
@@ -63,7 +63,7 @@ class ElaSteps(QWidget):
         self._step_count = max(1, len(titles))
         self.update()
 
-    def getStepTitles(self) -> list[str]:
+    def stepTitles(self) -> list[str]:
         return self._step_titles
 
     def next(self) -> None:
@@ -78,13 +78,9 @@ class ElaSteps(QWidget):
             self.currentStepChanged.emit(self._current_step)
             self.update()
 
-    def _onThemeChanged(self, mode) -> None:
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self._theme_mode = mode
         self.update()
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeChanged)
-        super().deleteLater()
 
     def paintEvent(self, event: QPaintEvent) -> None:
         if self._step_count <= 0:
@@ -108,7 +104,9 @@ class ElaSteps(QWidget):
         primary = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryNormal)
         base = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase)
         border = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorder)
-        details_text = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicDetailsText)
+        details_text = eTheme.getThemeColor(
+            mode, ElaThemeType.ThemeColor.BasicDetailsText
+        )
         text_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
 
         for i in range(self._step_count):
@@ -118,19 +116,23 @@ class ElaSteps(QWidget):
             if i < self._step_count - 1:
                 nx = margin + (i + 1) * spacing
                 painter.setPen(QPen(primary if i < self._current_step else border, 2))
-                painter.drawLine(QPointF(cx + circle_radius, line_center_y), QPointF(nx - circle_radius, line_center_y))
+                painter.drawLine(
+                    QPointF(cx + circle_radius, line_center_y),
+                    QPointF(nx - circle_radius, line_center_y),
+                )
 
-            rect = QRectF(cx - circle_radius, circle_y, circle_diameter, circle_diameter)
+            rect = QRectF(
+                cx - circle_radius, circle_y, circle_diameter, circle_diameter
+            )
             painter.setPen(Qt.PenStyle.NoPen)
 
             if i < self._current_step:
                 painter.setBrush(primary)
                 painter.drawEllipse(rect)
-                icon_font = QFont("ElaAwesome")
-                icon_font.setPixelSize(14)
-                painter.setFont(icon_font)
+                self._icon_font.setPixelSize(14)
+                painter.setFont(self._icon_font)
                 painter.setPen(Qt.GlobalColor.white)
-                painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, chr(0xea6c))
+                painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, chr(0xEA6C))
             elif i == self._current_step:
                 painter.setBrush(primary)
                 painter.drawEllipse(rect)
@@ -159,5 +161,8 @@ class ElaSteps(QWidget):
                 title_font.setPixelSize(13)
                 painter.setFont(title_font)
                 painter.setPen(text_color)
-                painter.drawText(QRectF(cx - 60, title_y, 120, 20),
-                                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, self._step_titles[i])
+                painter.drawText(
+                    QRectF(cx - 60, title_y, 120, 20),
+                    Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                    self._step_titles[i],
+                )

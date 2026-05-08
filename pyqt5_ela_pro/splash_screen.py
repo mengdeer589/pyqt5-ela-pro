@@ -22,12 +22,19 @@ from PyQt5.QtCore import Qt, QRect, QRectF, QPoint, QTimer, pyqtSignal
 from PyQt5.QtGui import QPainter, QPainterPath, QPen, QPixmap, QPaintEvent, QMouseEvent
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QApplication
 
-from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaText, ElaTextType, ElaProgressBar, ElaProgressRing
+from PyQt5ElaWidgetTools import (
+    eTheme,
+    ElaThemeType,
+    ElaText,
+    ElaTextType,
+    ElaProgressBar,
+    ElaProgressRing,
+)
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 
-class ElaSplashScreen(QWidget):
+class ElaSplashScreen(_ThemeAwareMixin, QWidget):
     """启动画面组件。
 
     全 QPainter 自定义绘制，支持 Logo、标题、副标题、状态文字、进度条/环，
@@ -52,7 +59,11 @@ class ElaSplashScreen(QWidget):
         self._is_dragging = False
         self._drag_start = QPoint()
 
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+        )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFixedSize(580, 400)
 
@@ -101,8 +112,6 @@ class ElaSplashScreen(QWidget):
         layout.addSpacing(12)
         layout.addWidget(self._progress_bar)
         layout.addStretch(1)
-
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
 
     # ── Public API ────────────────────────────────────────
 
@@ -184,7 +193,9 @@ class ElaSplashScreen(QWidget):
         screen = QApplication.primaryScreen()
         if screen:
             sg = screen.availableGeometry()
-            self.move((sg.width() - self.width()) // 2, (sg.height() - self.height()) // 2)
+            self.move(
+                (sg.width() - self.width()) // 2, (sg.height() - self.height()) // 2
+            )
         self._progress_bar.setVisible(self._is_show_progress_bar)
         self._progress_ring.setVisible(self._is_show_progress_ring)
         self.setWindowOpacity(1.0)
@@ -219,13 +230,9 @@ class ElaSplashScreen(QWidget):
             return
         self.setWindowOpacity(self._fade_opacity)
 
-    def _onThemeChanged(self, mode) -> None:
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self._theme_mode = mode
         self.update()
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeChanged)
-        super().deleteLater()
 
     # ── Events ────────────────────────────────────────────
 
@@ -270,9 +277,19 @@ class ElaSplashScreen(QWidget):
         if not self._logo.isNull():
             ls = min(80, min(fg.width(), fg.height()) // 3)
             lr = QRect(fg.x() + (fg.width() - ls) // 2, fg.y() + 30, ls, ls)
-            painter.drawPixmap(lr, self._logo.scaled(ls, ls, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            painter.drawPixmap(
+                lr,
+                self._logo.scaled(
+                    ls,
+                    ls,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                ),
+            )
 
         # Border
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBorder), 1))
+        painter.setPen(
+            QPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBorder), 1)
+        )
         painter.drawRoundedRect(QRectF(fg), br, br)

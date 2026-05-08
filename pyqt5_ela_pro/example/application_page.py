@@ -2,13 +2,9 @@
 [pyqt5_ela_pro] 应用级组件演示页面 — PyQt5ElaWidgetTools 原生
 """
 
-from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QApplication
 from PyQt5ElaWidgetTools import (
-    ElaText,
     ElaAppBar,
     ElaStatusBar,
-    ElaPushButton,
 )
 from .base_page import ExamplePage
 

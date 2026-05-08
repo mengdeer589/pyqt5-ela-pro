@@ -12,12 +12,18 @@ from PyQt5.QtCore import pyqtSignal, QRect, QRectF, QSize
 from PyQt5.QtGui import QColor, QPainter, QLinearGradient, QPainterPath, QPaintEvent
 from PyQt5.QtWidgets import QWidget
 
-from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaPushButton, ElaIcon, ElaIconType
+from PyQt5ElaWidgetTools import (
+    eTheme,
+    ElaThemeType,
+    ElaPushButton,
+    ElaIcon,
+    ElaIconType,
+)
 
-from ._internal import _draw_button_content, disconnect_theme_signal
+from ._internal import _draw_button_content, _ThemeAwareMixin
 
 
-class ElaProgressButton(ElaPushButton):
+class ElaProgressButton(_ThemeAwareMixin, ElaPushButton):
     """进度显示按钮。
 
     继承自 ElaPushButton，支持显示进度条。
@@ -51,13 +57,13 @@ class ElaProgressButton(ElaPushButton):
         self._progress = 0.0
         self._progress_color = QColor()
         self._custom_progress_color = getProgressColor is not None
+        self._theme_mode = eTheme.getThemeMode()
         self.setFixedHeight(38)
 
-        self._theme_connection = self._updateProgressColor
-        self._updateProgressColor(eTheme.getThemeMode())
-        eTheme.themeModeChanged.connect(self._theme_connection)
+        self._onThemeChanged(self._theme_mode)
 
-    def _updateProgressColor(self, mode: ElaThemeType.ThemeMode) -> None:
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
+        self._theme_mode = mode
         if not self._custom_progress_color:
             self._progress_color = eTheme.getThemeColor(
                 mode, ElaThemeType.ThemeColor.PrimaryNormal
@@ -92,7 +98,7 @@ class ElaProgressButton(ElaPushButton):
         self._progress_color = color
         self.update()
 
-    def getProgressColor(self) -> QColor:
+    def progressColor(self) -> QColor:
         """返回进度条填充颜色。
 
         :return: 进度条颜色
@@ -104,12 +110,16 @@ class ElaProgressButton(ElaPushButton):
 
         :param percent: 进度百分比，范围 0-100
         """
+        if percent < 0 or percent > 100:
+            print(
+                f"Warning: ElaProgressButton.setProgress({percent}) out of range [0, 100]"
+            )
         percent = max(0, min(100, percent))
         self._progress = percent / 100.0
         self.progressChanged.emit(percent)
         self.update()
 
-    def getProgress(self) -> int:
+    def progress(self) -> int:
         """获取当前进度 (0-100)。
 
         :return: 进度百分比
@@ -121,7 +131,7 @@ class ElaProgressButton(ElaPushButton):
         self.setProgress(0)
 
     def _getCurrentBgColor(self) -> QColor:
-        mode = eTheme.getThemeMode()
+        mode = self._theme_mode
         if not self.isEnabled():
             return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicDisable)
         if self.isDown():
@@ -131,19 +141,15 @@ class ElaProgressButton(ElaPushButton):
         return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase)
 
     def _getCurrentTextColor(self) -> QColor:
-        mode = eTheme.getThemeMode()
+        mode = self._theme_mode
         if not self.isEnabled():
             return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextDisable)
         return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
 
     def _getBorderColor(self) -> QColor:
-        mode = eTheme.getThemeMode()
-        return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBaseLine)
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._theme_connection)
-        self._theme_connection = None
-        super().deleteLater()
+        return eTheme.getThemeColor(
+            self._theme_mode, ElaThemeType.ThemeColor.BasicBaseLine
+        )
 
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
@@ -193,6 +199,13 @@ class ElaProgressButton(ElaPushButton):
             return ElaIcon.getInstance().getElaIcon(icon_name, color)
 
         _draw_button_content(
-            painter, self.text(), self._icon_name, self._icon_size,
-            shadow_border, self.width(), self.height(), text_color, _icon_getter,
+            painter,
+            self.text(),
+            self._icon_name,
+            self._icon_size,
+            shadow_border,
+            self.width(),
+            self.height(),
+            text_color,
+            _icon_getter,
         )

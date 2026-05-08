@@ -11,12 +11,20 @@ import os
 from typing import Optional
 
 from PyQt5.QtCore import QSize, Qt, QRect, QRectF
-from PyQt5.QtGui import QPainter, QPixmap, QIcon, QColor, QPainterPath, QPaintEvent, QPen
+from PyQt5.QtGui import (
+    QPainter,
+    QPixmap,
+    QIcon,
+    QColor,
+    QPainterPath,
+    QPaintEvent,
+    QPen,
+)
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtWidgets import QPushButton, QWidget
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
-from ._internal import disconnect_theme_signal
+from ._internal import _ThemeAwareMixin
 
 
 def _render_svg(svg_data: str, size: int, color: Optional[str] = None) -> QPixmap:
@@ -207,7 +215,7 @@ class ElaSvgIconLoader:
 _svg_icon_loader: Optional[ElaSvgIconLoader] = None
 
 
-class _ElaSvgButtonBase(QPushButton):
+class _ElaSvgButtonBase(_ThemeAwareMixin, QPushButton):
     """SVG 图标按钮基类，包含共用绘制逻辑"""
 
     _iconName: Optional[str] = None
@@ -231,16 +239,16 @@ class _ElaSvgButtonBase(QPushButton):
         self._themeColor = theme_color
         self._iconSize = size
         self._borderRadius = 3
-        eTheme.themeModeChanged.connect(self._onThemeModeChanged)
+        self._theme_mode = eTheme.getThemeMode()
 
-    def _onThemeModeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
+        self._theme_mode = mode
         self.update()
 
     def _drawEffectShadow(self, painter: QPainter, widgetRect: QRect) -> None:
-        mode = eTheme.getThemeMode()
         shadow_color = (
             QColor(0x70, 0x70, 0x70)
-            if mode == ElaThemeType.ThemeMode.Light
+            if self._theme_mode == ElaThemeType.ThemeMode.Light
             else QColor(0x9C, 0x9B, 0x9E)
         )
         painter.save()
@@ -266,7 +274,11 @@ class _ElaSvgButtonBase(QPushButton):
         mode = eTheme.getThemeMode()
         if not self.isEnabled():
             return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextDisable)
-        theme_color = self._themeColor if self._themeColor is not None else ElaThemeType.ThemeColor.BasicText
+        theme_color = (
+            self._themeColor
+            if self._themeColor is not None
+            else ElaThemeType.ThemeColor.BasicText
+        )
         return eTheme.getThemeColor(mode, theme_color)
 
     def _getIconColorStr(self, text_color: QColor) -> str:
@@ -301,7 +313,9 @@ class _ElaSvgButtonBase(QPushButton):
         painter.setBrush(bg_color)
         painter.drawPath(path)
 
-        border_color = eTheme.getThemeColor(eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicBaseLine)
+        border_color = eTheme.getThemeColor(
+            eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicBaseLine
+        )
         border_pen = QPen(border_color, 1)
         painter.setPen(border_pen)
         painter.setBrush(Qt.NoBrush)
@@ -336,7 +350,9 @@ class _ElaSvgButtonBase(QPushButton):
             )
             painter.drawPixmap(icon_rect, icon.pixmap(icon_size))
         else:
-            start_x = shadow_border + (self.width() - 2 * shadow_border - text_width) // 2
+            start_x = (
+                shadow_border + (self.width() - 2 * shadow_border - text_width) // 2
+            )
             text_rect = QRect(start_x, text_y, text_width, content_height)
 
         painter.setPen(text_color)
@@ -350,10 +366,6 @@ class _ElaSvgButtonBase(QPushButton):
     def setBorderRadius(self, radius: int) -> None:
         self._borderRadius = radius
         self.update()
-
-    def deleteLater(self) -> None:
-        disconnect_theme_signal(self._onThemeModeChanged)
-        super().deleteLater()
 
 
 class ElaSvgButton(_ElaSvgButtonBase):
