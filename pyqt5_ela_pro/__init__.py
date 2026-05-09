@@ -140,6 +140,10 @@ from .ela_divider import ElaDivider
 
 from .ela_dropdown_button import ElaDropDownButton
 
+from .ela_figure_canvas import ElaFigureCanvas
+
+from .ela_group_box import ElaGroupBox
+
 from .ela_pagination import ElaPagination
 
 from .ela_progress_button import ElaProgressButton
@@ -174,6 +178,8 @@ __all__ = [
     "ElaDrawerPosition",
     "ElaDropDownButton",
     "ElaExcelViewer",
+    "ElaFigureCanvas",
+    "ElaGroupBox",
     "ElaInfoBadge",
     "ElaLongPressButton",
     "ElaMarkdownViewer",

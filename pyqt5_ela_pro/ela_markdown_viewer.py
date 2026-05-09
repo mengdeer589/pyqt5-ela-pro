@@ -15,7 +15,7 @@ from typing import Optional
 
 from PyQt5.QtWidgets import QWidget, QTextBrowser, QVBoxLayout, QFrame
 
-from PyQt5ElaWidgetTools import eTheme, ElaThemeType
+from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaScrollBar
 
 from ._internal import _ThemeAwareMixin
 
@@ -38,6 +38,9 @@ class ElaMarkdownViewer(_ThemeAwareMixin, QWidget):
         self._text_browser.setFrameShape(QFrame.Shape.NoFrame)
         self._text_browser.setReadOnly(True)
         self._text_browser.setOpenExternalLinks(True)
+
+        v_bar = ElaScrollBar(self._text_browser)
+        self._text_browser.setVerticalScrollBar(v_bar)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
