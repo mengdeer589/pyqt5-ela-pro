@@ -21,10 +21,10 @@ from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 
-class ElaTimeline(_ThemeAwareMixin, QWidget):
+class ElaTimeline(ElaThemeWidget):
     """时间线组件。
 
     :param parent: 父控件
@@ -50,8 +50,6 @@ class ElaTimeline(_ThemeAwareMixin, QWidget):
         self._current_step = 0
         self.setObjectName("ElaTimeline")
         self._icon_font = QFont("ElaAwesome")
-
-        self._theme_mode = eTheme.getThemeMode()
 
     def addItem(self, item: TimelineItem) -> None:
         self._items.append(item)

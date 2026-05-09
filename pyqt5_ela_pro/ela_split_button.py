@@ -36,10 +36,10 @@ from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType, ElaMenu
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 
-class ElaSplitButton(_ThemeAwareMixin, QWidget):
+class ElaSplitButton(ElaThemeWidget):
     """拆分按钮。
 
     左侧为主操作区域（文字 + 可选图标），右侧为下拉箭头。
@@ -72,8 +72,6 @@ class ElaSplitButton(_ThemeAwareMixin, QWidget):
         font = self.font()
         font.setPixelSize(15)
         self.setFont(font)
-
-        self._theme_mode = eTheme.getThemeMode()
 
     # ── Public API ────────────────────────────────────────
 

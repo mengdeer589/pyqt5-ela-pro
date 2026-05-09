@@ -34,10 +34,10 @@ from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType, ElaMenu
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 
-class ElaDropDownButton(_ThemeAwareMixin, QWidget):
+class ElaDropDownButton(ElaThemeWidget):
     """下拉按钮。
 
     点击展开 ElaMenu。
@@ -61,8 +61,6 @@ class ElaDropDownButton(_ThemeAwareMixin, QWidget):
         self.setMouseTracking(True)
         self._icon_font = QFont("ElaAwesome")
         self._arrow_font = QFont("ElaAwesome")
-
-        self._theme_mode = eTheme.getThemeMode()
 
     def setText(self, text: str) -> None:
         self._text = text

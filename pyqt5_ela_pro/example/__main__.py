@@ -5,9 +5,11 @@ pyqt5_ela_pro 模块示例脚本
 import sys
 import os
 
+from pyqt5_ela_pro import ElaSplashScreen
+
 os.environ["QT_LOGGING_RULES"] = "*.debug=false;qt.qpa.fonts.warning=false"
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
 from PyQt5ElaWidgetTools import (
@@ -107,34 +109,34 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     eApp.init()
     #
-    # splash = ElaSplashScreen()
-    # splash.setTitle("pyqt5_ela_pro")
-    # splash.setSubTitle("组件示例")
-    # splash.show()
-    #
-    # messages = [
-    #     "正在加载组件...",
-    #     "正在初始化主题...",
-    #     "正在构建页面...",
-    #     "正在准备就绪...",
-    # ]
-    # step = [0]
-    # timer = QTimer()
-    # timer.setInterval(100)
-    #
-    # def next_step():
-    #     if step[0] < len(messages):
-    #         splash.setValue(int((step[0] + 1) / len(messages) * 100))
-    #         splash.setStatusText(messages[step[0]])
-    #         step[0] += 1
-    #     else:
-    #         timer.stop()
-    #         window = ExampleWindow()
-    #         app.processEvents()
-    #         splash.finish(window)
-    #
-    # timer.timeout.connect(next_step)
-    # timer.start()
-    window = ExampleWindow()
-    window.show()
+    splash = ElaSplashScreen()
+    splash.setTitle("pyqt5_ela_pro")
+    splash.setSubTitle("组件示例")
+    splash.show()
+
+    messages = [
+        "正在加载组件...",
+        "正在初始化主题...",
+        "正在构建页面...",
+        "正在准备就绪...",
+    ]
+    step = [0]
+    timer = QTimer()
+    timer.setInterval(100)
+
+    def next_step():
+        if step[0] < len(messages):
+            splash.setValue(int((step[0] + 1) / len(messages) * 100))
+            splash.setStatusText(messages[step[0]])
+            step[0] += 1
+        else:
+            timer.stop()
+            window = ExampleWindow()
+            app.processEvents()
+            splash.finish(window)
+
+    timer.timeout.connect(next_step)
+    timer.start()
+    # window = ExampleWindow()
+    # window.show()
     sys.exit(app.exec_())

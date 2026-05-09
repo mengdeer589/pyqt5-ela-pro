@@ -19,6 +19,8 @@ from PyQt5.QtWidgets import QWidget, QAction, QLineEdit
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaLineEdit, ElaIcon, ElaIconType
 
+from ._internal import disconnect_theme_signal
+
 
 class ElaPasswordEdit(ElaLineEdit):
     """密码输入框。
@@ -39,6 +41,11 @@ class ElaPasswordEdit(ElaLineEdit):
         self._toggle_action.triggered.connect(self._onToggleVisibility)
 
         self._updateEyeIcon()
+        eTheme.themeModeChanged.connect(self._updateEyeIcon)
+
+    def deleteLater(self) -> None:
+        disconnect_theme_signal(self._updateEyeIcon)
+        super().deleteLater()
 
     def setIsPasswordVisible(self, visible: bool) -> None:
         self._is_password_visible = visible

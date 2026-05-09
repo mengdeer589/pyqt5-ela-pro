@@ -23,13 +23,13 @@ from PyQt5.QtGui import QPainter, QPaintEvent, QPen
 from PyQt5.QtWidgets import QSizePolicy, QWidget
 from PyQt5ElaWidgetTools import ElaThemeType, eTheme
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 ElaDividerOrientation = Literal["left", "center", "right", "top", "bottom"]
 ElaDividerVariant = Literal["solid", "dashed"]
 
 
-class ElaDivider(_ThemeAwareMixin, QWidget):
+class ElaDivider(ElaThemeWidget):
     """分割线组件。"""
 
     def __init__(
@@ -46,7 +46,6 @@ class ElaDivider(_ThemeAwareMixin, QWidget):
         self._orientation = orientation
         self._variant = variant
         self._vertical = vertical
-        self._theme_mode = eTheme.getThemeMode()
 
         if vertical:
             self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
@@ -54,7 +53,6 @@ class ElaDivider(_ThemeAwareMixin, QWidget):
             self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         self._onThemeChanged(self._theme_mode)
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
 
     # ── Public API ────────────────────────────────────────
 
@@ -115,7 +113,7 @@ class ElaDivider(_ThemeAwareMixin, QWidget):
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
         mode = self._theme_mode
-        line_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBaseLine)
+        line_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorderDeep)
         text_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
 
         if self._vertical:

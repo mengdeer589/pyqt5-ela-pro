@@ -17,10 +17,10 @@ from PyQt5.QtWidgets import QWidget, QTextBrowser, QVBoxLayout, QFrame
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaScrollBar
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 
-class ElaMarkdownViewer(_ThemeAwareMixin, QWidget):
+class ElaMarkdownViewer(ElaThemeWidget):
     """Markdown 查看器。
 
     基于 QTextBrowser 渲染 Markdown，支持深浅色主题适配。
@@ -46,7 +46,6 @@ class ElaMarkdownViewer(_ThemeAwareMixin, QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._text_browser)
 
-        self._theme_mode = eTheme.getThemeMode()
         self._applyThemeStyle()
 
     def setMarkdown(self, text: str) -> None:

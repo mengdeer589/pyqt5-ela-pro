@@ -32,9 +32,10 @@ from PyQt5.QtWidgets import QDialog, QWidget, QVBoxLayout, QHBoxLayout
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
 from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 
-class _ElaConfirmButton(_ThemeAwareMixin, QWidget):
+class _ElaConfirmButton(ElaThemeWidget):
     """确认/取消图标按钮，全 QPainter 自绘。"""
 
     clicked = pyqtSignal()
@@ -47,7 +48,6 @@ class _ElaConfirmButton(_ThemeAwareMixin, QWidget):
         self._type = button_type
         self._is_hovered = False
         self._is_pressed = False
-        self._theme_mode = eTheme.getThemeMode()
         self.setFixedHeight(40)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 

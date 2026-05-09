@@ -29,10 +29,10 @@ from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaLineEdit
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 
-class ElaPagination(_ThemeAwareMixin, QWidget):
+class ElaPagination(ElaThemeWidget):
     """分页组件。
 
     :param parent: 父控件
@@ -62,8 +62,6 @@ class ElaPagination(_ThemeAwareMixin, QWidget):
         self._jumper_edit.setValidator(QIntValidator(1, 9999, self._jumper_edit))
         self._jumper_edit.setVisible(False)
         self._jumper_edit.returnPressed.connect(self._onJumperEntered)
-
-        self._theme_mode = eTheme.getThemeMode()
 
     def setCurrentPage(self, n: int) -> None:
         if n != self._current_page and 1 <= n <= self._total_pages:

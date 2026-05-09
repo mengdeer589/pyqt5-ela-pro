@@ -4,10 +4,13 @@
 合并了以下来源的组件:
 - pyqt5_ela_pro: 抽屉、提示组件
 """
+import traceback
 
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout
+from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QWidget
 from PyQt5.QtGui import QFont
-from PyQt5ElaWidgetTools import ElaText, ElaPushButton
+from PyQt5ElaWidgetTools import (
+    ElaText, ElaPushButton, ElaDrawerArea, ElaIconType, ElaToggleSwitch,
+)
 from pyqt5_ela_pro import (
     ElaDrawer,
     ElaDrawerPosition,
@@ -34,10 +37,62 @@ class DrawerTooltipPage(ExamplePage):
         super().__init__(parent)
 
     def _addDemoContent(self, main_layout):
+        self._demoElaDrawerArea(main_layout)
         self._demoDrawer(main_layout)
         self._demoTooltip(main_layout)
         self._demoTooltipDirect(main_layout)
         self._demoStateTooltip(main_layout)
+
+    def _demoElaDrawerArea(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("00. PyQt5ElaWidgetTools - ElaDrawerArea 折叠面板", self._demoElaDrawerArea)
+        )
+        self._addInfoText("可折叠面板，点击开关或点击头部展开/收起内容区域", parent_layout)
+
+        drawer = ElaDrawerArea(self)
+        header = QWidget(self)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+
+        icon = ElaText(self)
+        icon.setTextPixelSize(15)
+        icon.setElaIcon(ElaIconType.IconName.MessageArrowDown)
+        icon.setFixedSize(25, 25)
+        header_layout.addWidget(icon)
+
+        header_text = ElaText("ElaDrawerArea", self)
+        header_text.setTextPixelSize(15)
+        header_layout.addWidget(header_text)
+        header_layout.addStretch()
+
+        switch_text = ElaText("关", self)
+        switch_text.setTextPixelSize(15)
+        switch_btn = ElaToggleSwitch(self)
+
+        def _on_toggle(toggled: bool):
+            switch_text.setText("开" if toggled else "关")
+            drawer.expand() if toggled else drawer.collapse()
+
+        switch_btn.toggled.connect(_on_toggle)
+        drawer.expandStateChanged.connect(switch_btn.setIsToggled)
+
+        header_layout.addWidget(switch_text)
+        header_layout.addWidget(switch_btn)
+        drawer.setDrawerHeader(header)
+
+        for i, label in enumerate(["测试窗口1", "测试窗口2", "测试窗口3"], 1):
+            w = QWidget(self)
+            w.setFixedHeight(75)
+            wl = QHBoxLayout(w)
+            wl.addSpacing(60)
+            cb = ElaText(label, self)
+            cb.setTextPixelSize(14)
+            wl.addWidget(cb)
+            wl.addStretch()
+            drawer.addDrawer(w)
+
+        parent_layout.addWidget(drawer)
+        parent_layout.addSpacing(20)
 
     def _demoDrawer(self, parent_layout):
         parent_layout.addWidget(self._createSectionHeader("=== ela_ext - 抽屉组件 ==="))
@@ -206,19 +261,22 @@ class DrawerTooltipPage(ExamplePage):
             return False
 
     def _showStateTooltip(self, title, content, is_done=False):
-        if self._checkValid(self._stateTooltip):
-            self._stateTooltip.setTitle(title)
-            self._stateTooltip.setContent(content)
+        try:
+            if self._checkValid(self._stateTooltip):
+                self._stateTooltip.setTitle(title)
+                self._stateTooltip.setContent(content)
+                if is_done:
+                    self._stateTooltip.setState(True)
+                return
+            self._stateTooltip = ElaStateToolTip(title, content, self)
+            self._stateTooltip.closed.connect(self._onStateTooltipClosed)
+            pos = self._stateTooltip.getSuitablePos()
+            self._stateTooltip.move(pos)
+            self._stateTooltip.show()
             if is_done:
                 self._stateTooltip.setState(True)
-            return
-        self._stateTooltip = ElaStateToolTip(title, content, self)
-        self._stateTooltip.closed.connect(self._onStateTooltipClosed)
-        pos = self._stateTooltip.getSuitablePos()
-        self._stateTooltip.move(pos)
-        self._stateTooltip.show()
-        if is_done:
-            self._stateTooltip.setState(True)
+        except Exception:
+            print(traceback.format_exc())
 
     def _showLoadingStateTooltip(self):
         self._showStateTooltip("正在加载", "请稍候...")

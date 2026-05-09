@@ -37,10 +37,10 @@ from PyQt5ElaWidgetTools import (
     ElaPushButton,
 )
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 
-class ElaSpotlight(_ThemeAwareMixin, QWidget):
+class ElaSpotlight(ElaThemeWidget):
     """引导遮罩。
 
     覆盖在父控件之上，用遮罩突出显示目标控件，并显示提示文字。
@@ -80,7 +80,6 @@ class ElaSpotlight(_ThemeAwareMixin, QWidget):
         self._is_active = False
 
         self.setVisible(False)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
 
         # Tip widget with title, content, buttons
         self._tip_widget = QWidget(self)
@@ -119,8 +118,6 @@ class ElaSpotlight(_ThemeAwareMixin, QWidget):
         btn_layout.addWidget(self._prev_btn)
         btn_layout.addWidget(self._next_btn)
         tip_layout.addLayout(btn_layout)
-
-        self._theme_mode = eTheme.getThemeMode()
 
     # ── Public API ────────────────────────────────────────
 

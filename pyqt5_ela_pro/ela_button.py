@@ -112,7 +112,6 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
 
         self._theme_mode = eTheme.getThemeMode()
         self._apply_size(size)
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
 
     # ── Public API ────────────────────────────────────────
 

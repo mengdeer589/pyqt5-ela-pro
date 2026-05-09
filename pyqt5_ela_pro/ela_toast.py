@@ -35,7 +35,7 @@ from PyQt5.QtWidgets import QWidget, QApplication
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 
 class _ToastType(IntEnum):
@@ -45,7 +45,7 @@ class _ToastType(IntEnum):
     Error = 3
 
 
-class ElaToast(_ThemeAwareMixin, QWidget):
+class ElaToast(ElaThemeWidget):
     """通知提示。私有构造，使用静态方法创建。"""
 
     def __init__(
@@ -72,7 +72,6 @@ class ElaToast(_ThemeAwareMixin, QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
-        self._theme_mode = eTheme.getThemeMode()
         self._icon_font = QFont("ElaAwesome")
         self._text_font = QFont()
 

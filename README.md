@@ -51,6 +51,7 @@ ElaPasswordEdit、ElaConfirmDialog、ElaMarkdownViewer、ElaUploadArea、ElaSpla
 
 ### 导航与布局
 - **ElaDivider** — 分割线（水平/垂直，支持文字，实线/虚线）
+- **ElaGroupBox** — 分组框（圆角边框、居中标题）
 - **ElaSteps** — 步骤条（多步引导，已完成/当前/待办三种状态）
 - **ElaPagination** — 分页（页码按钮、省略号、跳转输入框）
 - **ElaSplitter** — 主题感知分割器（自定义 Handle 带 grip 悬停效果）
@@ -77,7 +78,7 @@ ElaPasswordEdit、ElaConfirmDialog、ElaMarkdownViewer、ElaUploadArea、ElaSpla
 - **ElaTaskbarProgress** — Windows 任务栏进度
 - **ElaSvgIconLoader** — 二进制 SVG 图标加载器
 - **ElaThemeWidget** — 主题感知基类，自动响应暗色/亮色切换
-- 所有样式通过 **QPainter + QPalette** 实现，不使用 QSS
+- **ElaFigureCanvas** — Matplotlib 画布（主题感知，自动适配暗色/亮色）
 
 ### 内建示例 - 代码查看器
 每个示例组件的标题旁都有 `</> 代码` 按钮，点击弹出带 **VS Code Dark 语法高亮** 的源码对话框：
@@ -159,6 +160,7 @@ pyqt5_ela_pro/              # 核心组件包
   ela_long_press_button.py  # ElaLongPressButton
   ela_progress_button.py    # ElaProgressButton
   ela_confirm_dialog.py     # ElaConfirmDialog
+  ela_group_box.py          # ElaGroupBox
   #
   # 弹窗与提示
   dialog_base.py            # ElaDialogBase
@@ -178,6 +180,7 @@ pyqt5_ela_pro/              # 核心组件包
   # 展示组件
   ela_timeline.py           # ElaTimeline
   ela_trend_chart.py        # ElaTrendChart
+  ela_figure_canvas.py      # ElaFigureCanvas（可选依赖 matplotlib）
   ela_info_badge.py         # ElaInfoBadge
   ela_chip.py               # ElaChip
   ela_markdown_viewer.py    # ElaMarkdownViewer
@@ -262,9 +265,11 @@ pyqt5_ela_pro/              # 核心组件包
 | **ElaSpotlight** | 导航 | 引导遮罩（单目标/多步骤，淡入淡出） |
 | **ElaDivider** | 布局 | 分割线（水平/垂直/文字/虚线） |
 | **ElaSplitter** | 布局 | 主题感知分割器（定制 Handle，悬停变色） |
+| **ElaGroupBox** | 布局 | 分组框（圆角边框、居中标题、可放置子控件） |
 | **ElaDataTable** | 数据展示 | 数据表格控件 |
 | **ElaParquetTable** | 数据展示 | Parquet 文件分页查看 |
 | **ElaTrendChart** | 数据展示 | 折线图 / 散点图 |
+| **ElaFigureCanvas** | 数据展示 | Matplotlib 画布（主题感知，可选依赖） |
 | **ElaTimeline** | 数据展示 | 时间线（时间戳/标题/内容/图标） |
 | **ElaMarkdownViewer** | 数据展示 | Markdown 查看器（主题自适应） |
 | **ElaChip** | 展示 | 标签纸片（16 色，可关闭/可选择/可点击） |
@@ -298,8 +303,8 @@ python -m pyqt5_ela_pro.example
 | 应用框架 | ElaAppBar、ElaStatusBar |
 | 增强按钮 | ElaButton、ElaDropDownButton、ElaSplitButton、ElaToast 等 |
 | 下拉框组件 | 全部 9 种下拉框变体 + 空选项演示 |
-| 表格与图表 | ElaDataTable（基础/异步/样式/排序）、ElaParquetTable、ElaTrendChart |
-| 弹窗与提示 | ElaDrawer、ElaToolTip、ElaStateToolTip、ElaSpotlight |
+| 表格与图表 | ElaDataTable（基础/异步/样式/排序）、ElaParquetTable、ElaTrendChart、ElaFigureCanvas |
+| 弹窗与提示 | ElaDrawer、ElaDrawerArea、ElaToolTip、ElaStateToolTip、ElaSpotlight |
 | 动画与图标 | 淡入淡出、窗口抖动、ElaAnimatedMixin、SVG 图标浏览器 |
 | 应用辅助 | ElaSplashScreen、ElaTaskbarProgress |
 | Office 预览 | Word、Excel、PPT 文档嵌入查看 |
@@ -315,6 +320,7 @@ python -m pyqt5_ela_pro.example
 | pypinyin >= 0.50.0 | 是 | 拼音搜索支持 |
 | pywin32 | 否 | 窗口嵌入 / 浏览器嵌入 |
 | polars | 否 | Parquet 文件查看 |
+| matplotlib | 否 | ElaFigureCanvas 图表 |
 
 ## 设计原则
 

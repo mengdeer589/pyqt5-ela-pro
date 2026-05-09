@@ -29,10 +29,10 @@ from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QDragMoveEvent, QDragLeaveE
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 
-class ElaUploadArea(_ThemeAwareMixin, QWidget):
+class ElaUploadArea(ElaThemeWidget):
     """文件上传区域。
 
     支持拖拽和点击选择文件，可配置后缀过滤、大小限制、数量限制。
@@ -72,8 +72,6 @@ class ElaUploadArea(_ThemeAwareMixin, QWidget):
         self._sub_font = QFont()
         self._fi_font = QFont("ElaAwesome")
         self._x_font = QFont("ElaAwesome")
-
-        self._theme_mode = eTheme.getThemeMode()
 
     # ── Public API ────────────────────────────────────────
 

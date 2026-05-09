@@ -31,10 +31,10 @@ from PyQt5ElaWidgetTools import (
     ElaProgressRing,
 )
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 
-class ElaSplashScreen(_ThemeAwareMixin, QWidget):
+class ElaSplashScreen(ElaThemeWidget):
     """启动画面组件。
 
     全 QPainter 自定义绘制，支持 Logo、标题、副标题、状态文字、进度条/环，
@@ -46,7 +46,7 @@ class ElaSplashScreen(_ThemeAwareMixin, QWidget):
     closed = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(None)
+        super().__init__(parent)
 
         self._border_radius = 12
         self._minimum = 0
@@ -66,8 +66,6 @@ class ElaSplashScreen(_ThemeAwareMixin, QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFixedSize(580, 400)
-
-        self._theme_mode = eTheme.getThemeMode()
 
         # Title
         self._title_text = ElaText(self)

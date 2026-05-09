@@ -442,10 +442,10 @@ class FormButtonPage(ExamplePage):
         row = QHBoxLayout()
         row.setSpacing(15)
         for text, slot in [
-            ("成功", lambda: ElaToast.success("操作成功完成！")),
-            ("信息", lambda: ElaToast.info("这是一条信息提示")),
-            ("警告", lambda: ElaToast.warning("请注意，磁盘空间不足")),
-            ("错误", lambda: ElaToast.error("发生错误，请重试")),
+            ("成功", lambda: ElaToast.success("操作成功完成！",parent=self)),
+            ("信息", lambda: ElaToast.info("这是一条信息提示",parent=self)),
+            ("警告", lambda: ElaToast.warning("请注意，磁盘空间不足",parent=self)),
+            ("错误", lambda: ElaToast.error("发生错误，请重试",parent=self)),
         ]:
             btn = ElaPushButton(text, self)
             btn.setFixedWidth(80)

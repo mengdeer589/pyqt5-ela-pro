@@ -116,7 +116,7 @@ class ComboBoxPage(ExamplePage):
         btn.setFixedWidth(100)
         btn.clicked.connect(
             lambda: ElaMessageDialog.show(
-                self, "当前选中", f"当前选中: {multi.currentSelection()}"
+                self, "当前选中", f"当前选中: {multi.getCurrentSelection()}"
             )
         )
         row.addWidget(btn)
@@ -220,7 +220,7 @@ class ComboBoxPage(ExamplePage):
         btn.setFixedWidth(100)
         btn.clicked.connect(
             lambda: ElaMessageDialog.show(
-                self, "当前选中", f"当前选中: {multi.currentSelection()}"
+                self, "当前选中", f"当前选中: {multi.getCurrentSelection()}"
             )
         )
         row.addWidget(btn)

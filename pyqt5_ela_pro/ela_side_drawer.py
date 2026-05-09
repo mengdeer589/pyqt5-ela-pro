@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QGraphicsDropShadowEffect
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 
 class ElaDrawerPosition(IntEnum):
@@ -37,7 +37,6 @@ class ElaDrawerPanel(QWidget):
         self._corner_radius = corner_radius
         self._position = position
         self._bg_color = QColor(0, 0, 0, 0)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
     def setBgColor(self, color: QColor) -> None:
         self._bg_color = color
@@ -112,7 +111,7 @@ class ElaDrawerDim(QWidget):
         painter.fillRect(self.rect(), self._bg_color)
 
 
-class ElaDrawer(_ThemeAwareMixin, QWidget):
+class ElaDrawer(ElaThemeWidget):
     """
     SiliconUI 风格侧边抽屉组件。
 
@@ -182,10 +181,10 @@ class ElaDrawer(_ThemeAwareMixin, QWidget):
         if parent:
             parent.installEventFilter(self)
 
-        self._onThemeChanged(eTheme.getThemeMode())
+        self._onThemeChanged(self._theme_mode)
 
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
-        bg_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase)
+        bg_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.DialogBase)
         self._drawer_widget.setBgColor(bg_color)
         dim_color = QColor(0, 0, 0, 102)
         self._dim_widget.setBgColor(dim_color)
@@ -256,18 +255,22 @@ class ElaDrawer(_ThemeAwareMixin, QWidget):
         if not self._content_widget:
             return
 
-        parent = self.parentWidget()
-        if not parent:
+        win = self.window()
+        if not win:
             return
+        if self.parentWidget() is not win:
+            self.setParent(win)
+            win.installEventFilter(self)
         try:
-            self.resize(parent.size())
+            self.resize(win.size())
             self._dim_widget.resize(self.size())
 
-            start_rect = self._getStartRect(parent)
-            end_rect = self._getEndRect(parent)
+            start_rect = self._getStartRect(win)
+            end_rect = self._getEndRect(win)
 
             self._drawer_widget.setGeometry(start_rect)
             self._drawer_widget.show()
+            self._drawer_widget.raise_()
             self._dim_widget.setWindowOpacity(0)
             self._dim_widget.show()
             self.show()
@@ -290,12 +293,12 @@ class ElaDrawer(_ThemeAwareMixin, QWidget):
         if not self._is_opened:
             return
 
-        parent = self.parentWidget()
-        if not parent:
+        win = self.window() if self.parentWidget() else None
+        if not win:
             return
 
         current_rect = self._drawer_widget.geometry()
-        end_rect = self._getStartRect(parent)
+        end_rect = self._getStartRect(win)
 
         self._hide_anim.setDuration(self._animation_duration)
         self._hide_anim.setStartValue(current_rect)

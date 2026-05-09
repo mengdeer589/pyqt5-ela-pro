@@ -20,10 +20,10 @@ from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 
-class ElaSteps(_ThemeAwareMixin, QWidget):
+class ElaSteps(ElaThemeWidget):
     """步骤条组件。
 
     :param parent: 父控件
@@ -41,8 +41,6 @@ class ElaSteps(_ThemeAwareMixin, QWidget):
         self.setObjectName("ElaSteps")
         self.setFixedHeight(70)
         self._icon_font = QFont("ElaAwesome")
-
-        self._theme_mode = eTheme.getThemeMode()
 
     def setCurrentStep(self, n: int) -> None:
         self._current_step = max(0, min(n, self._step_count - 1))

@@ -25,10 +25,10 @@ from PyQt5.QtWidgets import QWidget
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
 from ._colors import get_accent_color
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 
-class ElaChip(_ThemeAwareMixin, QWidget):
+class ElaChip(ElaThemeWidget):
     """标签纸片组件。
 
     支持 16 种颜色主题（同 ElaButton 色系），可关闭、可选择、可点击。
@@ -78,10 +78,6 @@ class ElaChip(_ThemeAwareMixin, QWidget):
         self._icon_font = QFont("ElaAwesome")
 
         self.setObjectName("ElaChip")
-        self.setFixedHeight(28)
-        self.setMouseTracking(True)
-
-        self._theme_mode = eTheme.getThemeMode()
 
     # ── Public API ────────────────────────────────────────
 
@@ -162,7 +158,7 @@ class ElaChip(_ThemeAwareMixin, QWidget):
         if name:
             try:
                 color = QColor(get_accent_color(name, mode))
-                color.setAlpha(30)
+                color.setAlpha(25 if mode == ElaThemeType.ThemeMode.Light else 55)
                 return color
             except KeyError:
                 pass
@@ -175,6 +171,8 @@ class ElaChip(_ThemeAwareMixin, QWidget):
         name = self._COLOR_NAMES.get(self._chip_color)
         if name:
             try:
+                if mode == ElaThemeType.ThemeMode.Dark:
+                    return QColor(get_accent_color(name, ElaThemeType.ThemeMode.Light))
                 return QColor(get_accent_color(name, mode))
             except KeyError:
                 pass

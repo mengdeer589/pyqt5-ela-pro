@@ -29,10 +29,10 @@ from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 
-class ElaInfoBadge(_ThemeAwareMixin, QWidget):
+class ElaInfoBadge(ElaThemeWidget):
     """角标组件。
 
     可附加到任意控件的右上角，支持 Dot / Value / Icon 三种显示模式，
@@ -80,8 +80,6 @@ class ElaInfoBadge(_ThemeAwareMixin, QWidget):
         elif icon is not None:
             self._badge_mode = self.BadgeMode.Icon
             self._icon = icon
-
-        self._theme_mode = eTheme.getThemeMode()
 
     # ── Public API ────────────────────────────────────────
 

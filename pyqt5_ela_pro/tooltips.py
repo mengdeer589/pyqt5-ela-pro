@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Optional
+from typing import Optional
 import weakref
 
 from PyQt5.QtCore import (
@@ -28,7 +28,7 @@ from PyQt5.QtCore import (
     QRectF,
 )
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 from PyQt5.QtGui import (
     QPainter,
     QFont,
@@ -352,7 +352,7 @@ def remove_tooltip(widget: QWidget) -> None:
         tooltip.deleteLater()
 
 
-class ElaStateToolTip(_ThemeAwareMixin, QWidget):
+class ElaStateToolTip(ElaThemeWidget):
     """带状态指示的提示组件。
 
     支持两种状态：加载中（显示旋转图标）和完成（显示对勾图标）。
@@ -391,7 +391,6 @@ class ElaStateToolTip(_ThemeAwareMixin, QWidget):
         self._isClosing = False
         self._destroyed = False
         self._closeBtnHovered = False
-        self._themeConnection: Any = None
 
         self._animation = QPropertyAnimation(self, b"windowOpacity")
         self._rotateTimer = QTimer(self)

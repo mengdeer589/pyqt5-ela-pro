@@ -72,13 +72,9 @@ class ElaSplitterHandle(_ThemeAwareMixin, QSplitterHandle):
             w, h, mode = self.width(), self.height(), self._theme_mode
             is_horiz = self.orientation() == Qt.Orientation.Horizontal
 
-            if self._is_pressed:
+            if self._is_hover or self._is_pressed:
                 grip_color = eTheme.getThemeColor(
                     mode, ElaThemeType.ThemeColor.PrimaryNormal
-                )
-            elif self._is_hover:
-                grip_color = eTheme.getThemeColor(
-                    mode, ElaThemeType.ThemeColor.BasicTextPress
                 )
             else:
                 grip_color = eTheme.getThemeColor(

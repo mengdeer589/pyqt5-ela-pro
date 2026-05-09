@@ -23,10 +23,10 @@ from PyQt5.QtWidgets import QWidget, QSizePolicy
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 
-class ElaGroupBox(_ThemeAwareMixin, QWidget):
+class ElaGroupBox(ElaThemeWidget):
     """主题感知分组框。
 
     全 QPainter 自绘圆角边框，居中标题文字，自动适配深浅色主题。
@@ -50,8 +50,6 @@ class ElaGroupBox(_ThemeAwareMixin, QWidget):
 
         self.setObjectName("ElaGroupBox")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-
-        self._theme_mode = eTheme.getThemeMode()
 
     # ── Public API ────────────────────────────────────────
 

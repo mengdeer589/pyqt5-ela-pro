@@ -19,10 +19,10 @@ from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 
-class ElaRatingControl(_ThemeAwareMixin, QWidget):
+class ElaRatingControl(ElaThemeWidget):
     """星级评分组件，支持半星。
 
     :param parent: 父控件
@@ -44,8 +44,6 @@ class ElaRatingControl(_ThemeAwareMixin, QWidget):
         self.setMouseTracking(True)
         self.setFixedHeight(self._star_size + 4)
         self._icon_font = QFont("ElaAwesome")
-
-        self._theme_mode = eTheme.getThemeMode()
 
     def setMaxRating(self, n: int) -> None:
         self._max_rating = n

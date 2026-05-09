@@ -25,14 +25,14 @@ from PyQt5.QtSvg import QSvgGenerator
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
-from ._internal import _ThemeAwareMixin
+from .widget_base import ElaThemeWidget
 
 CurveType = Literal["line", "scatter"]
 DotShape = Literal["circle", "square", "diamond", "triangle"]
 LineStyle = Literal["solid", "dash", "dot", "dash_dot"]
 
 
-class ElaTrendChart(_ThemeAwareMixin, QWidget):
+class ElaTrendChart(ElaThemeWidget):
     """TrendChart 趋势图组件。
 
     支持多曲线绘制、主题切换、网格线显示和交互式指示器。
@@ -104,7 +104,6 @@ class ElaTrendChart(_ThemeAwareMixin, QWidget):
         self._pan_snapshot: Optional[QPixmap] = None
         self._dot_size = 3.0
         self._dot_shape: DotShape = "circle"
-        self._theme_mode = eTheme.getThemeMode()
 
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self._theme_mode = mode
