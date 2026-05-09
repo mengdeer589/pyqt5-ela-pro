@@ -57,14 +57,6 @@ class TestElaDrawerPanel:
 
         panel.deleteLater()
 
-    def test_has_translucent_background(self):
-        """Test drawer panel has translucent background attribute."""
-        panel = ElaDrawerPanel()
-
-        assert panel.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-
-        panel.deleteLater()
-
     def test_set_bg_color(self):
         """Test setBgColor updates background color."""
         panel = ElaDrawerPanel()

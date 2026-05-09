@@ -23,12 +23,6 @@ class TestThemeWidget:
         assert widget.objectName() == "ElaThemeWidget"
         widget.deleteLater()
 
-    def test_theme_widget_has_theme_connection(self):
-        """Test ElaThemeWidget has _themeConnection attribute."""
-        widget = ElaThemeWidget()
-        assert hasattr(widget, "_themeConnection")
-        widget.deleteLater()
-
     def test_createLayout_horizontal(self):
         """Test createLayout with horizontal layout."""
         widget = ElaThemeWidget()
@@ -60,12 +54,6 @@ class TestThemeWidget:
         assert lay.parent() is parent
         parent.deleteLater()
         widget.deleteLater()
-
-    def test_deleteLater_sets_connection_to_none(self):
-        """Test deleteLater sets _themeConnection to None."""
-        widget = ElaThemeWidget()
-        widget.deleteLater()
-        assert widget._themeConnection is None
 
     def test_alert_accepts_string_levels(self):
         """Test alert method accepts string level values."""

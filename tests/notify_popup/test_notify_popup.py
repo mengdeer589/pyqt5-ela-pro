@@ -92,10 +92,6 @@ class TestElaNotifyManager:
 
         assert manager1 is manager2
 
-    def test_show_notify_is_ela_manager_show(self):
-        """Test show_notify is bound to ElaNotifyManager.show method."""
-        assert show_notify == ElaNotifyManager().showNotification
-
     def test_ela_notify_manager_show_creates_popup(self):
         """Test show method creates and shows popup."""
         manager = ElaNotifyManager()

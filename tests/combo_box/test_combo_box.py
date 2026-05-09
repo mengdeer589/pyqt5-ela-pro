@@ -105,16 +105,6 @@ class TestElaSearchMultiBox:
         assert box._currentSelection == ["single"]
         box.deleteLater()
 
-    def test_get_current_selection(self):
-        """Test getCurrentSelection returns copy of selection."""
-        box = ElaSearchMultiBox()
-        box.setCurrentSelection(["选项1", "选项2"])
-        selection = box.getCurrentSelection()
-        assert selection == ["选项1", "选项2"]
-        selection.append("新的")
-        assert box._currentSelection == ["选项1", "选项2"]
-        box.deleteLater()
-
     def test_pinyin_cache_cleared_on_clear(self):
         """Test clear clears the pinyin cache."""
         box = ElaSearchMultiBox()

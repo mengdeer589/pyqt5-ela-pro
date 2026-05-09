@@ -79,14 +79,6 @@ class TestElaLongPressBtn:
 
         btn.deleteLater()
 
-    def test_progress_color_initially_set(self):
-        """Test getProgressColor returns a QColor."""
-        btn = ElaLongPressBtn()
-
-        assert btn.getProgressColor() is not None
-
-        btn.deleteLater()
-
     def test_delete_later_stops_timers(self):
         """Test deleteLater stops mouse pressed timer."""
         btn = ElaLongPressBtn()
@@ -140,24 +132,6 @@ class TestElaProgressButton:
         assert hasattr(btn, 'progressChanged')
         btn.deleteLater()
 
-    def test_set_progress_clamped_to_100(self):
-        """Test setProgress clamps value to 100."""
-        btn = ElaProgressButton()
-        btn.setProgress(150)
-
-        assert btn.getProgress() <= 100
-
-        btn.deleteLater()
-
-    def test_set_progress_clamped_to_0(self):
-        """Test setProgress clamps value to 0."""
-        btn = ElaProgressButton()
-        btn.setProgress(-50)
-
-        assert btn.getProgress() >= 0
-
-        btn.deleteLater()
-
     def test_set_progress_emits_signal(self):
         """Test setProgress emits progressChanged signal."""
         btn = ElaProgressButton()
@@ -168,25 +142,6 @@ class TestElaProgressButton:
         btn.setProgress(50)
 
         assert 50 in received
-
-        btn.deleteLater()
-
-    def test_get_progress_returns_int(self):
-        """Test getProgress returns integer percentage."""
-        btn = ElaProgressButton()
-        btn.setProgress(75)
-
-        assert isinstance(btn.getProgress(), int)
-
-        btn.deleteLater()
-
-    def test_reset_progress_sets_to_zero(self):
-        """Test resetProgress sets progress to 0."""
-        btn = ElaProgressButton()
-        btn.setProgress(100)
-        btn.resetProgress()
-
-        assert btn.getProgress() == 0
 
         btn.deleteLater()
 

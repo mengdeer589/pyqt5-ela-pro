@@ -17,7 +17,7 @@ __pycache__/
 *.egg-info/
 .opencode/
 BROWSER_CRASh_REPORT.md
-test_*
+/test_*
 20260424/
 window_embedder.py
 .idea/
@@ -25,3 +25,5 @@ example/
 AGENTS.md
 PyQt-Fluent-Widgets/
 /界面测试.py
+/ElaWidgetTools/
+/ElaWidgetToolsExample/
