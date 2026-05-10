@@ -39,10 +39,18 @@ class ElaDrawerPanel(QWidget):
         self._bg_color = QColor(0, 0, 0, 0)
 
     def setBgColor(self, color: QColor) -> None:
+        """设置面板背景色。
+
+        :param color: 背景色
+        """
         self._bg_color = color
         self.update()
 
     def setPosition(self, position: ElaDrawerPosition) -> None:
+        """设置面板位置。
+
+        :param position: 位置方向
+        """
         self._position = position
         self.update()
 
@@ -97,6 +105,10 @@ class ElaDrawerDim(QWidget):
         self._bg_color = QColor(0, 0, 0, 102)
 
     def setBgColor(self, color: QColor) -> None:
+        """设置遮罩背景色。
+
+        :param color: 背景色
+        """
         self._bg_color = color
         palette = self.palette()
         palette.setColor(self.backgroundRole(), color)
@@ -220,6 +232,11 @@ class ElaDrawer(ElaThemeWidget):
             )
 
     def setContentWidget(self, widget: QWidget) -> "ElaDrawer":
+        """设置抽屉内容组件。
+
+        :param widget: 内容组件
+        :returns: 自身（支持链式调用）
+        """
         if self._content_widget:
             self._main_layout.removeWidget(self._content_widget)
         self._content_widget = widget
@@ -227,18 +244,38 @@ class ElaDrawer(ElaThemeWidget):
         return self
 
     def setDrawerSize(self, size: int) -> "ElaDrawer":
+        """设置抽屉宽度/高度。
+
+        :param size: 尺寸（像素）
+        :returns: 自身（支持链式调用）
+        """
         self._drawer_size = size
         return self
 
     def setCornerRadius(self, radius: int) -> "ElaDrawer":
+        """设置抽屉面板圆角半径。
+
+        :param radius: 圆角半径（像素）
+        :returns: 自身（支持链式调用）
+        """
         self._corner_radius = radius
         return self
 
     def setCloseOnDimClicked(self, on: bool) -> "ElaDrawer":
+        """设置点击遮罩层是否关闭抽屉。
+
+        :param on: 是否关闭
+        :returns: 自身（支持链式调用）
+        """
         self._close_on_dim_clicked = on
         return self
 
     def setAnimationDuration(self, duration: int) -> "ElaDrawer":
+        """设置动画时长。
+
+        :param duration: 时长（毫秒）
+        :returns: 自身（支持链式调用）
+        """
         self._animation_duration = duration
         self._show_anim.setDuration(duration)
         self._hide_anim.setDuration(duration)
@@ -246,9 +283,14 @@ class ElaDrawer(ElaThemeWidget):
         return self
 
     def isOpened(self) -> bool:
+        """当前抽屉是否已打开。
+
+        :returns: 打开状态
+        """
         return self._is_opened
 
     def showDrawer(self) -> None:
+        """打开抽屉（带动画）。"""
         if self._is_opened:
             return
 
@@ -290,6 +332,7 @@ class ElaDrawer(ElaThemeWidget):
             print(e)
 
     def closeDrawer(self) -> None:
+        """关闭抽屉（带动画）。"""
         if not self._is_opened:
             return
 
@@ -321,6 +364,7 @@ class ElaDrawer(ElaThemeWidget):
         self.closed.emit()
 
     def toggleDrawer(self) -> None:
+        """切换抽屉开关状态。"""
         if self._is_opened:
             self.closeDrawer()
         else:

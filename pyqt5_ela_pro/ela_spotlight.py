@@ -122,6 +122,11 @@ class ElaSpotlight(ElaThemeWidget):
     # ── Public API ────────────────────────────────────────
 
     def showSpotlight(self, target: QWidget, button_text: str = "知道了") -> None:
+        """快速显示单个步骤的引导遮罩。
+
+        :param target: 高亮目标控件
+        :param button_text: 按钮文字，默认 ``"知道了"``
+        """
         step = self.SpotlightStep(target, self._title, self._content, self._is_circle)
         self._steps = [step]
         self._prev_btn.setVisible(False)
@@ -130,9 +135,14 @@ class ElaSpotlight(ElaThemeWidget):
         self.start()
 
     def setSteps(self, steps: list[SpotlightStep]) -> None:
+        """设置多步引导步骤列表。
+
+        :param steps: 引导步骤列表
+        """
         self._steps = steps
 
     def start(self) -> None:
+        """开始显示引导遮罩（淡入动画 + 显示第一步）。"""
         if not self._steps or not self.parent():
             return
         parent = self.parent()
@@ -155,14 +165,17 @@ class ElaSpotlight(ElaThemeWidget):
         self._showStep(0)
 
     def next(self) -> None:
+        """前进到下一步。已在最后一步时无效果。"""
         if self._current_step < len(self._steps) - 1:
             self._showStep(self._current_step + 1)
 
     def previous(self) -> None:
+        """后退到上一步。已在第一步时无效果。"""
         if self._current_step > 0:
             self._showStep(self._current_step - 1)
 
     def finish(self) -> None:
+        """结束引导并关闭遮罩。"""
         self._is_active = False
         self._tip_widget.setVisible(False)
         self.setVisible(False)
@@ -171,9 +184,17 @@ class ElaSpotlight(ElaThemeWidget):
         self.finished.emit()
 
     def currentStep(self) -> int:
+        """获取当前步骤索引。
+
+        :returns: 步骤索引
+        """
         return self._current_step
 
     def stepCount(self) -> int:
+        """获取总步骤数。
+
+        :returns: 步骤数
+        """
         return len(self._steps)
 
     # ── Internal ──────────────────────────────────────────

@@ -54,17 +54,33 @@ class ElaGroupBox(ElaThemeWidget):
     # ── Public API ────────────────────────────────────────
 
     def setTitle(self, title: str) -> None:
+        """设置分组框标题。
+
+        :param title: 标题文字
+        """
         self._title = title
         self.update()
 
     def title(self) -> str:
+        """获取分组框标题。
+
+        :returns: 标题文字
+        """
         return self._title
 
     def setBorderRadius(self, radius: int) -> None:
+        """设置圆角半径。
+
+        :param radius: 圆角半径（像素）
+        """
         self._border_radius = radius
         self.update()
 
     def borderRadius(self) -> int:
+        """获取圆角半径。
+
+        :returns: 圆角半径（像素）
+        """
         return self._border_radius
 
     # ── Internal ──────────────────────────────────────────

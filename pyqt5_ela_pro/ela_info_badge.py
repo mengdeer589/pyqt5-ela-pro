@@ -84,43 +84,87 @@ class ElaInfoBadge(ElaThemeWidget):
     # ── Public API ────────────────────────────────────────
 
     def setBadgeMode(self, mode: int) -> None:
+        """设置角标显示模式。
+
+        :param mode: ``ElaInfoBadge.BadgeMode`` 枚举值
+        """
         self._badge_mode = mode
         self._updateGeometry()
         self.update()
 
     def badgeMode(self) -> int:
+        """获取当前角标模式。
+
+        :returns: ``ElaInfoBadge.BadgeMode`` 枚举值
+        """
         return self._badge_mode
 
     def setValue(self, value: int) -> None:
+        """设置数值模式下的显示值。
+
+        :param value: 数值
+        """
         self._value = value
         self._updateGeometry()
         self.update()
 
     def value(self) -> int:
+        """获取当前显示值。
+
+        :returns: 数值
+        """
         return self._value
 
     def setMaxValue(self, max_value: int) -> None:
+        """设置数值上限（超出时显示 ``{max_value}+``）。
+
+        :param max_value: 上限值
+        """
         self._max_value = max_value
         self.update()
 
     def maxValue(self) -> int:
+        """获取数值上限。
+
+        :returns: 上限值
+        """
         return self._max_value
 
     def setElaIcon(self, icon: ElaIconType.IconName) -> None:
+        """设置图标模式下的图标。
+
+        :param icon: ElaAwesome 图标名称
+        """
         self._icon = icon
         self.update()
 
     def elaIcon(self) -> ElaIconType.IconName:
+        """获取当前图标。
+
+        :returns: ElaAwesome 图标名称
+        """
         return self._icon
 
     def setSeverity(self, severity: int) -> None:
+        """设置严重级别（影响角标颜色）。
+
+        :param severity: ``ElaInfoBadge.Severity`` 枚举值
+        """
         self._severity = severity
         self.update()
 
     def severity(self) -> int:
+        """获取当前严重级别。
+
+        :returns: ``ElaInfoBadge.Severity`` 枚举值
+        """
         return self._severity
 
     def attachTo(self, target: QWidget) -> None:
+        """将角标附加到目标控件的右上角。
+
+        :param target: 目标控件
+        """
         if self._target:
             self._target.removeEventFilter(self)
         self._target = target

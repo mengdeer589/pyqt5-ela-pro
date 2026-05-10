@@ -139,9 +139,24 @@ class BrowserExamplePage(ExamplePage):
 
     def __init__(self, parent=None):
         self._panels = []
+        try:
+            from pyqt5_ela_pro import ElaBrowserEmbedder
+            ElaBrowserEmbedder._checkDependencies()
+            self._browser_available = True
+        except ImportError:
+            self._browser_available = False
         super().__init__(parent)
 
     def _addDemoContent(self, layout):
+        if not self._browser_available:
+            info = ElaText(
+                "浏览器嵌入功能需要 pywin32，请运行: uv pip install pywin32",
+                self,
+            )
+            info.setTextPixelSize(14)
+            layout.addWidget(info)
+            return
+
         if not BROWSER_PATH.exists():
             info = ElaText(
                 f"浏览器不存在: {BROWSER_PATH}\n请设置环境变量 ELA_BROWSER_PATH 指向 chrome.exe",

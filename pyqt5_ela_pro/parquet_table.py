@@ -119,6 +119,14 @@ class ElaInfoBarWidget(ElaThemeWidget):
     def update_info(
         self, col_name: str, col_index: int, min_val: str, max_val: str, last_val: str
     ) -> None:
+        """更新列信息显示。
+
+        :param col_name: 列名
+        :param col_index: 列索引
+        :param min_val: 最小值
+        :param max_val: 最大值
+        :param last_val: 最后一行值
+        """
         self._col_name = col_name
         self._col_index = col_index
         self._min_val = min_val
@@ -132,6 +140,7 @@ class ElaInfoBarWidget(ElaThemeWidget):
         self._last_label.setText(f"最后一行: {last_val}")
 
     def clear_info(self) -> None:
+        """清空列信息显示。"""
         self._col_label.setText("当前列: -")
         self._col_index_label.setText("第 - 列")
         self._min_label.setText("最小值: -")
@@ -222,6 +231,7 @@ class ElaParquetTable(ElaThemeWidget):
         self._load_data()
 
     def deleteLater(self) -> None:
+        """断开信号并清理资源。"""
         try:
             self._table.clicked.disconnect(self._on_cell_clicked)
         except (TypeError, RuntimeError):
@@ -302,6 +312,10 @@ class ElaParquetTable(ElaThemeWidget):
         }
 
     def goToPage(self, page: int) -> None:
+        """跳转到指定页码。
+
+        :param page: 目标页码（从 1 开始）
+        """
         if page < 1:
             page = 1
         total_pages = max(
@@ -315,12 +329,18 @@ class ElaParquetTable(ElaThemeWidget):
         self.pageChanged.emit(page, total_pages)
 
     def nextPage(self) -> None:
+        """翻到下一页。"""
         self.goToPage(self._current_page + 1)
 
     def prevPage(self) -> None:
+        """翻到上一页。"""
         self.goToPage(self._current_page - 1)
 
     def setPageSize(self, page_size: int) -> None:
+        """设置每页记录数（会重置到第一页）。
+
+        :param page_size: 每页记录数
+        """
         if page_size < 1:
             page_size = 1
         self._page_size = page_size
@@ -328,15 +348,31 @@ class ElaParquetTable(ElaThemeWidget):
         self._load_data()
 
     def totalRows(self) -> int:
+        """获取总行数。
+
+        :returns: 总行数
+        """
         return self._total_rows
 
     def currentPage(self) -> int:
+        """获取当前页码。
+
+        :returns: 当前页码
+        """
         return self._current_page
 
     def pageSize(self) -> int:
+        """获取每页记录数。
+
+        :returns: 每页记录数
+        """
         return self._page_size
 
     def totalPages(self) -> int:
+        """获取总页数。
+
+        :returns: 总页数
+        """
         return max(1, (self._total_rows + self._page_size - 1) // self._page_size)
 
     def loadData(self, parquet_path: str) -> None:

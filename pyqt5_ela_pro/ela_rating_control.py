@@ -46,14 +46,28 @@ class ElaRatingControl(ElaThemeWidget):
         self._icon_font = QFont("ElaAwesome")
 
     def setMaxRating(self, n: int) -> None:
+        """设置最大评分值。
+
+        :param n: 最大评分
+        """
         self._max_rating = n
         self.updateGeometry()
         self.update()
 
     def maxRating(self) -> int:
+        """获取最大评分值。
+
+        :returns: 最大评分
+        """
         return self._max_rating
 
     def setRating(self, n: float) -> None:
+        """设置当前评分（自动四舍五入到 0.5 的倍数）。
+
+        仅当值变化时发射 ``ratingChanged`` 信号。
+
+        :param n: 评分值
+        """
         n = max(0.0, min(float(self._max_rating), n))
         n = round(n * 2) / 2
         if self._rating == n:
@@ -63,29 +77,57 @@ class ElaRatingControl(ElaThemeWidget):
         self.update()
 
     def rating(self) -> float:
+        """获取当前评分。
+
+        :returns: 评分值
+        """
         return self._rating
 
     def setStarSize(self, size: int) -> None:
+        """设置星号尺寸。
+
+        :param size: 星号尺寸（像素）
+        """
         self._star_size = size
         self.setFixedHeight(size + 4)
         self.updateGeometry()
         self.update()
 
     def starSize(self) -> int:
+        """获取星号尺寸。
+
+        :returns: 星号尺寸（像素）
+        """
         return self._star_size
 
     def setSpacing(self, spacing: int) -> None:
+        """设置星号间距。
+
+        :param spacing: 间距（像素）
+        """
         self._spacing = spacing
         self.updateGeometry()
         self.update()
 
     def spacing(self) -> int:
+        """获取星号间距。
+
+        :returns: 间距（像素）
+        """
         return self._spacing
 
     def setReadOnly(self, ro: bool) -> None:
+        """设置是否只读（只读模式下不可交互）。
+
+        :param ro: 是否只读
+        """
         self._is_read_only = ro
 
     def isReadOnly(self) -> bool:
+        """当前是否只读。
+
+        :returns: 只读状态
+        """
         return self._is_read_only
 
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:

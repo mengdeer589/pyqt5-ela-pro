@@ -53,7 +53,7 @@ class ElaSplashScreen(ElaThemeWidget):
         self._maximum = 100
         self._value = 0
         self._is_show_progress_bar = True
-        self._is_show_progress_ring = False
+        self._is_show_progress_ring = True
         self._is_closable = False
         self._logo = QPixmap()
         self._is_dragging = False
@@ -94,7 +94,6 @@ class ElaSplashScreen(ElaThemeWidget):
         self._progress_ring = ElaProgressRing(self)
         self._progress_ring.setFixedSize(48, 48)
         self._progress_ring.setIsBusying(True)
-        self._progress_ring.setVisible(False)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(36, 50, 36, 36)
@@ -114,80 +113,169 @@ class ElaSplashScreen(ElaThemeWidget):
     # ── Public API ────────────────────────────────────────
 
     def setBorderRadius(self, r: int) -> None:
+        """设置窗口圆角半径。
+
+        :param r: 圆角半径（像素）
+        """
         self._border_radius = r
         self.update()
 
     def borderRadius(self) -> int:
+        """获取窗口圆角半径。
+
+        :returns: 圆角半径（像素）
+        """
         return self._border_radius
 
     def setTitle(self, title: str) -> None:
+        """设置标题文字。
+
+        :param title: 标题
+        """
         self._title_text.setText(title)
 
     def title(self) -> str:
+        """获取标题文字。
+
+        :returns: 标题
+        """
         return self._title_text.text()
 
     def setSubTitle(self, text: str) -> None:
+        """设置副标题文字。
+
+        :param text: 副标题
+        """
         self._subtitle_text.setText(text)
 
     def subTitle(self) -> str:
+        """获取副标题文字。
+
+        :returns: 副标题
+        """
         return self._subtitle_text.text()
 
     def setStatusText(self, text: str) -> None:
+        """设置状态文字。
+
+        :param text: 状态文字
+        """
         self._status_text.setText(text)
 
     def statusText(self) -> str:
+        """获取状态文字。
+
+        :returns: 状态文字
+        """
         return self._status_text.text()
 
     def setLogo(self, logo: QPixmap) -> None:
+        """设置 Logo 图片。
+
+        :param logo: Logo 像素图
+        """
         self._logo = logo
         self.update()
 
     def logo(self) -> QPixmap:
+        """获取 Logo 图片。
+
+        :returns: Logo 像素图
+        """
         return self._logo
 
     def setMinimum(self, n: int) -> None:
+        """设置进度最小值。
+
+        :param n: 最小值
+        """
         self._minimum = n
         self._progress_bar.setMinimum(n)
 
     def minimum(self) -> int:
+        """获取进度最小值。
+
+        :returns: 最小值
+        """
         return self._minimum
 
     def setMaximum(self, n: int) -> None:
+        """设置进度最大值。
+
+        :param n: 最大值
+        """
         self._maximum = n
         self._progress_bar.setMaximum(n)
 
     def maximum(self) -> int:
+        """获取进度最大值。
+
+        :returns: 最大值
+        """
         return self._maximum
 
     def setValue(self, n: int) -> None:
+        """设置当前进度值。
+
+        :param n: 进度值
+        """
         self._value = n
         self._progress_bar.setValue(n)
         self._progress_ring.setValue(n)
 
     def value(self) -> int:
+        """获取当前进度值。
+
+        :returns: 进度值
+        """
         return self._value
 
     def setShowProgressBar(self, show: bool) -> None:
+        """设置是否显示进度条。
+
+        :param show: 是否显示
+        """
         self._is_show_progress_bar = show
         self._progress_bar.setVisible(show)
 
     def isShowProgressBar(self) -> bool:
+        """当前是否显示进度条。
+
+        :returns: 显示状态
+        """
         return self._is_show_progress_bar
 
     def setShowProgressRing(self, show: bool) -> None:
+        """设置是否显示进度环。
+
+        :param show: 是否显示
+        """
         self._is_show_progress_ring = show
         self._progress_ring.setVisible(show)
 
     def isShowProgressRing(self) -> bool:
+        """当前是否显示进度环。
+
+        :returns: 显示状态
+        """
         return self._is_show_progress_ring
 
     def setClosable(self, closable: bool) -> None:
+        """设置是否可关闭。
+
+        :param closable: 是否可关闭
+        """
         self._is_closable = closable
 
     def isClosable(self) -> bool:
+        """当前是否可关闭。
+
+        :returns: 可关闭状态
+        """
         return self._is_closable
 
     def show(self) -> None:
+        """显示启动画面（居中于当前屏幕）。"""
         screen = QApplication.primaryScreen()
         if screen:
             sg = screen.availableGeometry()
@@ -200,10 +288,15 @@ class ElaSplashScreen(ElaThemeWidget):
         super().show()
 
     def close(self) -> None:
+        """关闭启动画面并发射 ``closed`` 信号。"""
         super().close()
         self.closed.emit()
 
     def finish(self, main_window: QWidget) -> None:
+        """淡出关闭并显示主窗口。
+
+        :param main_window: 主窗口实例
+        """
         self._fade_target = main_window
         self._fade_opacity = 1.0
         self._fade_timer = QTimer(self)

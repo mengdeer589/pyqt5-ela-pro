@@ -49,16 +49,32 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._applyThemeStyle()
 
     def setMarkdown(self, text: str) -> None:
+        """设置 Markdown 内容。
+
+        :param text: Markdown 文本
+        """
         self._text_browser.setMarkdown(text)
 
     def markdown(self) -> str:
+        """获取当前 Markdown 内容。
+
+        :returns: Markdown 文本
+        """
         return self._text_browser.toMarkdown()
 
     def setBorderRadius(self, r: int) -> None:
+        """设置圆角半径。
+
+        :param r: 圆角半径（像素）
+        """
         self._border_radius = r
         self.update()
 
     def borderRadius(self) -> int:
+        """获取圆角半径。
+
+        :returns: 圆角半径（像素）
+        """
         return self._border_radius
 
     def _applyThemeStyle(self) -> None:

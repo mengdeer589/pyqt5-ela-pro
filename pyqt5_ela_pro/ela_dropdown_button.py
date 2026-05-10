@@ -63,32 +63,64 @@ class ElaDropDownButton(ElaThemeWidget):
         self._arrow_font = QFont("ElaAwesome")
 
     def setText(self, text: str) -> None:
+        """设置按钮文字。
+
+        :param text: 文字内容
+        """
         self._text = text
         self.updateGeometry()
         self.update()
 
     def text(self) -> str:
+        """获取按钮文字。
+
+        :returns: 文字内容
+        """
         return self._text
 
     def setElaIcon(self, icon: ElaIconType.IconName) -> None:
+        """设置按钮图标。
+
+        :param icon: ElaAwesome 图标名称
+        """
         self._icon = icon
         self.updateGeometry()
         self.update()
 
     def elaIcon(self) -> ElaIconType.IconName:
+        """获取当前图标。
+
+        :returns: ElaAwesome 图标名称
+        """
         return self._icon
 
     def setBorderRadius(self, r: int) -> None:
+        """设置圆角半径。
+
+        :param r: 圆角半径（像素）
+        """
         self._border_radius = r
         self.update()
 
     def borderRadius(self) -> int:
+        """获取圆角半径。
+
+        :returns: 圆角半径（像素）
+        """
         return self._border_radius
 
     def setMenu(self, menu: ElaMenu) -> None:
+        """设置下拉菜单。
+
+        :param menu: ElaMenu 实例
+        """
         self._menu = menu
 
     def menu(self) -> Optional[ElaMenu]:
+        """获取当前下拉菜单。
+
+        :returns: ElaMenu 实例，未设置时返回 None
+        """
         return self._menu
 
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:

@@ -116,31 +116,63 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
     # ── Public API ────────────────────────────────────────
 
     def setVariant(self, variant: ElaButtonVariant) -> None:
+        """设置按钮变体样式。
+
+        :param variant: 变体，可选 ``"outlined"`` / ``"dashed"`` / ``"solid"`` / ``"filled"`` / ``"text"`` / ``"link"``
+        """
         self._variant = variant
         self.update()
 
     def variant(self) -> str:
+        """获取当前变体样式。
+
+        :returns: 变体名称
+        """
         return self._variant
 
     def setColor(self, color: ElaButtonColor) -> None:
+        """设置色彩主题。
+
+        :param color: 色彩名称（如 ``"primary"`` / ``"danger"`` / ``"blue"`` 等 16 种）
+        """
         self._color_name = color
         self.update()
 
     def color(self) -> str:
+        """获取当前色彩主题。
+
+        :returns: 色彩名称
+        """
         return self._color_name
 
     def setDanger(self, danger: bool) -> None:
+        """设置是否启用危险模式（覆盖 ``color`` 参数）。
+
+        :param danger: 是否启用危险色
+        """
         self._danger = danger
         self.update()
 
     def isDanger(self) -> bool:
+        """当前是否为危险模式。
+
+        :returns: 危险模式状态
+        """
         return self._danger
 
     def setButtonSize(self, size: ElaButtonSize) -> None:
+        """设置按钮尺寸。
+
+        :param size: 尺寸，可选 ``"small"`` / ``"middle"`` / ``"large"``
+        """
         self._apply_size(size)
         self.update()
 
     def buttonSize(self) -> str:
+        """获取当前按钮尺寸。
+
+        :returns: 尺寸名称
+        """
         h = self.height()
         for name, cfg in _SIZE_MAP.items():
             if cfg["height"] == h:
@@ -148,16 +180,29 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         return "middle"
 
     def setElaIcon(self, iconName: ElaIconType.IconName, iconSize: int = 16) -> None:
+        """设置按钮图标。
+
+        :param iconName: ElaAwesome 图标名称
+        :param iconSize: 图标像素大小，默认 16
+        """
         self._icon_name = iconName
         self._icon_size = iconSize
         self.setIconSize(QSize(iconSize, iconSize))
         self.update()
 
     def setBorderRadius(self, radius: int) -> None:
+        """设置圆角半径。
+
+        :param radius: 圆角半径（像素）
+        """
         self._border_radius = radius
         self.update()
 
     def borderRadius(self) -> int:
+        """获取圆角半径。
+
+        :returns: 圆角半径（像素）
+        """
         return self._border_radius
 
     # ── Internal ──────────────────────────────────────────

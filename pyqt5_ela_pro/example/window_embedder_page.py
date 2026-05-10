@@ -10,8 +10,6 @@ from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaComboBox
 from pyqt5_ela_pro import ElaWindowEmbedder
 from .base_page import ExamplePage
 
-import win32gui
-
 
 class WindowEmbedderPage(ExamplePage):
     """窗口嵌入组件页面"""
@@ -22,13 +20,25 @@ class WindowEmbedderPage(ExamplePage):
         self._embedder = None
         self._browserEmbedder = None
         self._windowsList = []
+        try:
+            import win32gui  # noqa: F401
+            self._pywin32_available = True
+        except ImportError:
+            self._pywin32_available = False
         super().__init__(parent)
 
     def _addDemoContent(self, main_layout):
-        self._demoWindowEmbedder(main_layout)
+        if self._pywin32_available:
+            self._demoWindowEmbedder(main_layout)
+        else:
+            self._addInfoText(
+                "窗口嵌入功能需要 pywin32，请运行: uv pip install pywin32",
+                main_layout,
+            )
         self._demoBrowserEmbedder(main_layout)
 
     def _getAllWindows(self):
+        import win32gui
         self._windowsList = []
 
         def enum_callback(hwnd, _):

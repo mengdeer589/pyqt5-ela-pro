@@ -64,15 +64,30 @@ class ElaPagination(ElaThemeWidget):
         self._jumper_edit.returnPressed.connect(self._onJumperEntered)
 
     def setCurrentPage(self, n: int) -> None:
+        """设置当前页码。
+
+        值会在 1~totalPages 范围内自动修正。
+        仅当页码变化时发射 ``currentPageChanged`` 信号。
+
+        :param n: 页码
+        """
         if n != self._current_page and 1 <= n <= self._total_pages:
             self._current_page = n
             self.currentPageChanged.emit(n)
             self.update()
 
     def currentPage(self) -> int:
+        """获取当前页码。
+
+        :returns: 页码
+        """
         return self._current_page
 
     def setTotalPages(self, n: int) -> None:
+        """设置总页数（最小为 1）。如果当前页码超出范围会自动修正。
+
+        :param n: 总页数
+        """
         self._total_pages = max(1, n)
         if self._current_page > self._total_pages:
             self._current_page = self._total_pages
@@ -80,31 +95,59 @@ class ElaPagination(ElaThemeWidget):
         self.update()
 
     def totalPages(self) -> int:
+        """获取总页数。
+
+        :returns: 总页数
+        """
         return self._total_pages
 
     def setButtonSize(self, n: int) -> None:
+        """设置翻页按钮尺寸。
+
+        :param n: 按钮尺寸（像素）
+        """
         self._button_size = n
         self.setFixedHeight(n + 8)
         self.updateGeometry()
         self.update()
 
     def buttonSize(self) -> int:
+        """获取翻页按钮尺寸。
+
+        :returns: 按钮尺寸（像素）
+        """
         return self._button_size
 
     def setPagerCount(self, n: int) -> None:
+        """设置最多显示的页码按钮数量。
+
+        :param n: 页码按钮数
+        """
         self._pager_count = n
         self.update()
 
     def pagerCount(self) -> int:
+        """获取最多显示的页码按钮数量。
+
+        :returns: 页码按钮数
+        """
         return self._pager_count
 
     def setJumperVisible(self, v: bool) -> None:
+        """设置是否显示跳转输入框。
+
+        :param v: 是否显示
+        """
         self._jumper_visible = v
         self._jumper_edit.setVisible(v)
         self.updateGeometry()
         self.update()
 
     def isJumperVisible(self) -> bool:
+        """当前是否显示跳转输入框。
+
+        :returns: 跳转框可见状态
+        """
         return self._jumper_visible
 
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:

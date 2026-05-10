@@ -108,6 +108,12 @@ class ElaToast(ElaThemeWidget):
     def success(
         text: str, display_msec: int = 2000, parent: Optional[QWidget] = None
     ) -> None:
+        """显示成功提示。
+
+        :param text: 提示文字
+        :param display_msec: 显示时长（毫秒），默认 2000
+        :param parent: 父控件（用于定位）
+        """
         toast = ElaToast(_ToastType.Success, text, display_msec, parent)
         toast._present()
 
@@ -115,6 +121,12 @@ class ElaToast(ElaThemeWidget):
     def info(
         text: str, display_msec: int = 2000, parent: Optional[QWidget] = None
     ) -> None:
+        """显示信息提示。
+
+        :param text: 提示文字
+        :param display_msec: 显示时长（毫秒），默认 2000
+        :param parent: 父控件（用于定位）
+        """
         toast = ElaToast(_ToastType.Info, text, display_msec, parent)
         toast._present()
 
@@ -122,6 +134,12 @@ class ElaToast(ElaThemeWidget):
     def warning(
         text: str, display_msec: int = 2000, parent: Optional[QWidget] = None
     ) -> None:
+        """显示警告提示。
+
+        :param text: 提示文字
+        :param display_msec: 显示时长（毫秒），默认 2000
+        :param parent: 父控件（用于定位）
+        """
         toast = ElaToast(_ToastType.Warning, text, display_msec, parent)
         toast._present()
 
@@ -129,6 +147,12 @@ class ElaToast(ElaThemeWidget):
     def error(
         text: str, display_msec: int = 2000, parent: Optional[QWidget] = None
     ) -> None:
+        """显示错误提示。
+
+        :param text: 提示文字
+        :param display_msec: 显示时长（毫秒），默认 2000
+        :param parent: 父控件（用于定位）
+        """
         toast = ElaToast(_ToastType.Error, text, display_msec, parent)
         toast._present()
 

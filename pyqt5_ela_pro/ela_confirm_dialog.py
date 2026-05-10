@@ -166,24 +166,48 @@ class ElaConfirmDialog(_ThemeAwareMixin, QDialog):
     # ── Public API ────────────────────────────────────────
 
     def setTitle(self, title: str) -> None:
+        """设置对话框标题文字。
+
+        :param title: 标题文字
+        """
         self._title = title
         self.update()
 
     def title(self) -> str:
+        """获取对话框标题文字。
+
+        :returns: 标题文字
+        """
         return self._title
 
     def setContent(self, content: str) -> None:
+        """设置对话框正文内容。
+
+        :param content: 正文文字
+        """
         self._content = content
         self.update()
 
     def content(self) -> str:
+        """获取对话框正文内容。
+
+        :returns: 正文文字
+        """
         return self._content
 
     def setBorderRadius(self, radius: int) -> None:
+        """设置窗口圆角半径。
+
+        :param radius: 圆角半径（像素）
+        """
         self._border_radius = radius
         self.update()
 
     def borderRadius(self) -> int:
+        """获取窗口圆角半径。
+
+        :returns: 圆角半径（像素）
+        """
         return self._border_radius
 
     def setPosition(self, position: str) -> None:
@@ -195,6 +219,10 @@ class ElaConfirmDialog(_ThemeAwareMixin, QDialog):
         self.update()
 
     def position(self) -> str:
+        """获取弹窗位置。
+
+        :returns: ``"bottom"`` 或 ``"top"``
+        """
         return self._position
 
     @staticmethod

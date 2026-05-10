@@ -57,27 +57,55 @@ class ElaDivider(ElaThemeWidget):
     # ── Public API ────────────────────────────────────────
 
     def setText(self, text: str) -> None:
+        """设置分割线文字。
+
+        :param text: 文字内容
+        """
         self._text = text
         self.update()
 
     def text(self) -> str:
+        """获取分割线文字。
+
+        :returns: 文字内容
+        """
         return self._text
 
     def setOrientation(self, orientation: ElaDividerOrientation) -> None:
+        """设置文字对齐方向。
+
+        :param orientation: 水平模式可选 ``"left"`` / ``"center"`` / ``"right"``，垂直模式可选 ``"top"`` / ``"center"`` / ``"bottom"``
+        """
         self._orientation = orientation
         self.update()
 
     def orientation(self) -> str:
+        """获取文字对齐方向。
+
+        :returns: 对齐方向
+        """
         return self._orientation
 
     def setVariant(self, variant: ElaDividerVariant) -> None:
+        """设置分割线样式。
+
+        :param variant: 样式，可选 ``"solid"`` / ``"dashed"``
+        """
         self._variant = variant
         self.update()
 
     def variant(self) -> str:
+        """获取分割线样式。
+
+        :returns: 样式名称
+        """
         return self._variant
 
     def setVertical(self, vertical: bool) -> None:
+        """设置是否垂直显示。
+
+        :param vertical: 是否垂直
+        """
         self._vertical = vertical
         if vertical:
             self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
@@ -86,6 +114,10 @@ class ElaDivider(ElaThemeWidget):
         self.update()
 
     def isVertical(self) -> bool:
+        """当前是否为垂直模式。
+
+        :returns: 垂直状态
+        """
         return self._vertical
 
     # ── Internal ──────────────────────────────────────────

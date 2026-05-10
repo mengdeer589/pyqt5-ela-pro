@@ -122,6 +122,12 @@ class ElaNotifyPopup(QWidget):
     def showNotification(
         self, title: str = "", content: str = "", timeout: int = -1
     ) -> None:
+        """显示通知弹窗（带滑入动画）。
+
+        :param title: 通知标题
+        :param content: 通知内容
+        :param timeout: 超时时长（毫秒），-1 表示使用当前设置的超时时间
+        """
         if title:
             self.setTitle(title)
         if content:
@@ -189,17 +195,30 @@ class ElaNotifyPopup(QWidget):
         super().leaveEvent(event)
 
     def setTitle(self, title: str) -> None:
+        """设置通知标题。
+
+        :param title: 标题文字
+        """
         self._title = title
         self._title_text.setText(title)
 
     def setContent(self, content: str) -> None:
+        """设置通知内容。
+
+        :param content: 内容文字
+        """
         self._content = content
         self._content_text.setText(content)
 
     def setTimeout(self, timeout: int) -> None:
+        """设置超时自动关闭时长。
+
+        :param timeout: 时长（毫秒），0 表示不自动关闭
+        """
         self._timeout = timeout
 
     def deleteLater(self) -> None:
+        """断开信号并清理资源。"""
         self._timer.stop()
         self._animation.stop()
         self._close_btn.clicked.disconnect(self._on_close)
@@ -234,6 +253,12 @@ class ElaNotifyManager:
     def showNotification(
         self, title: str = "", content: str = "", timeout: int = 5000
     ) -> None:
+        """创建并显示通知弹窗。
+
+        :param title: 通知标题
+        :param content: 通知内容
+        :param timeout: 超时时长（毫秒），默认 5000
+        """
         popup = ElaNotifyPopup(title=title, content=content, timeout=timeout)
         popup.closed.connect(lambda: self._onPopupClosed(popup))
         self._popups.append(popup)
@@ -245,4 +270,10 @@ class ElaNotifyManager:
 
 
 def show_notify(title: str = "", content: str = "", timeout: int = 5000) -> None:
+    """快捷显示通知弹窗。
+
+    :param title: 通知标题
+    :param content: 通知内容
+    :param timeout: 超时时长（毫秒），默认 5000
+    """
     return ElaNotifyManager().showNotification(title, content, timeout)

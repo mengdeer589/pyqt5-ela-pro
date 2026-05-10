@@ -82,49 +82,97 @@ class ElaChip(ElaThemeWidget):
     # ── Public API ────────────────────────────────────────
 
     def setText(self, text: str) -> None:
+        """设置标签文本。
+
+        :param text: 标签文本
+        """
         self._text = text
         self._updateGeometry()
         self.update()
 
     def text(self) -> str:
+        """获取标签文本。
+
+        :returns: 标签文本
+        """
         return self._text
 
     def setBorderRadius(self, radius: int) -> None:
+        """设置圆角半径。
+
+        :param radius: 圆角半径（像素）
+        """
         self._border_radius = radius
         self.update()
 
     def borderRadius(self) -> int:
+        """获取圆角半径。
+
+        :returns: 圆角半径（像素）
+        """
         return self._border_radius
 
     def setClosable(self, closable: bool) -> None:
+        """设置是否可关闭（显示 X 按钮）。
+
+        :param closable: 是否可关闭
+        """
         self._is_closable = closable
         self._updateGeometry()
         self.update()
 
     def isClosable(self) -> bool:
+        """当前是否可关闭。
+
+        :returns: 可关闭状态
+        """
         return self._is_closable
 
     def setCheckable(self, checkable: bool) -> None:
+        """设置是否可选择（点击切换选中状态）。
+
+        :param checkable: 是否可选择
+        """
         self._is_checkable = checkable
         self._updateGeometry()
         self.update()
 
     def isCheckable(self) -> bool:
+        """当前是否可选择。
+
+        :returns: 可选择状态
+        """
         return self._is_checkable
 
     def setChecked(self, checked: bool) -> None:
+        """设置选中状态（仅在 ``checkable`` 为 True 时有效）。
+
+        :param checked: 是否选中
+        """
         self._is_checked = checked
         self._updateGeometry()
         self.update()
 
     def isChecked(self) -> bool:
+        """当前是否选中。
+
+        :returns: 选中状态
+        """
         return self._is_checked
 
     def setColor(self, color: int) -> None:
+        """设置颜色主题。
+
+        :param color: ``ElaChip.Color`` 枚举值
+        """
         self._chip_color = color
         self.update()
 
     def color(self) -> int:
+        """获取当前颜色主题。
+
+        :returns: ``ElaChip.Color`` 枚举值
+        """
         return self._chip_color
 
     # ── Color name mapping ────────────────────────────────
