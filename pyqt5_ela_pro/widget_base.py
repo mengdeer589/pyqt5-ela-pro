@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Optional, Literal
 
 from PyQt5.QtGui import QPalette
-from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout
+from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QGridLayout
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaMessageBar, ElaMessageBarType
 
 from ._internal import _ThemeAwareMixin
@@ -59,12 +59,12 @@ class ElaThemeWidget(_ThemeAwareMixin, QWidget):
 
     def createLayout(
         self,
-        layoutType: Literal["h", "v"] = "h",
+        layoutType: Literal["h", "v", "g"] = "h",
         parent: QWidget | None = None,
-    ) -> QHBoxLayout | QVBoxLayout:
+    ) -> QHBoxLayout | QVBoxLayout | QGridLayout:
         """创建布局。
 
-        :param layoutType: 布局类型，'h' 水平布局，'v' 垂直布局
+        :param layoutType: 布局类型，``"h"`` 水平布局，``"v"`` 垂直布局，``"g"`` 网格布局
         :param parent: 父控件，默认为 self
         :return: 创建的布局对象
         """
@@ -72,6 +72,8 @@ class ElaThemeWidget(_ThemeAwareMixin, QWidget):
             parent = self
         if layoutType == "h":
             lay = QHBoxLayout(parent)
+        elif layoutType == "g":
+            lay = QGridLayout(parent)
         else:
             lay = QVBoxLayout(parent)
         lay.setContentsMargins(0, 0, 0, 0)

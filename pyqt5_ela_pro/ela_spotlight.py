@@ -146,6 +146,7 @@ class ElaSpotlight(ElaThemeWidget):
         if not self._steps or not self.parent():
             return
         parent = self.parent()
+        assert parent is not None
         self.setGeometry(0, 0, parent.width(), parent.height())
         parent.installEventFilter(self)
         self.setVisible(True)
@@ -179,8 +180,9 @@ class ElaSpotlight(ElaThemeWidget):
         self._is_active = False
         self._tip_widget.setVisible(False)
         self.setVisible(False)
-        if self.parent():
-            self.parent().removeEventFilter(self)
+        parent = self.parent()
+        if parent:
+            parent.removeEventFilter(self)
         self.finished.emit()
 
     def currentStep(self) -> int:
@@ -208,7 +210,9 @@ class ElaSpotlight(ElaThemeWidget):
     def _getTargetRect(self, target: QWidget) -> QRectF:
         if not target or not self.parent():
             return QRectF()
-        tl = target.mapTo(self.parent(), QPoint(0, 0))
+        parent = self.parent()
+        assert parent is not None
+        tl = target.mapTo(parent, QPoint(0, 0))
         r = QRectF(QPointF(tl), QSizeF(target.size()))
         r.adjust(-self._padding, -self._padding, self._padding, self._padding)
         return r
@@ -282,8 +286,9 @@ class ElaSpotlight(ElaThemeWidget):
     # ── Events ────────────────────────────────────────────
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        if watched == self.parent() and event.type() == QEvent.Type.Resize:
-            self.setGeometry(0, 0, self.parent().width(), self.parent().height())
+        parent = self.parent()
+        if watched is parent and event.type() == QEvent.Type.Resize and parent is not None:
+            self.setGeometry(0, 0, parent.width(), parent.height())
             if self._is_active and 0 <= self._current_step < len(self._steps):
                 self._spotlight_rect = self._getTargetRect(
                     self._steps[self._current_step].target

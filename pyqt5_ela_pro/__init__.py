@@ -92,17 +92,33 @@ from .ela_tag_line_edit import ElaTagLineEdit
 
 from .ela_confirm_dialog import ElaConfirmDialog
 
-from .ela_password_edit import ElaPasswordEdit
+from .ela_dashboard_gauge import ElaDashboardGauge
+
+from .ela_divider import ElaDivider
+
+from .ela_button import ElaButton
+
+from .ela_chip import ElaChip
+
+from .ela_dropdown_button import ElaDropDownButton
+
+from .ela_figure_canvas import ElaFigureCanvas
+
+from .ela_group_box import ElaGroupBox
 
 from .ela_info_badge import ElaInfoBadge
 
-from .ela_tag_box import ElaTagBox
+from .ela_pagination import ElaPagination
 
-from .ela_tag_multi_box import ElaTagMultiBox
+from .ela_password_edit import ElaPasswordEdit
 
-from .ela_tag_search_box import ElaTagSearchBox
+from .ela_pyqtgraph_canvas import ElaPlotWidget
 
-from .ela_tag_search_multi_box import ElaTagSearchMultiBox
+from .ela_progress_button import ElaProgressButton
+
+from .ela_rating_control import ElaRatingControl
+
+from .ela_side_drawer import ElaDrawer, ElaDrawerPosition
 
 from .ela_split_button import ElaSplitButton
 
@@ -118,7 +134,15 @@ from .ela_trend_chart import ElaTrendChart
 
 from .ela_upload_area import ElaUploadArea
 
-from .ela_side_drawer import ElaDrawer, ElaDrawerPosition
+from .ela_tag_box import ElaTagBox
+
+from .ela_tag_multi_box import ElaTagMultiBox
+
+from .ela_tag_search_box import ElaTagSearchBox
+
+from .ela_tag_search_multi_box import ElaTagSearchMultiBox
+
+from .notify_popup import ElaNotifyPopup
 
 from .svg_icon import (
     ElaSvgIconLoader,
@@ -131,26 +155,6 @@ from .window_embedder import ElaWindowEmbedder
 from .browser_embedder import ElaBrowserEmbedder
 
 from .splitter import ElaSplitter
-
-from .ela_button import ElaButton
-
-from .ela_chip import ElaChip
-
-from .ela_divider import ElaDivider
-
-from .ela_dropdown_button import ElaDropDownButton
-
-from .ela_figure_canvas import ElaFigureCanvas
-
-from .ela_group_box import ElaGroupBox
-
-from .ela_pagination import ElaPagination
-
-from .ela_progress_button import ElaProgressButton
-
-from .ela_rating_control import ElaRatingControl
-
-from .notify_popup import ElaNotifyPopup
 
 
 __all__ = [
@@ -167,10 +171,11 @@ __all__ = [
     "show_notify",
     # ── Components ──
     "ElaAnimatedMixin",
+    "ElaBrowserEmbedder",
     "ElaButton",
     "ElaChip",
-    "ElaBrowserEmbedder",
     "ElaConfirmDialog",
+    "ElaDashboardGauge",
     "ElaDataTable",
     "ElaDialogBase",
     "ElaDivider",
@@ -187,6 +192,7 @@ __all__ = [
     "ElaNotifyPopup",
     "ElaParquetTable",
     "ElaPasswordEdit",
+    "ElaPlotWidget",
     "ElaPagination",
     "ElaPowerPointViewer",
     "ElaProgressButton",

@@ -30,13 +30,13 @@ from PyQt5.QtWidgets import QWidget
 from .window_embedder import ElaWindowEmbedder
 
 try:
-    import win32gui
-    import win32con
+    import win32gui  # type: ignore[attr-defined]
+    import win32con  # type: ignore[attr-defined]
 except ImportError:
     win32gui = None
     win32con = None
 try:
-    import win32process
+    import win32process  # type: ignore[attr-defined]
 except ImportError:
     win32process = None
 

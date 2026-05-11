@@ -15,7 +15,7 @@ from PyQt5.QtCore import (
     QRectF,
     QPropertyAnimation,
     QEasingCurve,
-    pyqtProperty,
+    pyqtProperty,  # type: ignore[attr-defined]
 )
 from PyQt5.QtGui import (
     QColor,
@@ -34,14 +34,16 @@ from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIcon, ElaIconType
 class _TagBoxThemeMixin:
     """标签框主题色方法混入类。"""
 
-    def _getTitleColor(self) -> QColor:
+    _theme_mode: int
+
+    def _getTitleColor(self) -> QColor:  # type: ignore[attr-defined]
         if not self.isEnabled():
             return eTheme.getThemeColor(
                 self._theme_mode, ElaThemeType.ThemeColor.BasicTextDisable
             )
         return eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicText)
 
-    def _getBackgroundColor(self) -> QColor:
+    def _getBackgroundColor(self) -> QColor:  # type: ignore[attr-defined]
         if not self.isEnabled():
             return eTheme.getThemeColor(
                 self._theme_mode, ElaThemeType.ThemeColor.BasicDisable
@@ -56,7 +58,7 @@ class _TagBoxThemeMixin:
             )
         return eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicBase)
 
-    def _getBorderColor(self) -> QColor:
+    def _getBorderColor(self) -> QColor:  # type: ignore[attr-defined]
         if self.hasFocus():
             return eTheme.getThemeColor(
                 self._theme_mode, ElaThemeType.ThemeColor.PrimaryNormal
@@ -74,7 +76,15 @@ class _TagBoxAnimMixin:
     子类必须在 __init__ 中调用 self._tag_box_init(title)。
     """
 
-    def _tag_box_init(self, title: str = "") -> None:
+    _title_text: str
+    _title_font_size: int
+    _expand_mark_width: float
+    _expand_icon_rotate: float
+    _mark_animation: QPropertyAnimation
+    _rotate_animation: QPropertyAnimation
+    _theme_mode: int
+
+    def _tag_box_init(self, title: str = "") -> None:  # type: ignore[attr-defined]
         self._title_text = title
         self._title_font_size = 13
         self._expand_mark_width: float = 0.0
@@ -88,7 +98,7 @@ class _TagBoxAnimMixin:
         self._rotate_animation.setDuration(300)
         self._rotate_animation.setEasingCurve(QEasingCurve.InOutSine)
 
-        self.setFixedHeight(38)
+        self.setFixedHeight(38)  # type: ignore[attr-defined]
         self._theme_mode = eTheme.getThemeMode()
 
         eTheme.themeModeChanged.connect(self._on_tag_theme_changed)
@@ -101,7 +111,7 @@ class _TagBoxAnimMixin:
     def expandMarkWidth(self, width: float) -> None:
         if self._expand_mark_width != width:
             self._expand_mark_width = width
-            self.update()
+            self.update()  # type: ignore[attr-defined]
 
     @pyqtProperty(float)
     def expandIconRotate(self) -> float:
@@ -111,20 +121,20 @@ class _TagBoxAnimMixin:
     def expandIconRotate(self, rotate: float) -> None:
         if self._expand_icon_rotate != rotate:
             self._expand_icon_rotate = rotate
-            self.update()
+            self.update()  # type: ignore[attr-defined]
 
     def setTitle(self, title: str) -> None:
         self._title_text = title
-        self.update()
+        self.update()  # type: ignore[attr-defined]
 
     def title(self) -> str:
         return self._title_text
 
     def _on_tag_theme_changed(self, *args) -> None:
         self._theme_mode = eTheme.getThemeMode()
-        self.update()
+        self.update()  # type: ignore[attr-defined]
 
-    def _animate_popup_open(self) -> None:
+    def _animate_popup_open(self) -> None:  # type: ignore[attr-defined]
         """运行展开动画（底部主题色条 + 箭头旋转），供子类 showPopup 调用。"""
         if self.count() == 0:
             return
@@ -137,7 +147,7 @@ class _TagBoxAnimMixin:
         self._rotate_animation.setEndValue(-180.0)
         self._rotate_animation.start()
 
-    def _animate_popup_close(self) -> None:
+    def _animate_popup_close(self) -> None:  # type: ignore[attr-defined]
         """运行收起动画，供子类 hidePopup 调用。"""
         self._mark_animation.setStartValue(self._expand_mark_width)
         self._mark_animation.setEndValue(0.0)
@@ -269,7 +279,7 @@ def _draw_tag_arrow(
         20,
         content_rect.height(),
     )
-    icon = ElaIcon.getInstance().getElaIcon(ElaIconType.IconName.AngleDown, text_color)
+    icon = ElaIcon.getInstance().getElaIcon(ElaIconType.IconName.AngleDown, text_color)  # type: ignore[call-arg]
     icon_pixmap = icon.pixmap(17, 17)
 
     painter.save()
@@ -296,7 +306,7 @@ def _draw_tag_mark(
         mark_color = eTheme.getThemeColor(
             eTheme.getThemeMode(), ElaThemeType.ThemeColor.PrimaryNormal
         )
-        painter.setPen(Qt.NoPen)
+        painter.setPen(Qt.NoPen)  # type: ignore[attr-defined]
         painter.setBrush(mark_color)
         mark_rect = QRectF(
             widget.width() / 2 - mark_width,

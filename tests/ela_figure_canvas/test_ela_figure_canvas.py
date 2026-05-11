@@ -4,11 +4,18 @@ import pytest
 from unittest.mock import MagicMock, patch, ANY
 
 
-class TestElaFigureCanvasNoMatplotlib:
-    def test_placeholder_raises_import_error(self):
-        from pyqt5_ela_pro.ela_figure_canvas import ElaFigureCanvas
-        with pytest.raises(ImportError):
-            ElaFigureCanvas()
+class TestElaFigureCanvas:
+    def test_placeholder_or_real(self):
+        from pyqt5_ela_pro.ela_figure_canvas import ElaFigureCanvas, _FigureCanvas
+        if _FigureCanvas is None:
+            with pytest.raises(ImportError):
+                ElaFigureCanvas()
+        else:
+            from PyQt5.QtWidgets import QApplication
+            app = QApplication.instance() or QApplication([])
+            canvas = ElaFigureCanvas()
+            assert canvas is not None
+            canvas.deleteLater()
 
     def test_light_rcparams_defined(self):
         from pyqt5_ela_pro.ela_figure_canvas import _LIGHT_RCPARAMS

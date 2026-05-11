@@ -27,7 +27,7 @@ from PyQt5.QtGui import (
 )
 from PyQt5.QtWidgets import QWidget
 
-from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaLineEdit
+from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaLineEdit, ElaText
 
 from .widget_base import ElaThemeWidget
 
@@ -63,6 +63,11 @@ class ElaPagination(ElaThemeWidget):
         self._jumper_edit.setVisible(False)
         self._jumper_edit.returnPressed.connect(self._onJumperEntered)
 
+        self._page_label = ElaText(self)
+        self._page_label.setText(f"第{self._current_page}/{self._total_pages}页")
+        self._page_label.setTextPixelSize(12)
+        self._page_label.setVisible(False)
+
     def setCurrentPage(self, n: int) -> None:
         """设置当前页码。
 
@@ -74,6 +79,9 @@ class ElaPagination(ElaThemeWidget):
         if n != self._current_page and 1 <= n <= self._total_pages:
             self._current_page = n
             self.currentPageChanged.emit(n)
+            if self._jumper_visible:
+                self._page_label.setText(f"第{self._current_page}/{self._total_pages}页")
+                self._page_label.adjustSize()
             self.update()
 
     def currentPage(self) -> int:
@@ -91,6 +99,9 @@ class ElaPagination(ElaThemeWidget):
         self._total_pages = max(1, n)
         if self._current_page > self._total_pages:
             self._current_page = self._total_pages
+        if self._jumper_visible:
+            self._page_label.setText(f"第{self._current_page}/{self._total_pages}页")
+            self._page_label.adjustSize()
         self.updateGeometry()
         self.update()
 
@@ -140,6 +151,10 @@ class ElaPagination(ElaThemeWidget):
         """
         self._jumper_visible = v
         self._jumper_edit.setVisible(v)
+        self._page_label.setVisible(v)
+        if v:
+            self._page_label.setText(f"第{self._current_page}/{self._total_pages}页")
+            self._page_label.adjustSize()
         self.updateGeometry()
         self.update()
 
@@ -221,6 +236,12 @@ class ElaPagination(ElaThemeWidget):
         jy = (self.height() - jh) // 2
         self._jumper_edit.setGeometry(jx, jy, jw, jh)
 
+        lx = jx + jw + 8
+        self._page_label.setText(f"第{self._current_page}/{self._total_pages}页")
+        self._page_label.adjustSize()
+        ly = (self.height() - self._page_label.height()) // 2
+        self._page_label.move(lx, ly)
+
     def _onJumperEntered(self) -> None:
         text = self._jumper_edit.text().strip()
         if not text:
@@ -232,6 +253,9 @@ class ElaPagination(ElaThemeWidget):
         if 1 <= page <= self._total_pages and page != self._current_page:
             self._current_page = page
             self.currentPageChanged.emit(page)
+            if self._jumper_visible:
+                self._page_label.setText(f"第{self._current_page}/{self._total_pages}页")
+                self._page_label.adjustSize()
             self.update()
         self._jumper_edit.clear()
 
@@ -347,5 +371,5 @@ class ElaPagination(ElaThemeWidget):
         rects = self._getButtonRects()
         tw = rects[-1][0].x() + rects[-1][0].width() if rects else 0
         if self._jumper_visible:
-            tw += 12 + 110
+            tw += 12 + 110 + 8 + 80
         return QSize(tw, self._button_size + 8)

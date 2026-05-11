@@ -37,6 +37,14 @@ class TestThemeWidget:
         assert isinstance(lay, QVBoxLayout)
         widget.deleteLater()
 
+    def test_createLayout_grid(self):
+        """Test createLayout with grid layout."""
+        widget = ElaThemeWidget()
+        lay = widget.createLayout("g")
+        from PyQt5.QtWidgets import QGridLayout
+        assert isinstance(lay, QGridLayout)
+        widget.deleteLater()
+
     def test_createLayout_sets_zero_margins_and_spacing(self):
         """Test created layout has zero margins and spacing."""
         widget = ElaThemeWidget()

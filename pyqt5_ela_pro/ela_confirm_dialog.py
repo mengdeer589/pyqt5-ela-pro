@@ -254,12 +254,13 @@ class ElaConfirmDialog(_ThemeAwareMixin, QDialog):
             QTimer.singleShot(0, self._positionDialog)
 
     def _positionDialog(self) -> None:
-        if not self.parent():
+        parent = self.parent()
+        if not parent:
             return
         if self._position == "top":
-            pg = self.parent().mapToGlobal(QPoint(0, -self.height() - 5))
+            pg = parent.mapToGlobal(QPoint(0, -self.height() - 5))
         else:
-            pg = self.parent().mapToGlobal(QPoint(0, self.parent().height() + 5))
+            pg = parent.mapToGlobal(QPoint(0, parent.height() + 5))
         self.move(pg.x() - 10, pg.y())
 
     def _onConfirm(self) -> None:

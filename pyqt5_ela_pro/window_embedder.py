@@ -16,9 +16,9 @@ import time
 from typing import Optional, Any
 
 try:
-    import win32api
-    import win32con
-    import win32gui
+    import win32api  # type: ignore[attr-defined]
+    import win32con  # type: ignore[attr-defined]
+    import win32gui  # type: ignore[attr-defined]
 except ImportError:
     win32api = None
     win32con = None

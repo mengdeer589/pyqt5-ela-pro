@@ -173,6 +173,41 @@ class TestElaPaginationJumper:
         p.deleteLater()
 
 
+class TestElaPaginationPageLabel:
+    def test_page_label_exists(self):
+        p = ElaPagination()
+        assert hasattr(p, "_page_label")
+        p.deleteLater()
+
+    def test_page_label_hidden_by_default(self):
+        p = ElaPagination()
+        assert p._page_label.isVisible() is False
+        p.deleteLater()
+
+    def test_page_label_visible_with_jumper(self):
+        p = ElaPagination()
+        p.setJumperVisible(True)
+        assert p._page_label.isHidden() is False
+        p.deleteLater()
+
+    def test_page_label_text_format(self):
+        p = ElaPagination()
+        p.setTotalPages(50)
+        p.setJumperVisible(True)
+        assert "1" in p._page_label.text()
+        assert "50" in p._page_label.text()
+        p.deleteLater()
+
+    def test_page_label_updates_on_set_current(self):
+        p = ElaPagination()
+        p.setTotalPages(50)
+        p.setJumperVisible(True)
+        p.setCurrentPage(25)
+        assert "25" in p._page_label.text()
+        assert "50" in p._page_label.text()
+        p.deleteLater()
+
+
 class TestElaPaginationVisiblePages:
     def test_get_visible_pages_single_page(self):
         p = ElaPagination()

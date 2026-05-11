@@ -153,7 +153,7 @@ def shake_window(
             safe_call(on_finished)
 
     animation.finished.connect(_cleanup)
-    animation.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)  # type: ignore[attr-defined]
+    animation.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
 
 
 class ElaAnimatedMixin:
@@ -182,9 +182,9 @@ class ElaAnimatedMixin:
 
         :param duration: 动画时长（毫秒），默认 1000ms
         """
-        if not self.isVisible():
-            self.setWindowOpacity(0)
-            self.show()
+        if not self.isVisible():  # type: ignore[attr-defined]
+            self.setWindowOpacity(0)  # type: ignore[attr-defined]
+            self.show()  # type: ignore[attr-defined]
 
         if (
             self._fade_animation
@@ -192,7 +192,7 @@ class ElaAnimatedMixin:
         ):
             return
 
-        self._fade_animation = QPropertyAnimation(self, b"windowOpacity")
+        self._fade_animation = QPropertyAnimation(self, b"windowOpacity")  # type: ignore[arg-type]
         self._fade_animation.setDuration(duration)
         self._fade_animation.setStartValue(0)
         self._fade_animation.setEndValue(1)
@@ -217,7 +217,7 @@ class ElaAnimatedMixin:
         ):
             return
 
-        self._fade_animation = QPropertyAnimation(self, b"windowOpacity")
+        self._fade_animation = QPropertyAnimation(self, b"windowOpacity")  # type: ignore[arg-type]
         self._fade_animation.setDuration(duration)
         self._fade_animation.setStartValue(1)
         self._fade_animation.setEndValue(0)

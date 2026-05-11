@@ -9,12 +9,22 @@ from __future__ import annotations
 import sys
 import traceback
 from functools import wraps
-from typing import Any, Callable, Optional, TypeVar
+from typing import Any, Callable, Optional, Protocol, TypeVar, runtime_checkable
 
 from PyQt5.QtCore import Qt, QPoint, QRect, QSize
 from PyQt5.QtGui import QColor, QPainter
+from PyQt5ElaWidgetTools import ElaThemeType
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+
+@runtime_checkable
+class _ThemeAwareProtocol(Protocol):
+    """_ThemeAwareMixin 所要求的宿主类接口。"""
+    _theme_connected: bool
+    _theme_mode: int
+
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None: ...
 
 
 def catch_error(func: F) -> F:
@@ -132,29 +142,32 @@ class _ThemeAwareMixin:
     super().__init__(parent) or self._init_theme_aware().
     """
 
+    _theme_connected: bool
+    _theme_mode: ElaThemeType.ThemeMode
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._theme_connected = True
         from PyQt5ElaWidgetTools import eTheme
 
         eTheme.themeModeChanged.connect(self._onThemeChanged)
-        self.destroyed.connect(self._theme_cleanup)
+        self.destroyed.connect(self._theme_cleanup)  # type: ignore[attr-defined]
 
     def _init_theme_aware(self) -> None:
         self._theme_connected = True
         from PyQt5ElaWidgetTools import eTheme
 
         eTheme.themeModeChanged.connect(self._onThemeChanged)
-        self.destroyed.connect(self._theme_cleanup)
+        self.destroyed.connect(self._theme_cleanup)  # type: ignore[attr-defined]
 
     def _theme_cleanup(self) -> None:
         if self._theme_connected:
-            disconnect_theme_signal(self._onThemeChanged)
             self._theme_connected = False
+            disconnect_theme_signal(self._onThemeChanged)
 
     def deleteLater(self) -> None:
         self._theme_cleanup()
-        super().deleteLater()
+        super().deleteLater()  # type: ignore[misc]
 
 
 def _adjust_combobox_popup(combo_box) -> None:
