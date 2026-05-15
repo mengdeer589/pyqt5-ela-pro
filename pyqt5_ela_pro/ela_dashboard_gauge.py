@@ -78,7 +78,9 @@ class ElaDashboardGauge(ElaThemeWidget):
         """
         self._minimum = minimum
         self._value = max(self._minimum, min(self._value, self._maximum))
-        self._animated_value = max(self._minimum, min(self._animated_value, self._maximum))
+        self._animated_value = max(
+            self._minimum, min(self._animated_value, self._maximum)
+        )
         self.update()
 
     def minimum(self) -> float:
@@ -95,7 +97,9 @@ class ElaDashboardGauge(ElaThemeWidget):
         """
         self._maximum = maximum
         self._value = max(self._minimum, min(self._value, self._maximum))
-        self._animated_value = max(self._minimum, min(self._animated_value, self._maximum))
+        self._animated_value = max(
+            self._minimum, min(self._animated_value, self._maximum)
+        )
         self.update()
 
     def maximum(self) -> float:
@@ -139,7 +143,9 @@ class ElaDashboardGauge(ElaThemeWidget):
         if self._anim_progress >= 1.0:
             self._anim_timer.stop()
             self._anim_timer = None
-        self._animated_value = self._anim_start + (self._anim_target - self._anim_start) * t
+        self._animated_value = (
+            self._anim_start + (self._anim_target - self._anim_start) * t
+        )
         self.update()
 
     def value(self) -> float:
@@ -358,14 +364,20 @@ class ElaDashboardGauge(ElaThemeWidget):
 
     def _arcColor(self, percent: float) -> QColor:
         if percent >= self._danger_percent:
-            return eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.StatusDanger)
+            return eTheme.getThemeColor(
+                self._theme_mode, ElaThemeType.ThemeColor.StatusDanger
+            )
         if percent >= self._warning_percent:
             return QColor(0xF7, 0x94, 0x0B)
-        return eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.PrimaryNormal)
+        return eTheme.getThemeColor(
+            self._theme_mode, ElaThemeType.ThemeColor.PrimaryNormal
+        )
 
     def _tickColor(self, percent: float) -> QColor:
         if percent >= self._danger_percent:
-            return eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.StatusDanger)
+            return eTheme.getThemeColor(
+                self._theme_mode, ElaThemeType.ThemeColor.StatusDanger
+            )
         if percent >= self._tick_warning_percent:
             return QColor(0xF7, 0x94, 0x0B)
         return eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicText)
@@ -388,7 +400,9 @@ class ElaDashboardGauge(ElaThemeWidget):
 
             # ── Track arc ──
             track_pen = QPen(
-                eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicChute),
+                eTheme.getThemeColor(
+                    self._theme_mode, ElaThemeType.ThemeColor.BasicChute
+                ),
                 aw,
             )
             track_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -419,7 +433,7 @@ class ElaDashboardGauge(ElaThemeWidget):
             for i in range(total_ticks + 1):
                 tick_angle = self._start_angle - (self._span_angle * i / total_ticks)
                 rad = math.radians(tick_angle)
-                is_major = (i % self._minor_tick_count == 0)
+                is_major = i % self._minor_tick_count == 0
                 tlen = major_len if is_major else minor_len
 
                 x1 = tick_outer_r * math.cos(rad)
@@ -435,7 +449,9 @@ class ElaDashboardGauge(ElaThemeWidget):
                 painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
 
                 if is_major:
-                    tick_val = self._minimum + (self._maximum - self._minimum) * tick_pct
+                    tick_val = (
+                        self._minimum + (self._maximum - self._minimum) * tick_pct
+                    )
                     label = f"{tick_val:.{self._decimals}f}"
                     lr = self._decimals * 3 if self._decimals > 0 else 0
                     painter.setFont(tick_font)
@@ -445,7 +461,8 @@ class ElaDashboardGauge(ElaThemeWidget):
                     ly = -label_r * math.sin(rad)
                     painter.drawText(
                         QRectF(lx - 20 - lr, ly - 8, 40 + lr * 2, 16),
-                        Qt.AlignmentFlag.AlignCenter, label,
+                        Qt.AlignmentFlag.AlignCenter,
+                        label,
                     )
 
             # ── Needle ──
@@ -466,11 +483,15 @@ class ElaDashboardGauge(ElaThemeWidget):
             painter.drawPath(needle_path)
 
             painter.setBrush(
-                eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicText)
+                eTheme.getThemeColor(
+                    self._theme_mode, ElaThemeType.ThemeColor.BasicText
+                )
             )
             painter.drawEllipse(QPointF(0, 0), 6, 6)
             painter.setBrush(
-                eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.WindowBase)
+                eTheme.getThemeColor(
+                    self._theme_mode, ElaThemeType.ThemeColor.WindowBase
+                )
             )
             painter.drawEllipse(QPointF(0, 0), 3, 3)
             painter.restore()
@@ -486,7 +507,9 @@ class ElaDashboardGauge(ElaThemeWidget):
             val_font.setBold(True)
             painter.setFont(val_font)
             painter.setPen(arc_color)
-            painter.drawText(QRectF(-80, 15, 160, 40), Qt.AlignmentFlag.AlignCenter, value_text)
+            painter.drawText(
+                QRectF(-80, 15, 160, 40), Qt.AlignmentFlag.AlignCenter, value_text
+            )
 
             # ── Title ──
             if self._title:
@@ -494,9 +517,14 @@ class ElaDashboardGauge(ElaThemeWidget):
                 title_font.setPixelSize(13)
                 painter.setFont(title_font)
                 painter.setPen(
-                    eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicDetailsText)
+                    eTheme.getThemeColor(
+                        self._theme_mode, ElaThemeType.ThemeColor.BasicDetailsText
+                    )
                 )
-                painter.drawText(QRectF(-80, 50, 160, 20), Qt.AlignmentFlag.AlignCenter, self._title)
+                painter.drawText(
+                    QRectF(-80, 50, 160, 20), Qt.AlignmentFlag.AlignCenter, self._title
+                )
         except Exception:
             import traceback
+
             traceback.print_exc()

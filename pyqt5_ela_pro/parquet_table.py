@@ -8,7 +8,7 @@ Parquet 表格视图组件，支持分页功能。
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, Union, TYPE_CHECKING
 
 from PyQt5.QtCore import pyqtSignal, QModelIndex
 from PyQt5.QtGui import QPalette
@@ -58,7 +58,7 @@ class ElaInfoBarWidget(ElaThemeWidget):
         layout.setSpacing(INFO_BAR_SPACING)
 
         self._col_label = ElaText(self)  # type: ignore
-        self._col_label.setText("当前列: -")
+        self._col_label.setText("列: -")
         self._col_label.setTextPixelSize(12)
 
         self._col_index_label = ElaText(self)  # type: ignore
@@ -133,7 +133,7 @@ class ElaInfoBarWidget(ElaThemeWidget):
         self._max_val = max_val
         self._last_val = last_val
 
-        self._col_label.setText(f"当前列: {col_name}")
+        self._col_label.setText(f"列: {col_name}")
         self._col_index_label.setText(f"第 {col_index} 列")
         self._min_label.setText(f"最小值: {min_val}")
         self._max_label.setText(f"最大值: {max_val}")
@@ -141,7 +141,7 @@ class ElaInfoBarWidget(ElaThemeWidget):
 
     def clear_info(self) -> None:
         """清空列信息显示。"""
-        self._col_label.setText("当前列: -")
+        self._col_label.setText("列: -")
         self._col_index_label.setText("第 - 列")
         self._min_label.setText("最小值: -")
         self._max_label.setText("最大值: -")
@@ -157,17 +157,13 @@ class ElaParquetTable(ElaThemeWidget):
     """Parquet 表格视图，支持分页。
 
     继承自 ``ElaThemeWidget``，数据来源为 Parquet 文件，
-    通过 ``polars`` 进行高效读取，按页展示。
+    通过 ``polars`` 进行高效读取，按页展示数据。
 
-    :param parquet_path: Parquet 文件路径。
-    :type parquet_path: str
-    :param page_size: 每页显示的记录数，默认 50。
-    :type page_size: int
-    :param parent: 父级 widget。
-    :type parent: QWidget, optional
+    :param parquet_path: Parquet 文件路径（可选，也可后续通过 ``loadData`` 传入）
+        :param page_size: 每页记录数，默认 50，最大 5000
+    :param parent: 父级 widget
 
-    :raises ImportError: 当 polars 未安装时。
-    :raises FileNotFoundError: 当指定的 parquet 文件不存在时。
+    :raises ImportError: 当 polars 未安装时
     """
 
     pageChanged = pyqtSignal(int, int)
@@ -175,7 +171,7 @@ class ElaParquetTable(ElaThemeWidget):
 
     def __init__(
         self,
-        parquet_path: str,
+        parquet_path: Union[str, Path] = "",
         page_size: int = 50,
         parent: Optional[QWidget] = None,
     ) -> None:
@@ -185,20 +181,19 @@ class ElaParquetTable(ElaThemeWidget):
                 "Please install it with: pip install polars"
             )
 
-        if not Path(parquet_path).is_file():
-            raise FileNotFoundError(f"Parquet file not found: {parquet_path}")
-
         super().__init__(parent)
 
-        self._parquet_path = parquet_path
-        self._page_size = page_size
+        self._page_size = max(50, min(page_size, 5000))
         self._current_page = 1
         self._total_rows = 0
+        self._parquet_path = ""
+        self._lf = None
         self._column_stats_cache: dict[str, dict] = {}
-        self._lf = pl.scan_parquet(parquet_path)
-        self._total_rows = self._lf.select(pl.len()).collect().item()  # type: ignore
 
         self._setup_ui()
+
+        if parquet_path:
+            self.loadData(parquet_path)
 
     def _setup_ui(self) -> None:
         self._table = ElaDataTable(self)
@@ -226,9 +221,12 @@ class ElaParquetTable(ElaThemeWidget):
         self._main_lay.addWidget(self._info_bar, 0)
         self._main_lay.addWidget(self._pager_container, 0)
 
+        self._info_bar.setVisible(False)
+        self._pager_container.setVisible(False)
+
         self._table.clicked.connect(self._on_cell_clicked)
 
-        self._load_data()
+        self._loading = False
 
     def deleteLater(self) -> None:
         """断开信号并清理资源。"""
@@ -239,24 +237,31 @@ class ElaParquetTable(ElaThemeWidget):
         super().deleteLater()
 
     def _load_data(self) -> None:
-        data = (
-            self._lf.slice((self._current_page - 1) * self._page_size, self._page_size)
-            .collect()
-            .to_dict()
-        )
+        if self._lf is None:
+            return
+        df = self._lf.slice(
+            (self._current_page - 1) * self._page_size, self._page_size
+        ).collect()
+        headers = df.columns
+        rows = df.rows()
+        data = [headers] + [list(r) for r in rows]
         self._table.setTableData(data)
 
-        total_cols = len(data)
+        total_cols = len(headers)
         total_pages = max(
             1, (self._total_rows + self._page_size - 1) // self._page_size
         )
         self._total_label.setText(f"共 {self._total_rows} 行 × {total_cols} 列")
         self._pagination.setTotalPages(total_pages)
         self._pagination.setCurrentPage(self._current_page)
+        self._info_bar.setVisible(True)
+        self._pager_container.setVisible(total_pages > 1)
 
         self.loadingFinished.emit(self._total_rows)
 
     def _on_cell_clicked(self, index: QModelIndex) -> None:
+        if self._lf is None:
+            return
         col_name = self._table.model().horizontalHeaderItem(index.column()).text()
         if not col_name:
             self._info_bar.clear_info()
@@ -316,6 +321,8 @@ class ElaParquetTable(ElaThemeWidget):
 
         :param page: 目标页码（从 1 开始）
         """
+        if self._lf is None:
+            return
         if page < 1:
             page = 1
         total_pages = max(
@@ -339,10 +346,11 @@ class ElaParquetTable(ElaThemeWidget):
     def setPageSize(self, page_size: int) -> None:
         """设置每页记录数（会重置到第一页）。
 
-        :param page_size: 每页记录数
+        :param page_size: 每页记录数，范围 50~5000
         """
-        if page_size < 1:
-            page_size = 1
+        page_size = max(50, min(page_size, 5000))
+        if page_size == self._page_size:
+            return
         self._page_size = page_size
         self._current_page = 1
         self._load_data()
@@ -375,12 +383,13 @@ class ElaParquetTable(ElaThemeWidget):
         """
         return max(1, (self._total_rows + self._page_size - 1) // self._page_size)
 
-    def loadData(self, parquet_path: str) -> None:
+    def loadData(self, parquet_path: Union[str, Path]) -> None:
         """加载新的 parquet 文件。
 
-        :param parquet_path: Parquet 文件路径。
-        :type parquet_path: str
+        :param parquet_path: Parquet 文件路径
+        :raises FileNotFoundError: 当文件不存在时
         """
+        parquet_path = str(parquet_path)
         if not Path(parquet_path).is_file():
             raise FileNotFoundError(f"Parquet file not found: {parquet_path}")
         self._parquet_path = parquet_path

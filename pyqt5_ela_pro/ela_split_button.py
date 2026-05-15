@@ -8,9 +8,7 @@
 
     from pyqt5_ela_pro import ElaSplitButton
 
-    btn = ElaSplitButton(parent=self)
-    btn.setText("保存")
-    btn.setElaIcon(ElaIconType.IconName.FloppyDisk)
+    btn = ElaSplitButton(text="保存", icon=ElaIconType.IconName.FloppyDisk, parent=self)
     btn.clicked.connect(lambda: print("保存"))
 
     menu = QMenu(btn)
@@ -45,16 +43,23 @@ class ElaSplitButton(ElaThemeWidget):
     左侧为主操作区域（文字 + 可选图标），右侧为下拉箭头。
     点击左侧发出 ``clicked()`` 信号，点击右侧弹出菜单。
 
+    :param text: 按钮文字
+    :param icon: ElaAwesome 图标名称
     :param parent: 父控件
     """
 
     clicked = pyqtSignal()
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        text: str = "",
+        icon: ElaIconType.IconName = ElaIconType.IconName.None_,
+        parent: Optional[QWidget] = None,
+    ) -> None:
         super().__init__(parent)
 
-        self._text = ""
-        self._icon = ElaIconType.IconName.None_
+        self._text = text
+        self._icon = icon
         self._border_radius = 3
         self._dropdown_width = 30
         self._menu: Optional[ElaMenu] = None

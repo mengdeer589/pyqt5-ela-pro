@@ -21,6 +21,7 @@ F = TypeVar("F", bound=Callable[..., Any])
 @runtime_checkable
 class _ThemeAwareProtocol(Protocol):
     """_ThemeAwareMixin 所要求的宿主类接口。"""
+
     _theme_connected: bool
     _theme_mode: int
 

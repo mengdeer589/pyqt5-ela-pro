@@ -13,6 +13,23 @@ class TestElaSplitButtonInit:
         btn = ElaSplitButton()
         assert btn._text == ""
         assert btn._icon == ElaIconType.IconName.None_
+        btn.deleteLater()
+
+    def test_initialization_with_text(self):
+        btn = ElaSplitButton(text="保存")
+        assert btn.text() == "保存"
+        btn.deleteLater()
+
+    def test_initialization_with_icon(self):
+        btn = ElaSplitButton(icon=ElaIconType.IconName.FloppyDisk)
+        assert btn.elaIcon() == ElaIconType.IconName.FloppyDisk
+        btn.deleteLater()
+
+    def test_initialization_with_text_and_icon(self):
+        btn = ElaSplitButton(text="保存", icon=ElaIconType.IconName.FloppyDisk)
+        assert btn.text() == "保存"
+        assert btn.elaIcon() == ElaIconType.IconName.FloppyDisk
+        btn.deleteLater()
         assert btn._border_radius == 3
         assert btn._dropdown_width == 30
         assert btn._menu is None

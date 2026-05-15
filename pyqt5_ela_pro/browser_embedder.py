@@ -16,9 +16,11 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
 import time
 import weakref
+from urllib.parse import unquote, urlparse
 from pathlib import Path
 from typing import Optional, Any, Callable, Union
 
@@ -39,6 +41,12 @@ try:
     import win32process  # type: ignore[attr-defined]
 except ImportError:
     win32process = None
+
+# OLE 初始化（进程级，供 RegisterDragDrop 使用）
+try:
+    ctypes.windll.ole32.OleInitialize(None)
+except Exception:
+    pass
 
 
 class _BrowserController(QObject):
@@ -66,6 +74,7 @@ class _BrowserController(QObject):
         self._running: bool = False
         self._loadStarted_callback: Optional[Callable] = None
         self._loadFinished_callback: Optional[Callable] = None
+        self._dropped_file_callback: Optional[Callable[[str], None]] = None
 
     def _log(self, message: str, level: int = 30) -> None:
         if self._log_func:
@@ -91,6 +100,20 @@ class _BrowserController(QObject):
         self._running = True
         self.sendCommand("Page.enable")
         self.sendCommand("Runtime.enable")
+        self.sendCommand(
+            "Browser.setDownloadBehavior",
+            {
+                "behavior": "deny",
+            },
+        )
+        self.sendCommand(
+            "Target.setAutoAttach",
+            {
+                "autoAttach": True,
+                "waitForDebuggerOnStart": False,
+                "flatten": True,
+            },
+        )
         self.cdpReady.emit()
 
     def _on_connect_timeout(self) -> None:
@@ -127,8 +150,6 @@ class _BrowserController(QObject):
         else:
             method = data.get("method")
             params = data.get("params", {})
-            if method and not method.startswith("Debugger"):
-                self._log(f"[CDP Event] {method}: {params}", 10)
             self._handle_event(method, params)
 
     def _handle_event(self, method: Optional[str], params: dict) -> None:
@@ -147,6 +168,54 @@ class _BrowserController(QObject):
                 texts.append(str(value))
             text = " ".join(texts)
             self.consoleMessage.emit(msg_type, text)
+        elif method == "Target.targetCreated":
+            target = params.get("targetInfo", {})
+            url = target.get("url", "")
+            if url.startswith("file:///"):
+                path = self._parse_file_url_path(url)
+                if self._dropped_file_callback:
+                    self._dropped_file_callback(path)
+                self.sendCommand("Target.closeTarget", {"targetId": target["targetId"]})
+            elif target.get("type") == "page":
+                self.sendCommand("Target.closeTarget", {"targetId": target["targetId"]})
+        elif method == "Target.attachedToTarget":
+            target = params.get("targetInfo", {})
+            url = target.get("url", "")
+            if url.startswith("file:///"):
+                path = self._parse_file_url_path(url)
+                if self._dropped_file_callback:
+                    self._dropped_file_callback(path)
+                self.sendCommand("Target.closeTarget", {"targetId": target["targetId"]})
+            elif target.get("type") == "page":
+                self.sendCommand("Target.closeTarget", {"targetId": target["targetId"]})
+        elif method == "Target.targetInfoChanged":
+            target = params.get("targetInfo", {})
+            url = target.get("url", "")
+            if url.startswith("file:///"):
+                path = self._parse_file_url_path(url)
+                if self._dropped_file_callback:
+                    self._dropped_file_callback(path)
+                self.sendCommand("Target.closeTarget", {"targetId": target["targetId"]})
+        elif method == "Page.frameRequestedNavigation":
+            url = params.get("url", "")
+            if url.startswith("file:///"):
+                path = self._parse_file_url_path(url)
+                if self._dropped_file_callback:
+                    self._dropped_file_callback(path)
+                self.sendCommand("Page.stopLoading", {})
+        elif method == "Page.downloadWillBegin":
+            url = params.get("url", "")
+            if url.startswith("file:///"):
+                path = self._parse_file_url_path(url)
+                if self._dropped_file_callback:
+                    self._dropped_file_callback(path)
+
+    @staticmethod
+    def _parse_file_url_path(url: str) -> str:
+        path = unquote(urlparse(url).path)
+        if path.startswith("/") and len(path) > 2 and path[2] == ":":
+            path = path[1:]
+        return path
 
     def set_loadStarted_callback(self, callback: Callable) -> None:
         self._loadStarted_callback = callback
@@ -274,6 +343,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
     logMessage = pyqtSignal(str, int)
     embedCompleted = pyqtSignal(bool)
     consoleMessage = pyqtSignal(str, str)
+    fileDropped = pyqtSignal(str)
 
     _debug_port_counter = 9222
     _freed_ports: set[int] = set()
@@ -333,6 +403,10 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._debug_url_retries: int = 0
         self._debug_url_max_retries: int = 0
         self._debug_url_callback: Optional[Callable] = None
+        self._last_dropped_file_path: Optional[str] = None
+        self._last_dropped_file_time: float = 0
+        self._ole_drop_target: Any = None
+        self._ole_target_hwnd: Optional[int] = None
 
     def embed(
         self,
@@ -496,6 +570,195 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             cy = screen[1] + (screen[3] - screen[1] - h) // 2
             self._original_rect = (cx, cy, cx + w, cy + h)
         win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+        try:
+            self._install_drop_interceptor(hwnd)
+        except Exception as e:
+            print(f"[ElaBrowserEmbedder] 拖放拦截安装失败: {e}")
+
+    def _install_drop_interceptor(self, hwnd: int) -> None:
+        """通过 COM IDropTarget 在浏览器 HWND 上拦截 OLE 拖放。
+
+        替换 Chrome 的 OLE 拖放目标为我们自己的 IDropTarget。
+        在 Drop() 中提取文件路径 → 发射信号 → 返回 DROPEFFECT_NONE 拒绝。
+        """
+        try:
+            from comtypes import IUnknown, GUID, HRESULT, COMMETHOD, COMObject
+            from ctypes import (
+                POINTER,
+                c_uint32,
+                c_void_p,
+                create_unicode_buffer,
+                byref,
+                cast,
+            )
+
+            OLE32 = ctypes.windll.ole32
+            SHELL32 = ctypes.windll.shell32
+
+            # 定义 IDropTarget COM 接口
+            class _IDropTarget(IUnknown):
+                _iid_ = GUID("{00000122-0000-0000-C000-000000000046}")
+                _methods_ = [
+                    COMMETHOD(
+                        [],
+                        HRESULT,
+                        "DragEnter",
+                        (["in"], c_void_p, "pDataObj"),
+                        (["in"], c_uint32, "grfKeyState"),
+                        (["in"], c_void_p, "pt"),
+                        (["in", "out"], POINTER(c_uint32), "pdwEffect"),
+                    ),
+                    COMMETHOD(
+                        [],
+                        HRESULT,
+                        "DragOver",
+                        (["in"], c_uint32, "grfKeyState"),
+                        (["in"], c_void_p, "pt"),
+                        (["in", "out"], POINTER(c_uint32), "pdwEffect"),
+                    ),
+                    COMMETHOD([], HRESULT, "DragLeave"),
+                    COMMETHOD(
+                        [],
+                        HRESULT,
+                        "Drop",
+                        (["in"], c_void_p, "pDataObj"),
+                        (["in"], c_uint32, "grfKeyState"),
+                        (["in"], c_void_p, "pt"),
+                        (["in", "out"], POINTER(c_uint32), "pdwEffect"),
+                    ),
+                ]
+
+            class _ChromeDropTarget(COMObject):
+                _com_interfaces_ = [_IDropTarget]
+
+                def __init__(self, embedder):
+                    super().__init__()
+                    self._embedder = embedder
+                    self._cached_path = ""
+
+                def DragEnter(self, pDataObj, grfKeyState, pt, pdwEffect):
+                    allowed = pdwEffect[0]
+                    if allowed & 1:
+                        pdwEffect[0] = 1
+                    elif allowed & 2:
+                        pdwEffect[0] = 2
+                    elif allowed & 4:
+                        pdwEffect[0] = 4
+                    else:
+                        pdwEffect[0] = 0
+                    self._cached_path = self._extract_hdrop(pDataObj)
+                    return 0
+
+                def DragOver(self, grfKeyState, pt, pdwEffect):
+                    allowed = pdwEffect[0]
+                    if allowed & 1:
+                        pdwEffect[0] = 1
+                    elif allowed & 2:
+                        pdwEffect[0] = 2
+                    elif allowed & 4:
+                        pdwEffect[0] = 4
+                    else:
+                        pdwEffect[0] = 0
+                    return 0
+
+                def DragLeave(self):
+                    if self._cached_path:
+                        self._embedder._on_dropped_file(self._cached_path)
+                    self._cached_path = ""
+
+                def Drop(self, pDataObj, grfKeyState, pt, pdwEffect):
+                    if self._cached_path:
+                        self._embedder._on_dropped_file(self._cached_path)
+                    else:
+                        path = self._extract_hdrop(pDataObj)
+                        if path:
+                            self._embedder._on_dropped_file(path)
+                    pdwEffect[0] = 0
+                    self._cached_path = ""
+                    return 0
+
+                def _extract_hdrop(self, pDataObj) -> str:
+                    try:
+                        vtable = c_void_p.from_address(pDataObj).value
+                        slot3_addr = vtable + 3 * ctypes.sizeof(c_void_p)
+                        func_ptr = c_void_p.from_address(slot3_addr).value
+                        GETDATA = ctypes.WINFUNCTYPE(
+                            ctypes.c_long, c_void_p, c_void_p, c_void_p
+                        )
+                        GetData = GETDATA(func_ptr)
+
+                        class _FORMATETC(ctypes.Structure):
+                            _fields_ = [
+                                ("cfFormat", ctypes.c_uint16),
+                                ("_pad1", ctypes.c_uint16),
+                                ("ptd", c_void_p),
+                                ("dwAspect", c_uint32),
+                                ("lindex", ctypes.c_int32),
+                                ("tymed", c_uint32),
+                            ]
+
+                        class _STGMEDIUM(ctypes.Structure):
+                            _fields_ = [
+                                ("tymed", c_uint32),
+                                ("_pad1", c_uint32),
+                                ("hGlobal", c_void_p),
+                                ("pUnkForRelease", c_void_p),
+                            ]
+
+                        fmt = _FORMATETC()
+                        fmt.cfFormat = 15
+                        fmt.ptd = None
+                        fmt.dwAspect = 1
+                        fmt.lindex = -1
+                        fmt.tymed = 1
+
+                        stg = _STGMEDIUM()
+                        hr = GetData(pDataObj, byref(fmt), byref(stg))
+                        if hr != 0:
+                            return ""
+                        if not stg.hGlobal:
+                            OLE32.ReleaseStgMedium(byref(stg))
+                            return ""
+                        p = ctypes.windll.kernel32.GlobalLock(stg.hGlobal)
+                        if not p:
+                            OLE32.ReleaseStgMedium(byref(stg))
+                            return ""
+                        buf = create_unicode_buffer(260)
+                        SHELL32.DragQueryFileW(c_void_p(p), 0, buf, 260)
+                        result = buf.value
+                        ctypes.windll.kernel32.GlobalUnlock(stg.hGlobal)
+                        OLE32.ReleaseStgMedium(byref(stg))
+                        return result
+                    except Exception:
+                        return ""
+
+            self._ole_drop_target = _ChromeDropTarget(self)
+            pdt = cast(
+                self._ole_drop_target._com_pointers_[_IDropTarget._iid_],
+                c_void_p,
+            )
+
+            # 先注销旧的拖放注册，再注册我们的
+            OLE32.RevokeDragDrop(hwnd)
+            hr = OLE32.RegisterDragDrop(hwnd, pdt)
+            if hr == 0:
+                self._ole_target_hwnd = hwnd
+            else:
+                print(f"[ElaBrowserEmbedder] RegisterDragDrop 失败: {hr:#010x}")
+                self._ole_drop_target = None
+        except ImportError:
+            print("[ElaBrowserEmbedder] comtypes 未安装，使用 CDP 后备检测")
+        except Exception as e:
+            print(f"[ElaBrowserEmbedder] OLE 拖放拦截安装失败: {e}")
+
+    def _remove_drop_interceptor(self) -> None:
+        if hasattr(self, "_ole_target_hwnd") and self._ole_target_hwnd:
+            try:
+                ctypes.windll.ole32.RevokeDragDrop(self._ole_target_hwnd)
+            except Exception:
+                pass
+            self._ole_target_hwnd = None
+        self._ole_drop_target = None
 
     def _log(self, message: str, level: int = 30) -> None:
         self.logMessage.emit(message, level)
@@ -583,9 +846,52 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._controller.consoleMessage.connect(self.consoleMessage)
         self._controller.connect()
 
+    def _on_dropped_file(self, path: str) -> None:
+        now = time.time()
+        if (
+            path == self._last_dropped_file_path
+            and now - self._last_dropped_file_time < 0.5
+        ):
+            return
+        self._last_dropped_file_path = path
+        self._last_dropped_file_time = now
+        self.fileDropped.emit(path)
+
     def _on_cdpReady(self) -> None:
         self._log("CDP 连接就绪", 20)
+        self._controller._dropped_file_callback = self._on_dropped_file
+        self._inject_block_new_window()
         self.embedCompleted.emit(True)
+
+    def _inject_block_new_window(self) -> None:
+        """注入脚本，防止网站通过 window.open 或 target=_blank 创建新窗口。"""
+        script = """
+(function() {
+    var origOpen = window.open;
+    window.open = function(url) {
+        if (url) window.location.href = url;
+        return window;
+    };
+    document.addEventListener('click', function(e) {
+        var a = e.target.closest('a');
+        if (a && a.target === '_blank') {
+            e.preventDefault();
+            if (a.href) window.location.href = a.href;
+        }
+    }, true);
+    document.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }, true);
+})();
+"""
+        self._controller.sendCommand(
+            "Page.addScriptToEvaluateOnNewDocument", {"source": script}
+        )
+        self._controller.sendCommand(
+            "Runtime.evaluate", {"expression": script, "returnByValue": False}
+        )
+        self._log("已注入新窗口拦截脚本", 20)
 
     def _onCdpError(self, error: str) -> None:
         self._log(f"CDP 连接失败: {error}", 40)
@@ -694,11 +1000,17 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._original_exstyle = None
         self._original_rect = None
 
+        self._remove_drop_interceptor()
         ElaWindowEmbedder.release(self, destroy=True)
 
         self._cleanup_browser()
         if hasattr(self, "_debug_port") and self._debug_port:
             ElaBrowserEmbedder._freed_ports.add(self._debug_port)
+
+    def closeEvent(self, event) -> None:
+        """窗口关闭时释放资源。"""
+        self.release()
+        super().closeEvent(event)
 
     def deleteLater(self) -> None:
         self.release()

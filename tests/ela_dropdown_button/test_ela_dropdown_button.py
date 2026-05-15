@@ -13,6 +13,23 @@ class TestElaDropDownButtonInit:
         btn = ElaDropDownButton()
         assert btn._text == ""
         assert btn._icon == ElaIconType.IconName.None_
+        btn.deleteLater()
+
+    def test_initialization_with_text(self):
+        btn = ElaDropDownButton(text="操作")
+        assert btn.text() == "操作"
+        btn.deleteLater()
+
+    def test_initialization_with_icon(self):
+        btn = ElaDropDownButton(icon=ElaIconType.IconName.Gear)
+        assert btn.elaIcon() == ElaIconType.IconName.Gear
+        btn.deleteLater()
+
+    def test_initialization_with_text_and_icon(self):
+        btn = ElaDropDownButton(text="操作", icon=ElaIconType.IconName.Gear)
+        assert btn.text() == "操作"
+        assert btn.elaIcon() == ElaIconType.IconName.Gear
+        btn.deleteLater()
         assert btn._border_radius == 6
         assert btn._menu is None
         assert btn._is_hover is False

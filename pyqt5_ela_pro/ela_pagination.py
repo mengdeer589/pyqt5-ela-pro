@@ -80,7 +80,9 @@ class ElaPagination(ElaThemeWidget):
             self._current_page = n
             self.currentPageChanged.emit(n)
             if self._jumper_visible:
-                self._page_label.setText(f"第{self._current_page}/{self._total_pages}页")
+                self._page_label.setText(
+                    f"第{self._current_page}/{self._total_pages}页"
+                )
                 self._page_label.adjustSize()
             self.update()
 
@@ -254,7 +256,9 @@ class ElaPagination(ElaThemeWidget):
             self._current_page = page
             self.currentPageChanged.emit(page)
             if self._jumper_visible:
-                self._page_label.setText(f"第{self._current_page}/{self._total_pages}页")
+                self._page_label.setText(
+                    f"第{self._current_page}/{self._total_pages}页"
+                )
                 self._page_label.adjustSize()
             self.update()
         self._jumper_edit.clear()

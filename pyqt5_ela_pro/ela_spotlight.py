@@ -287,7 +287,11 @@ class ElaSpotlight(ElaThemeWidget):
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
         parent = self.parent()
-        if watched is parent and event.type() == QEvent.Type.Resize and parent is not None:
+        if (
+            watched is parent
+            and event.type() == QEvent.Type.Resize
+            and parent is not None
+        ):
             self.setGeometry(0, 0, parent.width(), parent.height())
             if self._is_active and 0 <= self._current_step < len(self._steps):
                 self._spotlight_rect = self._getTargetRect(

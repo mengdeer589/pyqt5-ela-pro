@@ -487,13 +487,18 @@ class ElaDataTable(ElaTableView):
 
         self.setHorizontalHeaderLabels(headers)
         self.setColumnCount(len(headers))
-        self.setRowCount(len(rows))
 
         if show_row_index:
             vh = self.verticalHeader()
             if vh:
                 vh.setHidden(False)
             self.setVerticalHeaderLabels([str(i + 1) for i in range(len(rows))])
+
+        # 先清除旧行，避免 setItem 逐个 delete 旧 item 的性能退化
+        old_count = self._model.rowCount()
+        if old_count > 0:
+            self._model.removeRows(0, old_count)
+        self._model.setRowCount(len(rows))
 
         for row_idx, row_data in enumerate(rows):
             for col_idx, cell_data in enumerate(row_data):

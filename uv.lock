@@ -206,6 +206,38 @@ wheels = [
 ]
 
 [[package]]
+name = "comtypes"
+version = "1.4.12"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+resolution-markers = [
+    "(python_full_version >= '3.8.1' and python_full_version < '3.9' and platform_machine != 'AMD64') or (python_full_version >= '3.8.1' and python_full_version < '3.9' and sys_platform != 'win32')",
+    "python_full_version >= '3.8.1' and python_full_version < '3.9' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+    "(python_full_version < '3.8.1' and platform_machine != 'AMD64') or (python_full_version < '3.8.1' and sys_platform != 'win32')",
+    "python_full_version < '3.8.1' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/b6/b8/3af03195b9de515448292169c6d6d7a630de02bedf891a47b809638c186f/comtypes-1.4.12.zip", hash = "sha256:3ff06c442c2de8a2b25785407f244eb5b6f809d21cf068a855071ba80a76876f" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/2d/01/89285549c5138009db68f26c80f2174d0ec82a858547df0cc40a8b0a47d6/comtypes-1.4.12-py3-none-any.whl", hash = "sha256:e0fa9cc19c489fa7feea4c1710f4575c717e2673edef5b99bf99efd507908e44" },
+]
+
+[[package]]
+name = "comtypes"
+version = "1.4.16"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+resolution-markers = [
+    "(python_full_version >= '3.11' and platform_machine != 'AMD64') or (python_full_version >= '3.11' and sys_platform != 'win32')",
+    "(python_full_version == '3.10.*' and platform_machine != 'AMD64') or (python_full_version == '3.10.*' and sys_platform != 'win32')",
+    "python_full_version >= '3.11' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+    "python_full_version == '3.10.*' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+    "(python_full_version == '3.9.*' and platform_machine != 'AMD64') or (python_full_version == '3.9.*' and sys_platform != 'win32')",
+    "python_full_version == '3.9.*' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/c6/2a/65274c13327f637ec13af8d39f2cf579d9ebe7a0e683696b5f05236d2805/comtypes-1.4.16.tar.gz", hash = "sha256:cd66d1add01265cface4df51ba1e31cd1657e04463c281c802e737e79e1ba93c" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/5f/7c/0eb685107290b6221c03c46d39214a4e42a124189691cb83ae3228257f46/comtypes-1.4.16-py3-none-any.whl", hash = "sha256:e18d85179ff12955524c5a8c3bc09cb3c0d890f1da4d7123d14244c7b78f84c8" },
+]
+
+[[package]]
 name = "exceptiongroup"
 version = "1.3.1"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -571,6 +603,8 @@ name = "pyqt5-ela-pro"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [
+    { name = "comtypes", version = "1.4.12", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version < '3.9'" },
+    { name = "comtypes", version = "1.4.16", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.9'" },
     { name = "pypinyin" },
     { name = "pyqt5" },
     { name = "pyqt5-elawidgettools" },
@@ -601,6 +635,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=22.0.0" },
+    { name = "comtypes", specifier = ">=1.4.0" },
     { name = "flake8", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "pypinyin", specifier = ">=0.50.0" },
     { name = "pyqt5", specifier = ">=5.15.0" },

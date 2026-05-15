@@ -87,6 +87,9 @@ class _BrowserPanel(QWidget):
         self._browser.embedCompleted.connect(
             lambda ok: self._append_log("CDP 就绪" if ok else "CDP 失败")
         )
+        self._browser.fileDropped.connect(
+            lambda path: self._append_log(f"文件拖入: {path}")
+        )
 
     def _append_log(self, msg: str):
         try:

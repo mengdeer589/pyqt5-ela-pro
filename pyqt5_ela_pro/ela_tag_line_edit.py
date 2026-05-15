@@ -88,7 +88,7 @@ class ElaTagLineEdit(_ThemeAwareMixin, ElaLineEdit):
     def _updateMargins(self) -> None:
         metrics = QFontMetrics(self.font())
         title_width = metrics.horizontalAdvance(self._title_text) + 20
-        self.setTextMargins(title_width, 0, 10, 0)
+        self.setTextMargins(title_width + 3, 0, 10, 0)
 
     def _onTextChanged(self, text: str) -> None:
         self.update()
@@ -124,7 +124,7 @@ class ElaTagLineEdit(_ThemeAwareMixin, ElaLineEdit):
         title_width = metrics.horizontalAdvance(self._title_text) + 20
         title_height = self.height()
 
-        title_rect = QRect(0, 0, title_width, title_height)
+        title_rect = QRect(3, 0, title_width, title_height)
 
         option = QTextOption()
         option.setWrapMode(QTextOption.WrapMode.NoWrap)

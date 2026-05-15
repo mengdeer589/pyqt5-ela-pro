@@ -60,7 +60,8 @@ class WindowEmbedderPage(ExamplePage):
             self._createHeaderRow("01. ElaWindowEmbedder - 窗口嵌入", self._demoWindowEmbedder)
         )
         self._addInfoText(
-            "将外部窗口嵌入到 QWidget 中，支持通过 hwnd、窗口标题或类名嵌入。",
+            "将外部窗口嵌入到 QWidget 中，支持通过 hwnd、窗口标题或类名嵌入。\n"
+            "支持文件拖入拦截，拖入的文件路径会显示在状态栏中",
             parent_layout,
         )
 
@@ -122,6 +123,9 @@ class WindowEmbedderPage(ExamplePage):
         self._embedder.windowNotFound.connect(self._onWindowNotFound)
         self._embedder.embedError.connect(self._onEmbedError)
         self._embedder.embedTimeout.connect(self._onEmbedTimeout)
+        self._embedder.fileDropped.connect(
+            lambda path: self._showStatus(f"文件拖入: {path}")
+        )
         _embedderContainerLay.addWidget(self._embedder)
         self._infoText = ElaText(
             '嵌入区域 - 从下拉框选择窗口后点击"嵌入窗口"',

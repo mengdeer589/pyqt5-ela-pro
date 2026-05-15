@@ -7,9 +7,7 @@
 
     from pyqt5_ela_pro import ElaDropDownButton
 
-    btn = ElaDropDownButton(parent=self)
-    btn.setText("操作")
-    btn.setElaIcon(ElaIconType.IconName.Gear)
+    btn = ElaDropDownButton(text="操作", icon=ElaIconType.IconName.Gear, parent=self)
 
     menu = ElaMenu(btn)
     menu.addAction("选项一")
@@ -43,14 +41,21 @@ class ElaDropDownButton(ElaThemeWidget):
     点击展开 ElaMenu。
     支持图标+文字居中，右侧下拉箭头。
 
+    :param text: 按钮文字
+    :param icon: ElaAwesome 图标名称
     :param parent: 父控件
     """
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        text: str = "",
+        icon: ElaIconType.IconName = ElaIconType.IconName.None_,
+        parent: Optional[QWidget] = None,
+    ) -> None:
         super().__init__(parent)
 
-        self._text = ""
-        self._icon = ElaIconType.IconName.None_
+        self._text = text
+        self._icon = icon
         self._border_radius = 6
         self._menu: Optional[ElaMenu] = None
         self._is_hover = False

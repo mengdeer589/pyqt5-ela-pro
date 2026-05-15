@@ -226,53 +226,73 @@ class TableChartPage(ExamplePage):
             parent_layout,
         )
         btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(15)
+        btn_layout.setSpacing(10)
         open_btn = ElaPushButton("打开 Parquet 文件", self)
         open_btn.setFixedWidth(130)
         open_btn.clicked.connect(self._onOpenParquet)
         btn_layout.addWidget(open_btn)
+        size_label = ElaText("每页行数:", self)
+        size_label.setTextPixelSize(14)
+        btn_layout.addWidget(size_label)
+        for s in [50, 100, 200, 500, 1000, 2000]:
+            btn = ElaPushButton(str(s), self)
+            btn.setFixedWidth(50)
+            btn.clicked.connect(lambda checked, x=s: self._onSetParquetPageSize(x))
+            btn_layout.addWidget(btn)
         btn_layout.addStretch()
         parent_layout.addLayout(btn_layout)
         parent_layout.addSpacing(10)
 
-        self._parquet_table = None
+        from pyqt5_ela_pro import ElaParquetTable
+        try:
+            self._parquet_table = ElaParquetTable(page_size=50, parent=self)
+            self._parquet_table.setFixedHeight(350)
+            self._parquet_table.setVisible(False)
+            parent_layout.addWidget(self._parquet_table)
+            self._parquet_available = True
+        except ImportError:
+            self._parquet_table = None
+            self._parquet_available = False
+
         self._parquet_info = ElaText("请点击上方按钮选择 .parquet 文件", self)
         self._parquet_info.setTextPixelSize(14)
         parent_layout.addWidget(self._parquet_info)
         parent_layout.addSpacing(20)
 
     def _onOpenParquet(self):
+        if not self._parquet_available:
+            return
         path, _ = QFileDialog.getOpenFileName(
             self, "选择 Parquet 文件", "", "Parquet (*.parquet);;所有文件 (*)"
         )
-        if path:
-            if self._parquet_table:
-                self._parquet_table.deleteLater()
-                self._parquet_table = None
-            try:
-                from pyqt5_ela_pro import ElaParquetTable
-                self._parquet_table = ElaParquetTable(path, page_size=50, parent=self)
-                self._parquet_table.setFixedHeight(350)
-                if self._parquet_info:
-                    self._parquet_info.deleteLater()
-                    self._parquet_info = None
-                self.layout().addWidget(self._parquet_table)
-            except ImportError as e:
-                from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
-                ElaMessageBar.error(
-                    ElaMessageBarType.PositionPolicy.Top,
-                    "缺少依赖",
-                    f"需要 polars 库: {e}",
-                    5000, self,
-                )
-            except Exception as e:
-                from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
-                ElaMessageBar.error(
-                    ElaMessageBarType.PositionPolicy.Top,
-                    "加载失败",
-                    str(e),
-                    5000, self,
-                )
+        if not path:
+            return
+        try:
+            self._parquet_table.loadData(path)
+            self._parquet_table.setVisible(True)
+            if self._parquet_info:
+                self._parquet_info.deleteLater()
+                self._parquet_info = None
+        except ImportError as e:
+            from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+            ElaMessageBar.error(
+                ElaMessageBarType.PositionPolicy.Top,
+                "缺少依赖",
+                f"需要 polars 库: {e}",
+                5000, self,
+            )
+        except Exception as e:
+            from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+            ElaMessageBar.error(
+                ElaMessageBarType.PositionPolicy.Top,
+                "加载失败",
+                str(e),
+                5000, self,
+            )
+
+    def _onSetParquetPageSize(self, size):
+        if self._parquet_table and self._parquet_available:
+            self._parquet_table.setPageSize(size)
 
     def _onToggleSort(self):
         self._sortingEnabled = not self._sortingEnabled

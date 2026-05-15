@@ -46,6 +46,8 @@ ElaPasswordEdit、ElaConfirmDialog、ElaMarkdownViewer、ElaUploadArea、ElaSpla
 - **ElaDataTable** — 数据表格（支持排序、样式、对齐）
 - **ElaParquetTable** — Parquet 文件分页查看（内置 ElaPagination 翻页）
 - **ElaTrendChart** — 趋势图（多曲线、散点图、交互操作）
+- **ElaDashboardGauge** — 仪表盘组件（全 QPainter 自绘，指针动画，颜色分段）
+- **ElaPlotWidget** — pyqtgraph 绘图控件（主题感知，可选依赖 pyqtgraph）
 - **ElaTimeline** — 时间线（时间戳、标题、正文、可选图标）
 - **ElaMarkdownViewer** — Markdown 查看器（基于 QTextBrowser，主题自适应）
 
@@ -180,6 +182,8 @@ pyqt5_ela_pro/              # 核心组件包
   # 展示组件
   ela_timeline.py           # ElaTimeline
   ela_trend_chart.py        # ElaTrendChart
+  ela_dashboard_gauge.py    # ElaDashboardGauge
+  ela_pyqtgraph_canvas.py   # ElaPlotWidget（可选依赖 pyqtgraph）
   ela_figure_canvas.py      # ElaFigureCanvas（可选依赖 matplotlib）
   ela_info_badge.py         # ElaInfoBadge
   ela_chip.py               # ElaChip
@@ -269,6 +273,8 @@ pyqt5_ela_pro/              # 核心组件包
 | **ElaDataTable** | 数据展示 | 数据表格控件 |
 | **ElaParquetTable** | 数据展示 | Parquet 文件分页查看 |
 | **ElaTrendChart** | 数据展示 | 折线图 / 散点图 |
+| **ElaDashboardGauge** | 数据展示 | 仪表盘（全自绘，指针动画，颜色分段） |
+| **ElaPlotWidget** | 数据展示 | pyqtgraph 绘图控件（主题自适应，可选依赖） |
 | **ElaFigureCanvas** | 数据展示 | Matplotlib 画布（主题感知，可选依赖） |
 | **ElaTimeline** | 数据展示 | 时间线（时间戳/标题/内容/图标） |
 | **ElaMarkdownViewer** | 数据展示 | Markdown 查看器（主题自适应） |
@@ -320,6 +326,7 @@ python -m pyqt5_ela_pro.example
 | pypinyin >= 0.50.0 | 是 | 拼音搜索支持 |
 | pywin32 | 否 | 窗口嵌入 / 浏览器嵌入 |
 | polars | 否 | Parquet 文件查看 |
+| pyqtgraph | 否 | ElaPlotWidget 图表 |
 | matplotlib | 否 | ElaFigureCanvas 图表 |
 
 ## 设计原则

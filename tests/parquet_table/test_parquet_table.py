@@ -69,7 +69,7 @@ class TestElaInfoBarWidget:
 
         bar.clear_info()
 
-        assert "当前列" in bar._col_label.text()
+        assert "列" in bar._col_label.text()
 
         bar.deleteLater()
 
@@ -96,7 +96,7 @@ class TestElaParquetTableImport:
                 parquet_table.pl = original_pl
 
     def test_file_not_found_raises_error(self):
-        """Test ElaParquetTable raises FileNotFoundError for missing file."""
+        """Test loadData raises FileNotFoundError for missing file."""
         import sys
         from pyqt5_ela_pro import parquet_table
 
@@ -105,8 +105,11 @@ class TestElaParquetTableImport:
         parquet_table.pl = mock_pl
 
         try:
+            table = parquet_table.ElaParquetTable()
             with pytest.raises(FileNotFoundError):
-                parquet_table.ElaParquetTable("nonexistent_file.parquet")
+                table.loadData("nonexistent_file.parquet")
         finally:
             if original_pl is not None:
                 parquet_table.pl = original_pl
+            else:
+                parquet_table.pl = None
