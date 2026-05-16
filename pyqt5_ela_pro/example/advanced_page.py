@@ -98,7 +98,7 @@ class AdvancedComponentsPage(ExamplePage):
             self, "选择 Word 文档", "", "Word 文档 (*.doc *.docx);;所有文件 (*)"
         )
         if path:
-            if not self._word_viewer.loadFile(path):
+            if not self._word_viewer.load_file(path):
                 self._addInfoText("加载失败，请确认已安装 MS Office 或 WPS", self.layout())
 
     def _onOpenExcel(self):
@@ -106,7 +106,7 @@ class AdvancedComponentsPage(ExamplePage):
             self, "选择 Excel 文档", "", "Excel 文档 (*.xls *.xlsx);;所有文件 (*)"
         )
         if path:
-            if not self._excel_viewer.loadFile(path):
+            if not self._excel_viewer.load_file(path):
                 self._addInfoText("加载失败，请确认已安装 MS Office 或 WPS", self.layout())
 
     def _onOpenPpt(self):
@@ -114,5 +114,5 @@ class AdvancedComponentsPage(ExamplePage):
             self, "选择 PPT 文档", "", "PPT 文档 (*.ppt *.pptx);;所有文件 (*)"
         )
         if path:
-            if not self._ppt_viewer.loadFile(path):
+            if not self._ppt_viewer.load_file(path):
                 self._addInfoText("加载失败，请确认已安装 MS Office 或 WPS", self.layout())

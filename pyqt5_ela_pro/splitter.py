@@ -32,11 +32,11 @@ class ElaSplitterHandle(_ThemeAwareMixin, QSplitterHandle):
 
         self._theme_mode = eTheme.getThemeMode()
 
-    def setGripLength(self, length: int) -> None:
+    def set_grip_length(self, length: int) -> None:
         self._grip_length = length
         self.update()
 
-    def getGripLength(self) -> int:
+    def get_grip_length(self) -> int:
         return self._grip_length
 
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
@@ -98,7 +98,7 @@ class ElaSplitterHandle(_ThemeAwareMixin, QSplitterHandle):
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(grip_color)
             painter.drawRoundedRect(grip_rect, 2, 2)
-        except Exception:
+        except Exception:  # noqa
             import traceback
 
             traceback.print_exc()
@@ -131,7 +131,7 @@ class ElaSplitter(QSplitter):
 
     def createHandle(self):
         handle = ElaSplitterHandle(self.orientation(), self)
-        handle.setGripLength(self._grip_length)
+        handle.set_grip_length(self._grip_length)
         return handle
 
     def setHandleWidth(self, width: int) -> None:
@@ -141,21 +141,21 @@ class ElaSplitter(QSplitter):
     def handleWidth(self) -> int:
         return self._handle_width
 
-    def setGripLength(self, length: int) -> None:
+    def set_grip_length(self, length: int) -> None:
         self._grip_length = length
         for i in range(self.count()):
             h = self.handle(i)
             if h and isinstance(h, ElaSplitterHandle):
-                h.setGripLength(length)
+                h.set_grip_length(length)
 
-    def gripLength(self) -> int:
+    def grip_length(self) -> int:
         return self._grip_length
 
 
 def create_ela_splitter(
     widgets: list,
-    orientation: Qt.Orientation = Qt.Horizontal,
-    handleThickness: int = 6,
+    orientation: Qt.Orientation = Qt.Orientation.Horizontal,
+    handle_thickness: int = 6,
     sizes: Optional[list[int]] = None,
     parent: QWidget = None,
 ) -> QSplitter:
@@ -163,7 +163,7 @@ def create_ela_splitter(
 
     :param widgets: 要分割的组件列表（至少 2 个）
     :param orientation: Qt.Horizontal 或 Qt.Vertical
-    :param handleThickness: 手柄粗细（默认 6px）
+    :param handle_thickness: 手柄粗细（默认 6px）
     :param sizes: 每个子组件的初始尺寸（像素），可选
     :param parent: 父组件
     :returns: 配置好的 ElaSplitter
@@ -177,7 +177,7 @@ def create_ela_splitter(
         parent = widgets[0].parentWidget()
 
     splitter = ElaSplitter(orientation, parent)
-    splitter.setHandleWidth(handleThickness)
+    splitter.setHandleWidth(handle_thickness)
 
     if parent is not None and parent.layout() is not None:
         layout = parent.layout()

@@ -182,17 +182,17 @@ class ElaDataTable(ElaTableView):
         self._row_color_delegate = ElaRowColorDelegate(self)
         self.setItemDelegate(self._row_color_delegate)
 
-        self.tableViewShow.connect(self._applyColumnWidths)
+        self.tableViewShow.connect(self._apply_column_widths)
 
         self._load_thread: Optional[_LoadThread] = None
         self._isLoadThreadConnected: bool = False
 
         self._sorting_enabled = False
         self._current_sort_column = -1
-        self._current_sort_order = Qt.AscendingOrder
+        self._current_sort_order = Qt.SortOrder.AscendingOrder
         hh.sectionClicked.connect(self._onHeaderClicked)
 
-    def _applyColumnWidths(self) -> None:
+    def _apply_column_widths(self) -> None:
         """将缓存的所有列宽应用到视图中。"""
         for col, width in self._columnWidths.items():
             self.setColumnWidth(col, width)
@@ -207,18 +207,18 @@ class ElaDataTable(ElaTableView):
             return
         if self._current_sort_column == logicalIndex:
             self._current_sort_order = (
-                Qt.DescendingOrder
-                if self._current_sort_order == Qt.AscendingOrder
-                else Qt.AscendingOrder
+                Qt.SortOrder.DescendingOrder
+                if self._current_sort_order == Qt.SortOrder.AscendingOrder
+                else Qt.SortOrder.AscendingOrder
             )
         else:
             self._current_sort_column = logicalIndex
-            self._current_sort_order = Qt.AscendingOrder
-        self._sortByColumn(logicalIndex, self._current_sort_order)
+            self._current_sort_order = Qt.SortOrder.AscendingOrder
+        self._sort_by_column(logicalIndex, self._current_sort_order)
         self.horizontalHeader().setSortIndicator(logicalIndex, self._current_sort_order)
         self.sortChanged.emit(logicalIndex, self._current_sort_order)
 
-    def _sortByColumn(self, column: int, order: Qt.SortOrder) -> None:
+    def _sort_by_column(self, column: int, order: Qt.SortOrder) -> None:
         """对指定列排序，支持中文拼音排序和数字排序。
 
         :param column: 列索引
@@ -226,15 +226,15 @@ class ElaDataTable(ElaTableView):
         :param order: 排序顺序
         :type order: Qt.SortOrder
         """
-        col_type = self._getColumnType(column)
+        col_type = self._get_column_type(column)
         if col_type == "numeric":
-            self._sortNumeric(column, order)
+            self._sort_numeric(column, order)
         elif col_type == "chinese":
-            self._sortByPinyin(column, order)
+            self._sort_by_pinyin(column, order)
         else:
             self._model.sort(column, order)
 
-    def _getColumnType(self, column: int) -> str:
+    def _get_column_type(self, column: int) -> str:
         """判断列的类型：数字、中文、字符串。
 
         :param column: 列索引
@@ -251,9 +251,9 @@ class ElaDataTable(ElaTableView):
             if item:
                 text = item.text().strip()
                 if text:
-                    if self._isNumeric(text):
+                    if self._is_numeric(text):
                         numeric_count += 1
-                    elif self._containsChinese(text):
+                    elif self._contains_chinese(text):
                         chinese_count += 1
 
         if numeric_count == sample_size and sample_size > 0:
@@ -262,7 +262,8 @@ class ElaDataTable(ElaTableView):
             return "chinese"
         return "string"
 
-    def _isNumeric(self, text: str) -> bool:
+    @staticmethod
+    def _is_numeric(text: str) -> bool:
         """判断文本是否为数字。
 
         :param text: 文本
@@ -276,7 +277,8 @@ class ElaDataTable(ElaTableView):
         except ValueError:
             return False
 
-    def _containsChinese(self, text: str) -> bool:
+    @staticmethod
+    def _contains_chinese(text: str) -> bool:
         """判断文本是否包含中文。
 
         :param text: 文本
@@ -286,7 +288,7 @@ class ElaDataTable(ElaTableView):
         """
         return any("\u4e00" <= char <= "\u9fff" for char in text)
 
-    def _sortByPinyin(self, column: int, order: Qt.SortOrder) -> None:
+    def _sort_by_pinyin(self, column: int, order: Qt.SortOrder) -> None:
         """使用拼音对列进行排序。
 
         :param column: 列索引
@@ -307,12 +309,12 @@ class ElaDataTable(ElaTableView):
             pinyin = "".join(lazy_pinyin(text))
             items_with_pinyin.append((pinyin, row, text))
 
-        reverse = order == Qt.DescendingOrder
+        reverse = order == Qt.SortOrder.DescendingOrder
         items_with_pinyin.sort(key=lambda x: x[0], reverse=reverse)
 
-        self._reorderRows(column, [row for _, row, _ in items_with_pinyin])
+        self._reorder_rows([row for _, row, _ in items_with_pinyin])
 
-    def _sortNumeric(self, column: int, order: Qt.SortOrder) -> None:
+    def _sort_numeric(self, column: int, order: Qt.SortOrder) -> None:
         """对数字列进行排序。
 
         :param column: 列索引
@@ -334,12 +336,12 @@ class ElaDataTable(ElaTableView):
                 value = 0
             items_with_value.append((value, row))
 
-        reverse = order == Qt.DescendingOrder
+        reverse = order == Qt.SortOrder.DescendingOrder
         items_with_value.sort(key=lambda x: x[0], reverse=reverse)
 
-        self._reorderRows(column, [row for _, row in items_with_value])
+        self._reorder_rows([row for _, row in items_with_value])
 
-    def _reorderRows(self, column: int, row_order: list[int]) -> None:
+    def _reorder_rows(self, row_order: list[int]) -> None:
         """根据排序后的顺序重新排列行。
 
         使用 takeRow/appendRow 就地移动 QStandardItem，避免序列化再重建。
@@ -367,7 +369,7 @@ class ElaDataTable(ElaTableView):
         self._sorting_enabled = enabled
         self.horizontalHeader().setSortIndicatorShown(enabled)
         if not enabled:
-            self.horizontalHeader().setSortIndicator(-1, Qt.AscendingOrder)
+            self.horizontalHeader().setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
             self._current_sort_column = -1
 
     def isSortingEnabled(self) -> bool:
@@ -386,10 +388,10 @@ class ElaDataTable(ElaTableView):
 
         :param column: 列索引（零基）
         :type column: int
-        :param alignment: 水平对齐方式，请使用 ``Qt.AlignLeft``、``Qt.AlignCenter``、``Qt.AlignRight``
+        :param alignment: 水平对齐方式，请使用 ``Qt.AlignLeft``、``Qt.AlignmentFlag.AlignCenter``、``Qt.AlignRight``
         :type alignment: Qt.AlignmentFlag
         """
-        full_alignment = alignment | Qt.AlignVCenter
+        full_alignment = alignment | Qt.AlignmentFlag.AlignVCenter
         self._columnAlignments[column] = full_alignment
         for row in range(self._model.rowCount()):
             item = self._model.item(row, column)
@@ -504,11 +506,11 @@ class ElaDataTable(ElaTableView):
             for col_idx, cell_data in enumerate(row_data):
                 item = QStandardItem(str(cell_data))
                 if center_columns and col_idx in center_columns:
-                    item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
                 elif col_idx in self._columnAlignments:
                     item.setTextAlignment(self._columnAlignments[col_idx])
                 else:
-                    item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
                 self._model.setItem(row_idx, col_idx, item)
 
         self._model.blockSignals(False)
@@ -567,7 +569,7 @@ class ElaDataTable(ElaTableView):
                         if col_idx in self._columnAlignments:
                             item.setTextAlignment(self._columnAlignments[col_idx])
                         else:
-                            item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+                            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
                         self._model.setItem(row_idx, col_idx, item)
             finally:
                 self._model.blockSignals(False)
@@ -877,7 +879,7 @@ class ElaDataTable(ElaTableView):
             self._load_thread.deleteLater()
             self._load_thread = None
         try:
-            self.tableViewShow.disconnect(self._applyColumnWidths)
+            self.tableViewShow.disconnect(self._apply_column_widths)
         except (TypeError, RuntimeError):
             pass
         hh = self.horizontalHeader()

@@ -38,7 +38,7 @@ except ImportError:
     mpl = None
 
 
-_LIGHT_RCPARAMS: dict = {
+_LIGHT_RC_PARAMS: dict = {
     "figure.facecolor": "#FFFFFF",
     "axes.facecolor": "#FFFFFF",
     "axes.edgecolor": "#D9D9D9",
@@ -49,7 +49,7 @@ _LIGHT_RCPARAMS: dict = {
     "text.color": "#333333",
 }
 
-_DARK_RCPARAMS: dict = {
+_DARK_RC_PARAMS: dict = {
     "figure.facecolor": "#1E1E2E",
     "axes.facecolor": "#2A2A3C",
     "axes.edgecolor": "#424242",
@@ -103,7 +103,7 @@ if _FigureCanvas is not None:
 
         # ── Public API ────────────────────────────────────
 
-        def setStyle(self, rcparams: dict) -> None:
+        def set_style(self, rcparams: dict) -> None:
             """应用额外的 matplotlib rcParams 样式参数。
 
             :param rcparams: matplotlib rcParams 字典
@@ -143,7 +143,7 @@ if _FigureCanvas is not None:
             if not mpl:
                 return
             is_dark = self._theme_mode == ElaThemeType.ThemeMode.Dark
-            rc = _DARK_RCPARAMS if is_dark else _LIGHT_RCPARAMS
+            rc = _DARK_RC_PARAMS if is_dark else _LIGHT_RC_PARAMS
             mpl.rcParams.update(rc)
             self.figure.set_facecolor(rc["figure.facecolor"])
             for ax in self.figure.axes:

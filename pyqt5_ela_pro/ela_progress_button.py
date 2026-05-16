@@ -70,7 +70,7 @@ class ElaProgressButton(_ThemeAwareMixin, ElaPushButton):
             )
         self.update()
 
-    def setBorderRadius(self, radius: int) -> None:
+    def set_border_radius(self, radius: int) -> None:
         """设置圆角大小。
 
         :param radius: 圆角半径
@@ -78,18 +78,18 @@ class ElaProgressButton(_ThemeAwareMixin, ElaPushButton):
         self._border_radius = radius
         self.update()
 
-    def setElaIcon(self, iconName: ElaIconType.IconName, iconSize: int = 16) -> None:
+    def set_ela_icon(self, icon_name: ElaIconType.IconName, icon_size: int = 16) -> None:
         """设置图标。
 
-        :param iconName: 图标名称
-        :param iconSize: 图标大小，默认 16
+        :param icon_name: 图标名称
+        :param icon_size: 图标大小，默认 16
         """
-        self._icon_name = iconName
-        self._icon_size = iconSize
-        self.setIconSize(QSize(iconSize, iconSize))
+        self._icon_name = icon_name
+        self._icon_size = icon_size
+        self.setIconSize(QSize(icon_size, icon_size))
         self.update()
 
-    def setProgressColor(self, color: QColor) -> None:
+    def set_progress_color(self, color: QColor) -> None:
         """设置进度条颜色。
 
         :param color: 进度条颜色
@@ -98,7 +98,7 @@ class ElaProgressButton(_ThemeAwareMixin, ElaPushButton):
         self._progress_color = color
         self.update()
 
-    def progressColor(self) -> QColor:
+    def progress_color(self) -> QColor:
         """返回进度条填充颜色。
 
         :return: 进度条颜色
@@ -126,7 +126,7 @@ class ElaProgressButton(_ThemeAwareMixin, ElaPushButton):
         """
         return int(self._progress * 100)
 
-    def resetProgress(self) -> None:
+    def reset_progress(self) -> None:
         """重置进度为0。"""
         self.setProgress(0)
 

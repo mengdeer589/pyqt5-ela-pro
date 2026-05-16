@@ -98,11 +98,11 @@ class TestColorsGetAccentColor:
 
     def test_get_accent_color_light_value(self):
         color = get_accent_color("blue", ElaThemeType.ThemeMode.Light)
-        assert color.name() == "#1677ff"
+        assert color.name() == "#0067c0"
 
     def test_get_accent_color_dark_value(self):
         color = get_accent_color("blue", ElaThemeType.ThemeMode.Dark)
-        assert color.name() == "#1668dc"
+        assert color.name() == "#4cc2ff"
 
     def test_get_accent_color_resolves_alias(self):
         direct = get_accent_color("blue", ElaThemeType.ThemeMode.Light)

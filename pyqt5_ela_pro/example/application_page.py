@@ -2,10 +2,15 @@
 [pyqt5_ela_pro] 应用级组件演示页面 — PyQt5ElaWidgetTools 原生
 """
 
+from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PyQt5.QtCore import Qt
 from PyQt5ElaWidgetTools import (
     ElaAppBar,
     ElaStatusBar,
+    ElaNavigationBar,
+    ElaText,
 )
+from pyqt5_ela_pro import ElaThemeWidget
 from .base_page import ExamplePage
 
 
@@ -20,6 +25,7 @@ class ApplicationComponentsPage(ExamplePage):
     def _addDemoContent(self, main_layout):
         self._demoAppBar(main_layout)
         self._demoStatusBar(main_layout)
+        self._demoNavigationBar(main_layout)
 
     def _demoAppBar(self, parent_layout):
         parent_layout.addLayout(self._createHeaderRow("01. ElaAppBar - 应用栏", self._demoAppBar))
@@ -34,4 +40,40 @@ class ApplicationComponentsPage(ExamplePage):
         self._addInfoText("状态栏组件", parent_layout)
         status_bar = ElaStatusBar(self)
         parent_layout.addWidget(status_bar)
+        parent_layout.addSpacing(20)
+
+    def _demoNavigationBar(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("03. PyQt5ElaWidgetTools - ElaNavigationBar 导航栏", self._demoNavigationBar)
+        )
+        self._addInfoText(
+            "独立的导航栏组件，支持用户信息卡片、导航节点、展开/折叠模式",
+            parent_layout,
+        )
+        container = QWidget(self)
+        container.setFixedHeight(360)
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        nav = ElaNavigationBar(container)
+        nav.setFixedWidth(220)
+        nav.setUserInfoCardTitle("演示用户")
+        nav.setUserInfoCardSubTitle("user@example.com")
+        nav.setDisplayMode(0)
+
+        content = ElaThemeWidget(container)
+        content_layout = QVBoxLayout(content)
+        content_layout.setAlignment(Qt.AlignCenter)
+        info = ElaText("点击左侧导航节点", content)
+        info.setTextPixelSize(16)
+        content_layout.addWidget(info)
+
+        nav.navigationNodeClicked.connect(
+            lambda key: info.setText(f"已选择: {key}")
+        )
+
+        layout.addWidget(nav)
+        layout.addWidget(content, 1)
+        parent_layout.addWidget(container)
         parent_layout.addSpacing(20)

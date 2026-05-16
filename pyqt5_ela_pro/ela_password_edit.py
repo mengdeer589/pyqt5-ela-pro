@@ -38,17 +38,17 @@ class ElaPasswordEdit(ElaLineEdit):
 
         self._toggle_action = QAction(self)
         self.addAction(self._toggle_action, QLineEdit.ActionPosition.TrailingPosition)
-        self._toggle_action.triggered.connect(self._onToggleVisibility)
+        self._toggle_action.triggered.connect(self._on_toggle_visibility)
 
-        self._updateEyeIcon()
-        eTheme.themeModeChanged.connect(self._updateEyeIcon)
+        self._update_eye_icon()
+        eTheme.themeModeChanged.connect(self._update_eye_icon)
 
     def deleteLater(self) -> None:
         """断开主题信号并清理资源。"""
-        disconnect_theme_signal(self._updateEyeIcon)
+        disconnect_theme_signal(self._update_eye_icon)
         super().deleteLater()
 
-    def setIsPasswordVisible(self, visible: bool) -> None:
+    def set_is_password_visible(self, visible: bool) -> None:
         """设置密码是否可见。
 
         :param visible: 是否显示明文密码
@@ -57,19 +57,19 @@ class ElaPasswordEdit(ElaLineEdit):
         self.setEchoMode(
             QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password
         )
-        self._updateEyeIcon()
+        self._update_eye_icon()
 
-    def isPasswordVisible(self) -> bool:
+    def is_password_visible(self) -> bool:
         """当前密码是否可见。
 
         :returns: 明文显示状态
         """
         return self._is_password_visible
 
-    def _onToggleVisibility(self) -> None:
-        self.setIsPasswordVisible(not self._is_password_visible)
+    def _on_toggle_visibility(self, _checked: bool = False) -> None:
+        self.set_is_password_visible(not self._is_password_visible)
 
-    def _updateEyeIcon(self) -> None:
+    def _update_eye_icon(self, _mode=None) -> None:
         icon_name = (
             ElaIconType.IconName.EyeSlash
             if self._is_password_visible

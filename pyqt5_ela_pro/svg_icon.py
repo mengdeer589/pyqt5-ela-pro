@@ -318,7 +318,7 @@ class _ElaSvgButtonBase(_ThemeAwareMixin, QPushButton):
         )
         border_pen = QPen(border_color, 1)
         painter.setPen(border_pen)
-        painter.setBrush(Qt.NoBrush)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(path)
 
         fm = self.fontMetrics()

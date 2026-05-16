@@ -140,7 +140,7 @@ class ElaConfirmDialog(_ThemeAwareMixin, QDialog):
         self._content_pixel_size = 13
         self._position = position  # "bottom" or "top"
 
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.FramelessWindowHint)
         self.setMinimumSize(280, 150)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
@@ -226,6 +226,7 @@ class ElaConfirmDialog(_ThemeAwareMixin, QDialog):
         return self._position
 
     @staticmethod
+    # noinspection PyMethodOverriding
     def show(
         parent: QWidget,
         title: str,

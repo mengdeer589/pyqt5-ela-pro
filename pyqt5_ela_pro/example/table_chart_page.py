@@ -11,7 +11,7 @@ import math
 from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QFileDialog
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor, QFont
-from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaLineEdit, ElaComboBox, ElaCheckBox, ElaSlider
+from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaLineEdit, ElaComboBox, ElaCheckBox, ElaSlider, ElaGraphicsScene, ElaGraphicsView
 from pyqt5_ela_pro import ElaDataTable, ElaTrendChart, ElaPlotWidget, ElaDashboardGauge
 from .base_page import ExamplePage
 
@@ -47,6 +47,7 @@ class TableChartPage(ExamplePage):
     def _addDemoContent(self, main_layout):
         self._demoTable(main_layout)
         self._demoChart(main_layout)
+        self._demoGraphicsView(main_layout)
 
     def _demoTable(self, parent_layout):
         self._demoBasicTable(parent_layout)
@@ -832,3 +833,42 @@ class TableChartPage(ExamplePage):
             self._trendChart.addCurve(x=x_data, y=y2_data, name="虚线", curve_type=t, line_style="dash")
             self._trendChart.addCurve(x=x_data, y=y3_data, name="点线", curve_type=t, line_style="dot")
         self._trendChart.adjustViewRect()
+
+    def _demoGraphicsView(self, parent_layout):
+        from PyQt5.QtGui import QColor, QBrush, QPen
+
+        parent_layout.addLayout(
+            self._createHeaderRow("06. PyQt5ElaWidgetTools - ElaGraphicsScene / ElaGraphicsView 图形视图", self._demoGraphicsView)
+        )
+        self._addInfoText(
+            "Ela 主题的图形视图框架，支持场景中放置可交互的图形项", parent_layout
+        )
+        scene = ElaGraphicsScene(self)
+        scene.setSceneRect(-200, -200, 400, 400)
+        view = ElaGraphicsView(self)
+        view.setScene(scene)
+        view.setFixedHeight(300)
+        view.setDragMode(ElaGraphicsView.DragMode.ScrollHandDrag)
+
+        rect = view.scene().addRect(-60, -60, 120, 120, QPen(QColor("#1677ff"), 2), QBrush(QColor("#e6f4ff")))
+        rect.setFlag(rect.GraphicsItemFlag.ItemIsMovable, True)
+        rect.setFlag(rect.GraphicsItemFlag.ItemIsSelectable, True)
+
+        circle = view.scene().addEllipse(-50, -50, 100, 100, QPen(QColor("#52c41a"), 2), QBrush(QColor("#f6ffed")))
+        circle.setPos(150, 0)
+        circle.setFlag(circle.GraphicsItemFlag.ItemIsMovable, True)
+        circle.setFlag(circle.GraphicsItemFlag.ItemIsSelectable, True)
+
+        from PyQt5.QtGui import QPainterPath
+        tp = QPainterPath()
+        tp.moveTo(0, -50)
+        tp.lineTo(50, 50)
+        tp.lineTo(-50, 50)
+        tp.closeSubpath()
+        triangle = view.scene().addPath(tp, QPen(QColor("#fa8c16"), 2), QBrush(QColor("#fff7e6")))
+        triangle.setPos(-150, 100)
+        triangle.setFlag(triangle.GraphicsItemFlag.ItemIsMovable, True)
+        triangle.setFlag(triangle.GraphicsItemFlag.ItemIsSelectable, True)
+
+        parent_layout.addWidget(view)
+        parent_layout.addSpacing(20)

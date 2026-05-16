@@ -58,6 +58,9 @@ class ElaSplashScreen(ElaThemeWidget):
         self._logo = QPixmap()
         self._is_dragging = False
         self._drag_start = QPoint()
+        self._fade_target = None
+        self._fade_opacity = 1.0
+        self._fade_timer = QTimer(self)
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -299,7 +302,6 @@ class ElaSplashScreen(ElaThemeWidget):
         """
         self._fade_target = main_window
         self._fade_opacity = 1.0
-        self._fade_timer = QTimer(self)
         self._fade_timer.setInterval(20)
         self._fade_timer.timeout.connect(self._onFadeTick)
         self._fade_timer.start()

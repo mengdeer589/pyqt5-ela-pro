@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QPropertyAnimation, QPoint, QTimer, pyqtSignal, QEvent
+from PyQt5.QtCore import Qt, QPropertyAnimation, QPoint, QTimer, pyqtSignal, QEvent, QSize
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
 from PyQt5.QtGui import QPainter, QPaintEvent, QEnterEvent
 
@@ -17,7 +17,7 @@ from PyQt5ElaWidgetTools import (
     ElaThemeType,
     ElaText,
     ElaIconButton,
-    ElaIconType,
+    ElaIconType, ElaToolButton,
 )
 
 
@@ -68,7 +68,8 @@ class ElaNotifyPopup(QWidget):
         header_layout.addWidget(self._title_text, 1)
         header_layout.addStretch()
 
-        self._close_btn = ElaIconButton(ElaIconType.IconName.Xmark, 16, self)
+        self._close_btn = ElaToolButton(self)
+        self._close_btn.setElaIcon(ElaIconType.IconName.Xmark)
         self._close_btn.setFixedSize(24, 24)
         self._close_btn.clicked.connect(self._on_close)
         header_layout.addWidget(self._close_btn)
@@ -84,12 +85,12 @@ class ElaNotifyPopup(QWidget):
 
     def _init(self):
         self.setWindowFlags(
-            Qt.Tool
-            | Qt.X11BypassWindowManagerHint
-            | Qt.FramelessWindowHint
-            | Qt.WindowStaysOnTopHint
+            Qt.WindowType.Tool
+            | Qt.WindowType.X11BypassWindowManagerHint
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
         )
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setFixedWidth(300)
         self.resize(300, 100)
 
@@ -111,13 +112,14 @@ class ElaNotifyPopup(QWidget):
             screen.height() - self.height() - 5,
         )
 
-    def _get_screen_geometry(self):
+    @staticmethod
+    def _get_screen_geometry():
         from PyQt5.QtWidgets import QApplication
 
         screen = QApplication.primaryScreen()
         if screen:
             return screen.availableGeometry()
-        return QApplication.instance().desktop().availableGeometry()
+        return QApplication.instance().primaryScreen().availableGeometry()
 
     def showNotification(
         self, title: str = "", content: str = "", timeout: int = -1

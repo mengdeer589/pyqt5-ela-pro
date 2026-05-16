@@ -35,7 +35,7 @@ def catch_error(func: F) -> F:
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except Exception:
+        except BaseException:
             print(
                 f"Error in {func.__name__}: {traceback.format_exc()}", file=sys.stderr
             )
@@ -73,7 +73,7 @@ def safe_call(func: Optional[Callable[..., Any]], *args, **kwargs) -> Any:
         return None
     try:
         return func(*args, **kwargs)
-    except Exception:
+    except BaseException:
         print(f"Error calling {func}: {traceback.format_exc()}", file=sys.stderr)
         return None
 
@@ -165,6 +165,9 @@ class _ThemeAwareMixin:
         if self._theme_connected:
             self._theme_connected = False
             disconnect_theme_signal(self._onThemeChanged)
+
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
+        """子类应重写此方法以响应主题切换。"""
 
     def deleteLater(self) -> None:
         self._theme_cleanup()

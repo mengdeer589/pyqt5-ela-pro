@@ -68,6 +68,16 @@ class ElaPagination(ElaThemeWidget):
         self._page_label.setTextPixelSize(12)
         self._page_label.setVisible(False)
 
+    def _apply_page_change(self, page: int) -> None:
+        self._current_page = page
+        self.currentPageChanged.emit(page)
+        if self._jumper_visible:
+            self._page_label.setText(
+                f"第{self._current_page}/{self._total_pages}页"
+            )
+            self._page_label.adjustSize()
+        self.update()
+
     def setCurrentPage(self, n: int) -> None:
         """设置当前页码。
 
@@ -77,14 +87,7 @@ class ElaPagination(ElaThemeWidget):
         :param n: 页码
         """
         if n != self._current_page and 1 <= n <= self._total_pages:
-            self._current_page = n
-            self.currentPageChanged.emit(n)
-            if self._jumper_visible:
-                self._page_label.setText(
-                    f"第{self._current_page}/{self._total_pages}页"
-                )
-                self._page_label.adjustSize()
-            self.update()
+            self._apply_page_change(n)
 
     def currentPage(self) -> int:
         """获取当前页码。
@@ -253,14 +256,7 @@ class ElaPagination(ElaThemeWidget):
         except ValueError:
             return
         if 1 <= page <= self._total_pages and page != self._current_page:
-            self._current_page = page
-            self.currentPageChanged.emit(page)
-            if self._jumper_visible:
-                self._page_label.setText(
-                    f"第{self._current_page}/{self._total_pages}页"
-                )
-                self._page_label.adjustSize()
-            self.update()
+            self._apply_page_change(page)
         self._jumper_edit.clear()
 
     # ── Events ───────────────────────────────────────────
@@ -297,9 +293,7 @@ class ElaPagination(ElaThemeWidget):
                     new_page = val
 
                 if new_page != self._current_page:
-                    self._current_page = new_page
-                    self.currentPageChanged.emit(new_page)
-                    self.update()
+                    self._apply_page_change(new_page)
                 break
         super().mousePressEvent(event)
 

@@ -11,17 +11,13 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaIconType, ElaThemeType, ElaMenu
 from pyqt5_ela_pro import (
     ElaButton,
-    ElaConfirmDialog,
     ElaDropDownButton,
     ElaSplitButton,
-    ElaToast,
     ElaTagLineEdit,
     ElaLongPressButton,
-    ElaMessageDialog,
     ElaProgressButton,
     ElaSvgButton,
     ElaSvgIconButton,
-    show_notify,
 )
 from pyqt5_ela_pro.svg_icon import ElaSvgIconLoader
 from .base_page import ExamplePage
@@ -56,15 +52,11 @@ class FormButtonPage(ExamplePage):
         self._demoPrimaryButton(parent_layout)
         self._demoLongPressButton(parent_layout)
         self._demoProgressButton(parent_layout)
-        self._demoNotifyPopup(parent_layout)
         self._demoEsButton(parent_layout)
         self._demoEsSvgButton(parent_layout)
         self._demoElaButton(parent_layout)
         self._demoDropDownButton(parent_layout)
         self._demoSplitButton(parent_layout)
-        self._demoToast(parent_layout)
-        self._demoMessageDialog(parent_layout)
-        self._demoConfirmDialog(parent_layout)
 
     def _demoTagLineEdit(self, parent_layout):
         parent_layout.addLayout(
@@ -122,7 +114,7 @@ class FormButtonPage(ExamplePage):
         primary_btn = ElaPushButton("按钮", self)
         primary_btn.setFixedWidth(120)
         primary_btn.clicked.connect(
-            lambda: ElaMessageDialog.show(self, "提示", "按钮 clicked")
+            lambda: print("按钮 clicked")
         )
         btn_layout.addWidget(primary_btn)
         primary_btn_disabled = ElaPushButton("禁用", self)
@@ -432,110 +424,4 @@ class FormButtonPage(ExamplePage):
         parent_layout.addLayout(btn_layout)
         parent_layout.addSpacing(20)
 
-    def _demoToast(self, parent_layout):
-        parent_layout.addLayout(
-            self._createHeaderRow("11. pyqt5_ela_pro - ElaToast 通知提示", self._demoToast)
-        )
-        self._addInfoText(
-            "非模态通知，支持成功/信息/警告/错误四种类型，自动淡入→停留→淡出", parent_layout
-        )
-        row = QHBoxLayout()
-        row.setSpacing(15)
-        for text, slot in [
-            ("成功", lambda: ElaToast.success("操作成功完成！",parent=self)),
-            ("信息", lambda: ElaToast.info("这是一条信息提示",parent=self)),
-            ("警告", lambda: ElaToast.warning("请注意，磁盘空间不足",parent=self)),
-            ("错误", lambda: ElaToast.error("发生错误，请重试",parent=self)),
-        ]:
-            btn = ElaPushButton(text, self)
-            btn.setFixedWidth(80)
-            btn.clicked.connect(slot)
-            row.addWidget(btn)
-        row.addStretch()
-        parent_layout.addLayout(row)
-        parent_layout.addSpacing(20)
 
-    def _demoMessageDialog(self, parent_layout):
-        parent_layout.addLayout(
-            self._createHeaderRow("09. pyqt5_ela_pro - ElaMessageDialog 消息对话框", self._demoMessageDialog)
-        )
-        self._addInfoText(
-            "简化的消息对话框接口，使用 ElaText 组件渲染内容", parent_layout
-        )
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(15)
-        info_btn = ElaPushButton("显示消息", self)
-        info_btn.setFixedWidth(100)
-        info_btn.clicked.connect(self._onShowMessageDialog)
-        btn_layout.addWidget(info_btn)
-        btn_layout.addStretch()
-        parent_layout.addLayout(btn_layout)
-        parent_layout.addSpacing(20)
-
-    def _onShowMessageDialog(self):
-        result = ElaMessageDialog.show(
-            self,
-            title="提示",
-            message="确定要退出应用程序吗？此操作不可撤销。",
-            middleText="稍后提醒",
-        )
-        if result == 0:
-            print("您点击了取消按钮")
-        elif result == 1:
-            print("您点击了确定按钮")
-        elif result == 2:
-            print("您点击了稍后提醒按钮")
-
-    def _demoConfirmDialog(self, parent_layout):
-        parent_layout.addLayout(
-            self._createHeaderRow("10. ela_ext - ElaConfirmDialog 确认对话框", self._demoConfirmDialog)
-        )
-        self._addInfoText(
-            "全 QPainter 自绘的确认对话框，支持 bottom（下方）和 top（上方）弹出位置",
-            parent_layout,
-        )
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(15)
-        btn_bottom = ElaPushButton("下方弹出", self)
-        btn_bottom.setFixedWidth(100)
-        btn_bottom.clicked.connect(lambda: self._onShowConfirmDialog(btn_bottom, "bottom"))
-        btn_layout.addWidget(btn_bottom)
-        btn_top = ElaPushButton("上方弹出", self)
-        btn_top.setFixedWidth(100)
-        btn_top.clicked.connect(lambda: self._onShowConfirmDialog(btn_top, "top"))
-        btn_layout.addWidget(btn_top)
-        btn_layout.addStretch()
-        parent_layout.addLayout(btn_layout)
-        parent_layout.addSpacing(20)
-
-    def _onShowConfirmDialog(self, btn, position="bottom"):
-        result = ElaConfirmDialog.show(btn, "提示", f"确定要执行此操作吗？（{position}）", position=position)
-        if result:
-            print("用户点击了确认")
-        else:
-            print("用户点击了取消")
-
-    def _demoNotifyPopup(self, parent_layout):
-        parent_layout.addLayout(
-            self._createHeaderRow("08. pyqt5_ela_pro - ElaNotifyPopup 通知弹窗", self._demoNotifyPopup)
-        )
-        self._addInfoText(
-            "右下角通知弹窗，从屏幕边缘滑入，支持自动关闭和鼠标悬停保持",
-            parent_layout,
-        )
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(15)
-        show_btn = ElaPushButton("显示通知", self)
-        show_btn.setFixedWidth(100)
-        show_btn.clicked.connect(self._onShowNotify)
-        btn_layout.addWidget(show_btn)
-        btn_layout.addStretch()
-        parent_layout.addLayout(btn_layout)
-        parent_layout.addSpacing(20)
-
-    def _onShowNotify(self):
-        show_notify(
-            title="提示",
-            content="这是一条通知信息，用于提醒用户某些重要事项。",
-            timeout=10000,
-        )

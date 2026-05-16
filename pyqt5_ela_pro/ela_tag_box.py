@@ -15,13 +15,8 @@ from PyQt5.QtWidgets import QWidget
 from PyQt5ElaWidgetTools import ElaComboBox
 
 from .ela_tag_combo_base import (
-    _TagBoxThemeMixin,
-    _TagBoxAnimMixin,
-    _draw_tag_background,
-    _draw_tag_title,
-    _draw_tag_arrow,
-    _draw_tag_mark,
-    _draw_single_value_text,
+    _TagBoxThemeMixin, _TagBoxAnimMixin,
+    _paint_tag_single,
 )
 from ._internal import _adjust_combobox_popup
 
@@ -66,33 +61,12 @@ class ElaTagBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaComboBox):
         self._animate_popup_close()
         super().hidePopup()
 
-    def _onCurrentIndexChanged(self, index: int) -> None:
+    def _onCurrentIndexChanged(self, _index: int) -> None:
         self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
-        content_rect, text_color, _ = _draw_tag_background(painter, self)
-        _draw_tag_mark(painter, self, self._expand_mark_width)
-        title_rect = _draw_tag_title(
-            painter,
-            content_rect,
-            self._title_text,
-            self._title_font_size,
-            text_color,
-            self.font(),
-        )
-        _draw_single_value_text(
-            painter,
-            content_rect,
-            title_rect,
-            self.currentText(),
-        )
-        _draw_tag_arrow(
-            painter,
-            content_rect,
-            text_color,
-            self._expand_icon_rotate,
-        )
+        _paint_tag_single(painter, self)
 
     def deleteLater(self) -> None:
         try:

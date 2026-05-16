@@ -34,7 +34,7 @@ from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIcon, ElaIconType
 class _TagBoxThemeMixin:
     """标签框主题色方法混入类。"""
 
-    _theme_mode: int
+    _theme_mode: ElaThemeType.ThemeMode
 
     def _getTitleColor(self) -> QColor:  # type: ignore[attr-defined]
         if not self.isEnabled():
@@ -82,7 +82,7 @@ class _TagBoxAnimMixin:
     _expand_icon_rotate: float
     _mark_animation: QPropertyAnimation
     _rotate_animation: QPropertyAnimation
-    _theme_mode: int
+    _theme_mode: ElaThemeType.ThemeMode
 
     def _tag_box_init(self, title: str = "") -> None:  # type: ignore[attr-defined]
         self._title_text = title
@@ -130,32 +130,28 @@ class _TagBoxAnimMixin:
     def title(self) -> str:
         return self._title_text
 
-    def _on_tag_theme_changed(self, *args) -> None:
+    def _on_tag_theme_changed(self, _mode=None) -> None:
         self._theme_mode = eTheme.getThemeMode()
         self.update()  # type: ignore[attr-defined]
+
+    def _run_animations(self, mark_end: float, rotate_end: float) -> None:
+        self._mark_animation.setStartValue(self._expand_mark_width)
+        self._mark_animation.setEndValue(mark_end)
+        self._mark_animation.start()
+
+        self._rotate_animation.setStartValue(self._expand_icon_rotate)
+        self._rotate_animation.setEndValue(rotate_end)
+        self._rotate_animation.start()
 
     def _animate_popup_open(self) -> None:  # type: ignore[attr-defined]
         """运行展开动画（底部主题色条 + 箭头旋转），供子类 showPopup 调用。"""
         if self.count() == 0:
             return
-        target_mark_width = self.width() / 2 - 9
-        self._mark_animation.setStartValue(self._expand_mark_width)
-        self._mark_animation.setEndValue(target_mark_width)
-        self._mark_animation.start()
-
-        self._rotate_animation.setStartValue(self._expand_icon_rotate)
-        self._rotate_animation.setEndValue(-180.0)
-        self._rotate_animation.start()
+        self._run_animations(self.width() / 2 - 9, -180.0)
 
     def _animate_popup_close(self) -> None:  # type: ignore[attr-defined]
         """运行收起动画，供子类 hidePopup 调用。"""
-        self._mark_animation.setStartValue(self._expand_mark_width)
-        self._mark_animation.setEndValue(0.0)
-        self._mark_animation.start()
-
-        self._rotate_animation.setStartValue(self._expand_icon_rotate)
-        self._rotate_animation.setEndValue(0.0)
-        self._rotate_animation.start()
+        self._run_animations(0.0, 0.0)
 
     def _tag_box_delete_later(self) -> None:
         try:
@@ -376,3 +372,35 @@ def _draw_multi_value_text(
         Qt.Alignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
     )
     painter.drawText(QRectF(text_rect), display_text, text_option)
+
+
+def _paint_tag_single(painter: QPainter, widget) -> None:
+    """绘制单选标签组合框（ElaTagBox / ElaTagSearchBox 共用）。"""
+    content_rect, text_color, _ = _draw_tag_background(painter, widget)
+    _draw_tag_mark(painter, widget, widget._expand_mark_width)
+    title_rect = _draw_tag_title(
+        painter, content_rect, widget._title_text,
+        widget._title_font_size, text_color, widget.font(),
+    )
+    _draw_single_value_text(painter, content_rect, title_rect, widget.currentText())
+    _draw_tag_arrow(painter, content_rect, text_color, widget._expand_icon_rotate)
+
+
+def _paint_tag_multi(painter: QPainter, widget) -> None:
+    """绘制多选标签组合框（ElaTagMultiBox / ElaTagSearchMultiBox 共用）。"""
+    content_rect, text_color, _ = _draw_tag_background(painter, widget)
+
+    view = widget.view()
+    is_popup_visible = view.isVisible() if view else False
+    mark_width = (
+        _get_target_mark_width(widget) if is_popup_visible
+        else widget._expand_mark_width
+    )
+    _draw_tag_mark(painter, widget, mark_width)
+
+    title_rect = _draw_tag_title(
+        painter, content_rect, widget._title_text,
+        widget._title_font_size, text_color, widget.font(),
+    )
+    _draw_multi_value_text(painter, content_rect, title_rect, widget.getCurrentSelection())
+    _draw_tag_arrow(painter, content_rect, text_color, widget._expand_icon_rotate)

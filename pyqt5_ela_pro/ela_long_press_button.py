@@ -60,7 +60,7 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         duration: int = 500,
         text: Optional[str] = None,
         icon: Optional[ElaIconType.IconName] = None,
-        iconSize: int = 16,
+        icon_size: int = 16,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -71,24 +71,25 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         self._triggered = False
         self._progress_color = QColor()
         self._icon_name = None
-        self._icon_size = iconSize
+        self._icon_size = icon_size
 
         if icon is not None:
-            self.setElaIcon(icon, iconSize)
+            self.set_ela_icon(icon, icon_size)
 
-        self._mouse_pressed_timer = QTimer(self)
-        self._mouse_pressed_timer.setInterval(16)
-        self._mouse_pressed_timer.timeout.connect(self._onMousePressedTick)
-
-        self._go_backwards_timer = QTimer(self)
-        self._go_backwards_timer.setInterval(16)
-        self._go_backwards_timer.timeout.connect(self._onGoBackwardsTick)
+        self._mouse_pressed_timer = self._make_timer(self._onMousePressedTick)
+        self._go_backwards_timer = self._make_timer(self._onGoBackwardsTick)
         self._backward_step = 0.0
 
         self._theme_mode = eTheme.getThemeMode()
         self._onThemeChanged(self._theme_mode)
 
-    def setDuration(self, ms: int) -> None:
+    def _make_timer(self, callback) -> QTimer:
+        timer = QTimer(self)
+        timer.setInterval(16)
+        timer.timeout.connect(callback)
+        return timer
+
+    def set_duration(self, ms: int) -> None:
         """设置长按触发所需的时长（毫秒）。
 
         :param ms: 时长，必须大于 0
@@ -103,7 +104,7 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         """
         return self._duration
 
-    def setProgressColor(self, color: QColor) -> None:
+    def set_progress_color(self, color: QColor) -> None:
         """设置进度条填充颜色。
 
         :param color: 进度条颜色
@@ -111,16 +112,16 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         self._progress_color = color
         self.update()
 
-    def setElaIcon(self, iconName, iconSize: int = 16) -> None:
+    def set_ela_icon(self, icon_name, icon_size: int = 16) -> None:
         """设置图标。
 
-        :param iconName: 图标名称
-        :param iconSize: 图标大小，默认 16
+        :param icon_name: 图标名称
+        :param icon_size: 图标大小，默认 16
         """
-        self._icon_name = iconName
-        self._icon_size = iconSize
-        self.setIcon(ElaIcon.getInstance().getElaIcon(iconName, QColor(255, 255, 255)))
-        self.setIconSize(QSize(iconSize, iconSize))
+        self._icon_name = icon_name
+        self._icon_size = icon_size
+        self.setIcon(ElaIcon.getInstance().getElaIcon(icon_name, QColor(255, 255, 255)))
+        self.setIconSize(QSize(icon_size, icon_size))
         self.update()
 
     def _getCurrentBgColor(self) -> QColor:
@@ -146,7 +147,7 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         self._go_backwards_timer.stop()
         super().deleteLater()
 
-    def progressColor(self) -> QColor:
+    def progress_color(self) -> QColor:
         """返回进度条填充颜色。
 
         :return: 进度条颜色

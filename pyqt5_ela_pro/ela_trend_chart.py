@@ -603,7 +603,7 @@ class ElaTrendChart(ElaThemeWidget):
             self._pan_start_pos = event.pos()
             self._pan_start_rect = QRectF(self._view_rect)
             self._pan_snapshot = self.grab()
-            self.setCursor(Qt.ClosedHandCursor)
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
             return
         if (
             event.button() == Qt.MouseButton.LeftButton
@@ -625,7 +625,7 @@ class ElaTrendChart(ElaThemeWidget):
             self._panning = False
             self._pan_snapshot = None
             self._data_pixmap = None
-            self.setCursor(Qt.ArrowCursor)
+            self.setCursor(Qt.CursorShape.ArrowCursor)
 
     def mouseDoubleClickEvent(self, event) -> None:
         if self._interaction_enabled and event.button() == Qt.MouseButton.LeftButton:

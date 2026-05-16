@@ -13,6 +13,7 @@ from PyQt5ElaWidgetTools import (
     ElaPushButton, ElaToolButton, ElaIconButton, ElaMessageButton,
     ElaMessageBarType, ElaScrollBar, ElaToolBar,
     ElaBreadcrumbBar, ElaPivot, ElaTabBar, ElaTabWidget,
+    ElaRoller, ElaRollerPicker,
     ElaIconType,
 )
 from .base_page import ExamplePage
@@ -40,6 +41,8 @@ class BasicContainerPage(ExamplePage):
         self._demoCalendar(parent_layout)
         self._demoCalendarPicker(parent_layout)
         self._demoLCDNumber(parent_layout)
+        self._demoRoller(parent_layout)
+        self._demoRollerPicker(parent_layout)
 
     def _demoBasic(self, parent_layout):
         self._demoCheckBox(parent_layout)
@@ -436,4 +439,52 @@ class BasicContainerPage(ExamplePage):
         tab_widget.addTab(page2, "新标签页2")
         tab_widget.addTab(page3, "新标签页3")
         parent_layout.addWidget(tab_widget)
+        parent_layout.addSpacing(20)
+
+    def _demoRoller(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("05. PyQt5ElaWidgetTools - ElaRoller 滚轮选择器", self._demoRoller)
+        )
+        self._addInfoText(
+            "滚轮样式的选择器，支持自定义列表项、可见项数量和循环滚动", parent_layout
+        )
+        roller_layout = QHBoxLayout()
+        roller_layout.setSpacing(15)
+        roller = ElaRoller(self)
+        roller.setItemList(["选项 A", "选项 B", "选项 C", "选项 D", "选项 E", "选项 F"])
+        roller.setCurrentIndex(2)
+        roller.setFixedWidth(140)
+        roller.setMaxVisibleItems(5)
+        roller_layout.addWidget(roller)
+        roller_current = ElaText("当前: 选项 C", self)
+        roller_current.setTextPixelSize(13)
+        roller.currentDataChanged.connect(
+            lambda d: roller_current.setText(f"当前: {d}")
+        )
+        roller_layout.addWidget(roller_current)
+        roller_layout.addStretch()
+        parent_layout.addLayout(roller_layout)
+        parent_layout.addSpacing(20)
+
+    def _demoRollerPicker(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("06. PyQt5ElaWidgetTools - ElaRollerPicker 滚轮选择按钮", self._demoRollerPicker)
+        )
+        self._addInfoText(
+            "点击按钮弹出滚轮选择面板，支持多个滚轮组合", parent_layout
+        )
+        picker_layout = QHBoxLayout()
+        picker_layout.setSpacing(15)
+        picker = ElaRollerPicker(self)
+        picker.setText("选择日期")
+        picker.setFixedWidth(150)
+        picker.addRoller([str(y) for y in range(2020, 2031)])
+        picker.addRoller([f"{m:02d}月" for m in range(1, 13)])
+        picker.addRoller([f"{d:02d}日" for d in range(1, 29)])
+        picker.currentDataChanged.connect(
+            lambda d: picker.setText(f"{d[0]}-{d[1]}-{d[2]}" if isinstance(d, (list, tuple)) else str(d))
+        )
+        picker_layout.addWidget(picker)
+        picker_layout.addStretch()
+        parent_layout.addLayout(picker_layout)
         parent_layout.addSpacing(20)

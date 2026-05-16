@@ -42,7 +42,10 @@ class _SearchComboMixin:
         if getattr(self, "_searchEdit", None):
             _apply_search_edit_palette(self._searchEdit)
 
-    def _onThemeChanged(self, *args) -> None:
+    def _onSearchTextChanged(self, text: str) -> None:
+        """子类应重写此方法以响应搜索框文本变化。"""
+
+    def _onThemeChanged(self, mode=None) -> None:
         self._applySearchEditPalette()
 
     def _setupSearchInPopup(self, container: QWidget) -> None:
@@ -171,14 +174,16 @@ class ElaSearchMultiBox(_ThemeAwareMixin, _SearchComboMixin, ElaMultiSelectCombo
         """返回当前所有选项列表。"""
         return [self.itemText(i) for i in range(self.count())]
 
-    def addItem(self, text: str) -> None:
+    def addItem(self, text: str, userData: Any = None) -> None:
         """添加一个选项。
 
         :param text: 选项文本。
         :type text: str
+        :param userData: 关联的用户数据。
+        :type userData: Any
         """
         self._pinyin_cache[text] = "".join(lazy_pinyin(text)).lower()
-        super().addItem(text)
+        super().addItem(text, userData)
 
     def addItems(self, texts: list[str]) -> None:
         """批量添加选项。
@@ -323,7 +328,7 @@ class ElaSearchBox(_ThemeAwareMixin, _SearchComboMixin, ElaComboBox):
         idx = self._sourceModel.index(row, 0)
         self._sourceModel.setData(idx, text)
         if userData is not None:
-            self._sourceModel.setData(idx, userData, Qt.UserRole)
+            self._sourceModel.setData(idx, userData, Qt.ItemDataRole.UserRole)
 
     def addItems(self, texts: list[str]) -> None:  # type: ignore[override]
         """批量添加选项。

@@ -9,7 +9,13 @@ import traceback
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QWidget
 from PyQt5.QtGui import QFont
 from PyQt5ElaWidgetTools import (
-    ElaText, ElaPushButton, ElaDrawerArea, ElaIconType, ElaToggleSwitch,
+    ElaText, ElaPushButton, ElaDrawerArea, ElaIconType, ElaToggleSwitch, ElaDialog,
+)
+from pyqt5_ela_pro import (
+    ElaToast,
+    ElaMessageDialog,
+    ElaConfirmDialog,
+    show_notify,
 )
 from pyqt5_ela_pro import (
     ElaDrawer,
@@ -42,6 +48,11 @@ class DrawerTooltipPage(ExamplePage):
         self._demoTooltip(main_layout)
         self._demoTooltipDirect(main_layout)
         self._demoStateTooltip(main_layout)
+        self._demoToast(main_layout)
+        self._demoNotifyPopup(main_layout)
+        self._demoMessageDialog(main_layout)
+        self._demoConfirmDialog(main_layout)
+        self._demoElaDialog(main_layout)
 
     def _demoElaDrawerArea(self, parent_layout):
         parent_layout.addLayout(
@@ -292,3 +303,140 @@ class DrawerTooltipPage(ExamplePage):
             self._stateTooltip.hide()
             self._stateTooltip.deleteLater()
         self._stateTooltip = None
+
+    def _demoToast(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("05. ela_ext - ElaToast 通知提示", self._demoToast)
+        )
+        self._addInfoText(
+            "非模态通知，支持成功/信息/警告/错误四种类型，自动淡入→停留→淡出", parent_layout
+        )
+        row = QHBoxLayout()
+        row.setSpacing(15)
+        for text, slot in [
+            ("成功", lambda: ElaToast.success("操作成功完成！",parent=self)),
+            ("信息", lambda: ElaToast.info("这是一条信息提示",parent=self)),
+            ("警告", lambda: ElaToast.warning("请注意，磁盘空间不足",parent=self)),
+            ("错误", lambda: ElaToast.error("发生错误，请重试",parent=self)),
+        ]:
+            btn = ElaPushButton(text, self)
+            btn.setFixedWidth(80)
+            btn.clicked.connect(slot)
+            row.addWidget(btn)
+        row.addStretch()
+        parent_layout.addLayout(row)
+        parent_layout.addSpacing(20)
+
+    def _demoNotifyPopup(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("06. ela_ext - ElaNotifyPopup 通知弹窗", self._demoNotifyPopup)
+        )
+        self._addInfoText(
+            "右下角通知弹窗，从屏幕边缘滑入，支持自动关闭和鼠标悬停保持",
+            parent_layout,
+        )
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+        show_btn = ElaPushButton("显示通知", self)
+        show_btn.setFixedWidth(100)
+        show_btn.clicked.connect(self._onShowNotify)
+        btn_layout.addWidget(show_btn)
+        btn_layout.addStretch()
+        parent_layout.addLayout(btn_layout)
+        parent_layout.addSpacing(20)
+
+    def _onShowNotify(self):
+        show_notify(
+            title="提示",
+            content="这是一条通知信息，用于提醒用户某些重要事项。",
+            timeout=10000,
+        )
+
+    def _demoMessageDialog(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("07. ela_ext - ElaMessageDialog 消息对话框", self._demoMessageDialog)
+        )
+        self._addInfoText(
+            "简化的消息对话框接口，使用 ElaText 组件渲染内容", parent_layout
+        )
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+        info_btn = ElaPushButton("显示消息", self)
+        info_btn.setFixedWidth(100)
+        info_btn.clicked.connect(self._onShowMessageDialog)
+        btn_layout.addWidget(info_btn)
+        btn_layout.addStretch()
+        parent_layout.addLayout(btn_layout)
+        parent_layout.addSpacing(20)
+
+    def _onShowMessageDialog(self):
+        result = ElaMessageDialog.show(
+            self,
+            title="提示",
+            message="确定要退出应用程序吗？此操作不可撤销。",
+            middleText="稍后提醒",
+        )
+        if result == 0:
+            print("您点击了取消按钮")
+        elif result == 1:
+            print("您点击了确定按钮")
+        elif result == 2:
+            print("您点击了稍后提醒按钮")
+
+    def _demoConfirmDialog(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("08. ela_ext - ElaConfirmDialog 确认对话框", self._demoConfirmDialog)
+        )
+        self._addInfoText(
+            "全 QPainter 自绘的确认对话框，支持 bottom（下方）和 top（上方）弹出位置",
+            parent_layout,
+        )
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+        btn_bottom = ElaPushButton("下方弹出", self)
+        btn_bottom.setFixedWidth(100)
+        btn_bottom.clicked.connect(lambda: self._onShowConfirmDialog(btn_bottom, "bottom"))
+        btn_layout.addWidget(btn_bottom)
+        btn_top = ElaPushButton("上方弹出", self)
+        btn_top.setFixedWidth(100)
+        btn_top.clicked.connect(lambda: self._onShowConfirmDialog(btn_top, "top"))
+        btn_layout.addWidget(btn_top)
+        btn_layout.addStretch()
+        parent_layout.addLayout(btn_layout)
+        parent_layout.addSpacing(20)
+
+    def _onShowConfirmDialog(self, btn, position="bottom"):
+        result = ElaConfirmDialog.show(btn, "提示", f"确定要执行此操作吗？（{position}）", position=position)
+        if result:
+            print("用户点击了确认")
+        else:
+            print("用户点击了取消")
+
+    def _demoElaDialog(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow("09. PyQt5ElaWidgetTools - ElaDialog 对话框", self._demoElaDialog)
+        )
+        self._addInfoText(
+            "Ela 主题对话框，支持窗口按钮控制、默认关闭设置、固定大小模式",
+            parent_layout,
+        )
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+        dlg_btn = ElaPushButton("打开 ElaDialog", self)
+        dlg_btn.setFixedWidth(120)
+
+        def _on_open_dialog():
+            dlg = ElaDialog(self)
+            dlg.setWindowTitle("示例对话框")
+            dlg.setIsDefaultClosed(False)
+            dlg.setIsFixedSize(True)
+            dlg.closeButtonClicked.connect(dlg.reject)
+            dlg.accepted.connect(lambda: print("ElaDialog accepted"))
+            dlg.rejected.connect(lambda: print("ElaDialog rejected"))
+            dlg.exec()
+
+        dlg_btn.clicked.connect(_on_open_dialog)
+        btn_layout.addWidget(dlg_btn)
+        btn_layout.addStretch()
+        parent_layout.addLayout(btn_layout)
+        parent_layout.addSpacing(20)

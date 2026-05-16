@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import MagicMock, patch, ANY
 
 
 class TestElaFigureCanvas:
@@ -12,21 +11,21 @@ class TestElaFigureCanvas:
                 ElaFigureCanvas()
         else:
             from PyQt5.QtWidgets import QApplication
-            app = QApplication.instance() or QApplication([])
+            QApplication.instance() or QApplication([])
             canvas = ElaFigureCanvas()
             assert canvas is not None
             canvas.deleteLater()
 
     def test_light_rcparams_defined(self):
-        from pyqt5_ela_pro.ela_figure_canvas import _LIGHT_RCPARAMS
-        assert "figure.facecolor" in _LIGHT_RCPARAMS
-        assert "axes.facecolor" in _LIGHT_RCPARAMS
-        assert len(_LIGHT_RCPARAMS) == 8
+        from pyqt5_ela_pro.ela_figure_canvas import _LIGHT_RC_PARAMS
+        assert "figure.facecolor" in _LIGHT_RC_PARAMS
+        assert "axes.facecolor" in _LIGHT_RC_PARAMS
+        assert len(_LIGHT_RC_PARAMS) == 8
 
     def test_dark_rcparams_defined(self):
-        from pyqt5_ela_pro.ela_figure_canvas import _DARK_RCPARAMS
-        assert "figure.facecolor" in _DARK_RCPARAMS
-        assert len(_DARK_RCPARAMS) == 8
+        from pyqt5_ela_pro.ela_figure_canvas import _DARK_RC_PARAMS
+        assert "figure.facecolor" in _DARK_RC_PARAMS
+        assert len(_DARK_RC_PARAMS) == 8
 
     def test_cjk_fonts_defined(self):
         from pyqt5_ela_pro.ela_figure_canvas import _CJK_FONTS

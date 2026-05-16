@@ -153,92 +153,70 @@ class ElaDivider(ElaThemeWidget):
         else:
             self._paint_horizontal(painter, line_color, text_color)
 
-    def _paint_horizontal(self, painter: QPainter, line_color, text_color) -> None:
-        w = self.width()
-        h = self.height()
-        gap = 8
-        edge_pad = 24
-
+    def _make_line_pen(self, line_color) -> QPen:
         pen = QPen(line_color, 1)
         if self._variant == "dashed":
             pen.setStyle(Qt.PenStyle.DashLine)
             pen.setDashPattern([4, 4])
-        painter.setPen(pen)
+        return pen
 
-        cy = h // 2  # vertical center
-
-        if not self._text:
-            painter.drawLine(edge_pad, cy, w - edge_pad, cy)
-            return
-
-        fm = painter.fontMetrics()
-        text_w = fm.horizontalAdvance(self._text)
-        text_h = fm.height()
-
-        if self._orientation == "left":
-            tx = edge_pad
-        elif self._orientation == "right":
-            tx = w - edge_pad - text_w
-        else:  # center
-            tx = (w - text_w) // 2
-
-        ty = cy - text_h // 2
-        text_rect = QRect(tx, ty, text_w, text_h)
-
-        # Draw left line segment
-        if tx - gap > 0:
-            painter.drawLine(0, cy, tx - gap, cy)
-
-        # Draw right line segment
-        right_start = tx + text_w + gap
-        if right_start < w:
-            painter.drawLine(right_start, cy, w, cy)
-
-        # Draw text
-        painter.setPen(text_color)
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, self._text)
+    def _paint_horizontal(self, painter: QPainter, line_color, text_color) -> None:
+        painter.setPen(self._make_line_pen(line_color))
+        self._paint_line_with_text(painter, text_color, self.height(), True)
 
     def _paint_vertical(self, painter: QPainter, line_color, text_color) -> None:
-        w = self.width()
-        h = self.height()
+        painter.setPen(self._make_line_pen(line_color))
+        self._paint_line_with_text(painter, text_color, self.width(), False)
+
+    def _paint_line_with_text(
+        self, painter: QPainter, text_color, size: int, horizontal: bool
+    ) -> None:
         gap = 8
         edge_pad = 24
-
-        pen = QPen(line_color, 1)
-        if self._variant == "dashed":
-            pen.setStyle(Qt.PenStyle.DashLine)
-            pen.setDashPattern([4, 4])
-        painter.setPen(pen)
-
-        cx = w // 2  # horizontal center
+        length = self.width() if horizontal else self.height()
+        center = size // 2
 
         if not self._text:
-            painter.drawLine(cx, edge_pad, cx, h - edge_pad)
+            if horizontal:
+                painter.drawLine(edge_pad, center, length - edge_pad, center)
+            else:
+                painter.drawLine(center, edge_pad, center, length - edge_pad)
             return
 
         fm = painter.fontMetrics()
         text_w = fm.horizontalAdvance(self._text)
         text_h = fm.height()
 
-        if self._orientation == "top":
-            ty = edge_pad
-        elif self._orientation == "bottom":
-            ty = h - edge_pad - text_h
-        else:  # center
-            ty = (h - text_h) // 2
+        if horizontal:
+            if self._orientation == "left":
+                t_start = edge_pad
+            elif self._orientation == "right":
+                t_start = length - edge_pad - text_w
+            else:
+                t_start = (length - text_w) // 2
+            t_offset = center - text_h // 2
+            text_rect = QRect(t_start, t_offset, text_w, text_h)
 
-        tx = cx - text_w // 2
-        text_rect = QRect(tx, ty, text_w, text_h)
+            if t_start - gap > 0:
+                painter.drawLine(0, center, t_start - gap, center)
+            end_start = t_start + text_w + gap
+            if end_start < length:
+                painter.drawLine(end_start, center, length, center)
+        else:
+            if self._orientation == "top":
+                t_start = edge_pad
+            elif self._orientation == "bottom":
+                t_start = length - edge_pad - text_h
+            else:
+                t_start = (length - text_h) // 2
+            t_offset = center - text_w // 2
+            text_rect = QRect(t_offset, t_start, text_w, text_h)
 
-        # Draw top line segment
-        if ty - gap > 0:
-            painter.drawLine(cx, 0, cx, ty - gap)
+            if t_start - gap > 0:
+                painter.drawLine(center, 0, center, t_start - gap)
+            end_start = t_start + text_h + gap
+            if end_start < length:
+                painter.drawLine(center, end_start, center, length)
 
-        # Draw bottom line segment
-        bottom_start = ty + text_h + gap
-        if bottom_start < h:
-            painter.drawLine(cx, bottom_start, cx, h)
-
-        # Draw text
         painter.setPen(text_color)
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, self._text)

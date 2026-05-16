@@ -24,30 +24,30 @@ class TestElaPasswordEditInit:
 class TestElaPasswordEditVisibility:
     def test_is_password_visible_default(self):
         pwd = ElaPasswordEdit()
-        assert pwd.isPasswordVisible() is False
+        assert pwd.is_password_visible() is False
         pwd.deleteLater()
 
     def test_set_is_password_visible_true(self):
         pwd = ElaPasswordEdit()
-        pwd.setIsPasswordVisible(True)
-        assert pwd.isPasswordVisible() is True
+        pwd.set_is_password_visible(True)
+        assert pwd.is_password_visible() is True
         assert pwd.echoMode() == QLineEdit.EchoMode.Normal
         pwd.deleteLater()
 
     def test_set_is_password_visible_false(self):
         pwd = ElaPasswordEdit()
-        pwd.setIsPasswordVisible(True)
-        pwd.setIsPasswordVisible(False)
-        assert pwd.isPasswordVisible() is False
+        pwd.set_is_password_visible(True)
+        pwd.set_is_password_visible(False)
+        assert pwd.is_password_visible() is False
         assert pwd.echoMode() == QLineEdit.EchoMode.Password
         pwd.deleteLater()
 
     def test_toggle_visibility(self):
         pwd = ElaPasswordEdit()
-        pwd._onToggleVisibility()
-        assert pwd.isPasswordVisible() is True
-        pwd._onToggleVisibility()
-        assert pwd.isPasswordVisible() is False
+        pwd._on_toggle_visibility()
+        assert pwd.is_password_visible() is True
+        pwd._on_toggle_visibility()
+        assert pwd.is_password_visible() is False
         pwd.deleteLater()
 
 
@@ -61,7 +61,7 @@ class TestElaPasswordEditIcon:
     def test_eye_icon_changes_on_toggle(self):
         pwd = ElaPasswordEdit()
         icon_before = pwd._toggle_action.icon()
-        pwd.setIsPasswordVisible(True)
+        pwd.set_is_password_visible(True)
         icon_after = pwd._toggle_action.icon()
         assert icon_before != icon_after
         pwd.deleteLater()

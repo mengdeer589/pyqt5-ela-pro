@@ -81,15 +81,34 @@ class _BrowserPanel(QWidget):
         self._log.setFixedHeight(50)
         layout.addWidget(self._log)
 
-        self._browser.windowEmbedded.connect(lambda h: self._append_log(f"已嵌入 0x{h:X}"))
-        self._browser.windowReleased.connect(lambda h: self._append_log(f"已释放 0x{h:X}"))
-        self._browser.embedError.connect(lambda m: self._append_log(f"错误: {m}"))
+        self._browser.windowEmbedded.connect(lambda h: self._on_event(f"已嵌入 0x{h:X}"))
+        self._browser.windowReleased.connect(lambda h: self._on_event(f"已释放 0x{h:X}"))
+        self._browser.embedError.connect(lambda m: self._on_event(f"错误: {m}"))
         self._browser.embedCompleted.connect(
-            lambda ok: self._append_log("CDP 就绪" if ok else "CDP 失败")
+            lambda ok: self._on_event("CDP 就绪" if ok else "CDP 失败")
         )
         self._browser.fileDropped.connect(
-            lambda path: self._append_log(f"文件拖入: {path}")
+            lambda path: self._on_event(f"文件拖入: {path}")
         )
+        self._browser.loadStarted.connect(lambda: self._on_event("[CDP] 页面开始加载"))
+        self._browser.loadFinished.connect(lambda: self._on_event("[CDP] 页面加载完成"))
+        self._browser.domContentReady.connect(lambda: self._on_event("[CDP] DOM 解析完成"))
+        self._browser.pageError.connect(
+            lambda url, text: self._on_event(f"[CDP] JS 异常: {url} {text}")
+        )
+        self._browser.networkRequest.connect(
+            lambda url, method, rtype: self._on_event(f"[CDP] 请求: {method} {url} ({rtype})")
+        )
+        self._browser.networkResponse.connect(
+            lambda url, status, rtype: self._on_event(f"[CDP] 响应: {status} {url} ({rtype})")
+        )
+        self._browser.consoleMessage.connect(
+            lambda level, text: self._on_event(f"[CDP] 控制台 [{level}]: {text}")
+        )
+
+    def _on_event(self, msg: str):
+        # print(msg)
+        self._append_log(msg)
 
     def _append_log(self, msg: str):
         try:

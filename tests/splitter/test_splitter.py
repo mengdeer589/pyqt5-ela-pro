@@ -21,16 +21,16 @@ class TestElaSplitter:
         """Test splitter initializes with horizontal orientation."""
         splitter = ElaSplitter()
 
-        assert splitter.orientation() == Qt.Horizontal
+        assert splitter.orientation() == Qt.Orientation.Horizontal
         assert splitter._handle_width == 6
 
         splitter.deleteLater()
 
     def test_initialization_with_custom_orientation(self):
         """Test splitter accepts custom orientation."""
-        splitter = ElaSplitter(orientation=Qt.Vertical)
+        splitter = ElaSplitter(orientation=Qt.Orientation.Vertical)
 
-        assert splitter.orientation() == Qt.Vertical
+        assert splitter.orientation() == Qt.Orientation.Vertical
 
         splitter.deleteLater()
 
@@ -61,9 +61,9 @@ class TestElaSplitter:
         splitter.deleteLater()
 
     def test_set_grip_length(self):
-        """Test setGripLength updates grip length."""
+        """Test set_grip_length updates grip length."""
         splitter = ElaSplitter()
-        splitter.setGripLength(50)
+        splitter.set_grip_length(50)
 
         assert splitter._grip_length == 50
 
@@ -72,9 +72,9 @@ class TestElaSplitter:
     def test_grip_length_returns_value(self):
         """Test gripLength returns current grip length."""
         splitter = ElaSplitter()
-        splitter.setGripLength(24)
+        splitter.set_grip_length(24)
 
-        assert splitter.gripLength() == 24
+        assert splitter.grip_length() == 24
 
         splitter.deleteLater()
 
@@ -91,10 +91,10 @@ class TestElaSplitter:
     def test_handle_has_grip_length_set(self):
         """Test createHandle sets grip length on handle."""
         splitter = ElaSplitter()
-        splitter.setGripLength(50)
+        splitter.set_grip_length(50)
         handle = splitter.createHandle()
 
-        assert handle.getGripLength() == 50
+        assert handle.get_grip_length() == 50
 
         handle.deleteLater()
         splitter.deleteLater()
@@ -106,20 +106,20 @@ class TestElaSplitterHandle:
     def test_initialization(self):
         """Test handle initializes with orientation and parent."""
         splitter = ElaSplitter()
-        handle = ElaSplitterHandle(Qt.Horizontal, splitter)
+        handle = ElaSplitterHandle(Qt.Orientation.Horizontal, splitter)
 
-        assert handle.orientation() == Qt.Horizontal
+        assert handle.orientation() == Qt.Orientation.Horizontal
         assert handle.parent() is splitter
 
         handle.deleteLater()
         splitter.deleteLater()
 
     def test_set_grip_length(self):
-        """Test setGripLength updates grip length."""
+        """Test set_grip_length updates grip length."""
         splitter = ElaSplitter()
-        handle = ElaSplitterHandle(Qt.Horizontal, splitter)
+        handle = ElaSplitterHandle(Qt.Orientation.Horizontal, splitter)
 
-        handle.setGripLength(50)
+        handle.set_grip_length(50)
 
         assert handle._grip_length == 50
 
@@ -127,12 +127,12 @@ class TestElaSplitterHandle:
         splitter.deleteLater()
 
     def test_grip_length_returns_value(self):
-        """Test getGripLength returns current length."""
+        """Test get_grip_length returns current length."""
         splitter = ElaSplitter()
-        handle = ElaSplitterHandle(Qt.Horizontal, splitter)
-        handle.setGripLength(24)
+        handle = ElaSplitterHandle(Qt.Orientation.Horizontal, splitter)
+        handle.set_grip_length(24)
 
-        assert handle.getGripLength() == 24
+        assert handle.get_grip_length() == 24
 
         handle.deleteLater()
         splitter.deleteLater()
@@ -140,7 +140,7 @@ class TestElaSplitterHandle:
     def test_initial_is_not_hovered(self):
         """Test handle is not hovered initially."""
         splitter = ElaSplitter()
-        handle = ElaSplitterHandle(Qt.Horizontal, splitter)
+        handle = ElaSplitterHandle(Qt.Orientation.Horizontal, splitter)
 
         assert handle._is_hover is False
 
@@ -150,7 +150,7 @@ class TestElaSplitterHandle:
     def test_initial_is_not_pressed(self):
         """Test handle is not pressed initially."""
         splitter = ElaSplitter()
-        handle = ElaSplitterHandle(Qt.Horizontal, splitter)
+        handle = ElaSplitterHandle(Qt.Orientation.Horizontal, splitter)
 
         assert handle._is_pressed is False
 
@@ -160,7 +160,7 @@ class TestElaSplitterHandle:
     def test_has_theme_connection(self):
         """Test handle connects to theme change signal."""
         splitter = ElaSplitter()
-        handle = ElaSplitterHandle(Qt.Horizontal, splitter)
+        handle = ElaSplitterHandle(Qt.Orientation.Horizontal, splitter)
 
         assert hasattr(handle, '_onThemeChanged')
 
@@ -170,7 +170,7 @@ class TestElaSplitterHandle:
     def test_delete_later_disconnects_theme(self):
         """Test deleteLater disconnects theme signal without error."""
         splitter = ElaSplitter()
-        handle = ElaSplitterHandle(Qt.Horizontal, splitter)
+        handle = ElaSplitterHandle(Qt.Orientation.Horizontal, splitter)
         handle.deleteLater()
         splitter.deleteLater()
 
@@ -225,10 +225,10 @@ class TestCreateElaSplitter:
 
         splitter = create_ela_splitter(
             [widget1, widget2],
-            orientation=Qt.Vertical
+            orientation=Qt.Orientation.Vertical
         )
 
-        assert splitter.orientation() == Qt.Vertical
+        assert splitter.orientation() == Qt.Orientation.Vertical
 
         widget1.deleteLater()
         widget2.deleteLater()

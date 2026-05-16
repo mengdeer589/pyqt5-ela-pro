@@ -47,7 +47,7 @@ class TestElaLongPressBtn:
     def test_set_duration(self):
         """Test setDuration updates duration."""
         btn = ElaLongPressBtn()
-        btn.setDuration(1000)
+        btn.set_duration(1000)
 
         assert btn._duration == 1000
 
@@ -56,7 +56,7 @@ class TestElaLongPressBtn:
     def test_duration_returns_value(self):
         """Test duration returns current value."""
         btn = ElaLongPressBtn()
-        btn.setDuration(2000)
+        btn.set_duration(2000)
 
         assert btn.duration() == 2000
 
@@ -65,7 +65,7 @@ class TestElaLongPressBtn:
     def test_set_duration_ignores_zero_or_negative(self):
         """Test setDuration ignores invalid values."""
         btn = ElaLongPressBtn()
-        btn.setDuration(0)
+        btn.set_duration(0)
 
         assert btn._duration == 500
 

@@ -17,25 +17,25 @@ from PyQt5.QtWidgets import QMessageBox, QSizePolicy, QWidget
 
 from .widget_base import ElaThemeWidget
 
-_MS_WORD_PROGIDS = ["Word.Application"]
-_WPS_WORD_PROGIDS = ["KWps.Application", "WPS.Application"]
+_MS_WORD_PROG_IDS = ["Word.Application"]
+_WPS_WORD_PROG_IDS = ["KWps.Application", "WPS.Application"]
 
-_MS_EXCEL_PROGIDS = ["Excel.Application"]
-_WPS_EXCEL_PROGIDS = ["KET.Application", "ET.Application"]
+_MS_EXCEL_PROG_IDS = ["Excel.Application"]
+_WPS_EXCEL_PROG_IDS = ["KET.Application", "ET.Application"]
 
-_MS_PPT_PROGIDS = ["PowerPoint.Application"]
-_WPS_PPT_PROGIDS = ["WPP.Application"]
+_MS_PPT_PROG_IDS = ["PowerPoint.Application"]
+_WPS_PPT_PROG_IDS = ["WPP.Application"]
 
-_BACKEND_PROGIDS = {
+_BACKEND_PROG_IDS = {
     "office": {
-        "word": _MS_WORD_PROGIDS,
-        "excel": _MS_EXCEL_PROGIDS,
-        "ppt": _MS_PPT_PROGIDS,
+        "word": _MS_WORD_PROG_IDS,
+        "excel": _MS_EXCEL_PROG_IDS,
+        "ppt": _MS_PPT_PROG_IDS,
     },
     "wps": {
-        "word": _WPS_WORD_PROGIDS,
-        "excel": _WPS_EXCEL_PROGIDS,
-        "ppt": _WPS_PPT_PROGIDS,
+        "word": _WPS_WORD_PROG_IDS,
+        "excel": _WPS_EXCEL_PROG_IDS,
+        "ppt": _WPS_PPT_PROG_IDS,
     },
 }
 
@@ -56,7 +56,7 @@ class ElaOfficeViewerMixin:
         self._axWidget.resize(self.size())
         self._axWidget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-    def loadFile(self, path: str) -> bool:
+    def load_file(self, path: str) -> bool:
         """加载 Office 文档。
 
         :param path: 文档路径
@@ -64,7 +64,7 @@ class ElaOfficeViewerMixin:
         """
         self.close()
 
-        progids = _BACKEND_PROGIDS.get(self._backend, {}).get(self._appName, [])
+        prog_ids = _BACKEND_PROG_IDS.get(self._backend, {}).get(self._appName, [])
 
         # 1) 尝试直接用文档路径创建控件（COM 自动解析 handler）
         try:
@@ -73,19 +73,19 @@ class ElaOfficeViewerMixin:
             self._axWidget.setProperty("DisplayAlerts", False)
             self._loaded = True
             return True
-        except Exception:
+        except Exception:  # noqa
             pass
 
         # 2) 回退：先创建应用实例再 Open
-        for progid in progids:
+        for prog_id in prog_ids:
             try:
-                self._axWidget.setControl(progid)
+                self._axWidget.setControl(prog_id)
                 self._axWidget.dynamicCall("SetVisible(bool)", False)
                 self._axWidget.setProperty("DisplayAlerts", False)
                 self._axWidget.dynamicCall("Open(const QString&)", path)
                 self._loaded = True
                 return True
-            except Exception:
+            except Exception:  # noqa
                 continue
 
         QMessageBox.critical(
@@ -102,12 +102,12 @@ class ElaOfficeViewerMixin:
             return
         try:
             self._axWidget.dynamicCall("Quit()")
-        except Exception:
+        except Exception:  # noqa
             pass
         try:
             self._axWidget.close()
             self._axWidget.clear()
-        except Exception:
+        except Exception:  # noqa
             import traceback
 
             traceback.print_exc()

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import ctypes
+import ctypes.wintypes
 import json
 import time
 import weakref
@@ -24,7 +25,7 @@ from urllib.parse import unquote, urlparse
 from pathlib import Path
 from typing import Optional, Any, Callable, Union
 
-from PyQt5.QtCore import pyqtSignal, QTimer, QObject, QUrl, QProcess
+from PyQt5.QtCore import pyqtSignal, QTimer, QObject, QUrl, QProcess, QAbstractNativeEventFilter
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PyQt5.QtWebSockets import QWebSocket
 from PyQt5.QtWidgets import QWidget
@@ -55,6 +56,10 @@ class _BrowserController(QObject):
     cdpReady = pyqtSignal()
     errorOccurred = pyqtSignal(str)
     consoleMessage = pyqtSignal(str, str)
+    domContentReady = pyqtSignal()
+    pageError = pyqtSignal(str, str)
+    networkRequest = pyqtSignal(str, str, str)
+    networkResponse = pyqtSignal(str, int, str)
 
     def __init__(
         self,
@@ -100,6 +105,8 @@ class _BrowserController(QObject):
         self._running = True
         self.sendCommand("Page.enable")
         self.sendCommand("Runtime.enable")
+        self.sendCommand("Network.enable")
+        self.sendCommand("Log.enable")
         self.sendCommand(
             "Browser.setDownloadBehavior",
             {
@@ -125,7 +132,10 @@ class _BrowserController(QObject):
             self._ws = None
 
     def _on_error(self, error) -> None:
-        self._log(f"WebSocket 错误: {error}", 30)
+        try:
+            self._log(f"WebSocket 错误: {error}", 30)
+        except RuntimeError:
+            return
         self.errorOccurred.emit(str(error))
         if self._connect_timer:
             self._connect_timer.stop()
@@ -168,34 +178,8 @@ class _BrowserController(QObject):
                 texts.append(str(value))
             text = " ".join(texts)
             self.consoleMessage.emit(msg_type, text)
-        elif method == "Target.targetCreated":
-            target = params.get("targetInfo", {})
-            url = target.get("url", "")
-            if url.startswith("file:///"):
-                path = self._parse_file_url_path(url)
-                if self._dropped_file_callback:
-                    self._dropped_file_callback(path)
-                self.sendCommand("Target.closeTarget", {"targetId": target["targetId"]})
-            elif target.get("type") == "page":
-                self.sendCommand("Target.closeTarget", {"targetId": target["targetId"]})
-        elif method == "Target.attachedToTarget":
-            target = params.get("targetInfo", {})
-            url = target.get("url", "")
-            if url.startswith("file:///"):
-                path = self._parse_file_url_path(url)
-                if self._dropped_file_callback:
-                    self._dropped_file_callback(path)
-                self.sendCommand("Target.closeTarget", {"targetId": target["targetId"]})
-            elif target.get("type") == "page":
-                self.sendCommand("Target.closeTarget", {"targetId": target["targetId"]})
-        elif method == "Target.targetInfoChanged":
-            target = params.get("targetInfo", {})
-            url = target.get("url", "")
-            if url.startswith("file:///"):
-                path = self._parse_file_url_path(url)
-                if self._dropped_file_callback:
-                    self._dropped_file_callback(path)
-                self.sendCommand("Target.closeTarget", {"targetId": target["targetId"]})
+        elif method in ("Target.targetCreated", "Target.attachedToTarget", "Target.targetInfoChanged"):
+            self._close_target_page(params)
         elif method == "Page.frameRequestedNavigation":
             url = params.get("url", "")
             if url.startswith("file:///"):
@@ -209,6 +193,34 @@ class _BrowserController(QObject):
                 path = self._parse_file_url_path(url)
                 if self._dropped_file_callback:
                     self._dropped_file_callback(path)
+        elif method == "Page.domContentEventFired":
+            self.domContentReady.emit()
+        elif method == "Runtime.exceptionThrown":
+            details = params.get("exceptionDetails", {})
+            exception_text = details.get("text", "")
+            url = details.get("url", "")
+            self.pageError.emit(url, exception_text)
+        elif method == "Network.requestWillBeSent":
+            request = params.get("request", {})
+            req_url = request.get("url", "")
+            req_method = request.get("method", "GET")
+            req_type = params.get("type", "")
+            self.networkRequest.emit(req_url, req_method, req_type)
+        elif method == "Network.responseReceived":
+            response = params.get("response", {})
+            resp_url = response.get("url", "")
+            status = response.get("status", 0)
+            resp_type = params.get("type", "")
+            self.networkResponse.emit(resp_url, status, resp_type)
+        elif method == "Inspector.targetCrashed":
+            self._log("浏览器标签页崩溃", 40)
+        elif method == "Log.entryAdded":
+            entry = params.get("entry", {})
+            log_level = entry.get("level", "log")
+            log_text = entry.get("text", "")
+            self.consoleMessage.emit(log_level, log_text)
+        elif method == "Page.javascriptDialogOpening":
+            self.sendCommand("Page.handleJavaScriptDialog", {"accept": True})
 
     @staticmethod
     def _parse_file_url_path(url: str) -> str:
@@ -216,6 +228,17 @@ class _BrowserController(QObject):
         if path.startswith("/") and len(path) > 2 and path[2] == ":":
             path = path[1:]
         return path
+
+    def _close_target_page(self, params: dict) -> None:
+        target = params.get("targetInfo", {})
+        url = target.get("url", "")
+        if url.startswith("file:///"):
+            path = self._parse_file_url_path(url)
+            if self._dropped_file_callback:
+                self._dropped_file_callback(path)
+            self.sendCommand("Target.closeTarget", {"targetId": target["targetId"]})
+        elif target.get("type") == "page":
+            self.sendCommand("Target.closeTarget", {"targetId": target["targetId"]})
 
     def set_loadStarted_callback(self, callback: Callable) -> None:
         self._loadStarted_callback = callback
@@ -312,6 +335,87 @@ class _BrowserController(QObject):
             self._ws = None
 
 
+# ── IME 转发过滤器（浏览器专用）──────────────────────────────
+
+class _MSG(ctypes.Structure):
+    _fields_ = [
+        ("hwnd", ctypes.c_void_p),
+        ("message", ctypes.c_uint32),
+        ("wParam", ctypes.c_uint64 if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_uint32),
+        ("lParam", ctypes.c_uint64 if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_uint32),
+        ("time", ctypes.c_uint32),
+        ("pt", ctypes.c_uint64),
+    ]
+
+
+class _ImeForwardFilter(QAbstractNativeEventFilter):
+    """Qt 原生事件过滤器，转发 IME 到嵌入的浏览器窗口。"""
+
+    def _find_at_cursor(self) -> Optional[int]:
+        from PyQt5.QtCore import QPoint
+        from PyQt5.QtWidgets import QApplication
+        pt = ctypes.wintypes.POINT()
+        ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+        w = QApplication.widgetAt(QPoint(pt.x, pt.y))
+        # print(w.objectName())
+        return getattr(w, '_chrome_hwnd', None)
+
+    def nativeEventFilter(self, eventType, message):
+        if eventType != "windows_generic_MSG":
+            return False, 0
+        try:
+            hwnd = self._find_at_cursor() or None
+            msg = _MSG.from_address(message.__int__())
+            if hwnd :
+                ctypes.windll.user32.SetFocus(hwnd)
+                return False, 0
+            else:
+                ctypes.windll.user32.SetFocus(None)
+            if hwnd and msg.message in (
+                0x0051, 0x0281, 0x0282, 0x0286,
+                0x010D, 0x010E, 0x010F,
+            ):
+                ctypes.windll.user32.PostMessageW(
+                    hwnd, msg.message, msg.wParam, msg.lParam
+                )
+                return False, 0
+        except Exception:  # noqa
+            pass
+        return False, 0
+        try:
+            msg = _MSG.from_address(message.__int__())
+            hwnd_at = self._find_at_cursor()
+            if hwnd_at:  # WM_SETFOCUS
+                ctypes.windll.user32.SetFocus(hwnd_at)
+                return False, 0
+            if hwnd_at and msg.message in (
+                0x0051, 0x0281, 0x0282, 0x0286,
+                0x010D, 0x010E, 0x010F,0x0007
+            ):
+                ctypes.windll.user32.PostMessageW(
+                    self.hwnd_at, msg.message, msg.wParam, msg.lParam
+                )
+                return False, 0
+        except Exception:  # noqa
+            pass
+        return False, 0
+
+
+_ime_filter = _ImeForwardFilter()
+_ime_installed = False
+
+
+def _ensure_ime_filter() -> None:
+    global _ime_installed
+    if not _ime_installed:
+        try:
+            from PyQt5.QtWidgets import QApplication
+            QApplication.instance().installNativeEventFilter(_ime_filter)
+            _ime_installed = True
+        except Exception:
+            pass
+
+
 class ElaBrowserEmbedder(ElaWindowEmbedder):
     """浏览器嵌入组件
 
@@ -340,6 +444,10 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
 
     loadStarted = pyqtSignal()
     loadFinished = pyqtSignal()
+    domContentReady = pyqtSignal()
+    pageError = pyqtSignal(str, str)
+    networkRequest = pyqtSignal(str, str, str)
+    networkResponse = pyqtSignal(str, int, str)
     logMessage = pyqtSignal(str, int)
     embedCompleted = pyqtSignal(bool)
     consoleMessage = pyqtSignal(str, str)
@@ -383,6 +491,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
     ):
         self._checkDependencies()
         super().__init__(parent)
+        _ensure_ime_filter()
         ElaBrowserEmbedder._instances.add(self)
 
         self._webview_path = webview_path
@@ -393,7 +502,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._target_hwnd: Optional[int] = None
         self._original_parent: Optional[int] = None
         self._original_style: Optional[int] = None
-        self._original_exstyle: Optional[int] = None
+        self._original_ex_style: Optional[int] = None
         self._original_rect: Optional[tuple] = None
         self._pending_window_title: Optional[str] = None
         self._pending_connect_cdp: bool = False
@@ -494,13 +603,13 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                     _, window_pid = win32process.GetWindowThreadProcessId(hwnd)
                     if window_pid == pid:
                         results.append(hwnd)
-                except Exception:
+                except Exception:  # noqa
                     pass
             return True
 
         try:
             win32gui.EnumWindows(enum_callback, None)
-        except Exception:
+        except Exception:  # noqa
             return 0
         return results[0] if results else 0
 
@@ -536,7 +645,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                     _, pid = win32process.GetWindowThreadProcessId(hwnd)
                     if pid != self._browser_process.processId():
                         hwnd = 0
-                except Exception:
+                except Exception:  # noqa
                     hwnd = 0
         else:
             hwnd = self._findWindowByPid()
@@ -555,7 +664,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
 
         self._original_parent = win32gui.GetParent(hwnd)
         self._original_style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
-        self._original_exstyle = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+        self._original_ex_style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
         self._original_rect = win32gui.GetWindowRect(hwnd)
 
         if self._embeddedInfo:
@@ -572,7 +681,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
         try:
             self._install_drop_interceptor(hwnd)
-        except Exception as e:
+        except Exception as e:  # noqa
             print(f"[ElaBrowserEmbedder] 拖放拦截安装失败: {e}")
 
     def _install_drop_interceptor(self, hwnd: int) -> None:
@@ -636,7 +745,8 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                     self._embedder = embedder
                     self._cached_path = ""
 
-                def DragEnter(self, pDataObj, grfKeyState, pt, pdwEffect):
+                @staticmethod
+                def _normalize_drop_effect(pdwEffect):
                     allowed = pdwEffect[0]
                     if allowed & 1:
                         pdwEffect[0] = 1
@@ -646,19 +756,14 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                         pdwEffect[0] = 4
                     else:
                         pdwEffect[0] = 0
-                    self._cached_path = self._extract_hdrop(pDataObj)
+
+                def DragEnter(self, pDataObj, grfKeyState, pt, pdwEffect):
+                    self._normalize_drop_effect(pdwEffect)
+                    self._cached_path = self._extract_h_drop(pDataObj)
                     return 0
 
                 def DragOver(self, grfKeyState, pt, pdwEffect):
-                    allowed = pdwEffect[0]
-                    if allowed & 1:
-                        pdwEffect[0] = 1
-                    elif allowed & 2:
-                        pdwEffect[0] = 2
-                    elif allowed & 4:
-                        pdwEffect[0] = 4
-                    else:
-                        pdwEffect[0] = 0
+                    self._normalize_drop_effect(pdwEffect)
                     return 0
 
                 def DragLeave(self):
@@ -670,14 +775,14 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                     if self._cached_path:
                         self._embedder._on_dropped_file(self._cached_path)
                     else:
-                        path = self._extract_hdrop(pDataObj)
+                        path = self._extract_h_drop(pDataObj)
                         if path:
                             self._embedder._on_dropped_file(path)
                     pdwEffect[0] = 0
                     self._cached_path = ""
                     return 0
 
-                def _extract_hdrop(self, pDataObj) -> str:
+                def _extract_h_drop(self, pDataObj) -> str:
                     try:
                         vtable = c_void_p.from_address(pDataObj).value
                         slot3_addr = vtable + 3 * ctypes.sizeof(c_void_p)
@@ -687,7 +792,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                         )
                         GetData = GETDATA(func_ptr)
 
-                        class _FORMATETC(ctypes.Structure):
+                        class _FormatEtc(ctypes.Structure):
                             _fields_ = [
                                 ("cfFormat", ctypes.c_uint16),
                                 ("_pad1", ctypes.c_uint16),
@@ -697,7 +802,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                                 ("tymed", c_uint32),
                             ]
 
-                        class _STGMEDIUM(ctypes.Structure):
+                        class _StgMedium(ctypes.Structure):
                             _fields_ = [
                                 ("tymed", c_uint32),
                                 ("_pad1", c_uint32),
@@ -705,14 +810,14 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                                 ("pUnkForRelease", c_void_p),
                             ]
 
-                        fmt = _FORMATETC()
+                        fmt = _FormatEtc()
                         fmt.cfFormat = 15
                         fmt.ptd = None
                         fmt.dwAspect = 1
                         fmt.lindex = -1
                         fmt.tymed = 1
 
-                        stg = _STGMEDIUM()
+                        stg = _StgMedium()
                         hr = GetData(pDataObj, byref(fmt), byref(stg))
                         if hr != 0:
                             return ""
@@ -729,7 +834,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                         ctypes.windll.kernel32.GlobalUnlock(stg.hGlobal)
                         OLE32.ReleaseStgMedium(byref(stg))
                         return result
-                    except Exception:
+                    except Exception:  # noqa
                         return ""
 
             self._ole_drop_target = _ChromeDropTarget(self)
@@ -748,14 +853,14 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                 self._ole_drop_target = None
         except ImportError:
             print("[ElaBrowserEmbedder] comtypes 未安装，使用 CDP 后备检测")
-        except Exception as e:
+        except Exception as e:  # noqa
             print(f"[ElaBrowserEmbedder] OLE 拖放拦截安装失败: {e}")
 
     def _remove_drop_interceptor(self) -> None:
         if hasattr(self, "_ole_target_hwnd") and self._ole_target_hwnd:
             try:
                 ctypes.windll.ole32.RevokeDragDrop(self._ole_target_hwnd)
-            except Exception:
+            except Exception:  # noqa
                 pass
             self._ole_target_hwnd = None
         self._ole_drop_target = None
@@ -844,6 +949,10 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._controller.cdpReady.connect(self._on_cdpReady)
         self._controller.errorOccurred.connect(self._onCdpError)
         self._controller.consoleMessage.connect(self.consoleMessage)
+        self._controller.domContentReady.connect(self.domContentReady)
+        self._controller.pageError.connect(self.pageError)
+        self._controller.networkRequest.connect(self.networkRequest)
+        self._controller.networkResponse.connect(self.networkResponse)
         self._controller.connect()
 
     def _on_dropped_file(self, path: str) -> None:
@@ -975,9 +1084,9 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                     win32gui.SetWindowLong(
                         self._target_hwnd, win32con.GWL_STYLE, style_no_visible
                     )
-                if self._original_exstyle is not None:
+                if self._original_ex_style is not None:
                     win32gui.SetWindowLong(
-                        self._target_hwnd, win32con.GWL_EXSTYLE, self._original_exstyle
+                        self._target_hwnd, win32con.GWL_EXSTYLE, self._original_ex_style
                     )
                 if self._original_rect:
                     win32gui.SetWindowPos(
@@ -997,7 +1106,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._target_hwnd = None
         self._original_parent = None
         self._original_style = None
-        self._original_exstyle = None
+        self._original_ex_style = None
         self._original_rect = None
 
         self._remove_drop_interceptor()

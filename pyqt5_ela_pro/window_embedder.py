@@ -12,8 +12,6 @@
 from __future__ import annotations
 
 import logging
-import ctypes
-import ctypes.wintypes
 from typing import Optional, Any
 
 try:
@@ -29,119 +27,13 @@ except ImportError:
     win32api = None
     win32con = None
     win32gui = None
-from PyQt5.QtCore import pyqtSignal, QTimer, QAbstractNativeEventFilter
-from PyQt5.QtWidgets import QWidget, QApplication
+from PyQt5.QtCore import pyqtSignal, QTimer
+from PyQt5.QtWidgets import QWidget
 
 from ._internal import catch_error
 from PyQt5.QtGui import QWindow
 
 logger = logging.getLogger(__name__)
-
-# ── SetWindowSubclass 回调类型 ──────────────────────────────
-_SUBCLASS_PROC = ctypes.WINFUNCTYPE(
-    ctypes.c_int,
-    ctypes.wintypes.HWND,
-    ctypes.wintypes.UINT,
-    ctypes.wintypes.WPARAM,
-    ctypes.wintypes.LPARAM,
-    ctypes.c_size_t,  # UINT_PTR
-    ctypes.wintypes.DWORD,
-)
-
-
-class _ImeForwardFilter(QAbstractNativeEventFilter):
-    """Qt 原生事件过滤器，转发 IME 和焦点消息到嵌入窗口。
-
-    SetParent 后，Chrome 渲染进程的 HWND 收不到来自 Qt 线程的 IME 消息。
-    此过滤器在 Qt 事件循环中拦截关键 Windows 消息并转发到嵌入的 HWND。
-    同时通过 SetWindowSubclass 在嵌入窗口上拦截 IME 消息，
-    阻止 Chrome 清除 IME 上下文，并在首次调用时撤销 Chrome 的 OLE 拖拽注册。
-    """
-
-    def __init__(self):
-        super().__init__()
-        self._target_hwnd: Optional[int] = None
-        self._subclass_proc = None
-
-    def set_target(self, hwnd: Optional[int]) -> None:
-        self._target_hwnd = hwnd
-        if hwnd:
-            self._install_subclass()
-        else:
-            self._uninstall_subclass()
-
-    # ── SetWindowSubclass ────────────────────────────────
-
-    def _install_subclass(self) -> None:
-        if self._subclass_proc is not None:
-            return
-
-        try:
-
-            @_SUBCLASS_PROC
-            def subclass_proc(hwnd, msg, wparam, lparam, uId, dwData):
-                if msg == 0x0281:  # WM_IME_SETCONTEXT
-                    lparam = 0
-                    return ctypes.windll.comctl32.DefSubclassProc(
-                        hwnd, msg, wparam, lparam
-                    )
-                return ctypes.windll.comctl32.DefSubclassProc(hwnd, msg, wparam, lparam)
-
-            self._subclass_proc = subclass_proc
-            ctypes.windll.comctl32.SetWindowSubclass(
-                self._target_hwnd, subclass_proc, 1, 0
-            )
-        except Exception:
-            pass
-
-    def _uninstall_subclass(self) -> None:
-        if self._subclass_proc is not None and self._target_hwnd is not None:
-            try:
-                ctypes.windll.comctl32.RemoveWindowSubclass(
-                    self._target_hwnd, self._subclass_proc, 1
-                )
-            except Exception:
-                pass
-            self._subclass_proc = None
-
-    def nativeEventFilter(self, eventType, message):
-        if eventType != "windows_generic_MSG" or self._target_hwnd is None:
-            return False, 0
-        try:
-            msg = ctypes.wintypes.MSG.from_address(message.__int__())
-            if msg.message == 0x0007:  # WM_SETFOCUS
-                ctypes.windll.user32.SetFocus(self._target_hwnd)
-                return False, 0
-            if msg.message in (
-                0x0051,  # WM_INPUTLANGCHANGE
-                0x0281,  # WM_IME_SETCONTEXT
-                0x0282,  # WM_IME_NOTIFY
-                0x0286,  # WM_IME_CHAR
-                0x010D,  # WM_IME_STARTCOMPOSITION
-                0x010E,  # WM_IME_ENDCOMPOSITION
-                0x010F,  # WM_IME_COMPOSITION
-            ):
-                ctypes.windll.user32.PostMessageW(
-                    self._target_hwnd, msg.message, msg.wParam, msg.lParam
-                )
-                return False, 0
-        except Exception:
-            pass
-        return False, 0
-
-
-_ime_filter = _ImeForwardFilter()
-_ime_installed = False
-
-
-def _ensure_ime_filter() -> None:
-    global _ime_installed
-    if not _ime_installed:
-        try:
-            QApplication.instance().installNativeEventFilter(_ime_filter)
-            _ime_installed = True
-        except Exception:
-            pass
 
 
 class ElaWindowEmbedder(QWidget):
@@ -184,7 +76,6 @@ class ElaWindowEmbedder(QWidget):
         self._checkDependencies()
         super().__init__(parent=parent)
 
-        _ensure_ime_filter()
         self.setAcceptDrops(True)
 
         self._embeddedInfo: Optional[dict] = None
@@ -263,13 +154,14 @@ class ElaWindowEmbedder(QWidget):
         else:
             self.windowNotFound.emit(f"等待窗口中... ({self._embedRetryCount}s)")
 
-    def isWindowValid(self, hwnd: int) -> bool:
+    @staticmethod
+    def isWindowValid(hwnd: int) -> bool:
         """检查窗口句柄是否有效"""
         if not hwnd:
             return False
         try:
             return bool(win32gui.IsWindow(hwnd) and win32gui.IsWindowEnabled(hwnd))
-        except Exception:
+        except Exception:  # noqa
             return False
 
     def _tryEmbedOnce(self, hwnd: int) -> bool:
@@ -285,9 +177,10 @@ class ElaWindowEmbedder(QWidget):
             self.release(destroy=True)
 
         try:
-            qwindow = QWindow.fromWinId(hwnd)
-            widget = QWidget.createWindowContainer(qwindow, self)
+            q_window = QWindow.fromWinId(hwnd)
+            widget = QWidget.createWindowContainer(q_window, self)
             widget.setObjectName("embedded_window")
+            widget._chrome_hwnd = hwnd
 
             widget.hwnd = hwnd
             widget.phwnd = window_info["phwnd"]
@@ -307,7 +200,7 @@ class ElaWindowEmbedder(QWidget):
                 if target_tid != current_tid:
                     win32gui.AttachThreadInput(target_tid, current_tid, True)
                     self._attached_tid = target_tid
-            except Exception:
+            except Exception:  # noqa
                 pass
 
             current_style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
@@ -326,7 +219,6 @@ class ElaWindowEmbedder(QWidget):
             self._isEmbedded = True
 
             self._showEmbeddedWindow()
-            _ime_filter.set_target(hwnd)
             self.windowEmbedded.emit(hwnd)
             return True
 
@@ -483,7 +375,6 @@ class ElaWindowEmbedder(QWidget):
         :param destroy: True 则不恢复窗口原状态直接销毁
         :returns: True 表示成功
         """
-        _ime_filter.set_target(None)
 
         if not self._embeddedInfo:
             return True
@@ -537,68 +428,10 @@ class ElaWindowEmbedder(QWidget):
             self.windowReleased.emit(released_hwnd)
             return True
 
-        except Exception as e:
-            error_msg = f"释放窗口失败: {str(e)}"
+        except Exception as e:  # noqa
+            error_msg = f"嵌入窗口失败: {str(e)}"
             self.embedError.emit(error_msg)
             return False
-
-    def mousePressEvent(self, event) -> None:
-        if self._embeddedWidget and self._embeddedInfo:
-            hwnd = self._embeddedInfo.get("hwnd")
-            if hwnd:
-                try:
-                    win32gui.SetFocus(hwnd)
-                except Exception:
-                    pass
-        super().mousePressEvent(event)
-
-    def focusInEvent(self, event) -> None:
-        """当 Qt 控件获得焦点时，将键盘焦点转发给嵌入窗口。"""
-        super().focusInEvent(event)
-        if self._embeddedInfo:
-            hwnd = self._embeddedInfo.get("hwnd")
-            if hwnd:
-                try:
-                    win32gui.SetFocus(hwnd)
-                except Exception:
-                    pass
-
-    def wheelEvent(self, event) -> None:
-        if self._embeddedWidget and self._embeddedInfo:
-            hwnd = self._embeddedInfo.get("hwnd")
-
-            if hwnd:
-                try:
-                    win32gui.SetFocus(hwnd)
-                except Exception:
-                    pass
-
-                delta = event.angleDelta().y()
-                pos = event.pos()
-
-                wParam = (delta << 16) & 0xFFFF0000
-                lParam = (pos.x() & 0xFFFF) | ((pos.y() & 0xFFFF) << 16)
-
-                try:
-                    win32api.PostMessage(hwnd, 0x020A, wParam, lParam)
-                except Exception:
-                    try:
-                        win32gui.SendMessage(hwnd, 0x020A, wParam, lParam)
-                    except Exception:
-                        pass
-
-        super().wheelEvent(event)
-
-    def dragEnterEvent(self, event) -> None:
-        """接受拖入的文件。"""
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-
-    def dropEvent(self, event) -> None:
-        """发射拖入文件的路径。"""
-        for url in event.mimeData().urls():
-            if url.isLocalFile():
-                self.fileDropped.emit(url.toLocalFile())
 
     @catch_error
     def resizeEvent(self, event) -> None:

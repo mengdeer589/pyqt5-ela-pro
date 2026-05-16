@@ -122,7 +122,6 @@ class ElaDashboardGauge(ElaThemeWidget):
         if self._is_animated:
             if self._anim_timer is not None:
                 self._anim_timer.stop()
-                self._anim_timer = None
             self._anim_start = self._animated_value
             self._anim_target = value
             self._anim_progress = 0.0

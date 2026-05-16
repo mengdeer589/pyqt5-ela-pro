@@ -4,6 +4,7 @@ pyqt5_ela_pro 模块示例脚本
 
 import sys
 import os
+import traceback
 
 from pyqt5_ela_pro import ElaSplashScreen
 
@@ -49,23 +50,26 @@ class ExampleWindow(ElaWindow):
         # ════════════════════════════════════════════
         # PyQt5ElaWidgetTools 原生组件
         # ════════════════════════════════════════════
-        self.addPageNode("基础控件", BasicContainerPage(self), ElaIconType.IconName.House)
-        self.addPageNode("容器展示", ContainerDisplayPage(self), ElaIconType.IconName.Square)
-        self.addPageNode("扩展组件", ExtensionComponentsPage(self), ElaIconType.IconName.Puzzle)
-        self.addPageNode("应用框架", ApplicationComponentsPage(self), ElaIconType.IconName.Grid)
+        try:
+            self.addPageNode("基础控件", BasicContainerPage(self), ElaIconType.IconName.House)
+            self.addPageNode("容器展示", ContainerDisplayPage(self), ElaIconType.IconName.Square)
+            self.addPageNode("扩展组件", ExtensionComponentsPage(self), ElaIconType.IconName.Puzzle)
+            self.addPageNode("应用框架", ApplicationComponentsPage(self), ElaIconType.IconName.Grid)
 
-        # ════════════════════════════════════════════
-        # pyqt5_ela_pro 扩展组件
-        # ════════════════════════════════════════════
-        self.addPageNode("增强按钮", FormButtonPage(self), ElaIconType.IconName.Pen)
-        self.addPageNode("下拉框组件", ComboBoxPage(self), ElaIconType.IconName.List)
-        self.addPageNode("表格与图表", TableChartPage(self), ElaIconType.IconName.Table)
-        self.addPageNode("弹窗与提示", DrawerTooltipPage(self), ElaIconType.IconName.Bell)
-        self.addPageNode("动画与图标", AnimationIconPage(self), ElaIconType.IconName.Play)
-        self.addPageNode("应用辅助", ApplicationUtilitiesPage(self), ElaIconType.IconName.Sitemap)
-        self.addPageNode("Office 文档预览", AdvancedComponentsPage(self), ElaIconType.IconName.FileWord)
-        self.addPageNode("窗口嵌入", WindowEmbedderPage(self), ElaIconType.IconName.WindowRestore)
-        self.addPageNode("浏览器嵌入", BrowserExamplePage(self), ElaIconType.IconName.Globe)
+            # ════════════════════════════════════════════
+            # pyqt5_ela_pro 扩展组件
+            # ════════════════════════════════════════════
+            self.addPageNode("增强按钮", FormButtonPage(self), ElaIconType.IconName.Pen)
+            self.addPageNode("下拉框组件", ComboBoxPage(self), ElaIconType.IconName.List)
+            self.addPageNode("表格与图表", TableChartPage(self), ElaIconType.IconName.Table)
+            self.addPageNode("弹窗与提示", DrawerTooltipPage(self), ElaIconType.IconName.Bell)
+            self.addPageNode("动画与图标", AnimationIconPage(self), ElaIconType.IconName.Play)
+            self.addPageNode("应用辅助", ApplicationUtilitiesPage(self), ElaIconType.IconName.Sitemap)
+            self.addPageNode("Office 文档预览", AdvancedComponentsPage(self), ElaIconType.IconName.FileWord)
+            self.addPageNode("窗口嵌入", WindowEmbedderPage(self), ElaIconType.IconName.WindowRestore)
+            self.addPageNode("浏览器嵌入", BrowserExamplePage(self), ElaIconType.IconName.Globe)
+        except Exception as e:
+            print(traceback.format_exc())
 
         # ── DockWidget 停靠面板演示 ────────────────────
         dock1 = ElaDockWidget("页面导航", self)
