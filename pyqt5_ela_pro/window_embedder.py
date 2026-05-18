@@ -82,6 +82,7 @@ class ElaWindowEmbedder(QWidget):
         self._embeddedWidget: Optional[QWidget] = None
         self._isEmbedded: bool = False
         self._resize_debounce: Optional[QTimer] = None
+        self._resize_debounce_enabled: bool = True
 
         self._embedTimer = QTimer(self)
         self._embedTimer.timeout.connect(self._onEmbedTimerTimeout)
@@ -438,11 +439,23 @@ class ElaWindowEmbedder(QWidget):
         super().resizeEvent(event)
         if not self._isEmbedded or not self._embeddedWidget or not self._embeddedInfo:
             return
-        if self._resize_debounce is None:
-            self._resize_debounce = QTimer(self)
-            self._resize_debounce.setSingleShot(True)
-            self._resize_debounce.timeout.connect(self._apply_debounced_resize)
-        self._resize_debounce.start(150)
+        if self._resize_debounce_enabled:
+            if self._resize_debounce is None:
+                self._resize_debounce = QTimer(self)
+                self._resize_debounce.setSingleShot(True)
+                self._resize_debounce.timeout.connect(self._apply_debounced_resize)
+            self._resize_debounce.start(150)
+        else:
+            self._apply_debounced_resize()
+
+    def setResizeDebounceEnabled(self, enabled: bool) -> None:
+        """设置是否启用 resize 节流（默认启用）。
+
+        :param enabled: True 启用 150ms 节流，False 立即响应
+        """
+        self._resize_debounce_enabled = enabled
+        if not enabled and self._resize_debounce:
+            self._resize_debounce.stop()
 
     def _apply_debounced_resize(self) -> None:
         if not self._embeddedInfo or not self._embeddedWidget:

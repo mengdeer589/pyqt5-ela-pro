@@ -21,20 +21,22 @@ import ctypes.wintypes
 import json
 import time
 import weakref
-from urllib.parse import unquote, urlparse
 from pathlib import Path
-from typing import Optional, Any, Callable, Union
+from typing import Any, Callable, Optional, Union
+from urllib.parse import unquote, urlparse
 
-from PyQt5.QtCore import pyqtSignal, QTimer, QObject, QUrl, QProcess, QAbstractNativeEventFilter
-from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
+from PyQt5.QtCore import (QAbstractNativeEventFilter, QObject, QPoint,
+                          QProcess, QTimer, QUrl, pyqtSignal)
+from PyQt5.QtNetwork import (QNetworkAccessManager, QNetworkReply,
+                             QNetworkRequest)
 from PyQt5.QtWebSockets import QWebSocket
-from PyQt5.QtWidgets import QWidget
+from PyQt5.QtWidgets import QApplication, QWidget
 
 from .window_embedder import ElaWindowEmbedder
 
 try:
-    import win32gui  # type: ignore[attr-defined]
     import win32con  # type: ignore[attr-defined]
+    import win32gui  # type: ignore[attr-defined]
 except ImportError:
     win32gui = None
     win32con = None
@@ -43,11 +45,20 @@ try:
 except ImportError:
     win32process = None
 
-# OLE 初始化（进程级，供 RegisterDragDrop 使用）
 try:
-    ctypes.windll.ole32.OleInitialize(None)
-except Exception:
-    pass
+    from comtypes import (COMMETHOD, GUID,  # type: ignore[attr-defined]
+                          HRESULT, COMObject, IUnknown)
+
+    _COM_AVAILABLE = True
+except ImportError:
+    _COM_AVAILABLE = False
+
+# OLE 初始化（进程级，供 RegisterDragDrop 使用）
+if _COM_AVAILABLE:
+    try:
+        ctypes.windll.ole32.OleInitialize(None)
+    except Exception:
+        pass
 
 
 class _BrowserController(QObject):
@@ -178,7 +189,11 @@ class _BrowserController(QObject):
                 texts.append(str(value))
             text = " ".join(texts)
             self.consoleMessage.emit(msg_type, text)
-        elif method in ("Target.targetCreated", "Target.attachedToTarget", "Target.targetInfoChanged"):
+        elif method in (
+            "Target.targetCreated",
+            "Target.attachedToTarget",
+            "Target.targetInfoChanged",
+        ):
             self._close_target_page(params)
         elif method == "Page.frameRequestedNavigation":
             url = params.get("url", "")
@@ -337,12 +352,19 @@ class _BrowserController(QObject):
 
 # ── IME 转发过滤器（浏览器专用）──────────────────────────────
 
+
 class _MSG(ctypes.Structure):
     _fields_ = [
         ("hwnd", ctypes.c_void_p),
         ("message", ctypes.c_uint32),
-        ("wParam", ctypes.c_uint64 if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_uint32),
-        ("lParam", ctypes.c_uint64 if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_uint32),
+        (
+            "wParam",
+            ctypes.c_uint64 if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_uint32,
+        ),
+        (
+            "lParam",
+            ctypes.c_uint64 if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_uint32,
+        ),
         ("time", ctypes.c_uint32),
         ("pt", ctypes.c_uint64),
     ]
@@ -351,14 +373,24 @@ class _MSG(ctypes.Structure):
 class _ImeForwardFilter(QAbstractNativeEventFilter):
     """Qt 原生事件过滤器，转发 IME 到嵌入的浏览器窗口。"""
 
+    def __init__(self):
+        super().__init__()
+        self._last_cursor_pos: Optional[tuple[int, int]] = None
+        self._last_cursor_hwnd: Optional[int] = None
+        self._last_chrome_hwnd: Optional[int] = None
+
     def _find_at_cursor(self) -> Optional[int]:
-        from PyQt5.QtCore import QPoint
-        from PyQt5.QtWidgets import QApplication
         pt = ctypes.wintypes.POINT()
         ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+        pos = (pt.x, pt.y)
+        if pos == self._last_cursor_pos:
+            return self._last_cursor_hwnd
+        self._last_cursor_pos = pos
+
         w = QApplication.widgetAt(QPoint(pt.x, pt.y))
-        # print(w.objectName())
-        return getattr(w, '_chrome_hwnd', None)
+        hwnd = getattr(w, "_chrome_hwnd", None)
+        self._last_cursor_hwnd = hwnd
+        return hwnd
 
     def nativeEventFilter(self, eventType, message):
         if eventType != "windows_generic_MSG":
@@ -366,34 +398,31 @@ class _ImeForwardFilter(QAbstractNativeEventFilter):
         try:
             hwnd = self._find_at_cursor() or None
             msg = _MSG.from_address(message.__int__())
-            if hwnd :
-                ctypes.windll.user32.SetFocus(hwnd)
-                return False, 0
-            else:
-                ctypes.windll.user32.SetFocus(None)
+
+            # Focus transition: Chrome ↔ Qt, only when state changes
+            if hwnd != self._last_chrome_hwnd:
+                if hwnd:
+                    self._last_chrome_hwnd = hwnd
+                    ctypes.windll.user32.SetFocus(hwnd)
+                else:
+                    self._last_chrome_hwnd = None
+                    pt = ctypes.wintypes.POINT()
+                    ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
+                    from PyQt5 import sip
+                    w = QApplication.widgetAt(QPoint(pt.x, pt.y))
+                    try:
+                        if w is not None and not sip.isdeleted(w):
+                            ctypes.windll.user32.SetFocus(int(w.winId()))
+                    except Exception:
+                        pass
+
+            # IME forwarding: always forward when cursor is on Chrome
             if hwnd and msg.message in (
                 0x0051, 0x0281, 0x0282, 0x0286,
                 0x010D, 0x010E, 0x010F,
             ):
                 ctypes.windll.user32.PostMessageW(
                     hwnd, msg.message, msg.wParam, msg.lParam
-                )
-                return False, 0
-        except Exception:  # noqa
-            pass
-        return False, 0
-        try:
-            msg = _MSG.from_address(message.__int__())
-            hwnd_at = self._find_at_cursor()
-            if hwnd_at:  # WM_SETFOCUS
-                ctypes.windll.user32.SetFocus(hwnd_at)
-                return False, 0
-            if hwnd_at and msg.message in (
-                0x0051, 0x0281, 0x0282, 0x0286,
-                0x010D, 0x010E, 0x010F,0x0007
-            ):
-                ctypes.windll.user32.PostMessageW(
-                    self.hwnd_at, msg.message, msg.wParam, msg.lParam
                 )
                 return False, 0
         except Exception:  # noqa
@@ -410,6 +439,7 @@ def _ensure_ime_filter() -> None:
     if not _ime_installed:
         try:
             from PyQt5.QtWidgets import QApplication
+
             QApplication.instance().installNativeEventFilter(_ime_filter)
             _ime_installed = True
         except Exception:
@@ -480,6 +510,10 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         if win32gui is None:
             raise ImportError(
                 "ElaBrowserEmbedder 需要 pywin32，请运行: uv pip install pywin32"
+            )
+        if not _COM_AVAILABLE:
+            raise ImportError(
+                "ElaBrowserEmbedder 需要 comtypes，请运行: uv pip install comtypes"
             )
 
     def __init__(
@@ -691,15 +725,8 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         在 Drop() 中提取文件路径 → 发射信号 → 返回 DROPEFFECT_NONE 拒绝。
         """
         try:
-            from comtypes import IUnknown, GUID, HRESULT, COMMETHOD, COMObject
-            from ctypes import (
-                POINTER,
-                c_uint32,
-                c_void_p,
-                create_unicode_buffer,
-                byref,
-                cast,
-            )
+            from ctypes import (POINTER, byref, c_uint32, c_void_p, cast,
+                                create_unicode_buffer)
 
             OLE32 = ctypes.windll.ole32
             SHELL32 = ctypes.windll.shell32
@@ -851,10 +878,8 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             else:
                 print(f"[ElaBrowserEmbedder] RegisterDragDrop 失败: {hr:#010x}")
                 self._ole_drop_target = None
-        except ImportError:
-            print("[ElaBrowserEmbedder] comtypes 未安装，使用 CDP 后备检测")
-        except Exception as e:  # noqa
-            print(f"[ElaBrowserEmbedder] OLE 拖放拦截安装失败: {e}")
+        except Exception:  # noqa
+            pass
 
     def _remove_drop_interceptor(self) -> None:
         if hasattr(self, "_ole_target_hwnd") and self._ole_target_hwnd:
