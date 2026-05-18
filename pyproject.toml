@@ -31,7 +31,6 @@ dependencies = [
     "PyQt5>=5.15.0",
     "PyQt5-ElaWidgetTools>=0.8.0",
     "pypinyin>=0.50.0",
-    "comtypes>=1.4.0",
 ]
 
 [project.optional-dependencies]
@@ -40,12 +39,23 @@ dev = [
     "black>=22.0.0",
     "flake8>=4.0.0",
 ]
+browser = [
+    "pywin32>=306",
+    "comtypes>=1.4.0",
+]
+all = [
+    "pywin32>=306",
+    "comtypes>=1.4.0",
+    "pytest>=7.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0",
+]
 
 [project.urls]
-Homepage = "https://github.com/anomalyco/elawidgettools"
-Documentation = "https://github.com/anomalyco/elawidgettools#readme"
-Repository = "https://github.com/anomalyco/elawidgettools"
-Issues = "https://github.com/anomalyco/elawidgettools/issues"
+Homepage = "https://github.com/mengdeer589/pyqt5-ela-pro"
+Documentation = "https://github.com/mengdeer589/pyqt5-ela-pro#readme"
+Repository = "https://github.com/mengdeer589/pyqt5-ela-pro"
+Issues = "https://github.com/mengdeer589/pyqt5-ela-pro/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
