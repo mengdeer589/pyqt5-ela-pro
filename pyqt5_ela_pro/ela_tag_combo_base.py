@@ -102,6 +102,7 @@ class _TagBoxAnimMixin:
         self._theme_mode = eTheme.getThemeMode()
 
         eTheme.themeModeChanged.connect(self._on_tag_theme_changed)
+        self.destroyed.connect(self._tag_box_delete_later)  # type: ignore[attr-defined]
 
     @pyqtProperty(float)
     def expandMarkWidth(self) -> float:

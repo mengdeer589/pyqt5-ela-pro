@@ -6,7 +6,7 @@
 - PyQt5ElaWidgetTools: 图标组件
 """
 
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QListView, QWidget
+from PyQt5.QtWidgets import QApplication, QHBoxLayout, QListView, QVBoxLayout, QWidget
 from PyQt5.QtCore import Qt, QModelIndex
 from PyQt5ElaWidgetTools import (
     ElaText,
@@ -101,7 +101,9 @@ class AnimationIconPage(ExamplePage):
 
     def _demoFadeInOut(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("01. ela_ext - fade_in / fade_out 淡入淡出动画", self._demoFadeInOut)
+            self._createHeaderRow(
+                "01. ela_ext - fade_in / fade_out 淡入淡出动画", self._demoFadeInOut
+            )
         )
         self._addInfoText(
             "对任意 QWidget 执行淡入淡出动画，支持动画完成回调", parent_layout
@@ -122,7 +124,9 @@ class AnimationIconPage(ExamplePage):
 
     def _demoShakeWindow(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("02. ela_ext - shake_window 窗口抖动", self._demoShakeWindow)
+            self._createHeaderRow(
+                "02. ela_ext - shake_window 窗口抖动", self._demoShakeWindow
+            )
         )
         self._addInfoText("使窗口产生抖动效果，常用于错误提示", parent_layout)
         btn_layout = QHBoxLayout()
@@ -137,7 +141,9 @@ class AnimationIconPage(ExamplePage):
 
     def _demoAnimatedMixin(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("03. ela_ext - ElaAnimatedMixin 对话框动画混入", self._demoAnimatedMixin)
+            self._createHeaderRow(
+                "03. ela_ext - ElaAnimatedMixin 对话框动画混入", self._demoAnimatedMixin
+            )
         )
         self._addInfoText(
             "通过继承 ElaAnimatedMixin，对话框自动获得 fade_in() / fade_out() 方法",
@@ -167,7 +173,8 @@ class AnimationIconPage(ExamplePage):
     def _demoIconBrowser(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "01. PyQt5ElaWidgetTools - 图标浏览器 所有可用图标", self._demoIconBrowser
+                "01. PyQt5ElaWidgetTools - 图标浏览器 所有可用图标",
+                self._demoIconBrowser,
             )
         )
         self._addInfoText("一堆常用图标被放置于此，左键单击以复制其枚举", parent_layout)
@@ -229,21 +236,27 @@ class AnimationIconPage(ExamplePage):
 
     def _demoIconButtons(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("02. PyQt5ElaWidgetTools - 图标按钮 带图标的按钮", self._demoIconButtons)
+            self._createHeaderRow(
+                "02. PyQt5ElaWidgetTools - 图标按钮 带图标的按钮", self._demoIconButtons
+            )
         )
         self._addInfoText("图标按钮组件演示", parent_layout)
         parent_layout.addSpacing(10)
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(15)
+        # noinspection PyTypeChecker
         icon_btn1 = ElaIconButton(ElaIconType.IconName.FloppyDisk, 16, self)
         icon_btn1.setFixedSize(40, 40)
         btn_layout.addWidget(icon_btn1)
+        # noinspection PyTypeChecker
         icon_btn2 = ElaIconButton(ElaIconType.IconName.Pencil, 16, self)
         icon_btn2.setFixedSize(40, 40)
         btn_layout.addWidget(icon_btn2)
+        # noinspection PyTypeChecker
         icon_btn3 = ElaIconButton(ElaIconType.IconName.Trash, 16, self)
         icon_btn3.setFixedSize(40, 40)
         btn_layout.addWidget(icon_btn3)
+        # noinspection PyTypeChecker
         icon_btn4 = ElaIconButton(ElaIconType.IconName.MagnifyingGlass, 16, self)
         icon_btn4.setFixedSize(40, 40)
         btn_layout.addWidget(icon_btn4)
@@ -258,7 +271,9 @@ class AnimationIconPage(ExamplePage):
 
     def _demoSvgIconBrowser(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("01. ela_ext - SVG图标浏览器 所有可用图标", self._demoSvgIconBrowser)
+            self._createHeaderRow(
+                "01. ela_ext - SVG图标浏览器 所有可用图标", self._demoSvgIconBrowser
+            )
         )
         self._addInfoText("点击图标以复制其名称", parent_layout)
         parent_layout.addSpacing(10)
@@ -289,11 +304,10 @@ class AnimationIconPage(ExamplePage):
         parent_layout.addWidget(svg_search_edit)
         parent_layout.addWidget(svg_list_view)
 
-    def _onSvgIconClicked(self, index: QModelIndex, loader):
+    def _onSvgIconClicked(self, index: QModelIndex, _loader):
         icon_name = index.data()
         if not icon_name:
             return
-        from PyQt5.QtWidgets import QApplication
 
         QApplication.clipboard().setText(icon_name)
         ElaMessageBar.success(
@@ -326,7 +340,8 @@ class AnimationIconPage(ExamplePage):
     def _demoSvgFunctions(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "04. ela_ext - svg_to_icon / svg_to_pixmap / svg_icon_loader", self._demoSvgFunctions
+                "04. ela_ext - svg_to_icon / svg_to_pixmap / svg_icon_loader",
+                self._demoSvgFunctions,
             )
         )
         self._addInfoText(
@@ -362,19 +377,23 @@ class AnimationIconPage(ExamplePage):
             if names:
                 svg_to_icon(names[0], size=48)
                 from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+
                 ElaMessageBar.success(
                     ElaMessageBarType.PositionPolicy.Top,
                     "svg_to_icon",
                     f"已将 '{names[0]}' 转换为 QIcon（48x48）",
-                    3000, self,
+                    3000,
+                    self,
                 )
         except Exception as e:
             from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+
             ElaMessageBar.error(
                 ElaMessageBarType.PositionPolicy.Top,
                 "svg_to_icon",
                 f"失败: {e}",
-                3000, self,
+                3000,
+                self,
             )
 
     def _onDemoSvgToPixmap(self):
@@ -384,30 +403,34 @@ class AnimationIconPage(ExamplePage):
             if names:
                 pixmap = svg_to_pixmap(names[0], size=48)
                 from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+
                 ElaMessageBar.success(
                     ElaMessageBarType.PositionPolicy.Top,
                     "svg_to_pixmap",
                     f"已将 '{names[0]}' 转换为 QPixmap（{pixmap.width()}x{pixmap.height()}）",
-                    3000, self,
+                    3000,
+                    self,
                 )
         except Exception as e:
             from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+
             ElaMessageBar.error(
                 ElaMessageBarType.PositionPolicy.Top,
                 "svg_to_pixmap",
                 f"失败: {e}",
-                3000, self,
+                3000,
+                self,
             )
 
     def _onDemoSvgLoader(self):
         loader = svg_icon_loader()
         count = len(loader)
         from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+
         ElaMessageBar.success(
             ElaMessageBarType.PositionPolicy.Top,
             "svg_icon_loader",
             f"全局图标加载器已获取，共 {count} 个图标",
-            3000, self,
+            3000,
+            self,
         )
-
-

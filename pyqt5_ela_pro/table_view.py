@@ -173,6 +173,7 @@ class ElaDataTable(ElaTableView):
         if hh:
             hh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
             hh.setMinimumSectionSize(TABLE_MIN_SECTION_SIZE)
+            hh.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         if vh:
             vh.setMinimumSectionSize(TABLE_ROW_MIN_HEIGHT)
@@ -182,7 +183,10 @@ class ElaDataTable(ElaTableView):
         self._row_color_delegate = ElaRowColorDelegate(self)
         self.setItemDelegate(self._row_color_delegate)
 
-        self.tableViewShow.connect(self._apply_column_widths)
+        try:
+            self.tableViewShow.connect(self._apply_column_widths)
+        except (TypeError, RuntimeError):
+            pass
 
         self._load_thread: Optional[_LoadThread] = None
         self._isLoadThreadConnected: bool = False

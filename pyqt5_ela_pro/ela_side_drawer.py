@@ -54,7 +54,7 @@ class ElaDrawerPanel(QWidget):
         self._position = position
         self.update()
 
-    def paintEvent(self, event: QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
@@ -118,7 +118,7 @@ class ElaDrawerDim(QWidget):
         self.clicked.emit()
         super().mousePressEvent(event)
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.fillRect(self.rect(), self._bg_color)
 

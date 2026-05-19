@@ -90,7 +90,7 @@ class ElaTagLineEdit(_ThemeAwareMixin, ElaLineEdit):
         title_width = metrics.horizontalAdvance(self._title_text) + 20
         self.setTextMargins(title_width + 3, 0, 10, 0)
 
-    def _onTextChanged(self, text: str) -> None:
+    def _onTextChanged(self, _text: str) -> None:
         self.update()
 
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:

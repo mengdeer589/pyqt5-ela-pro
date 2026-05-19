@@ -340,12 +340,12 @@ class ElaSplashScreen(ElaThemeWidget):
             self.move(event.globalPos() - self._drag_start)
             event.accept()
 
-    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+    def mouseReleaseEvent(self, _event: QMouseEvent) -> None:
         self._is_dragging = False
 
     # ── Paint ─────────────────────────────────────────────
 
-    def paintEvent(self, event: QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)

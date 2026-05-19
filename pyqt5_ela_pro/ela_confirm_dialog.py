@@ -80,7 +80,7 @@ class _ElaConfirmButton(ElaThemeWidget):
                 self.clicked.emit()
         super().mouseReleaseEvent(event)
 
-    def paintEvent(self, event: QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
@@ -278,7 +278,7 @@ class ElaConfirmDialog(_ThemeAwareMixin, QDialog):
 
     # ── Paint ─────────────────────────────────────────────
 
-    def paintEvent(self, event: QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)

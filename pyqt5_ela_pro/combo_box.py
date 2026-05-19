@@ -45,7 +45,7 @@ class _SearchComboMixin:
     def _onSearchTextChanged(self, text: str) -> None:
         """子类应重写此方法以响应搜索框文本变化。"""
 
-    def _onThemeChanged(self, mode=None) -> None:
+    def _onThemeChanged(self, _mode=None) -> None:
         self._applySearchEditPalette()
 
     def _setupSearchInPopup(self, container: QWidget) -> None:
@@ -94,7 +94,7 @@ def _apply_search_edit_palette(search_edit: QLineEdit) -> None:
     )
     palette.setColor(
         QPalette.PlaceholderText,
-        QColor(0, 0, 0, 128) if theme_mode == 0 else QColor(186, 186, 186),
+        QColor(0, 0, 0, 128) if theme_mode == ElaThemeType.ThemeMode.Light else QColor(186, 186, 186),
     )
     search_edit.setPalette(palette)
 

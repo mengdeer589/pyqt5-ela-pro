@@ -34,21 +34,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=7.0.0",
-    "black>=22.0.0",
-    "flake8>=4.0.0",
-]
-browser = [
-    "pywin32>=306",
-    "comtypes>=1.4.0",
-]
 all = [
     "pywin32>=306",
     "comtypes>=1.4.0",
+]
+dev = [
     "pytest>=7.0.0",
-    "black>=22.0.0",
-    "flake8>=4.0.0",
 ]
 
 [project.urls]

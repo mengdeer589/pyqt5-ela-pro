@@ -196,7 +196,7 @@ class ElaSplitButton(ElaThemeWidget):
 
     # ── Paint ─────────────────────────────────────────────
 
-    def paintEvent(self, event: QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)

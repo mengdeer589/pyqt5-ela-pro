@@ -149,11 +149,11 @@ class ElaToolTip(QWidget):
         self._label.setText(text)
         self._updateSize()
 
-    def paintEvent(self, a0: Optional[QPaintEvent]) -> None:
+    def paintEvent(self, _a0: Optional[QPaintEvent]) -> None:
         """绘制提示框背景和阴影。
 
-        :param a0: 绘制事件。
-        :type a0: QPaintEvent, optional
+        :param _a0: 绘制事件。
+        :type _a0: QPaintEvent, optional
         """
         painter = QPainter(self)
         painter.setRenderHints(QPainter.RenderHint.Antialiasing)
@@ -628,7 +628,7 @@ class ElaStateToolTip(ElaThemeWidget):
         self._theme_cleanup()
         super().deleteLater()
 
-    def paintEvent(self, a0: Optional[QPaintEvent]) -> None:
+    def paintEvent(self, _a0: Optional[QPaintEvent]) -> None:
         if not self._checkValid():
             return
         painter = QPainter(self)

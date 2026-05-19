@@ -65,7 +65,7 @@ class ElaTagSearchMultiBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaSearchMultiBo
         super().setCurrentSelection(selection)
         self.update()
 
-    def paintEvent(self, event: QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
         _paint_tag_multi(painter, self)
 

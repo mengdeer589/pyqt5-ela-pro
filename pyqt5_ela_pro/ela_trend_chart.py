@@ -665,7 +665,7 @@ class ElaTrendChart(ElaThemeWidget):
         QToolTip.hideText()
         super().leaveEvent(event)
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         self._paint_chart(painter)
 

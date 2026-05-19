@@ -13,7 +13,6 @@
 
 from __future__ import annotations
 
-import traceback
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QRect, QRectF, QSize, pyqtSignal
@@ -299,7 +298,7 @@ class ElaPagination(ElaThemeWidget):
 
     # ── Paint ─────────────────────────────────────────────
 
-    def paintEvent(self, event: QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         try:
             self._updateJumperPosition()
             painter = QPainter(self)
@@ -362,8 +361,8 @@ class ElaPagination(ElaThemeWidget):
                     tf.setPixelSize(14)
                     painter.setFont(tf)
                     painter.drawText(r, Qt.AlignmentFlag.AlignCenter, str(val))
-        except Exception:
-            print(traceback.format_exc())
+        except Exception:  # noqa
+            pass
 
     def sizeHint(self) -> QSize:
         rects = self._getButtonRects()

@@ -34,6 +34,7 @@ from ._internal import catch_error
 from PyQt5.QtGui import QWindow
 
 logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
 
 
 class ElaWindowEmbedder(QWidget):
@@ -307,7 +308,8 @@ class ElaWindowEmbedder(QWidget):
             class_name = win32gui.GetClassName(hwnd)
             style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
             exstyle = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
-            wrect = win32gui.GetWindowRect(hwnd)[:2] + win32gui.GetClientRect(hwnd)[2:]
+            wr = win32gui.GetWindowRect(hwnd)
+            wrect = (wr[0], wr[1], wr[2] - wr[0], wr[3] - wr[1])
 
             return {
                 "hwnd": hwnd,

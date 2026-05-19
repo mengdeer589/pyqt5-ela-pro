@@ -287,7 +287,7 @@ class ElaUploadArea(ElaThemeWidget):
             event.setDropAction(Qt.DropAction.CopyAction)
             event.accept()
 
-    def dragLeaveEvent(self, event: QDragLeaveEvent) -> None:
+    def dragLeaveEvent(self, _event: QDragLeaveEvent) -> None:
         self._is_drag_over = False
         self.update()
 
@@ -330,17 +330,17 @@ class ElaUploadArea(ElaThemeWidget):
         self._is_pressed = False
         self.update()
 
-    def enterEvent(self, event: QEnterEvent) -> None:
+    def enterEvent(self, _event: QEnterEvent) -> None:
         self._is_hover = True
         self.update()
 
-    def leaveEvent(self, event: QEvent) -> None:
+    def leaveEvent(self, _event: QEvent) -> None:
         self._is_hover = False
         self.update()
 
     # ── Paint ─────────────────────────────────────────────
 
-    def paintEvent(self, event: QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         try:
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)

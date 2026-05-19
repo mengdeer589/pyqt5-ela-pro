@@ -75,7 +75,7 @@ class ElaTimeline(ElaThemeWidget):
         self._theme_mode = mode
         self.update()
 
-    def paintEvent(self, event: QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         if not self._items:
             return
 

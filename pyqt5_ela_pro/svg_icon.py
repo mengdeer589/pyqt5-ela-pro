@@ -287,7 +287,7 @@ class _ElaSvgButtonBase(_ThemeAwareMixin, QPushButton):
             icon_color_str = icon_color_str[:7]
         return icon_color_str
 
-    def paintEvent(self, event: QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)

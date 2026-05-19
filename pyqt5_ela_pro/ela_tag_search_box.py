@@ -58,10 +58,10 @@ class ElaTagSearchBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaSearchBox):
         self._animate_popup_close()
         super().hidePopup()
 
-    def _onCurrentIndexChanged(self, index: int) -> None:
+    def _onCurrentIndexChanged(self, _index: int) -> None:
         self.update()
 
-    def paintEvent(self, event: QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
         _paint_tag_single(painter, self)
 

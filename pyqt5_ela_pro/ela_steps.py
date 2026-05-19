@@ -116,7 +116,7 @@ class ElaSteps(ElaThemeWidget):
 
     # ── Paint ────────────────────────────────────────────
 
-    def paintEvent(self, event: QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         if self.step_count <= 0:
             return
 

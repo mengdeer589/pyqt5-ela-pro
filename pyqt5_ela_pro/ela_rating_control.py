@@ -160,7 +160,7 @@ class ElaRatingControl(ElaThemeWidget):
         self.update()
         super().leaveEvent(event)
 
-    def paintEvent(self, event: QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 

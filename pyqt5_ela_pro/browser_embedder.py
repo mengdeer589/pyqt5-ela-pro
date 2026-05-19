@@ -53,13 +53,6 @@ try:
 except ImportError:
     _COM_AVAILABLE = False
 
-# OLE 初始化（进程级，供 RegisterDragDrop 使用）
-if _COM_AVAILABLE:
-    try:
-        ctypes.windll.ole32.OleInitialize(None)
-    except Exception:
-        pass
-
 
 class _BrowserController(QObject):
     """CDP WebSocket 客户端（内部类）- 信号驱动版本"""
@@ -256,9 +249,11 @@ class _BrowserController(QObject):
             self.sendCommand("Target.closeTarget", {"targetId": target["targetId"]})
 
     def set_loadStarted_callback(self, callback: Callable) -> None:
+        """设置页面开始加载的回调。"""
         self._loadStarted_callback = callback
 
     def set_loadFinished_callback(self, callback: Callable) -> None:
+        """设置页面加载完成的回调。"""
         self._loadFinished_callback = callback
 
     def sendCommand(
@@ -291,6 +286,8 @@ class _BrowserController(QObject):
             timer.start(int(self._timeout * 1000))
             self._result_timers[msg_id] = timer
 
+        if self._ws is None:
+            return -1
         self._ws.sendTextMessage(json.dumps(cmd))
         return msg_id
 
@@ -438,8 +435,6 @@ def _ensure_ime_filter() -> None:
     global _ime_installed
     if not _ime_installed:
         try:
-            from PyQt5.QtWidgets import QApplication
-
             QApplication.instance().installNativeEventFilter(_ime_filter)
             _ime_installed = True
         except Exception:
@@ -648,7 +643,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         return results[0] if results else 0
 
     def _startEmbedTimer(
-        self, window_title: Optional[str] = None, timeout: float = 30
+        self, _window_title: Optional[str] = None, timeout: float = 30
     ) -> None:
         self._embedTimeout = timeout
         self._embed_start_time = time.time()
@@ -729,6 +724,10 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                                 create_unicode_buffer)
 
             OLE32 = ctypes.windll.ole32
+            try:
+                OLE32.OleInitialize(None)
+            except Exception:
+                pass
             SHELL32 = ctypes.windll.shell32
 
             # 定义 IDropTarget COM 接口
@@ -784,12 +783,12 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                     else:
                         pdwEffect[0] = 0
 
-                def DragEnter(self, pDataObj, grfKeyState, pt, pdwEffect):
+                def DragEnter(self, pDataObj, _grfKeyState, _pt, pdwEffect):
                     self._normalize_drop_effect(pdwEffect)
                     self._cached_path = self._extract_h_drop(pDataObj)
                     return 0
 
-                def DragOver(self, grfKeyState, pt, pdwEffect):
+                def DragOver(self, _grfKeyState, _pt, pdwEffect):
                     self._normalize_drop_effect(pdwEffect)
                     return 0
 
@@ -798,7 +797,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                         self._embedder._on_dropped_file(self._cached_path)
                     self._cached_path = ""
 
-                def Drop(self, pDataObj, grfKeyState, pt, pdwEffect):
+                def Drop(self, pDataObj, _grfKeyState, _pt, pdwEffect):
                     if self._cached_path:
                         self._embedder._on_dropped_file(self._cached_path)
                     else:
@@ -969,8 +968,8 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._controller = _BrowserController(
             debugger_url=debugger_url, log_func=self._log
         )
-        self._controller.set_loadStarted_callback(lambda: self.loadStarted.emit())
-        self._controller.set_loadFinished_callback(lambda: self.loadFinished.emit())
+        self._controller.set_loadStarted_callback(self.loadStarted.emit)
+        self._controller.set_loadFinished_callback(self.loadFinished.emit)
         self._controller.cdpReady.connect(self._on_cdpReady)
         self._controller.errorOccurred.connect(self._onCdpError)
         self._controller.consoleMessage.connect(self.consoleMessage)

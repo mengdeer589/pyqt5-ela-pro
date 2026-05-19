@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QPropertyAnimation, QPoint, QTimer, pyqtSignal, QEvent, QSize
+from PyQt5.QtCore import Qt, QPropertyAnimation, QPoint, QTimer, pyqtSignal, QEvent
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
 from PyQt5.QtGui import QPainter, QPaintEvent, QEnterEvent
 
@@ -16,7 +16,6 @@ from PyQt5ElaWidgetTools import (
     eTheme,
     ElaThemeType,
     ElaText,
-    ElaIconButton,
     ElaIconType, ElaToolButton,
 )
 

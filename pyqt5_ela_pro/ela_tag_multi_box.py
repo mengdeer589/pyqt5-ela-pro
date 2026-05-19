@@ -7,9 +7,9 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Union
 
-from PyQt5.QtCore import QTimer, QPropertyAnimation
+from PyQt5.QtCore import QAbstractAnimation, QTimer
 from PyQt5.QtGui import QPainter, QPaintEvent
 from PyQt5.QtWidgets import QWidget
 
@@ -67,17 +67,17 @@ class ElaTagMultiBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaMultiSelectComboBox
         self._expand_mark_width = 0.0
         super().hidePopup()
 
-    def setCurrentSelection(self, selection):
+    def setCurrentSelection(self, selection: Union[str, list[str]]) -> None:
         if isinstance(selection, str):
             selection = [selection]
         self._currentSelection = list(selection)
-        if self._mark_animation.state() == QPropertyAnimation.Running:
+        if self._mark_animation.state() == QAbstractAnimation.State.Running:
             self._mark_animation.stop()
         self._expand_mark_width = _get_target_mark_width(self)
         self.update()
         super().setCurrentSelection(self._currentSelection)
 
-    def paintEvent(self, event: QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
         _paint_tag_multi(painter, self)
 

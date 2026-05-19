@@ -186,7 +186,7 @@ class ElaToast(ElaThemeWidget):
 
     # ── Paint ─────────────────────────────────────────────
 
-    def paintEvent(self, event: QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         try:
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)

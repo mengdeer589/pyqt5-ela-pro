@@ -155,7 +155,7 @@ class ElaSpotlight(ElaThemeWidget):
         self._spotlight_rect = QRectF()
         self._opacity = 0.0
         fade_in = QPropertyAnimation(self, b"windowOpacity")
-        fade_in.valueChanged.connect(lambda: self.update())
+        fade_in.valueChanged.connect(self.update)
         fade_in.setDuration(300)
         fade_in.setStartValue(0.0)
         fade_in.setEndValue(1.0)
@@ -308,7 +308,7 @@ class ElaSpotlight(ElaThemeWidget):
                 self.finish()
         event.accept()
 
-    def paintEvent(self, event: QPaintEvent) -> None:
+    def paintEvent(self, _event: QPaintEvent) -> None:
         try:
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
