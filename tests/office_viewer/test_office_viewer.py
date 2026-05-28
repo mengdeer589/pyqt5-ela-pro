@@ -1,33 +1,29 @@
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import patch
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QWidget
 
 from pyqt5_ela_pro.office_viewer import (
-    ElaOfficeViewerMixin,
     ElaWordViewer,
     ElaExcelViewer,
     ElaPowerPointViewer,
-    _BACKEND_PROGIDS,
+    _BACKEND_PROG_IDS,
 )
 
 
 class TestOfficeViewerProgIds:
     def test_backend_progids_has_office_and_wps(self):
-        assert "office" in _BACKEND_PROGIDS
-        assert "wps" in _BACKEND_PROGIDS
+        assert "office" in _BACKEND_PROG_IDS
+        assert "wps" in _BACKEND_PROG_IDS
 
     def test_office_has_word_excel_ppt(self):
-        office = _BACKEND_PROGIDS["office"]
+        office = _BACKEND_PROG_IDS["office"]
         assert "word" in office
         assert "excel" in office
         assert "ppt" in office
 
     def test_wps_has_word_excel_ppt(self):
-        wps = _BACKEND_PROGIDS["wps"]
+        wps = _BACKEND_PROG_IDS["wps"]
         assert "word" in wps
         assert "excel" in wps
         assert "ppt" in wps

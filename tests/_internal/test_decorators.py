@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock, patch
-import sys
 
-from pyqt5_ela_pro._internal import catch_error, safe_call, init_painter, disconnect_theme_signal
+from pyqt5_ela_pro._internal import catch_error, safe_call, disconnect_theme_signal
 
 
 class TestCatchError:
@@ -100,20 +97,6 @@ class TestSafeCall:
         """Test safe_call with non-callable (not None)."""
         result = safe_call("not a function")
         assert result is None
-
-
-class TestInitPainter:
-    """Test cases for init_painter helper."""
-
-    def test_init_painter_returns_qpainter(self, qapp):
-        """Test init_painter returns QPainter instance."""
-        from PyQt5.QtWidgets import QWidget
-
-        w = QWidget()
-        painter = init_painter(w)
-        assert painter is not None
-        painter.end()
-        w.deleteLater()
 
 
 class TestDisconnectThemeSignal:

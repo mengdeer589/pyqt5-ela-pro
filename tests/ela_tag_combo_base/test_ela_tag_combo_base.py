@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import pytest
 from unittest.mock import MagicMock, patch
-from PyQt5.QtCore import Qt, QRect, QRectF, QPropertyAnimation
+from PyQt5.QtCore import QRect
 from PyQt5.QtGui import QColor, QPainter, QFont
-from PyQt5.QtWidgets import QWidget, QComboBox
+from PyQt5.QtWidgets import QComboBox
 
 from pyqt5_ela_pro.ela_tag_combo_base import (
     _TagBoxThemeMixin,

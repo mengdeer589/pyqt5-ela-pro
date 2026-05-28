@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock, patch
-from PyQt5.QtCore import Qt, QSortFilterProxyModel, QStringListModel, QModelIndex
-from PyQt5.QtWidgets import QWidget, QLineEdit
+from PyQt5.QtCore import QStringListModel, QModelIndex
 
 from pyqt5_ela_pro.combo_box import (
     ElaSearchProxyModel,

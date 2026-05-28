@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import pytest
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor
 
 from pyqt5_ela_pro.ela_button import ElaButton
 
@@ -13,7 +10,7 @@ class TestElaButtonInit:
         assert btn._variant == "outlined"
         assert btn._color_name == "default"
         assert btn._danger is False
-        assert btn._border_radius == 4
+        assert btn._border_radius == 3
         assert btn._icon_name is None
         assert btn._hovered is False
         assert btn.text() == ""
@@ -38,7 +35,7 @@ class TestElaButtonInit:
         assert btn._variant == "solid"
         assert btn._color_name == "danger"
         assert btn._danger is True
-        assert btn._border_radius == 4
+        assert btn._border_radius == 3
         btn.deleteLater()
 
     def test_initial_sizes_vary_by_size_param(self):
@@ -159,7 +156,7 @@ class TestElaButtonSize:
 class TestElaButtonBorderRadius:
     def test_border_radius_default(self):
         btn = ElaButton()
-        assert btn.borderRadius() == 4
+        assert btn.borderRadius() == 3
         btn.deleteLater()
 
     def test_set_border_radius(self):
@@ -191,7 +188,6 @@ class TestElaButtonIcon:
 
     def test_set_icon_updates_icon_size(self):
         from PyQt5ElaWidgetTools import ElaIconType
-        from PyQt5.QtCore import QSize
         btn = ElaButton()
         btn.setElaIcon(ElaIconType.IconName.House, iconSize=20)
         assert btn._icon_size == 20

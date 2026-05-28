@@ -19,6 +19,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes
 import json
+import subprocess
 import time
 import weakref
 from pathlib import Path
@@ -472,10 +473,11 @@ class _BrowserSession:
             _BrowserSession._instance = None
             _BrowserSession._refcount = 0
 
-    def launch_window(self, url: str, _window_title: str) -> Optional[int]:
+    def launch_start(self, url: str, _window_title: str) -> None:
         args = [
             f"--app={url}",
             "--incognito", "--no-first-run", "--disable-sync",
+            "--disable-session-crashed-bubble", "--suppress-message-center-popups",
             f"--user-data-dir={self._profile_dir}",
             f"--remote-debugging-port={self._debug_port}",
             "--remote-allow-origins=*",
@@ -487,44 +489,40 @@ class _BrowserSession:
             self._process = QProcess()
             self._process.setProgram(str(self._webview_path))
             self._process.setArguments(args)
+            self._process.setProcessChannelMode(QProcess.SeparateChannels)
             self._process.start()
         else:
-            sub_proc = QProcess()
-            sub_proc.setProgram(str(self._webview_path))
-            sub_proc.setArguments(args)
-            sub_proc.start()
-            sub_proc.waitForFinished(8000)
+            subprocess.Popen(
+                [str(self._webview_path), *args],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.DETACHED_PROCESS,
+            )
 
-        return self._find_new_chrome_hwnd()
-
-    def _find_new_chrome_hwnd(self) -> Optional[int]:
-        """查找属于当前 Browser 进程的新 Chrome_WidgetWin_1 窗口"""
+    def poll_hwnd(self) -> Optional[int]:
         browser_pid = self._process.processId() if self._process else 0
-        for _ in range(60):
-            hwnds: list[int] = []
+        hwnds: list[int] = []
 
-            def _cb(hwnd, _):
-                try:
-                    if (win32gui.IsWindow(hwnd) and win32gui.IsWindowVisible(hwnd)
-                            and win32gui.GetClassName(hwnd) == "Chrome_WidgetWin_1"
-                            and hwnd not in self._known_hwnds
-                            and win32gui.GetWindowText(hwnd)):
-                        if browser_pid:
-                            _, wpid = win32process.GetWindowThreadProcessId(hwnd)
-                            if wpid != browser_pid:
-                                return True
-                        hwnds.append(hwnd)
-                except Exception:
-                    pass
-                return True
+        def _cb(hwnd, _):
+            try:
+                if (win32gui.IsWindow(hwnd) and win32gui.IsWindowVisible(hwnd)
+                        and win32gui.GetClassName(hwnd) == "Chrome_WidgetWin_1"
+                        and hwnd not in self._known_hwnds
+                        and win32gui.GetWindowText(hwnd)):
+                    if browser_pid:
+                        _, wpid = win32process.GetWindowThreadProcessId(hwnd)
+                        if wpid != browser_pid:
+                            return True
+                    hwnds.append(hwnd)
+            except Exception:
+                pass
+            return True
 
-            win32gui.EnumWindows(_cb, None)
+        win32gui.EnumWindows(_cb, None)
 
-            for hwnd in hwnds:
-                self._known_hwnds.add(hwnd)
-                return hwnd
-
-            time.sleep(0.5)
+        for hwnd in hwnds:
+            self._known_hwnds.add(hwnd)
+            return hwnd
         return None
 
     def _terminate(self) -> None:
@@ -627,6 +625,8 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._original_rect: Optional[tuple] = None
         self._pending_window_title: Optional[str] = None
         self._pending_connect_cdp: bool = False
+        self._hwnd_timer: Optional[QTimer] = None
+        self._hwnd_retries: int = 0
         self._browser_embedTimer: Optional[QTimer] = None
         self._network_mgr: Optional[QNetworkAccessManager] = None
         self._debug_url_timer: Optional[QTimer] = None
@@ -653,6 +653,9 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         if self._embeddedInfo is not None:
             self._log("已有嵌入窗口，请先调用 release()", 30)
             return
+        if self._hwnd_timer is not None:
+            self._log("嵌入流程正在进行中", 30)
+            return
 
         import tempfile
 
@@ -664,18 +667,78 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             self._webview_path, self._debug_port, profile_dir, self._browser_args
         )
 
-        hwnd = self._session.launch_window(url, window_title or url)
-        if not hwnd:
-            self._log(f"等待窗口超时: {window_title or url}", 40)
+        self._session.launch_start(url, window_title or url)
+        self._pending_window_title = window_title or url
+        self._pending_connect_cdp = connect_cdp
+        self._start_hwnd_polling()
+
+    def _start_hwnd_polling(self) -> None:
+        self._hwnd_retries = 0
+        self._hwnd_timer = QTimer(self)
+        self._hwnd_timer.setSingleShot(True)
+        self._hwnd_timer.timeout.connect(self._poll_hwnd)
+        self._hwnd_timer.start(0)
+
+    def _poll_hwnd(self) -> None:
+        if not self._session:
+            self._cleanup_hwnd_polling()
             return
 
-        self._embedHwnd(hwnd)
-        if connect_cdp:
-            self._start_cdp_connection()
+        hwnd = self._session.poll_hwnd()
+        if hwnd:
+            self._cleanup_hwnd_polling()
+            self._embedHwnd(hwnd)
+            if self._pending_connect_cdp:
+                self._pending_connect_cdp = False
+                self._start_cdp_connection()
+            return
+
+        self._hwnd_retries += 1
+        if self._hwnd_retries >= 60:
+            self._cleanup_hwnd_polling()
+            self._log(f"等待窗口超时: {self._pending_window_title}", 40)
+            return
+
+        self._hwnd_timer.start(500)
+
+    def _cleanup_hwnd_polling(self) -> None:
+        if self._hwnd_timer:
+            self._hwnd_timer.stop()
+            self._hwnd_timer.deleteLater()
+            self._hwnd_timer = None
+        self._hwnd_retries = 0
 
     def _cleanup_browser(self) -> None:
         """清理 CDP 连接"""
         if self._controller:
+            try:
+                self._controller.cdpReady.disconnect(self._on_cdpReady)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._controller.errorOccurred.disconnect(self._onCdpError)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._controller.consoleMessage.disconnect(self.consoleMessage)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._controller.domContentReady.disconnect(self.domContentReady)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._controller.pageError.disconnect(self.pageError)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._controller.networkRequest.disconnect(self.networkRequest)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._controller.networkResponse.disconnect(self.networkResponse)
+            except (TypeError, RuntimeError):
+                pass
             self._controller.close()
             self._controller = None
 
@@ -1041,6 +1104,7 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
             self._browser_embedTimer.stop()
             self._browser_embedTimer = None
         self._pending_window_title = None
+        self._cleanup_hwnd_polling()
         self._cleanup_debug_url_polling()
 
         if self._target_hwnd:

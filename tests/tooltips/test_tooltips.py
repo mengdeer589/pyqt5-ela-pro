@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock, patch
-from PyQt5.QtCore import Qt, QPoint, QTimer
-from PyQt5.QtWidgets import QWidget, QLabel
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QWidget
 
 from pyqt5_ela_pro.tooltips import (
     ElaToolTip,
@@ -14,8 +12,6 @@ from pyqt5_ela_pro.tooltips import (
     remove_tooltip,
     ElaToolTipPosition,
     TOOLTIP_BORDER_RADIUS,
-    TOOLTIP_LIGHT_BG_COLOR,
-    TOOLTIP_DARK_BG_COLOR,
 )
 
 

@@ -54,19 +54,6 @@ def disconnect_theme_signal(slot: Callable[[Any], None]) -> None:
         pass
 
 
-def init_painter(widget) -> QPainter:
-    """创建 QPainter 并设置常用的渲染提示（抗锯齿等）。
-
-    适用于自定义 paintEvent 中的标准 QPainter 初始化模板。
-    使用完毕后仍需调用 paint.end()。
-    """
-    painter = QPainter(widget)
-    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-    return painter
-
-
 def safe_call(func: Optional[Callable[..., Any]], *args, **kwargs) -> Any:
     """安全调用函数，如果函数为 None 或调用失败返回 None。"""
     if func is None:
@@ -87,7 +74,7 @@ def _draw_button_content(
     widget_width: int,
     widget_height: int,
     text_color: QColor,
-    icon_getter,
+    icon_getter: Callable[[Any, QColor], Any],
 ) -> QRect:
     """绘制按钮图标和文字布局。
 
@@ -191,11 +178,14 @@ def _adjust_combobox_popup(combo_box) -> None:
         return
     screen_geo = screen.availableGeometry()
 
-    # 计算最终容器高度（与 C++ 公式一致）
+    # 计算最终容器高度
+    item_h = combo_box.view().sizeHintForRow(0) if combo_box.count() else 30
+    if item_h <= 0:
+        item_h = 30
     n = combo_box.maxVisibleItems()
     if combo_box.count() < n:
         n = combo_box.count()
-    final_height = n * 35 + 8
+    final_height = n * item_h + 8
 
     # 下方所需总空间：组合框底 + 3px 间距 + 弹窗高度
     needed_below = combo_bottom + 3 + final_height

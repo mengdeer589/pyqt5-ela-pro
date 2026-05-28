@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import pytest
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QWidget, QLineEdit
+from PyQt5.QtWidgets import QLineEdit
 
 from pyqt5_ela_pro.ela_password_edit import ElaPasswordEdit
-from PyQt5ElaWidgetTools import ElaIconType
 
 
 class TestElaPasswordEditInit:

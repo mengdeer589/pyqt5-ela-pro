@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 
 from pyqt5_ela_pro.ela_chip import ElaChip

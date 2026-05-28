@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock, patch
-from PyQt5.QtCore import QTimer, Qt
-from PyQt5.QtWidgets import QWidget
+from PyQt5.QtCore import Qt
 
-from pyqt5_ela_pro.notify_popup import ElaNotifyPopup, ElaNotifyManager, show_notify
+from pyqt5_ela_pro.notify_popup import ElaNotifyPopup, ElaNotifyManager
 
 
 class TestElaNotifyPopup:

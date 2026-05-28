@@ -67,6 +67,7 @@ if pg is not None:
             self._theme_mode = eTheme.getThemeMode()
             self._theme_connected = True
             eTheme.themeModeChanged.connect(self._onThemeChanged)
+            self.destroyed.connect(self._theme_cleanup)
             self._apply_theme()
 
         # ── Public API ────────────────────────────────────
@@ -88,6 +89,11 @@ if pg is not None:
             pg.setConfigOptions(**kwargs)
 
         # ── Internal ──────────────────────────────────────
+
+        def _theme_cleanup(self) -> None:
+            if self._theme_connected:
+                disconnect_theme_signal(self._onThemeChanged)
+                self._theme_connected = False
 
         def _apply_theme(self) -> None:
             is_dark = self._theme_mode == ElaThemeType.ThemeMode.Dark
@@ -111,5 +117,5 @@ else:
 
         def __init__(self, *args, **kwargs):
             raise ImportError(
-                "ElaPlotWidget 需要 pyqtgraph，请运行: pip install pyqtgraph"
+                "ElaPlotWidget 需要 pyqtgraph，请运行: uv pip install pyqtgraph"
             )

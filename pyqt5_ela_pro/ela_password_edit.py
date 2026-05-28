@@ -42,10 +42,14 @@ class ElaPasswordEdit(ElaLineEdit):
 
         self._update_eye_icon()
         eTheme.themeModeChanged.connect(self._update_eye_icon)
+        self.destroyed.connect(self._password_theme_cleanup)
+
+    def _password_theme_cleanup(self) -> None:
+        disconnect_theme_signal(self._update_eye_icon)
 
     def deleteLater(self) -> None:
         """断开主题信号并清理资源。"""
-        disconnect_theme_signal(self._update_eye_icon)
+        self._password_theme_cleanup()
         super().deleteLater()
 
     def set_is_password_visible(self, visible: bool) -> None:

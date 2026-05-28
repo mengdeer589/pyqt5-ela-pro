@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock, patch
-from PyQt5.QtCore import Qt, QRect, QPointF, QPoint
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QPainter, QPixmap
 
 from pyqt5_ela_pro.ela_trend_chart import ElaTrendChart

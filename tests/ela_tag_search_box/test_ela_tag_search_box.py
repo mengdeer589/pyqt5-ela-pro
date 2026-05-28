@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock
-from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve
+from PyQt5.QtCore import QPropertyAnimation
 
 from pyqt5_ela_pro.ela_tag_search_box import ElaTagSearchBox
 

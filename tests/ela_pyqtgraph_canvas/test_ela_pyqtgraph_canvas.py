@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 
 class TestElaPlotWidgetNoPyqtgraph:
@@ -11,8 +10,6 @@ class TestElaPlotWidgetNoPyqtgraph:
             with pytest.raises(ImportError):
                 ElaPlotWidget()
         else:
-            from PyQt5.QtWidgets import QApplication
-            app = QApplication.instance() or QApplication([])
             pw = ElaPlotWidget()
             assert pw is not None
             pw.deleteLater()

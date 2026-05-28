@@ -177,3 +177,26 @@ class ElaTaskbarProgress(QObject):
         """重置进度条。"""
         if self._progress is not None:
             self._progress.reset()
+
+    def deleteLater(self) -> None:
+        self._disconnect_signals()
+        super().deleteLater()
+
+    def _disconnect_signals(self) -> None:
+        if self._progress is not None:
+            try:
+                self._progress.valueChanged.disconnect(self.valueChanged)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._progress.pausedChanged.disconnect(self.pausedChanged)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._progress.stoppedChanged.disconnect(self.stoppedChanged)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._progress.visibilityChanged.disconnect(self.visibilityChanged)
+            except (TypeError, RuntimeError):
+                pass

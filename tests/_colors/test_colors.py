@@ -5,7 +5,7 @@ from PyQt5.QtGui import QColor
 from PyQt5ElaWidgetTools import ElaThemeType
 
 from pyqt5_ela_pro._colors import (
-    resolve_color,
+    _resolve_color,
     get_color_scheme,
     get_accent_color,
     _COLOR_PALETTE,
@@ -53,16 +53,16 @@ class TestColorsAlias:
         assert _COLOR_ALIAS == {"default": "blue", "primary": "blue", "pink": "magenta"}
 
     def test_resolve_color_returns_alias(self):
-        assert resolve_color("default") == "blue"
-        assert resolve_color("primary") == "blue"
-        assert resolve_color("pink") == "magenta"
+        assert _resolve_color("default") == "blue"
+        assert _resolve_color("primary") == "blue"
+        assert _resolve_color("pink") == "magenta"
 
     def test_resolve_color_returns_self_for_unknown(self):
-        assert resolve_color("nonexistent") == "nonexistent"
+        assert _resolve_color("nonexistent") == "nonexistent"
 
     def test_resolve_color_returns_self_for_direct_name(self):
-        assert resolve_color("blue") == "blue"
-        assert resolve_color("danger") == "danger"
+        assert _resolve_color("blue") == "blue"
+        assert _resolve_color("danger") == "danger"
 
 
 class TestColorsGetColorScheme:

@@ -100,6 +100,18 @@ class ElaNotifyPopup(QWidget):
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._on_timeout)
 
+        eTheme.themeModeChanged.connect(self._onThemeChanged)
+        self.destroyed.connect(self._theme_cleanup)
+
+    def _theme_cleanup(self):
+        try:
+            eTheme.themeModeChanged.disconnect(self._onThemeChanged)
+        except TypeError:
+            pass
+
+    def _onThemeChanged(self, _mode):
+        self.update()
+
     def _update_positions(self):
         screen = self._get_screen_geometry()
         self._start_pos = QPoint(
@@ -222,7 +234,10 @@ class ElaNotifyPopup(QWidget):
         """断开信号并清理资源。"""
         self._timer.stop()
         self._animation.stop()
-        self._close_btn.clicked.disconnect(self._on_close)
+        try:
+            self._close_btn.clicked.disconnect(self._on_close)
+        except (TypeError, RuntimeError):
+            pass
         super().deleteLater()
 
     def paintEvent(self, event: QPaintEvent) -> None:
@@ -261,13 +276,14 @@ class ElaNotifyManager:
         :param timeout: 超时时长（毫秒），默认 5000
         """
         popup = ElaNotifyPopup(title=title, content=content, timeout=timeout)
-        popup.closed.connect(lambda: self._onPopupClosed(popup))
+        popup.closed.connect(lambda p=popup: self._onPopupClosed(p))
         self._popups.append(popup)
         popup.showNotification(title, content, timeout)
 
     def _onPopupClosed(self, popup: ElaNotifyPopup) -> None:
         if popup in self._popups:
             self._popups.remove(popup)
+        popup.deleteLater()
 
 
 def show_notify(title: str = "", content: str = "", timeout: int = 5000) -> None:

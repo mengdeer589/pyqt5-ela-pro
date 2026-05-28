@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyqt5-ela-pro"
-version = "1.0.0"
+dynamic = ["version"]
 description = "PyQt5 extension widgets based on PyQt5ElaWidgetTools"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -47,6 +47,9 @@ Homepage = "https://github.com/mengdeer589/pyqt5-ela-pro"
 Documentation = "https://github.com/mengdeer589/pyqt5-ela-pro#readme"
 Repository = "https://github.com/mengdeer589/pyqt5-ela-pro"
 Issues = "https://github.com/mengdeer589/pyqt5-ela-pro/issues"
+
+[tool.setuptools.dynamic]
+version = {attr = "pyqt5_ela_pro._version.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]

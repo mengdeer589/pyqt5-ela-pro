@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock
-from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 
 from pyqt5_ela_pro.ela_tag_line_edit import ElaTagLineEdit

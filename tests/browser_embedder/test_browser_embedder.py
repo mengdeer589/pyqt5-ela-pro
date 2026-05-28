@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import MagicMock, patch, ANY
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 from PyQt5.QtCore import QUrl
 
@@ -128,11 +128,6 @@ class TestElaBrowserEmbedderInit:
 
 
 class TestElaBrowserEmbedderStatic:
-    def test_alloc_debug_port_increments(self):
-        port1 = ElaBrowserEmbedder._alloc_debug_port()
-        port2 = ElaBrowserEmbedder._alloc_debug_port()
-        assert port2 > port1
-
     def test_get_all_instances_returns_list(self):
         instances = ElaBrowserEmbedder.getAllInstances()
         assert isinstance(instances, list)

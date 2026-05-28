@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import MagicMock, patch
-from PyQt5.QtGui import QIcon, QPixmap, QColor
-from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QIcon, QPixmap
 
 from pyqt5_ela_pro.svg_icon import (
     svg_to_icon,

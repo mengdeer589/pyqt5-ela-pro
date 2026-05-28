@@ -259,8 +259,7 @@ _COLOR_ALIAS: dict[str, str] = {
 }
 
 
-def resolve_color(name: str) -> str:
-    """将别名映射为实际的调色板键名。"""
+def _resolve_color(name: str) -> str:
     return _COLOR_ALIAS.get(name, name)
 
 
@@ -268,7 +267,7 @@ def get_color_scheme(
     color_name: str, mode: ElaThemeType.ThemeMode
 ) -> dict[str, QColor]:
     """获取指定颜色名称在当前主题下的完整色板（QColor 对象）。"""
-    resolved = resolve_color(color_name)
+    resolved = _resolve_color(color_name)
     mode_key = "light" if mode == ElaThemeType.ThemeMode.Light else "dark"
     raw = _COLOR_PALETTE[resolved][mode_key]
     return {k: QColor(v) for k, v in raw.items()}
@@ -276,6 +275,6 @@ def get_color_scheme(
 
 def get_accent_color(color_name: str, mode: ElaThemeType.ThemeMode) -> QColor:
     """仅获取主色 accent。"""
-    resolved = resolve_color(color_name)
+    resolved = _resolve_color(color_name)
     mode_key = "light" if mode == ElaThemeType.ThemeMode.Light else "dark"
     return QColor(_COLOR_PALETTE[resolved][mode_key]["accent"])

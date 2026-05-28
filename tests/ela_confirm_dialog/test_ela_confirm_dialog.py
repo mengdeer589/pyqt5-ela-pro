@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QWidget
 
@@ -218,7 +217,7 @@ class TestElaConfirmButton:
 
     def test_button_enter_leave_events(self):
         btn = _ElaConfirmButton(_ElaConfirmButton.TYPE_CONFIRM)
-        from PyQt5.QtCore import QEvent, QPoint
+        from PyQt5.QtCore import QEvent
         btn._is_hovered = False
         btn.enterEvent(QEvent(QEvent.Type.Enter))
         assert btn._is_hovered is True

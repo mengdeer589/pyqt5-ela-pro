@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout
 
 from pyqt5_ela_pro.widget_base import ElaThemeWidget

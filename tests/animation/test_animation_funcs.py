@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock, patch
-from PyQt5.QtCore import QPropertyAnimation, QTimer, Qt
+from PyQt5.QtCore import QPropertyAnimation, QTimer
 from PyQt5.QtWidgets import QWidget
 
-from pyqt5_ela_pro import animation
 from pyqt5_ela_pro.animation import fade_in, fade_out, _animation_registry, ElaAnimatedMixin
 
 

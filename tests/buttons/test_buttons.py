@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock, patch
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-from PyQt5.QtWidgets import QWidget
 
 from pyqt5_ela_pro.ela_long_press_button import ElaLongPressButton as ElaLongPressBtn
 from pyqt5_ela_pro.ela_progress_button import ElaProgressButton

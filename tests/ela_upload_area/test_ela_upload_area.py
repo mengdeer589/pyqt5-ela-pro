@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import pytest
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QWidget
 
 from pyqt5_ela_pro.ela_upload_area import ElaUploadArea
 
@@ -288,7 +286,7 @@ class TestElaUploadAreaDragEvents:
     def test_drag_enter_sets_drag_over(self):
         area = ElaUploadArea()
         from PyQt5.QtCore import QMimeData
-        from PyQt5.QtGui import QDragEnterEvent, QDropEvent
+        from PyQt5.QtGui import QDragEnterEvent
         mime = QMimeData()
         mime.setUrls([])
         area.dragEnterEvent(QDragEnterEvent(area.rect().topLeft(), Qt.DropAction.CopyAction, mime, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier))

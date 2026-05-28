@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-from PyQt5.QtCore import Qt
 
 from pyqt5_ela_pro.ela_dashboard_gauge import ElaDashboardGauge
 

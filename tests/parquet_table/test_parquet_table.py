@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import MagicMock, patch
-from PyQt5.QtCore import Qt, pyqtSignal
+from unittest.mock import MagicMock
 
 from pyqt5_ela_pro.parquet_table import (
     ElaInfoBarWidget,
@@ -79,7 +78,6 @@ class TestElaParquetTableImport:
 
     def test_polars_not_installed_raises_import_error(self):
         """Test ElaParquetTable raises ImportError when polars is not available."""
-        import sys
         from pyqt5_ela_pro import parquet_table
 
         original_pl = getattr(parquet_table, 'pl', None)
@@ -97,7 +95,6 @@ class TestElaParquetTableImport:
 
     def test_file_not_found_raises_error(self):
         """Test loadData raises FileNotFoundError for missing file."""
-        import sys
         from pyqt5_ela_pro import parquet_table
 
         original_pl = getattr(parquet_table, 'pl', None)

@@ -2,12 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock, patch
-from PyQt5.QtCore import Qt, QModelIndex, QThread
 from PyQt5.QtGui import QColor
-from PyQt5.QtWidgets import QWidget
-from PyQt5.QtGui import QStandardItemModel
 
 from pyqt5_ela_pro.table_view import (
     ElaRowColorDelegate,

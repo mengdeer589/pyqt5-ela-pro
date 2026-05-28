@@ -184,7 +184,6 @@ wheels = [
 
 [[package]]
 name = "pyqt5-ela-pro"
-version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "pypinyin" },

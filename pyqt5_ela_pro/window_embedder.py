@@ -477,6 +477,11 @@ class ElaWindowEmbedder(QWidget):
                 win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE,
             )
 
+    def deleteLater(self) -> None:
+        if self._embeddedInfo:
+            self.release()
+        super().deleteLater()
+
     def closeEvent(self, event) -> None:
         if self._embeddedInfo:
             self.release()

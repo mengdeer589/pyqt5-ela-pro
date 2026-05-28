@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 
 from pyqt5_ela_pro.ela_steps import ElaSteps
 

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import pytest
-from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtWidgets import QWidget
+from PyQt5.QtCore import QSize
 
 from pyqt5_ela_pro.ela_timeline import ElaTimeline
 from PyQt5ElaWidgetTools import ElaIconType

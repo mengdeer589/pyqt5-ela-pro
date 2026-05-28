@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock
-from PyQt5.QtCore import QPropertyAnimation, QPoint, QTimer, Qt
+from PyQt5.QtCore import QPropertyAnimation, QTimer, Qt
 from PyQt5.QtWidgets import QWidget
 
 from pyqt5_ela_pro import shake_window
@@ -35,7 +33,6 @@ class TestShakeWindow:
         """Test shake_window creates position animation."""
         widget = QWidget()
         widget.setFixedSize(200, 100)
-        initial_pos = widget.pos()
 
         shake_window(widget, duration=200, loop_count=1)
 
