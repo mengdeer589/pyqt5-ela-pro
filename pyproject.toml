@@ -29,7 +29,7 @@ classifiers = [
 ]
 dependencies = [
     "PyQt5>=5.15.0",
-    "PyQt5-ElaWidgetTools>=0.8.0",
+    "pyqt5-elawidgettools>=0.8.0",
     "pypinyin>=0.50.0",
 ]
 

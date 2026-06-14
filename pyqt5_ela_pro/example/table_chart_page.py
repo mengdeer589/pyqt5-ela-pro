@@ -8,10 +8,10 @@
 import random
 import math
 
-from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QFileDialog
+from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QFileDialog, QGraphicsScene, QGraphicsView
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor, QFont
-from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaLineEdit, ElaComboBox, ElaCheckBox, ElaSlider, ElaGraphicsScene, ElaGraphicsView
+from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaLineEdit, ElaComboBox, ElaCheckBox, ElaSlider
 from pyqt5_ela_pro import ElaDataTable, ElaTrendChart, ElaPlotWidget, ElaDashboardGauge
 from .base_page import ExamplePage
 
@@ -843,12 +843,12 @@ class TableChartPage(ExamplePage):
         self._addInfoText(
             "Ela 主题的图形视图框架，支持场景中放置可交互的图形项", parent_layout
         )
-        scene = ElaGraphicsScene(self)
+        scene = QGraphicsScene(self)
         scene.setSceneRect(-200, -200, 400, 400)
-        view = ElaGraphicsView(self)
+        view = QGraphicsView(self)
         view.setScene(scene)
         view.setFixedHeight(300)
-        view.setDragMode(ElaGraphicsView.DragMode.ScrollHandDrag)
+        view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
 
         rect = view.scene().addRect(-60, -60, 120, 120, QPen(QColor("#1677ff"), 2), QBrush(QColor("#e6f4ff")))
         rect.setFlag(rect.GraphicsItemFlag.ItemIsMovable, True)
