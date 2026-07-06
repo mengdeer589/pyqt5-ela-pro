@@ -29,6 +29,7 @@ class _BrowserPanel(QWidget):
     def __init__(self, title: str, url: str, browser_path: Path, debug_port: int, parent=None):
         super().__init__(parent)
         self.setObjectName(f"BrowserPanel_{debug_port}")
+        self._seen_cookie_urls: set[str] = set()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
@@ -64,6 +65,11 @@ class _BrowserPanel(QWidget):
         release_btn.clicked.connect(self._release)
         row.addWidget(release_btn)
 
+        cookie_btn = ElaPushButton("Cookie")
+        cookie_btn.setFixedWidth(60)
+        cookie_btn.clicked.connect(self._show_cookie)
+        row.addWidget(cookie_btn)
+
         layout.addLayout(row)
 
         self._browser = ElaBrowserEmbedder(
@@ -74,6 +80,7 @@ class _BrowserPanel(QWidget):
             ],
             parent=self,
         )
+        self._browser.enable_cookie_jar()
         layout.addWidget(self._browser, 1)
 
         self._log = ElaPlainTextEdit()
@@ -96,15 +103,19 @@ class _BrowserPanel(QWidget):
         self._browser.pageError.connect(
             lambda url, text: self._on_event(f"[CDP] JS 异常: {url} {text}")
         )
-        self._browser.networkRequest.connect(
-            lambda url, method, rtype: self._on_event(f"[CDP] 请求: {method} {url} ({rtype})")
-        )
-        self._browser.networkResponse.connect(
-            lambda url, status, rtype: self._on_event(f"[CDP] 响应: {status} {url} ({rtype})")
-        )
+        # 网络请求日志太嘈杂，默认不显示；需要时可取消注释
+        # self._browser.networkRequest.connect(
+        #     lambda url, method, rtype: self._on_event(f"[CDP] 请求: {method} {url} ({rtype})")
+        # )
+        # self._browser.networkResponse.connect(
+        #     lambda url, status, rtype: self._on_event(f"[CDP] 响应: {status} {url} ({rtype})")
+        # )
         self._browser.consoleMessage.connect(
             lambda level, text: self._on_event(f"[CDP] 控制台 [{level}]: {text}")
         )
+        self._browser.cookieSent.connect(self._on_cookie_sent)
+        self._browser.cookieReceived.connect(self._on_cookie_received)
+        self._browser.credentialDetected.connect(self._on_credential)
 
     def _on_event(self, msg: str):
         # print(msg)
@@ -115,6 +126,24 @@ class _BrowserPanel(QWidget):
             self._log.appendPlainText(msg)
         except Exception:
             pass
+
+    def _on_cookie_sent(self, url: str, cookie: str):
+        print(f"[Cookie] 请求携带: {url} → {cookie}")
+        key = f"sent:{url}"
+        if key not in self._seen_cookie_urls:
+            self._seen_cookie_urls.add(key)
+            self._on_event(f"[Cookie] 请求携带: {url} → {cookie[:120]}")
+
+    def _on_cookie_received(self, url: str, cookie: str):
+        print(f"[Cookie] 服务器设置: {url} → {cookie}")
+        key = f"recv:{url}"
+        if key not in self._seen_cookie_urls:
+            self._seen_cookie_urls.add(key)
+            self._on_event(f"[Cookie] 服务器设置: {url} → {cookie[:120]}")
+
+    def _on_credential(self, url: str, hdr: str, val: str):
+        print(f"[凭据] {url} [{hdr}]: {val}")
+        self._on_event(f"[凭据] {url} [{hdr}]: {val[:60]}")
 
     def _embed(self):
         url = self._url_input.text().strip()
@@ -149,6 +178,21 @@ class _BrowserPanel(QWidget):
             self._append_log("已释放")
         except Exception as e:
             self._append_log(f"错误: {e}")
+
+    def _show_cookie(self):
+        header = self._browser.get_cookie_header()
+        if header:
+            print(f"\n{'='*60}")
+            print("[Cookie Jar] 当前收集到:")
+            for domain, cookies in self._browser._cookie_store.items():
+                print(f"  [{domain}]")
+                for name, val in cookies.items():
+                    print(f"    {name} = {val}")
+            print(f"\n[Header] {header}")
+            print(f"{'='*60}\n")
+            self._on_event(f"[Cookie] 已输出到终端，共 {len(header)} 字符")
+        else:
+            self._on_event("[Cookie] cookie jar 为空，请先嵌入页面")
 
     def release(self):
         self._browser.release()

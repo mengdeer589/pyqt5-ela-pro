@@ -64,6 +64,9 @@ class _BrowserController(QObject):
     pageError = pyqtSignal(str, str)
     networkRequest = pyqtSignal(str, str, str)
     networkResponse = pyqtSignal(str, int, str)
+    cookieSent = pyqtSignal(str, str)
+    cookieReceived = pyqtSignal(str, str)
+    credentialDetected = pyqtSignal(str, str, str)
 
     def __init__(
         self,
@@ -84,6 +87,8 @@ class _BrowserController(QObject):
         self._loadStarted_callback: Optional[Callable] = None
         self._loadFinished_callback: Optional[Callable] = None
         self._dropped_file_callback: Optional[Callable[[str], None]] = None
+        self._pending_request_urls: dict[str, str] = {}
+        self._pending_response_urls: dict[str, str] = {}
 
     def _log(self, message: str, level: int = 30) -> None:
         if self._log_func:
@@ -214,12 +219,52 @@ class _BrowserController(QObject):
             req_method = request.get("method", "GET")
             req_type = params.get("type", "")
             self.networkRequest.emit(req_url, req_method, req_type)
+            self._pending_request_urls[params.get("requestId", "")] = req_url
+            headers = request.get("headers") or {}
+            cookie = headers.get("cookie", "")
+            if cookie:
+                self.cookieSent.emit(req_url, cookie)
+            for hdr_name in ("authorization", "x-api-key", "proxy-authorization"):
+                val = headers.get(hdr_name, "")
+                if val:
+                    self.credentialDetected.emit(req_url, hdr_name, val)
+        elif method == "Network.requestWillBeSentExtraInfo":
+            headers = params.get("headers") or {}
+            cookie = headers.get("cookie", "")
+            if cookie:
+                req_url = self._pending_request_urls.get(params.get("requestId", ""), "")
+                self.cookieSent.emit(req_url, cookie)
+            for hdr_name in ("authorization", "x-api-key", "proxy-authorization"):
+                val = headers.get(hdr_name, "")
+                if val:
+                    req_url = self._pending_request_urls.get(params.get("requestId", ""), "")
+                    self.credentialDetected.emit(req_url, hdr_name, val)
         elif method == "Network.responseReceived":
             response = params.get("response", {})
             resp_url = response.get("url", "")
             status = response.get("status", 0)
             resp_type = params.get("type", "")
             self.networkResponse.emit(resp_url, status, resp_type)
+            self._pending_response_urls[params.get("requestId", "")] = resp_url
+            headers = response.get("headers") or {}
+            set_cookie = headers.get("set-cookie", "")
+            if isinstance(set_cookie, list):
+                for sc in set_cookie:
+                    if sc:
+                        self.cookieReceived.emit(resp_url, sc)
+            elif set_cookie:
+                self.cookieReceived.emit(resp_url, set_cookie)
+        elif method == "Network.responseReceivedExtraInfo":
+            headers = params.get("headers") or {}
+            set_cookie = headers.get("set-cookie", "")
+            if set_cookie:
+                resp_url = self._pending_response_urls.get(params.get("requestId", ""), "")
+                if isinstance(set_cookie, list):
+                    for sc in set_cookie:
+                        if sc:
+                            self.cookieReceived.emit(resp_url, sc)
+                else:
+                    self.cookieReceived.emit(resp_url, set_cookie)
         elif method == "Inspector.targetCrashed":
             self._log("浏览器标签页崩溃", 40)
         elif method == "Log.entryAdded":
@@ -574,6 +619,9 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
     embedCompleted = pyqtSignal(bool)
     consoleMessage = pyqtSignal(str, str)
     fileDropped = pyqtSignal(str)
+    cookieSent = pyqtSignal(str, str)
+    cookieReceived = pyqtSignal(str, str)
+    credentialDetected = pyqtSignal(str, str, str)
 
     _instances: weakref.WeakSet = weakref.WeakSet()
     _default_debug_port: int = 9222
@@ -638,6 +686,8 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._ole_drop_target: Any = None
         self._ole_target_hwnd: Optional[int] = None
         self._embedded_url: Optional[str] = None
+        self._enable_cookie_jar: bool = False
+        self._cookie_store: dict[str, dict[str, str]] = {}
 
     def _log(self, message: str, level: int = 30) -> None:
         self.logMessage.emit(message, level)
@@ -737,6 +787,18 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
                 pass
             try:
                 self._controller.networkResponse.disconnect(self.networkResponse)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._controller.cookieSent.disconnect(self.cookieSent)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._controller.cookieReceived.disconnect(self.cookieReceived)
+            except (TypeError, RuntimeError):
+                pass
+            try:
+                self._controller.credentialDetected.disconnect(self.credentialDetected)
             except (TypeError, RuntimeError):
                 pass
             self._controller.close()
@@ -871,6 +933,12 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         self._controller.pageError.connect(self.pageError)
         self._controller.networkRequest.connect(self.networkRequest)
         self._controller.networkResponse.connect(self.networkResponse)
+        self._controller.cookieSent.connect(self.cookieSent)
+        self._controller.cookieReceived.connect(self.cookieReceived)
+        self._controller.credentialDetected.connect(self.credentialDetected)
+        if self._enable_cookie_jar:
+            self._controller.cookieReceived.connect(self._jar_on_set_cookie)
+            self._controller.cookieSent.connect(self._jar_on_cookie_sent)
         self._controller.connect()
 
     def _on_dropped_file(self, path: str) -> None:
@@ -1148,6 +1216,81 @@ class ElaBrowserEmbedder(ElaWindowEmbedder):
         if self._session:
             self._session.release()
             self._session = None
+
+    def enable_cookie_jar(self) -> None:
+        """启用内部 cookie jar，记录所有 cookie。
+
+        需在调用 embed() 之前调用。启用后可通过 get_cookie_header()
+        或 get_cookies() 获取收集到的 cookie。
+        """
+        self._enable_cookie_jar = True
+
+    def _jar_on_set_cookie(self, url: str, set_cookie_str: str) -> None:
+        """从 Set-Cookie 响应头解析并存入 cookie store。"""
+        from http.cookies import SimpleCookie
+        from urllib.parse import urlparse
+
+        try:
+            domain = urlparse(url).hostname or ""
+            c = SimpleCookie()
+            c.load(set_cookie_str)
+            for name, morsel in c.items():
+                morsel_domain = morsel.get("domain", "").lstrip(".")
+                store_domain = morsel_domain or domain
+                if store_domain not in self._cookie_store:
+                    self._cookie_store[store_domain] = {}
+                self._cookie_store[store_domain][name] = morsel.value
+        except Exception:
+            pass
+
+    def _jar_on_cookie_sent(self, url: str, cookie_str: str) -> None:
+        """从请求 Cookie 头提取键值，补全 cookie store。"""
+        from urllib.parse import urlparse
+
+        try:
+            domain = urlparse(url).hostname or ""
+            for pair in cookie_str.split(";"):
+                pair = pair.strip()
+                if "=" in pair:
+                    name, val = pair.split("=", 1)
+                    if domain not in self._cookie_store:
+                        self._cookie_store[domain] = {}
+                    self._cookie_store[domain][name.strip()] = val.strip()
+        except Exception:
+            pass
+
+    def get_cookie_header(self, domain: str = "") -> str:
+        """返回 Cookie 请求头字符串，例如 ``name1=value1; name2=value2``。
+
+        :param domain: 可选，过滤指定域名（子串匹配）
+        """
+        parts: list[str] = []
+        seen: set[str] = set()
+        for store_domain, cookies in self._cookie_store.items():
+            if domain and domain not in store_domain:
+                continue
+            for name, val in cookies.items():
+                if name not in seen:
+                    seen.add(name)
+                    parts.append(f"{name}={val}")
+        return "; ".join(parts)
+
+    def get_cookies(self):
+        """返回 ``httpx.Cookies`` 对象，可直接传给 httpx 请求。
+
+        需要安装 httpx，否则抛出 ImportError。
+        """
+        try:
+            import httpx
+        except ImportError:
+            raise ImportError(
+                "需要 httpx 库，请运行: uv pip install httpx"
+            )
+        cookies = httpx.Cookies()
+        for store_domain, entries in self._cookie_store.items():
+            for name, val in entries.items():
+                cookies.set(name, val, domain=store_domain)
+        return cookies
 
     def closeEvent(self, event) -> None:
         """窗口关闭时释放资源。"""
