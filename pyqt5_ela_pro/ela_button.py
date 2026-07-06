@@ -363,8 +363,6 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
             elif variant in ("outlined", "dashed"):
                 if disabled:
                     bc = self._disabled_border()
-                elif neutral_outlined and self._is_dark():
-                    border_pen = Qt.PenStyle.NoPen
                 elif neutral_outlined:
                     bc = self._neutral_border()
                 elif is_default:

@@ -668,6 +668,7 @@ class ElaTrendChart(ElaThemeWidget):
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         self._paint_chart(painter)
+        painter.end()
 
     def _paint_chart(self, painter: QPainter, vector_lines: bool = False) -> None:
         """将图表完整绘制到给定的 QPainter 上。

@@ -178,6 +178,10 @@ class ElaAnimatedMixin:
 
     _fade_animation: Optional[QPropertyAnimation] = None
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._fade_animation = None
+
     def fade_in(self, duration: int = 1000) -> None:
         """让窗口淡入（opacity: 0 → 1）。
 

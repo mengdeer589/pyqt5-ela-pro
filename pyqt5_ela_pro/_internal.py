@@ -35,7 +35,7 @@ def catch_error(func: F) -> F:
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except BaseException:
+        except Exception:
             print(
                 f"Error in {func.__name__}: {traceback.format_exc()}", file=sys.stderr
             )
@@ -142,6 +142,8 @@ class _ThemeAwareMixin:
         self.destroyed.connect(self._theme_cleanup)  # type: ignore[attr-defined]
 
     def _init_theme_aware(self) -> None:
+        if self._theme_connected:
+            return
         self._theme_connected = True
         from PyQt5ElaWidgetTools import eTheme
 

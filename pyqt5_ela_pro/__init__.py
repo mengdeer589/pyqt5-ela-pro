@@ -4,7 +4,7 @@ pyqt5_ela_pro - PyQt5 Extension Widgets Module
 Extension components based on PyQt5ElaWidgetTools with custom styling.
 """
 
-from pyqt5_ela_pro._version import __version__
+from ._version import __version__
 
 # ── Windows 7 DirectWrite 兼容补丁 ───────────────────────────────────────────
 # Qt 5 on Windows 7 has a known bug where DirectWrite's CreateFontFaceFromHDC()

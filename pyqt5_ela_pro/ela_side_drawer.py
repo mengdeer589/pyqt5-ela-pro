@@ -316,7 +316,6 @@ class ElaDrawer(ElaThemeWidget):
             self._dim_widget.setWindowOpacity(0)
             self._dim_widget.show()
             self.show()
-            self._is_opened = True
 
             self._show_anim.setDuration(self._animation_duration)
             self._show_anim.setStartValue(start_rect)
@@ -326,10 +325,12 @@ class ElaDrawer(ElaThemeWidget):
             self._dim_anim.setStartValue(0)
             self._dim_anim.setEndValue(1)
             self._dim_anim.start()
-
-            self.opened.emit()
         except Exception as e:
             print(e)
+            return
+
+        self._is_opened = True
+        self.opened.emit()
 
     def closeDrawer(self) -> None:
         """关闭抽屉（带动画）。"""

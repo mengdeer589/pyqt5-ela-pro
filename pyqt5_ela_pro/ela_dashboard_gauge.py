@@ -384,146 +384,141 @@ class ElaDashboardGauge(ElaThemeWidget):
     # ── Paint ─────────────────────────────────────────────
 
     def paintEvent(self, _event: QPaintEvent) -> None:
-        try:
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
-            side = min(self.width(), self.height())
-            painter.translate(self.width() / 2.0, self.height() / 2.0)
-            painter.scale(side / 260.0, side / 260.0)
+        side = min(self.width(), self.height())
+        painter.translate(self.width() / 2.0, self.height() / 2.0)
+        painter.scale(side / 260.0, side / 260.0)
 
-            radius = 110.0
-            aw = self._arc_width
-            arc_r = radius - aw / 2.0
+        radius = 110.0
+        aw = self._arc_width
+        arc_r = radius - aw / 2.0
 
-            # ── Track arc ──
-            track_pen = QPen(
-                eTheme.getThemeColor(
-                    self._theme_mode, ElaThemeType.ThemeColor.BasicChute
-                ),
-                aw,
-            )
-            track_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            painter.setPen(track_pen)
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            arc_rect = QRectF(-arc_r, -arc_r, arc_r * 2, arc_r * 2)
-            painter.drawArc(arc_rect, self._start_angle * 16, -self._span_angle * 16)
+        # ── Track arc ──
+        track_pen = QPen(
+            eTheme.getThemeColor(
+                self._theme_mode, ElaThemeType.ThemeColor.BasicChute
+            ),
+            aw,
+        )
+        track_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(track_pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        arc_rect = QRectF(-arc_r, -arc_r, arc_r * 2, arc_r * 2)
+        painter.drawArc(arc_rect, self._start_angle * 16, -self._span_angle * 16)
 
-            # ── Value arc ──
-            percent = self._percent()
-            value_span = int(self._span_angle * percent)
-            arc_color = self._arcColor(percent)
-            value_pen = QPen(arc_color, aw)
-            value_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            painter.setPen(value_pen)
-            painter.drawArc(arc_rect, self._start_angle * 16, -value_span * 16)
+        # ── Value arc ──
+        percent = self._percent()
+        value_span = int(self._span_angle * percent)
+        arc_color = self._arcColor(percent)
+        value_pen = QPen(arc_color, aw)
+        value_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(value_pen)
+        painter.drawArc(arc_rect, self._start_angle * 16, -value_span * 16)
 
-            # ── Ticks ──
-            tick_outer_r = radius - aw - 4
-            major_len = 10
-            minor_len = 5
-            total_ticks = self._major_tick_count * self._minor_tick_count
-            pen_major = QPen(self._tickColor(0.0), 2.0)
-            pen_minor = QPen(self._tickColor(0.0), 1.0)
-            tick_font = QFont(self.font())
-            tick_font.setPixelSize(10)
+        # ── Ticks ──
+        tick_outer_r = radius - aw - 4
+        major_len = 10
+        minor_len = 5
+        total_ticks = self._major_tick_count * self._minor_tick_count
+        pen_major = QPen(self._tickColor(0.0), 2.0)
+        pen_minor = QPen(self._tickColor(0.0), 1.0)
+        tick_font = QFont(self.font())
+        tick_font.setPixelSize(10)
 
-            for i in range(total_ticks + 1):
-                tick_angle = self._start_angle - (self._span_angle * i / total_ticks)
-                rad = math.radians(tick_angle)
-                is_major = i % self._minor_tick_count == 0
-                tlen = major_len if is_major else minor_len
+        for i in range(total_ticks + 1):
+            tick_angle = self._start_angle - (self._span_angle * i / total_ticks)
+            rad = math.radians(tick_angle)
+            is_major = i % self._minor_tick_count == 0
+            tlen = major_len if is_major else minor_len
 
-                x1 = tick_outer_r * math.cos(rad)
-                y1 = -tick_outer_r * math.sin(rad)
-                x2 = (tick_outer_r - tlen) * math.cos(rad)
-                y2 = -(tick_outer_r - tlen) * math.sin(rad)
+            x1 = tick_outer_r * math.cos(rad)
+            y1 = -tick_outer_r * math.sin(rad)
+            x2 = (tick_outer_r - tlen) * math.cos(rad)
+            y2 = -(tick_outer_r - tlen) * math.sin(rad)
 
-                tick_pct = i / total_ticks
-                tc = self._tickColor(tick_pct)
-                p = QPen(pen_major if is_major else pen_minor)
-                p.setColor(tc)
-                painter.setPen(p)
-                painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
+            tick_pct = i / total_ticks
+            tc = self._tickColor(tick_pct)
+            p = QPen(pen_major if is_major else pen_minor)
+            p.setColor(tc)
+            painter.setPen(p)
+            painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
 
-                if is_major:
-                    tick_val = (
-                        self._minimum + (self._maximum - self._minimum) * tick_pct
-                    )
-                    label = f"{tick_val:.{self._decimals}f}"
-                    lr = self._decimals * 3 if self._decimals > 0 else 0
-                    painter.setFont(tick_font)
-                    painter.setPen(tc)
-                    label_r = tick_outer_r - tlen - 12
-                    lx = label_r * math.cos(rad)
-                    ly = -label_r * math.sin(rad)
-                    painter.drawText(
-                        QRectF(lx - 20 - lr, ly - 8, 40 + lr * 2, 16),
-                        Qt.AlignmentFlag.AlignCenter,
-                        label,
-                    )
-
-            # ── Needle ──
-            needle_angle = self._start_angle - self._span_angle * percent
-            needle_len = tick_outer_r - major_len - 20
-            needle_tail = 12
-
-            painter.save()
-            painter.rotate(-(needle_angle - 90))
-            needle_path = QPainterPath()
-            needle_path.moveTo(QPointF(0, -needle_len))
-            needle_path.lineTo(QPointF(-3, 0))
-            needle_path.lineTo(QPointF(0, needle_tail))
-            needle_path.lineTo(QPointF(3, 0))
-            needle_path.closeSubpath()
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(arc_color)
-            painter.drawPath(needle_path)
-
-            painter.setBrush(
-                eTheme.getThemeColor(
-                    self._theme_mode, ElaThemeType.ThemeColor.BasicText
+            if is_major:
+                tick_val = (
+                    self._minimum + (self._maximum - self._minimum) * tick_pct
                 )
-            )
-            painter.drawEllipse(QPointF(0, 0), 6, 6)
-            painter.setBrush(
-                eTheme.getThemeColor(
-                    self._theme_mode, ElaThemeType.ThemeColor.WindowBase
-                )
-            )
-            painter.drawEllipse(QPointF(0, 0), 3, 3)
-            painter.restore()
-
-            # ── Value text ──
-            display_val = self._animated_value
-            value_text = f"{display_val:.{self._decimals}f}"
-            if self._unit:
-                value_text += f" {self._unit}"
-
-            val_font = QFont(self.font())
-            val_font.setPixelSize(self._value_pixel_size)
-            val_font.setBold(True)
-            painter.setFont(val_font)
-            painter.setPen(arc_color)
-            painter.drawText(
-                QRectF(-80, 15, 160, 40), Qt.AlignmentFlag.AlignCenter, value_text
-            )
-
-            # ── Title ──
-            if self._title:
-                title_font = QFont(self.font())
-                title_font.setPixelSize(13)
-                painter.setFont(title_font)
-                painter.setPen(
-                    eTheme.getThemeColor(
-                        self._theme_mode, ElaThemeType.ThemeColor.BasicDetailsText
-                    )
-                )
+                label = f"{tick_val:.{self._decimals}f}"
+                lr = self._decimals * 3 if self._decimals > 0 else 0
+                painter.setFont(tick_font)
+                painter.setPen(tc)
+                label_r = tick_outer_r - tlen - 12
+                lx = label_r * math.cos(rad)
+                ly = -label_r * math.sin(rad)
                 painter.drawText(
-                    QRectF(-80, 50, 160, 20), Qt.AlignmentFlag.AlignCenter, self._title
+                    QRectF(lx - 20 - lr, ly - 8, 40 + lr * 2, 16),
+                    Qt.AlignmentFlag.AlignCenter,
+                    label,
                 )
-        except Exception:
-            import traceback
 
-            traceback.print_exc()
+        # ── Needle ──
+        needle_angle = self._start_angle - self._span_angle * percent
+        needle_len = tick_outer_r - major_len - 20
+        needle_tail = 12
+
+        painter.save()
+        painter.rotate(-(needle_angle - 90))
+        needle_path = QPainterPath()
+        needle_path.moveTo(QPointF(0, -needle_len))
+        needle_path.lineTo(QPointF(-3, 0))
+        needle_path.lineTo(QPointF(0, needle_tail))
+        needle_path.lineTo(QPointF(3, 0))
+        needle_path.closeSubpath()
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(arc_color)
+        painter.drawPath(needle_path)
+
+        painter.setBrush(
+            eTheme.getThemeColor(
+                self._theme_mode, ElaThemeType.ThemeColor.BasicText
+            )
+        )
+        painter.drawEllipse(QPointF(0, 0), 6, 6)
+        painter.setBrush(
+            eTheme.getThemeColor(
+                self._theme_mode, ElaThemeType.ThemeColor.WindowBase
+            )
+        )
+        painter.drawEllipse(QPointF(0, 0), 3, 3)
+        painter.restore()
+
+        # ── Value text ──
+        display_val = self._animated_value
+        value_text = f"{display_val:.{self._decimals}f}"
+        if self._unit:
+            value_text += f" {self._unit}"
+
+        val_font = QFont(self.font())
+        val_font.setPixelSize(self._value_pixel_size)
+        val_font.setBold(True)
+        painter.setFont(val_font)
+        painter.setPen(arc_color)
+        painter.drawText(
+            QRectF(-80, 15, 160, 40), Qt.AlignmentFlag.AlignCenter, value_text
+        )
+
+        # ── Title ──
+        if self._title:
+            title_font = QFont(self.font())
+            title_font.setPixelSize(13)
+            painter.setFont(title_font)
+            painter.setPen(
+                eTheme.getThemeColor(
+                    self._theme_mode, ElaThemeType.ThemeColor.BasicDetailsText
+                )
+            )
+            painter.drawText(
+                QRectF(-80, 50, 160, 20), Qt.AlignmentFlag.AlignCenter, self._title
+            )

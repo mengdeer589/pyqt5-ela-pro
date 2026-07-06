@@ -548,7 +548,7 @@ class ElaDataTable(ElaTableView):
             if self._isLoadThreadConnected:
                 try:
                     self._load_thread.finished.disconnect()
-                except TypeError:
+                except (TypeError, RuntimeError):
                     pass
                 self._isLoadThreadConnected = False
             self._load_thread.deleteLater()

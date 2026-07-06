@@ -309,47 +309,44 @@ class ElaSpotlight(ElaThemeWidget):
         event.accept()
 
     def paintEvent(self, _event: QPaintEvent) -> None:
-        try:
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-            overlay = QPainterPath()
-            overlay.addRect(QRectF(self.rect()))
+        overlay = QPainterPath()
+        overlay.addRect(QRectF(self.rect()))
 
-            if self._spotlight_rect.isValid():
-                hole = QPainterPath()
-                if self._is_circle:
-                    r = (
-                        max(self._spotlight_rect.width(), self._spotlight_rect.height())
-                        / 2.0
-                    )
-                    hole.addEllipse(self._spotlight_rect.center(), r, r)
-                else:
-                    hole.addRoundedRect(
-                        self._spotlight_rect, self._border_radius, self._border_radius
-                    )
-                overlay = overlay.subtracted(hole)
-
-            alpha = int(self._overlay_alpha * self._opacity)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(0, 0, 0, alpha))
-            painter.drawPath(overlay)
-
-            if self._spotlight_rect.isValid():
-                border_color = eTheme.getThemeColor(
-                    self._theme_mode, ElaThemeType.ThemeColor.PrimaryNormal
+        if self._spotlight_rect.isValid():
+            hole = QPainterPath()
+            if self._is_circle:
+                r = (
+                    max(self._spotlight_rect.width(), self._spotlight_rect.height())
+                    / 2.0
                 )
-                painter.setPen(QPen(border_color, 2))
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                if self._is_circle:
-                    r = (
-                        max(self._spotlight_rect.width(), self._spotlight_rect.height())
-                        / 2.0
-                    )
-                    painter.drawEllipse(self._spotlight_rect.center(), r, r)
-                else:
-                    painter.drawRoundedRect(
-                        self._spotlight_rect, self._border_radius, self._border_radius
-                    )
-        except Exception as e:
-            print(f"ElaSpotlight paint error: {e}")
+                hole.addEllipse(self._spotlight_rect.center(), r, r)
+            else:
+                hole.addRoundedRect(
+                    self._spotlight_rect, self._border_radius, self._border_radius
+                )
+            overlay = overlay.subtracted(hole)
+
+        alpha = int(self._overlay_alpha * self._opacity)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(0, 0, 0, alpha))
+        painter.drawPath(overlay)
+
+        if self._spotlight_rect.isValid():
+            border_color = eTheme.getThemeColor(
+                self._theme_mode, ElaThemeType.ThemeColor.PrimaryNormal
+            )
+            painter.setPen(QPen(border_color, 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            if self._is_circle:
+                r = (
+                    max(self._spotlight_rect.width(), self._spotlight_rect.height())
+                    / 2.0
+                )
+                painter.drawEllipse(self._spotlight_rect.center(), r, r)
+            else:
+                painter.drawRoundedRect(
+                    self._spotlight_rect, self._border_radius, self._border_radius
+                )

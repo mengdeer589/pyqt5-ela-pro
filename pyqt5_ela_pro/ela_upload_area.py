@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import traceback
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QRectF, QFileInfo, QEvent, pyqtSignal
@@ -341,173 +340,170 @@ class ElaUploadArea(ElaThemeWidget):
     # ── Paint ─────────────────────────────────────────────
 
     def paintEvent(self, _event: QPaintEvent) -> None:
-        try:
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
-            mode = self._theme_mode
-            br = self._border_radius
-            rect = QRectF(1, 1, self.width() - 2, self.height() - 2)
-            path = QPainterPath()
-            path.addRoundedRect(rect, br, br)
+        mode = self._theme_mode
+        br = self._border_radius
+        rect = QRectF(1, 1, self.width() - 2, self.height() - 2)
+        path = QPainterPath()
+        path.addRoundedRect(rect, br, br)
 
-            if self._is_drag_over:
-                painter.setPen(
-                    QPen(
-                        eTheme.getThemeColor(
-                            mode, ElaThemeType.ThemeColor.PrimaryNormal
-                        ),
-                        2,
-                        Qt.PenStyle.DashLine,
-                    )
-                )
-                painter.setBrush(
+        if self._is_drag_over:
+            painter.setPen(
+                QPen(
                     eTheme.getThemeColor(
-                        mode, ElaThemeType.ThemeColor.BasicBaseDeepAlpha
-                    )
+                        mode, ElaThemeType.ThemeColor.PrimaryNormal
+                    ),
+                    2,
+                    Qt.PenStyle.DashLine,
                 )
-            elif self._is_hover:
-                painter.setPen(
-                    QPen(
-                        eTheme.getThemeColor(
-                            mode, ElaThemeType.ThemeColor.BasicBorderHover
-                        ),
-                        2,
-                        Qt.PenStyle.DashLine,
-                    )
+            )
+            painter.setBrush(
+                eTheme.getThemeColor(
+                    mode, ElaThemeType.ThemeColor.BasicBaseDeepAlpha
                 )
-                painter.setBrush(
-                    eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicHoverAlpha)
+            )
+        elif self._is_hover:
+            painter.setPen(
+                QPen(
+                    eTheme.getThemeColor(
+                        mode, ElaThemeType.ThemeColor.BasicBorderHover
+                    ),
+                    2,
+                    Qt.PenStyle.DashLine,
                 )
-            else:
-                painter.setPen(
-                    QPen(
-                        eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorder),
-                        2,
-                        Qt.PenStyle.DashLine,
-                    )
+            )
+            painter.setBrush(
+                eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicHoverAlpha)
+            )
+        else:
+            painter.setPen(
+                QPen(
+                    eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorder),
+                    2,
+                    Qt.PenStyle.DashLine,
                 )
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawPath(path)
+            )
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(path)
 
-            cy = self.height() // 2
+        cy = self.height() // 2
 
-            if not self._file_paths:
-                self._icon_font.setPixelSize(36)
-                painter.setFont(self._icon_font)
+        if not self._file_paths:
+            self._icon_font.setPixelSize(36)
+            painter.setFont(self._icon_font)
+            painter.setPen(
+                eTheme.getThemeColor(
+                    mode,
+                    ElaThemeType.ThemeColor.PrimaryNormal
+                    if self._is_drag_over
+                    else ElaThemeType.ThemeColor.BasicTextNoFocus,
+                )
+            )
+            painter.drawText(
+                QRectF(0, cy - 48, self.width(), 40),
+                Qt.AlignmentFlag.AlignCenter,
+                chr(int(ElaIconType.IconName.CloudArrowUp)),
+            )
+
+            self._title_font.setPixelSize(15)
+            self._title_font.setBold(True)
+            painter.setFont(self._title_font)
+            painter.setPen(
+                eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
+            )
+            painter.drawText(
+                QRectF(0, cy, self.width(), 24),
+                Qt.AlignmentFlag.AlignCenter,
+                self._title,
+            )
+
+            self._sub_font.setPixelSize(12)
+            painter.setFont(self._sub_font)
+            painter.setPen(
+                eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextNoFocus)
+            )
+            painter.drawText(
+                QRectF(0, cy + 26, self.width(), 20),
+                Qt.AlignmentFlag.AlignCenter,
+                self._sub_title,
+            )
+        else:
+            self._icon_font.setPixelSize(24)
+            painter.setFont(self._icon_font)
+            painter.setPen(
+                eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextNoFocus)
+            )
+            painter.drawText(
+                QRectF(0, 12, self.width(), 28),
+                Qt.AlignmentFlag.AlignCenter,
+                chr(int(ElaIconType.IconName.CloudArrowUp)),
+            )
+
+            start_y = 46
+            lh = 22
+            max_display = min(
+                len(self._file_paths), max(1, (self.height() - start_y - 10) // lh)
+            )
+
+            for i in range(max_display):
+                info = QFileInfo(self._file_paths[i])
+                display = info.fileName()
+
+                # File icon
+                self._fi_font.setPixelSize(12)
+                painter.setFont(self._fi_font)
                 painter.setPen(
                     eTheme.getThemeColor(
-                        mode,
-                        ElaThemeType.ThemeColor.PrimaryNormal
-                        if self._is_drag_over
-                        else ElaThemeType.ThemeColor.BasicTextNoFocus,
+                        mode, ElaThemeType.ThemeColor.PrimaryNormal
                     )
                 )
                 painter.drawText(
-                    QRectF(0, cy - 48, self.width(), 40),
-                    Qt.AlignmentFlag.AlignCenter,
-                    chr(int(ElaIconType.IconName.CloudArrowUp)),
+                    QRectF(12, start_y + i * lh, 16, lh),
+                    Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter,
+                    chr(int(ElaIconType.IconName.File)),
                 )
 
-                self._title_font.setPixelSize(15)
-                self._title_font.setBold(True)
-                painter.setFont(self._title_font)
+                # Filename
+                painter.setFont(QApplication.font())
                 painter.setPen(
                     eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
                 )
+                name_r = QRectF(32, start_y + i * lh, self.width() - 60, lh)
+                elided = painter.fontMetrics().elidedText(
+                    display, Qt.TextElideMode.ElideMiddle, int(name_r.width())
+                )
                 painter.drawText(
-                    QRectF(0, cy, self.width(), 24),
-                    Qt.AlignmentFlag.AlignCenter,
-                    self._title,
+                    name_r,
+                    Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+                    elided,
                 )
 
-                self._sub_font.setPixelSize(12)
-                painter.setFont(self._sub_font)
+                # X button
+                self._x_font.setPixelSize(10)
+                painter.setFont(self._x_font)
                 painter.setPen(
-                    eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextNoFocus)
+                    eTheme.getThemeColor(
+                        mode, ElaThemeType.ThemeColor.BasicTextNoFocus
+                    )
                 )
                 painter.drawText(
-                    QRectF(0, cy + 26, self.width(), 20),
-                    Qt.AlignmentFlag.AlignCenter,
-                    self._sub_title,
+                    QRectF(self.width() - 28, start_y + i * lh, 16, lh),
+                    Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter,
+                    chr(int(ElaIconType.IconName.Xmark)),
                 )
-            else:
-                self._icon_font.setPixelSize(24)
-                painter.setFont(self._icon_font)
+
+            if len(self._file_paths) > max_display:
+                painter.setFont(QApplication.font())
                 painter.setPen(
-                    eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextNoFocus)
+                    eTheme.getThemeColor(
+                        mode, ElaThemeType.ThemeColor.BasicTextNoFocus
+                    )
                 )
                 painter.drawText(
-                    QRectF(0, 12, self.width(), 28),
+                    QRectF(0, start_y + max_display * lh, self.width(), lh),
                     Qt.AlignmentFlag.AlignCenter,
-                    chr(int(ElaIconType.IconName.CloudArrowUp)),
+                    f"...还有 {len(self._file_paths) - max_display} 个文件",
                 )
-
-                start_y = 46
-                lh = 22
-                max_display = min(
-                    len(self._file_paths), max(1, (self.height() - start_y - 10) // lh)
-                )
-
-                for i in range(max_display):
-                    info = QFileInfo(self._file_paths[i])
-                    display = info.fileName()
-
-                    # File icon
-                    self._fi_font.setPixelSize(12)
-                    painter.setFont(self._fi_font)
-                    painter.setPen(
-                        eTheme.getThemeColor(
-                            mode, ElaThemeType.ThemeColor.PrimaryNormal
-                        )
-                    )
-                    painter.drawText(
-                        QRectF(12, start_y + i * lh, 16, lh),
-                        Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter,
-                        chr(int(ElaIconType.IconName.File)),
-                    )
-
-                    # Filename
-                    painter.setFont(QApplication.font())
-                    painter.setPen(
-                        eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
-                    )
-                    name_r = QRectF(32, start_y + i * lh, self.width() - 60, lh)
-                    elided = painter.fontMetrics().elidedText(
-                        display, Qt.TextElideMode.ElideMiddle, int(name_r.width())
-                    )
-                    painter.drawText(
-                        name_r,
-                        Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                        elided,
-                    )
-
-                    # X button
-                    self._x_font.setPixelSize(10)
-                    painter.setFont(self._x_font)
-                    painter.setPen(
-                        eTheme.getThemeColor(
-                            mode, ElaThemeType.ThemeColor.BasicTextNoFocus
-                        )
-                    )
-                    painter.drawText(
-                        QRectF(self.width() - 28, start_y + i * lh, 16, lh),
-                        Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter,
-                        chr(int(ElaIconType.IconName.Xmark)),
-                    )
-
-                if len(self._file_paths) > max_display:
-                    painter.setFont(QApplication.font())
-                    painter.setPen(
-                        eTheme.getThemeColor(
-                            mode, ElaThemeType.ThemeColor.BasicTextNoFocus
-                        )
-                    )
-                    painter.drawText(
-                        QRectF(0, start_y + max_display * lh, self.width(), lh),
-                        Qt.AlignmentFlag.AlignCenter,
-                        f"...还有 {len(self._file_paths) - max_display} 个文件",
-                    )
-        except Exception:
-            print(traceback.format_exc())

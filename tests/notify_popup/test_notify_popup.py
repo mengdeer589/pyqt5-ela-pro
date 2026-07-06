@@ -17,7 +17,6 @@ class TestElaNotifyPopup:
         assert popup._title == "Test"
         assert popup._content == "Content"
         assert popup._timeout == 5000
-        assert popup._is_showing is False
 
         popup.deleteLater()
 

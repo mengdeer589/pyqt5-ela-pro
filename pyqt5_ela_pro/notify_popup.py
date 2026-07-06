@@ -45,7 +45,6 @@ class ElaNotifyPopup(QWidget):
         self._title = title
         self._content = content
         self._timeout = timeout
-        self._is_showing = False
         self._is_closing = False
         self._animation = None
         self._timer = None
@@ -150,7 +149,6 @@ class ElaNotifyPopup(QWidget):
 
         self._update_positions()
         self._timer.stop()
-        self._is_showing = False
         self._is_closing = False
         self._animation.stop()
         try:
@@ -175,7 +173,6 @@ class ElaNotifyPopup(QWidget):
             return
         self._is_closing = True
         self._timer.stop()
-        self._is_showing = False
         self._animation.stop()
         self._animation.setStartValue(self.pos())
         self._animation.setEndValue(self._start_pos)
@@ -203,7 +200,7 @@ class ElaNotifyPopup(QWidget):
         super().enterEvent(event)
 
     def leaveEvent(self, event: QEvent) -> None:
-        if self._timeout > 0 and not self._is_showing:
+        if self._timeout > 0:
             self._timer.start(self._timeout)
         super().leaveEvent(event)
 

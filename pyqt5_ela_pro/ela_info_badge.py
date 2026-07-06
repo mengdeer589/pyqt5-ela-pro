@@ -275,6 +275,7 @@ class ElaInfoBadge(ElaThemeWidget):
             painter.drawText(
                 self.rect(), Qt.AlignmentFlag.AlignCenter, chr(int(self._icon))
             )
+        painter.end()
 
     def sizeHint(self) -> QSize:
         if self._badge_mode == self.BadgeMode.Dot:

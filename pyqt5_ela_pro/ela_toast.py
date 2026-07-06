@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import traceback
 from enum import IntEnum
 from typing import Optional
 
@@ -187,73 +186,70 @@ class ElaToast(ElaThemeWidget):
     # ── Paint ─────────────────────────────────────────────
 
     def paintEvent(self, _event: QPaintEvent) -> None:
-        try:
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
-            mode = self._theme_mode
-            sb = self._shadow_border
-            br = self._border_radius
-            fg = QRect(sb, sb, self.width() - 2 * sb, self.height() - 2 * sb)
+        mode = self._theme_mode
+        sb = self._shadow_border
+        br = self._border_radius
+        fg = QRect(sb, sb, self.width() - 2 * sb, self.height() - 2 * sb)
 
-            # Background
-            painter.setPen(
-                eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBorder)
+        # Background
+        painter.setPen(
+            eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBorder)
+        )
+        painter.setBrush(
+            eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBase)
+        )
+        painter.drawRoundedRect(fg, br, br)
+
+        # Indicator & icon
+        if self._toast_type == _ToastType.Success:
+            ind_color = QColor(0x0F, 0x7B, 0x0F)
+            icon_enum = ElaIconType.IconName.Check
+        elif self._toast_type == _ToastType.Info:
+            ind_color = eTheme.getThemeColor(
+                mode, ElaThemeType.ThemeColor.PrimaryNormal
             )
-            painter.setBrush(
-                eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBase)
+            icon_enum = ElaIconType.IconName.CircleInfo
+        elif self._toast_type == _ToastType.Warning:
+            ind_color = QColor(0xF7, 0x93, 0x0E)
+            icon_enum = ElaIconType.IconName.CircleExclamation
+        else:
+            ind_color = eTheme.getThemeColor(
+                mode, ElaThemeType.ThemeColor.StatusDanger
             )
-            painter.drawRoundedRect(fg, br, br)
+            icon_enum = ElaIconType.IconName.CircleXmark
 
-            # Indicator & icon
-            if self._toast_type == _ToastType.Success:
-                ind_color = QColor(0x0F, 0x7B, 0x0F)
-                icon_enum = ElaIconType.IconName.Check
-            elif self._toast_type == _ToastType.Info:
-                ind_color = eTheme.getThemeColor(
-                    mode, ElaThemeType.ThemeColor.PrimaryNormal
-                )
-                icon_enum = ElaIconType.IconName.CircleInfo
-            elif self._toast_type == _ToastType.Warning:
-                ind_color = QColor(0xF7, 0x93, 0x0E)
-                icon_enum = ElaIconType.IconName.CircleExclamation
-            else:
-                ind_color = eTheme.getThemeColor(
-                    mode, ElaThemeType.ThemeColor.StatusDanger
-                )
-                icon_enum = ElaIconType.IconName.CircleXmark
+        # Indicator bar (clip to foreground)
+        clip_path = QPainterPath()
+        clip_path.addRoundedRect(QRectF(fg), br, br)
+        painter.save()
+        painter.setClipPath(clip_path)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(ind_color)
+        painter.drawRect(QRect(fg.x(), fg.y(), 4, fg.height()))
+        painter.restore()
 
-            # Indicator bar (clip to foreground)
-            clip_path = QPainterPath()
-            clip_path.addRoundedRect(QRectF(fg), br, br)
-            painter.save()
-            painter.setClipPath(clip_path)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(ind_color)
-            painter.drawRect(QRect(fg.x(), fg.y(), 4, fg.height()))
-            painter.restore()
+        # Icon
+        self._icon_font.setPixelSize(16)
+        painter.setFont(self._icon_font)
+        painter.setPen(ind_color)
+        painter.drawText(
+            QRect(fg.x() + 14, fg.y(), 20, fg.height()),
+            Qt.AlignmentFlag.AlignCenter,
+            chr(int(icon_enum)),
+        )
 
-            # Icon
-            self._icon_font.setPixelSize(16)
-            painter.setFont(self._icon_font)
-            painter.setPen(ind_color)
-            painter.drawText(
-                QRect(fg.x() + 14, fg.y(), 20, fg.height()),
-                Qt.AlignmentFlag.AlignCenter,
-                chr(int(icon_enum)),
-            )
-
-            # Text
-            self._text_font.setPixelSize(14)
-            painter.setFont(self._text_font)
-            painter.setPen(
-                eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
-            )
-            painter.drawText(
-                QRect(fg.x() + 42, fg.y(), fg.width() - 52, fg.height()),
-                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
-                self._text,
-            )
-        except Exception:
-            print(traceback.format_exc())
+        # Text
+        self._text_font.setPixelSize(14)
+        painter.setFont(self._text_font)
+        painter.setPen(
+            eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
+        )
+        painter.drawText(
+            QRect(fg.x() + 42, fg.y(), fg.width() - 52, fg.height()),
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            self._text,
+        )

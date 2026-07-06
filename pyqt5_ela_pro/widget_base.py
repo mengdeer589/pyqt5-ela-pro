@@ -107,6 +107,8 @@ class ElaThemeWidget(_ThemeAwareMixin, QWidget):
         :param position: 显示位置
         :param parent: 父控件，用于消息条定位
         """
+        if level not in ("error", "warning", "information", "success"):
+            raise ValueError(f"Invalid alert level: {level!r}")
         func = getattr(ElaMessageBar, level)
         position_policy = getattr(ElaMessageBarType.PositionPolicy, position)
         if parent is None:

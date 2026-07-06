@@ -47,10 +47,18 @@ class ElaDialogBase(ElaContentDialog):
         self.setRightButtonText("确定")
 
         if middleText is None:
-            for btn in self.findChildren(QPushButton):
-                if btn.text() == "minimum":
-                    btn.setVisible(False)
-                    break
+            try:
+                btn = self.findChild(QPushButton, "middleButton")
+            except Exception:
+                btn = None
+            if btn is not None:
+                btn.setVisible(False)
+            else:
+                # Fallback: search by default text
+                for btn in self.findChildren(QPushButton):
+                    if btn.text() == "minimum":
+                        btn.setVisible(False)
+                        break
         else:
             self.setMiddleButtonText(middleText)
             self.middleButtonClicked.connect(self._middleBtnClicked)

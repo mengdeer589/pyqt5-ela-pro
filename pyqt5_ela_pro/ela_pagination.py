@@ -299,70 +299,67 @@ class ElaPagination(ElaThemeWidget):
     # ── Paint ─────────────────────────────────────────────
 
     def paintEvent(self, _event: QPaintEvent) -> None:
-        try:
-            self._updateJumperPosition()
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        self._updateJumperPosition()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
-            mode = self._theme_mode
-            primary = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryNormal)
-            base = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase)
-            hover = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicHover)
-            disable_bg = eTheme.getThemeColor(
-                mode, ElaThemeType.ThemeColor.BasicDisable
-            )
-            text = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
-            text_dis = eTheme.getThemeColor(
-                mode, ElaThemeType.ThemeColor.BasicTextDisable
-            )
+        mode = self._theme_mode
+        primary = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryNormal)
+        base = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase)
+        hover = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicHover)
+        disable_bg = eTheme.getThemeColor(
+            mode, ElaThemeType.ThemeColor.BasicDisable
+        )
+        text = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
+        text_dis = eTheme.getThemeColor(
+            mode, ElaThemeType.ThemeColor.BasicTextDisable
+        )
 
-            for i, (r, val) in enumerate(self._getButtonRects()):
-                is_current = val > 0 and val == self._current_page
-                is_disabled = (val == 0 and self._current_page <= 1) or (
-                    val == -2 and self._current_page >= self._total_pages
+        for i, (r, val) in enumerate(self._getButtonRects()):
+            is_current = val > 0 and val == self._current_page
+            is_disabled = (val == 0 and self._current_page <= 1) or (
+                val == -2 and self._current_page >= self._total_pages
+            )
+            is_hovered = i == self._hover_index
+
+            painter.setPen(Qt.PenStyle.NoPen)
+            if is_current:
+                painter.setBrush(primary)
+            elif is_disabled:
+                painter.setBrush(disable_bg)
+            elif is_hovered:
+                painter.setBrush(hover)
+            else:
+                painter.setBrush(base)
+
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(r), 6, 6)
+            painter.drawPath(path)
+
+            if is_current:
+                painter.setPen(Qt.GlobalColor.white)
+            elif is_disabled:
+                painter.setPen(text_dis)
+            else:
+                painter.setPen(text)
+
+            if val == 0 or val == -2 or val in (-1, -3):
+                self._icon_font.setPixelSize(16)
+                painter.setFont(self._icon_font)
+                icon_char = (
+                    chr(0xEA84)
+                    if val == 0
+                    else chr(0xEA85)
+                    if val == -2
+                    else chr(0xEC4D)
                 )
-                is_hovered = i == self._hover_index
-
-                painter.setPen(Qt.PenStyle.NoPen)
-                if is_current:
-                    painter.setBrush(primary)
-                elif is_disabled:
-                    painter.setBrush(disable_bg)
-                elif is_hovered:
-                    painter.setBrush(hover)
-                else:
-                    painter.setBrush(base)
-
-                path = QPainterPath()
-                path.addRoundedRect(QRectF(r), 6, 6)
-                painter.drawPath(path)
-
-                if is_current:
-                    painter.setPen(Qt.GlobalColor.white)
-                elif is_disabled:
-                    painter.setPen(text_dis)
-                else:
-                    painter.setPen(text)
-
-                if val == 0 or val == -2 or val in (-1, -3):
-                    self._icon_font.setPixelSize(16)
-                    painter.setFont(self._icon_font)
-                    icon_char = (
-                        chr(0xEA84)
-                        if val == 0
-                        else chr(0xEA85)
-                        if val == -2
-                        else chr(0xEC4D)
-                    )
-                    painter.drawText(r, Qt.AlignmentFlag.AlignCenter, icon_char)
-                else:
-                    tf = self.font()
-                    tf.setPixelSize(14)
-                    painter.setFont(tf)
-                    painter.drawText(r, Qt.AlignmentFlag.AlignCenter, str(val))
-        except Exception:  # noqa
-            pass
+                painter.drawText(r, Qt.AlignmentFlag.AlignCenter, icon_char)
+            else:
+                tf = self.font()
+                tf.setPixelSize(14)
+                painter.setFont(tf)
+                painter.drawText(r, Qt.AlignmentFlag.AlignCenter, str(val))
 
     def sizeHint(self) -> QSize:
         rects = self._getButtonRects()

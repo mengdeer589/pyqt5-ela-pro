@@ -65,43 +65,38 @@ class ElaSplitterHandle(_ThemeAwareMixin, QSplitterHandle):
         super().mouseReleaseEvent(event)
 
     def paintEvent(self, _event: QPaintEvent) -> None:
-        try:
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-            w, h, mode = self.width(), self.height(), self._theme_mode
-            is_horiz = self.orientation() == Qt.Orientation.Horizontal
+        w, h, mode = self.width(), self.height(), self._theme_mode
+        is_horiz = self.orientation() == Qt.Orientation.Horizontal
 
-            if self._is_hover or self._is_pressed:
-                grip_color = eTheme.getThemeColor(
-                    mode, ElaThemeType.ThemeColor.PrimaryNormal
-                )
-            else:
-                grip_color = eTheme.getThemeColor(
-                    mode, ElaThemeType.ThemeColor.BasicBorderDeep
-                )
+        if self._is_hover or self._is_pressed:
+            grip_color = eTheme.getThemeColor(
+                mode, ElaThemeType.ThemeColor.PrimaryNormal
+            )
+        else:
+            grip_color = eTheme.getThemeColor(
+                mode, ElaThemeType.ThemeColor.BasicBorderDeep
+            )
 
-            line_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorder)
-            painter.setPen(QPen(line_color, 1))
+        line_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorder)
+        painter.setPen(QPen(line_color, 1))
 
-            if is_horiz:
-                cx = w // 2
-                painter.drawLine(cx, 0, cx, h)
-                gy = (h - self._grip_length) // 2
-                grip_rect = QRectF(cx - 2, gy, 4, self._grip_length)
-            else:
-                cy = h // 2
-                painter.drawLine(0, cy, w, cy)
-                gx = (w - self._grip_length) // 2
-                grip_rect = QRectF(gx, cy - 2, self._grip_length, 4)
+        if is_horiz:
+            cx = w // 2
+            painter.drawLine(cx, 0, cx, h)
+            gy = (h - self._grip_length) // 2
+            grip_rect = QRectF(cx - 2, gy, 4, self._grip_length)
+        else:
+            cy = h // 2
+            painter.drawLine(0, cy, w, cy)
+            gx = (w - self._grip_length) // 2
+            grip_rect = QRectF(gx, cy - 2, self._grip_length, 4)
 
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(grip_color)
-            painter.drawRoundedRect(grip_rect, 2, 2)
-        except Exception:  # noqa
-            import traceback
-
-            traceback.print_exc()
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(grip_color)
+        painter.drawRoundedRect(grip_rect, 2, 2)
 
 
 class ElaSplitter(QSplitter):

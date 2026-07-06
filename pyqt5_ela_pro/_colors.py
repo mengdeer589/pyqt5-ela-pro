@@ -268,6 +268,8 @@ def get_color_scheme(
 ) -> dict[str, QColor]:
     """获取指定颜色名称在当前主题下的完整色板（QColor 对象）。"""
     resolved = _resolve_color(color_name)
+    if resolved not in _COLOR_PALETTE:
+        resolved = "blue"
     mode_key = "light" if mode == ElaThemeType.ThemeMode.Light else "dark"
     raw = _COLOR_PALETTE[resolved][mode_key]
     return {k: QColor(v) for k, v in raw.items()}
@@ -276,5 +278,7 @@ def get_color_scheme(
 def get_accent_color(color_name: str, mode: ElaThemeType.ThemeMode) -> QColor:
     """仅获取主色 accent。"""
     resolved = _resolve_color(color_name)
+    if resolved not in _COLOR_PALETTE:
+        resolved = "blue"
     mode_key = "light" if mode == ElaThemeType.ThemeMode.Light else "dark"
     return QColor(_COLOR_PALETTE[resolved][mode_key]["accent"])

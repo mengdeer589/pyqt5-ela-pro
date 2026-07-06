@@ -86,9 +86,10 @@ class TestColorsGetColorScheme:
         aliased = get_color_scheme("primary", ElaThemeType.ThemeMode.Light)
         assert direct["accent"].name() == aliased["accent"].name()
 
-    def test_get_color_scheme_unknown_raises_keyerror(self):
-        with pytest.raises(KeyError):
-            get_color_scheme("nonexistent", ElaThemeType.ThemeMode.Light)
+    def test_get_color_scheme_unknown_falls_back_to_blue(self):
+        unknown = get_color_scheme("nonexistent", ElaThemeType.ThemeMode.Light)
+        blue = get_color_scheme("blue", ElaThemeType.ThemeMode.Light)
+        assert unknown["accent"].name() == blue["accent"].name()
 
 
 class TestColorsGetAccentColor:
@@ -109,6 +110,7 @@ class TestColorsGetAccentColor:
         aliased = get_accent_color("primary", ElaThemeType.ThemeMode.Light)
         assert direct.name() == aliased.name()
 
-    def test_get_accent_color_unknown_raises_keyerror(self):
-        with pytest.raises(KeyError):
-            get_accent_color("nonexistent", ElaThemeType.ThemeMode.Light)
+    def test_get_accent_color_unknown_falls_back_to_blue(self):
+        unknown = get_accent_color("nonexistent", ElaThemeType.ThemeMode.Light)
+        blue = get_accent_color("blue", ElaThemeType.ThemeMode.Light)
+        assert unknown.name() == blue.name()
