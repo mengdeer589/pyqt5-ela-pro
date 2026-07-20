@@ -454,6 +454,7 @@ class ElaDataTable(ElaTableView):
         data: list[list[Any]] | dict[str, Iterable[Any]],
         center_columns: Optional[set[int]] = None,
         show_row_index: bool = False,
+        row_index_start: int = 1,
     ) -> None:
         """同步填充表格数据。
 
@@ -470,6 +471,9 @@ class ElaDataTable(ElaTableView):
         :type center_columns: set[int], optional
         :param show_row_index: 若为 ``True``，在垂直表头中显示行号。
         :type show_row_index: bool
+        :param row_index_start: 行号起始值（仅 ``show_row_index=True`` 时生效），
+            用于分页场景传入全局偏移量。
+        :type row_index_start: int
         """
         if not data:
             return
@@ -494,17 +498,18 @@ class ElaDataTable(ElaTableView):
         self.setHorizontalHeaderLabels(headers)
         self.setColumnCount(len(headers))
 
-        if show_row_index:
-            vh = self.verticalHeader()
-            if vh:
-                vh.setHidden(False)
-            self.setVerticalHeaderLabels([str(i + 1) for i in range(len(rows))])
-
         # 先清除旧行，避免 setItem 逐个 delete 旧 item 的性能退化
         old_count = self._model.rowCount()
         if old_count > 0:
             self._model.removeRows(0, old_count)
         self._model.setRowCount(len(rows))
+
+        if show_row_index:
+            vh = self.verticalHeader()
+            if vh:
+                vh.setHidden(False)
+            self.setVerticalHeaderLabels([str(row_index_start + i) for i in range(len(rows))])
+            vh.resizeSections(QHeaderView.ResizeMode.ResizeToContents)
 
         for row_idx, row_data in enumerate(rows):
             for col_idx, cell_data in enumerate(row_data):
@@ -523,6 +528,8 @@ class ElaDataTable(ElaTableView):
     def setTableDataAsync(
         self,
         data: list[list[Any]],
+        show_row_index: bool = False,
+        row_index_start: int = 1,
         callback: Optional[Callable[[], None]] = None,
     ) -> None:
         """在后台线程中异步填充表格数据。
@@ -533,6 +540,11 @@ class ElaDataTable(ElaTableView):
 
         :param data: 第一个元素为表头字符串列表，其余为行数据列表。
         :type data: list[list[Any]]
+        :param show_row_index: 若为 ``True``，在垂直表头中显示行号。
+        :type show_row_index: bool
+        :param row_index_start: 行号起始值（仅 ``show_row_index=True`` 时生效），
+            用于分页场景传入全局偏移量。
+        :type row_index_start: int
         :param callback: 数据应用完成后调用的可选无参 callable。
             以弱引用方式存储以避免阻止垃圾回收。
         :type callback: Callable[[], None], optional
@@ -578,6 +590,12 @@ class ElaDataTable(ElaTableView):
             finally:
                 self._model.blockSignals(False)
             self._model.layoutChanged.emit()
+            if show_row_index:
+                vh = self.verticalHeader()
+                if vh:
+                    vh.setHidden(False)
+                self.setVerticalHeaderLabels([str(row_index_start + i) for i in range(len(rows_data))])
+                vh.resizeSections(QHeaderView.ResizeMode.ResizeToContents)
             if callback_ref:
                 cb = callback_ref()
                 if cb is not None:

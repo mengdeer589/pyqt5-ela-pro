@@ -173,6 +173,7 @@ class ElaParquetTable(ElaThemeWidget):
         self,
         parquet_path: Union[str, Path] = "",
         page_size: int = 50,
+        show_row_index: bool = True,
         parent: Optional[QWidget] = None,
     ) -> None:
         if pl is None:
@@ -186,6 +187,7 @@ class ElaParquetTable(ElaThemeWidget):
         self._page_size = max(50, min(page_size, 5000))
         self._current_page = 1
         self._total_rows = 0
+        self._show_row_index = show_row_index
         self._parquet_path = ""
         self._lf = None
         self._column_stats_cache: dict[str, dict] = {}
@@ -245,7 +247,8 @@ class ElaParquetTable(ElaThemeWidget):
         headers = df.columns
         rows = df.rows()
         data = [headers] + [list(r) for r in rows]
-        self._table.setTableData(data)
+        row_index_start = (self._current_page - 1) * self._page_size + 1
+        self._table.setTableData(data, show_row_index=self._show_row_index, row_index_start=row_index_start)
 
         total_cols = len(headers)
         total_pages = max(
