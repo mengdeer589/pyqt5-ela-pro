@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QRect, QRectF, QLine
-from PyQt5.QtGui import QColor, QPainter, QFontMetrics, QTextOption, QPen, QFont
+from PyQt5.QtCore import Qt, QRect, QRectF
+from PyQt5.QtGui import QColor, QPainter, QFontMetrics, QTextOption, QFont
 from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaLineEdit
@@ -144,13 +144,12 @@ class ElaTagLineEdit(_ThemeAwareMixin, ElaLineEdit):
         painter.restore()
 
     def _drawBorder(self, painter: QPainter) -> None:
-        pen = QPen(self._getBorderColor())
-        pen.setWidth(2)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self._getBorderColor())
 
-        y = self.height() - 2
-        painter.drawLine(QLine(0, y, self.width(), y))
+        br = self.getBorderRadius()
+        error_rect = QRectF(br / 2, self.height() - 2.5, self.width() - br, 2.5)
+        painter.drawRoundedRect(error_rect, 2, 2)
 
     def deleteLater(self) -> None:
         try:
@@ -168,5 +167,6 @@ class ElaTagLineEdit(_ThemeAwareMixin, ElaLineEdit):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
-        self._drawBorder(painter)
+        if self._is_error:
+            self._drawBorder(painter)
         self._drawTitle(painter)

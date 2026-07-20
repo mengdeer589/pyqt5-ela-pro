@@ -8,8 +8,15 @@ from __future__ import annotations
 
 from typing import Optional
 
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QPushButton, QWidget, QVBoxLayout
-from PyQt5ElaWidgetTools import ElaContentDialog, ElaText, ElaTextType
+from PyQt5ElaWidgetTools import ElaContentDialog, ElaText, eTheme, ElaThemeType
+
+eTheme.setThemeColor(
+    ElaThemeType.ThemeMode.Light,
+    ElaThemeType.ThemeColor.DialogBase,
+    QColor("#fafafa"),
+)
 
 
 class ElaDialogBase(ElaContentDialog):
@@ -69,10 +76,10 @@ class ElaDialogBase(ElaContentDialog):
         """初始化主体内容区域。"""
         self._paramWidget = QWidget(self)
         self._paramLay = QVBoxLayout(self._paramWidget)
-        self._paramLay.setContentsMargins(15, 25, 15, 10)
+        self._paramLay.setContentsMargins(25, 20, 25, 10)
         self._paramLay.setSpacing(2)
         self._titleWidget = ElaText(title, self._paramWidget)
-        self._titleWidget.setTextStyle(ElaTextType.TextStyle.Title)
+        self._titleWidget.setTextPixelSize(15)
         self._paramLay.addWidget(self._titleWidget)
         self._paramLay.addSpacing(5)
         super().setCentralWidget(self._paramWidget)
