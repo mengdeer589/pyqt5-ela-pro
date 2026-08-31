@@ -52,11 +52,19 @@ class _SearchComboMixin:
         layout = container.layout()
         if layout is None:
             return
-        self._searchWidget, self._searchEdit = _build_search_widget(
-            self._onSearchTextChanged
-        )
+        if self._searchWidget is None:
+            self._searchWidget, self._searchEdit = _build_search_widget(
+                self._onSearchTextChanged
+            )
+        elif self._searchWidget.parent() is not None:
+            self._searchWidget.setParent(None)
         if isinstance(layout, QBoxLayout):
             layout.insertWidget(0, self._searchWidget)
+        if self._searchEdit:
+            self._applySearchEditPalette()
+            self._searchEdit.blockSignals(True)
+            self._searchEdit.clear()
+            self._searchEdit.blockSignals(False)
 
 
 def _build_search_widget(
@@ -225,15 +233,12 @@ class ElaSearchMultiBox(_ThemeAwareMixin, _SearchComboMixin, ElaMultiSelectCombo
         self._isRestoringSelection = True
         self._restoreSelection()
         super().showPopup()
-        _adjust_combobox_popup(self)
-        self._isRestoringSelection = False
 
         container = self.findChild(QWidget, "ElaComboBoxContainer")
-        if container is None:
-            return
-
-        self._cleanupSearchWidget()
-        self._setupSearchInPopup(container)
+        if container is not None:
+            self._setupSearchInPopup(container)
+        _adjust_combobox_popup(self)
+        self._isRestoringSelection = False
 
     def _restoreSelection(self) -> None:
         """恢复之前的选中状态。"""
@@ -352,26 +357,13 @@ class ElaSearchBox(_ThemeAwareMixin, _SearchComboMixin, ElaComboBox):
             return
         self._proxyModel.setKeyword("")
         super().showPopup()
-        _adjust_combobox_popup(self)
 
         container = self.findChild(QWidget, "ElaComboBoxContainer")
-        if container is None:
-            return
-
-        if self._searchWidget is None:
+        if container is not None:
             self._setupSearchInPopup(container)
-        else:
-            if self._searchWidget.parent() is not None:
-                self._searchWidget.setParent(None)
-            layout = container.layout()
-            if layout is not None and isinstance(layout, QBoxLayout):
-                layout.insertWidget(0, self._searchWidget)
             if self._searchEdit:
-                self._applySearchEditPalette()
-                self._searchEdit.blockSignals(True)
-                self._searchEdit.clear()
-                self._searchEdit.blockSignals(False)
                 self._searchEdit.setFocus()
+        _adjust_combobox_popup(self)
 
     def _onSearchTextChanged(self, text: str) -> None:
         """搜索框文本变化时更新过滤关键词。
@@ -395,8 +387,7 @@ class ElaSearchBox(_ThemeAwareMixin, _SearchComboMixin, ElaComboBox):
             self.setCurrentText(text)
 
     def hidePopup(self) -> None:
-        """关闭弹窗时清理搜索框。"""
-        self._cleanupSearchWidget()
+        """关闭弹窗（搜索框保留复用，下次打开时清空并聚焦）。"""
         super().hidePopup()
 
     def deleteLater(self) -> None:

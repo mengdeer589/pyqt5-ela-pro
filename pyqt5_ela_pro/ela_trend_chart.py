@@ -206,6 +206,8 @@ class ElaTrendChart(ElaThemeWidget):
         y_list = list(y)
         if len(x_list) != len(y_list):
             raise ValueError("x and y must have the same length")
+        if not x_list:
+            raise ValueError("x and y must not be empty")
 
         colors = self._getColors()
         color = colors[len(self._curves) % len(colors)]
@@ -234,6 +236,9 @@ class ElaTrendChart(ElaThemeWidget):
     def clearCurves(self) -> None:
         """清空所有曲线。"""
         self._curves.clear()
+        self._indicator_visible = False
+        self._indicator_index = -1
+        self._indicator_point = None
         self._data_pixmap = None
         self.update()
 
@@ -797,6 +802,7 @@ class ElaTrendChart(ElaThemeWidget):
         if (
             not self._indicator_visible
             or self._indicator_index < 0
+            or self._indicator_index >= len(self._curves)
             or not self._indicator_point
         ):
             return

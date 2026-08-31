@@ -38,6 +38,7 @@ class ElaNotifyPopup(QWidget):
         title: str = "",
         content: str = "",
         timeout: int = 10000,
+        y_offset: int = 0,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -45,6 +46,7 @@ class ElaNotifyPopup(QWidget):
         self._title = title
         self._content = content
         self._timeout = timeout
+        self._y_offset = y_offset
         self._is_closing = False
         self._animation = None
         self._timer = None
@@ -119,7 +121,7 @@ class ElaNotifyPopup(QWidget):
         )
         self._end_pos = QPoint(
             screen.width() - self.width() - 5,
-            screen.height() - self.height() - 5,
+            max(0, screen.height() - self.height() - 5 - self._y_offset),
         )
 
     @staticmethod
@@ -268,11 +270,16 @@ class ElaNotifyManager:
     ) -> None:
         """创建并显示通知弹窗。
 
+        多条通知会从屏幕右下角向上堆叠避让。
+
         :param title: 通知标题
         :param content: 通知内容
         :param timeout: 超时时长（毫秒），默认 5000
         """
-        popup = ElaNotifyPopup(title=title, content=content, timeout=timeout)
+        y_offset = sum(p.height() + 10 for p in self._popups)
+        popup = ElaNotifyPopup(
+            title=title, content=content, timeout=timeout, y_offset=y_offset
+        )
         popup.closed.connect(lambda p=popup: self._onPopupClosed(p))
         self._popups.append(popup)
         popup.showNotification(title, content, timeout)

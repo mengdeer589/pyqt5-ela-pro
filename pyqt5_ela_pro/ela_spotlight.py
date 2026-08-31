@@ -21,9 +21,7 @@ from PyQt5.QtCore import (
     QSizeF,
     QObject,
     pyqtSignal,
-    QPropertyAnimation,
-    QEasingCurve,
-    QAbstractAnimation,
+    QTimer,
     QEvent,
 )
 from PyQt5.QtGui import QPainter, QPainterPath, QPen, QColor, QPaintEvent, QMouseEvent
@@ -154,16 +152,26 @@ class ElaSpotlight(ElaThemeWidget):
 
         self._spotlight_rect = QRectF()
         self._opacity = 0.0
-        fade_in = QPropertyAnimation(self, b"windowOpacity")
-        fade_in.valueChanged.connect(self.update)
-        fade_in.setDuration(300)
-        fade_in.setStartValue(0.0)
-        fade_in.setEndValue(1.0)
-        fade_in.setEasingCurve(QEasingCurve.Type.OutCubic)
-        fade_in.start(QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
+        self._startFadeIn()
 
         self._is_active = True
         self._showStep(0)
+
+    def _startFadeIn(self) -> None:
+        """用定时器驱动遮罩淡入（子控件上 windowOpacity 动画无效）。"""
+        if not hasattr(self, "_fade_timer"):
+            self._fade_timer = QTimer(self)
+            self._fade_timer.setInterval(16)
+            self._fade_timer.timeout.connect(self._onFadeTick)
+        self._fade_timer.stop()
+        self._opacity = 0.0
+        self._fade_timer.start()
+
+    def _onFadeTick(self) -> None:
+        self._opacity = min(1.0, self._opacity + 0.06)
+        self.update()
+        if self._opacity >= 1.0:
+            self._fade_timer.stop()
 
     def next(self) -> None:
         """前进到下一步。已在最后一步时无效果。"""
@@ -178,6 +186,8 @@ class ElaSpotlight(ElaThemeWidget):
     def finish(self) -> None:
         """结束引导并关闭遮罩。"""
         self._is_active = False
+        if hasattr(self, "_fade_timer"):
+            self._fade_timer.stop()
         self._tip_widget.setVisible(False)
         self.setVisible(False)
         parent = self.parent()

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import ElaText
@@ -59,23 +60,30 @@ class ElaMessageDialog(ElaDialogBase):
         message_widget.setWordWrap(True)
         self._paramLay.addWidget(message_widget)
 
-    @staticmethod
     def show(
-        parent: QWidget,
-        title: str,
-        message: str,
+        self,
+        title: str = "标题",
+        message: str = "",
         middleText: str | None = None,
     ) -> int:
-        """显示消息对话框。
+        """显示消息对话框（类调用）或普通显示（实例调用）。
 
-        :param parent: 父级 widget
+        类调用：``ElaMessageDialog.show(parent, title, message, middleText)``
+        返回点击的按钮对应的返回值（0=左按钮取消, 1=右按钮确定, 2=中间按钮）。
+        实例调用：``dlg.show()`` 与 ``QDialog.show`` 行为一致，返回 ``None``。
+
         :param title: 对话框标题
         :param message: 消息文本
         :param middleText: 中间按钮文本，为 None 时隐藏中间按钮
-        :return: 点击的按钮对应的返回值（0=左按钮取消, 1=右按钮确定, 2=中间按钮）
+        :return: 类调用时返回按钮返回值；实例调用时返回 None
         """
+        if isinstance(self, ElaMessageDialog):
+            super().show()
+            return 0
+        parent = self
         dialog = ElaMessageDialog(
             title=title, message=message, middleText=middleText, parent=parent
         )
         dialog.setWindowTitle(title)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         return dialog.exec_()

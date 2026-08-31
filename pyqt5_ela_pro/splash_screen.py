@@ -292,6 +292,7 @@ class ElaSplashScreen(ElaThemeWidget):
 
     def close(self) -> None:
         """关闭启动画面并发射 ``closed`` 信号。"""
+        self._fade_timer.stop()
         super().close()
         self.closed.emit()
 
@@ -300,6 +301,8 @@ class ElaSplashScreen(ElaThemeWidget):
 
         :param main_window: 主窗口实例
         """
+        if self._fade_timer.isActive():
+            return
         self._fade_target = main_window
         self._fade_opacity = 1.0
         self._fade_timer.setInterval(20)
@@ -309,6 +312,9 @@ class ElaSplashScreen(ElaThemeWidget):
     # ── Internal ──────────────────────────────────────────
 
     def _onFadeTick(self) -> None:
+        if not self.isVisible():
+            self._fade_timer.stop()
+            return
         self._fade_opacity -= 0.05
         if self._fade_opacity <= 0:
             self._fade_timer.stop()

@@ -65,6 +65,9 @@ class ElaDashboardGauge(ElaThemeWidget):
 
         self.setObjectName("ElaDashboardGauge")
         self.setMinimumSize(100, 100)
+        self._anim_timer = QTimer(self)
+        self._anim_timer.setInterval(16)
+        self._anim_timer.timeout.connect(self._onAnimTick)
 
     def sizeHint(self):
         return QSize(260, 260)
@@ -125,10 +128,8 @@ class ElaDashboardGauge(ElaThemeWidget):
             self._anim_start = self._animated_value
             self._anim_target = value
             self._anim_progress = 0.0
-            self._anim_timer = QTimer(self)
-            self._anim_timer.setInterval(16)
-            self._anim_timer.timeout.connect(self._onAnimTick)
-            self._anim_timer.start()
+            if self._anim_timer is not None:
+                self._anim_timer.start()
         else:
             self._animated_value = value
             self.update()
@@ -141,7 +142,6 @@ class ElaDashboardGauge(ElaThemeWidget):
         t = 1 - pow(1 - self._anim_progress, 3)
         if self._anim_progress >= 1.0:
             self._anim_timer.stop()
-            self._anim_timer = None
         self._animated_value = (
             self._anim_start + (self._anim_target - self._anim_start) * t
         )
@@ -250,6 +250,14 @@ class ElaDashboardGauge(ElaThemeWidget):
         :param animated: 是否带动画
         """
         self._is_animated = animated
+        if (
+            not animated
+            and self._anim_timer is not None
+            and self._anim_timer.isActive()
+        ):
+            self._anim_timer.stop()
+            self._animated_value = self._value
+            self.update()
 
     def isAnimated(self) -> bool:
         """当前值变化是否带动画过渡。

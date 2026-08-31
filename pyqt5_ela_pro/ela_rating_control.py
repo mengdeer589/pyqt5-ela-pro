@@ -134,25 +134,32 @@ class ElaRatingControl(ElaThemeWidget):
         self._theme_mode = mode
         self.update()
 
+    def _starAt(self, pos) -> float:
+        """根据位置计算星级（1~max，支持 0.5 粒度）；不在星区时返回 -1。"""
+        unit = self._star_size + self._spacing
+        if unit <= 0 or pos.x() < 0:
+            return -1.0
+        star_idx = int(pos.x() // unit)
+        if star_idx >= self._max_rating:
+            return -1.0
+        rel_x = pos.x() - star_idx * unit
+        return star_idx + (0.5 if rel_x < unit / 2 else 1.0)
+
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self._is_read_only:
             super().mouseMoveEvent(event)
             return
-        unit = self._star_size + self._spacing
-        h = -1.0
-        if unit > 0 and event.pos().x() >= 0:
-            star_idx = int(event.pos().x() // unit)
-            if star_idx < self._max_rating:
-                rel_x = event.pos().x() - star_idx * unit
-                h = star_idx + (0.5 if rel_x < unit / 2 else 1.0)
+        h = self._starAt(event.pos())
         if self._hovered_star != h:
             self._hovered_star = h
             self.update()
         super().mouseMoveEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        if not self._is_read_only and self._hovered_star > 0:
-            self.setRating(self._hovered_star)
+        if not self._is_read_only and event.button() == Qt.MouseButton.LeftButton:
+            star = self._starAt(event.pos())
+            if star > 0:
+                self.setRating(star)
         super().mousePressEvent(event)
 
     def leaveEvent(self, event: QEvent) -> None:

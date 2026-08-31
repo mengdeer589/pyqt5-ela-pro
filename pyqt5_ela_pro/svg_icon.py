@@ -8,6 +8,7 @@ SVG 图标转换模块。
 from __future__ import annotations
 
 import os
+from functools import lru_cache
 from typing import Optional
 
 from PyQt5.QtCore import QSize, Qt, QRect, QRectF
@@ -27,8 +28,9 @@ from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 from ._internal import _ThemeAwareMixin
 
 
+@lru_cache(maxsize=256)
 def _render_svg(svg_data: str, size: int, color: Optional[str] = None) -> QPixmap:
-    """将 SVG 数据渲染为 QPixmap（内部公用方法）。"""
+    """将 SVG 数据渲染为 QPixmap（内部公用方法，结果按参数缓存）。"""
     if color:
         svg_data = svg_data.replace("<<<COLOR_CODE>>>", color)
     renderer = QSvgRenderer(svg_data.encode("utf-8"))
@@ -147,7 +149,7 @@ class ElaSvgIconLoader:
                         continue
 
                     icon_name, icon_data = line.split("////", 1)
-                    self._icons[icon_name] = icon_data
+                    self._icons[icon_name.strip()] = icon_data
         except FileNotFoundError:
             raise FileNotFoundError(f"Icon package not found: {path}")
 
@@ -282,10 +284,7 @@ class _ElaSvgButtonBase(_ThemeAwareMixin, QPushButton):
         return eTheme.getThemeColor(mode, theme_color)
 
     def _getIconColorStr(self, text_color: QColor) -> str:
-        icon_color_str = text_color.name()
-        if len(icon_color_str) > 7:
-            icon_color_str = icon_color_str[:7]
-        return icon_color_str
+        return text_color.name()
 
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)

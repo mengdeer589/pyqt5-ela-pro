@@ -225,25 +225,31 @@ class ElaConfirmDialog(_ThemeAwareMixin, QDialog):
         """
         return self._position
 
-    @staticmethod
-    # noinspection PyMethodOverriding
     def show(
-        parent: QWidget,
-        title: str,
-        message: str,
+        self,
+        title: str = "",
+        message: str = "",
         position: str = "bottom",
     ) -> bool:
-        """模态显示确认对话框。
+        """模态显示确认对话框（类调用）或普通显示（实例调用）。
 
-        :param parent: 父组件
+        类调用：``ElaConfirmDialog.show(parent, title, message, position)``
+        返回 ``True`` 表示点击了确认，``False`` 表示取消。
+        实例调用：``dlg.show()`` 与 ``QDialog.show`` 行为一致，返回 ``None``。
+
         :param title: 标题
         :param message: 正文内容
         :param position: 弹窗位置，``"bottom"`` 在下方 / ``"top"`` 在上方
-        :return: ``True`` 用户点击了确认，``False`` 用户点击了取消
+        :return: 类调用时返回是否确认；实例调用时返回 None
         """
+        if isinstance(self, ElaConfirmDialog):
+            super().show()
+            return False
+        parent = self
         dialog = ElaConfirmDialog(parent, position=position)
         dialog.setTitle(title)
         dialog.setContent(message)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         result = dialog.exec_()
         return result == QDialog.DialogCode.Accepted
 

@@ -87,6 +87,7 @@ class _BrowserController(QObject):
         self._loadStarted_callback: Optional[Callable] = None
         self._loadFinished_callback: Optional[Callable] = None
         self._dropped_file_callback: Optional[Callable[[str], None]] = None
+        self._main_page_target_id: Optional[str] = None
         self._pending_request_urls: dict[str, str] = {}
         self._pending_response_urls: dict[str, str] = {}
 
@@ -285,13 +286,21 @@ class _BrowserController(QObject):
     def _close_target_page(self, params: dict) -> None:
         target = params.get("targetInfo", {})
         url = target.get("url", "")
+        target_id = target.get("targetId", "")
+        if target.get("type") != "page":
+            return
+        # setAutoAttach(flatten=True) 会对已存在的页面也触发 attachedToTarget，
+        # 首个 page target 即主页面，绝不能关闭。
+        if self._main_page_target_id is None:
+            self._main_page_target_id = target_id
+            return
+        if target_id == self._main_page_target_id:
+            return
         if url.startswith("file:///"):
             path = self._parse_file_url_path(url)
             if self._dropped_file_callback:
                 self._dropped_file_callback(path)
-            self.sendCommand("Target.closeTarget", {"targetId": target["targetId"]})
-        elif target.get("type") == "page":
-            self.sendCommand("Target.closeTarget", {"targetId": target["targetId"]})
+        self.sendCommand("Target.closeTarget", {"targetId": target_id})
 
     def set_loadStarted_callback(self, callback: Callable) -> None:
         """设置页面开始加载的回调。"""

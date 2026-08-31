@@ -378,6 +378,8 @@ class ElaWindowEmbedder(QWidget):
         :param destroy: True 则不恢复窗口原状态直接销毁
         :returns: True 表示成功
         """
+        self._stopEmbedTimer()
+        self._stopFindTimer()
 
         if not self._embeddedInfo:
             return True

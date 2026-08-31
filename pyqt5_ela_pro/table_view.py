@@ -13,9 +13,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from typing import Any, Callable, Optional, Union
-import weakref
 
-from PyQt5.QtCore import Qt, QModelIndex, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QModelIndex, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import (
     QIcon,
     QStandardItem,
@@ -33,9 +32,15 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5ElaWidgetTools import ElaTableView
 
+try:
+    from pypinyin import lazy_pinyin as _lazy_pinyin
+except ImportError:  # pragma: no cover - pypinyin 为声明依赖，仅防御
+    _lazy_pinyin = None
+
 
 TABLE_MIN_SECTION_SIZE: int = 60
 TABLE_ROW_MIN_HEIGHT: int = 46
+# 保留常量以兼容外部引用（历史版本用于线程 quit 超时，现由轮询清理取代）
 TABLE_THREAD_QUIT_TIMEOUT: int = 1000
 
 
@@ -121,11 +126,9 @@ class _LoadThread(QThread):
         rows = []
         for item in self._rows:
             if self._isCanceled:
-                self._isCanceled = False
                 return
             rows.append(item)
         self.finished.emit(rows)
-        self._isCanceled = False
 
 
 class ElaDataTable(ElaTableView):
@@ -190,6 +193,7 @@ class ElaDataTable(ElaTableView):
 
         self._load_thread: Optional[_LoadThread] = None
         self._isLoadThreadConnected: bool = False
+        self._retired_threads: list[_LoadThread] = []
 
         self._sorting_enabled = False
         self._current_sort_column = -1
@@ -200,6 +204,42 @@ class ElaDataTable(ElaTableView):
         """将缓存的所有列宽应用到视图中。"""
         for col, width in self._columnWidths.items():
             self.setColumnWidth(col, width)
+
+    def _retire_thread(self, thread: _LoadThread) -> None:
+        """取消并清理旧加载线程。
+
+        ``_LoadThread.run`` 是纯 Python 循环，``quit()`` 不生效，
+        因此不能阻塞等待其退出；线程真正结束后由轮询统一
+        ``deleteLater``，避免对仍在运行的 QThread 销毁导致崩溃。
+        """
+        thread.cancel()
+        if thread.isRunning():
+            thread.quit()
+        if self._isLoadThreadConnected:
+            try:
+                thread.finished.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+            self._isLoadThreadConnected = False
+        if not thread.isRunning():
+            thread.deleteLater()
+        else:
+            self._retired_threads.append(thread)
+            self._poll_retired_threads()
+
+    def _poll_retired_threads(self) -> None:
+        """轮询已退出的旧线程并销毁。"""
+        if not self._retired_threads:
+            return
+        remaining = []
+        for t in self._retired_threads:
+            if t.isRunning():
+                remaining.append(t)
+            else:
+                t.deleteLater()
+        self._retired_threads = remaining
+        if remaining:
+            QTimer.singleShot(100, self._poll_retired_threads)
 
     def _onHeaderClicked(self, logicalIndex: int) -> None:
         """处理表头点击排序。
@@ -300,7 +340,10 @@ class ElaDataTable(ElaTableView):
         :param order: 排序顺序
         :type order: Qt.SortOrder
         """
-        from pypinyin import lazy_pinyin
+        if _lazy_pinyin is None:
+            self._model.sort(column, order)
+            return
+        lazy_pinyin = _lazy_pinyin
 
         row_count = self._model.rowCount()
         if row_count == 0:
@@ -485,6 +528,8 @@ class ElaDataTable(ElaTableView):
                 return
             col_values = [list(data[h]) for h in headers]
             row_count = len(col_values[0])
+            if any(len(col) != row_count for col in col_values[1:]):
+                raise ValueError("setTableData: 字典格式下所有列的数据长度必须一致")
             rows = [
                 [col_values[col_idx][row_idx] for col_idx in range(col_count)]
                 for row_idx in range(row_count)
@@ -546,24 +591,14 @@ class ElaDataTable(ElaTableView):
             用于分页场景传入全局偏移量。
         :type row_index_start: int
         :param callback: 数据应用完成后调用的可选无参 callable。
-            以弱引用方式存储以避免阻止垃圾回收。
+            仅在本次加载仍是当前加载时调用；表格销毁后不再调用。
         :type callback: Callable[[], None], optional
         """
         if not data:
             return
 
         if self._load_thread is not None:
-            self._load_thread.cancel()
-            if self._load_thread.isRunning():
-                self._load_thread.quit()
-                self._load_thread.wait(TABLE_THREAD_QUIT_TIMEOUT)
-            if self._isLoadThreadConnected:
-                try:
-                    self._load_thread.finished.disconnect()
-                except (TypeError, RuntimeError):
-                    pass
-                self._isLoadThreadConnected = False
-            self._load_thread.deleteLater()
+            self._retire_thread(self._load_thread)
             self._load_thread = None
 
         headers = data[0]
@@ -571,10 +606,12 @@ class ElaDataTable(ElaTableView):
         self.setHorizontalHeaderLabels(headers)
         self.setColumnCount(len(headers))
 
-        callback_ref = weakref.ref(callback) if callable(callback) else None
+        thread = _LoadThread(rows)
 
         def on_finished(rows_data: list[list[Any]]) -> None:
-            if self._load_thread is None or self._load_thread._isCanceled:
+            # 仅当发起本次加载的线程仍是当前线程时应用数据，
+            # 排队的旧回调不会覆盖新数据。
+            if thread is not self._load_thread or thread._isCanceled:
                 return
             self._model.blockSignals(True)
             try:
@@ -585,7 +622,10 @@ class ElaDataTable(ElaTableView):
                         if col_idx in self._columnAlignments:
                             item.setTextAlignment(self._columnAlignments[col_idx])
                         else:
-                            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+                            item.setTextAlignment(
+                                Qt.AlignmentFlag.AlignCenter
+                                | Qt.AlignmentFlag.AlignVCenter
+                            )
                         self._model.setItem(row_idx, col_idx, item)
             finally:
                 self._model.blockSignals(False)
@@ -594,14 +634,14 @@ class ElaDataTable(ElaTableView):
                 vh = self.verticalHeader()
                 if vh:
                     vh.setHidden(False)
-                self.setVerticalHeaderLabels([str(row_index_start + i) for i in range(len(rows_data))])
+                self.setVerticalHeaderLabels(
+                    [str(row_index_start + i) for i in range(len(rows_data))]
+                )
                 vh.resizeSections(QHeaderView.ResizeMode.ResizeToContents)
-            if callback_ref:
-                cb = callback_ref()
-                if cb is not None:
-                    cb()
+            if callback is not None:
+                callback()
 
-        self._load_thread = _LoadThread(rows)
+        self._load_thread = thread
         self._load_thread.finished.connect(on_finished)
         self._isLoadThreadConnected = True
         self._load_thread.start()
@@ -888,17 +928,7 @@ class ElaDataTable(ElaTableView):
     def deleteLater(self) -> None:
         """清理加载线程，断开信号连接，调度自身删除。"""
         if self._load_thread is not None:
-            self._load_thread.cancel()
-            if self._load_thread.isRunning():
-                self._load_thread.quit()
-                self._load_thread.wait(TABLE_THREAD_QUIT_TIMEOUT)
-            if self._isLoadThreadConnected:
-                try:
-                    self._load_thread.finished.disconnect()
-                except (TypeError, RuntimeError):
-                    pass
-                self._isLoadThreadConnected = False
-            self._load_thread.deleteLater()
+            self._retire_thread(self._load_thread)
             self._load_thread = None
         try:
             self.tableViewShow.disconnect(self._apply_column_widths)

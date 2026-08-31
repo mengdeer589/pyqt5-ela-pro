@@ -552,7 +552,6 @@ class ElaStateToolTip(ElaThemeWidget):
             self._animation.stop()
 
     def _onCloseButtonClicked(self) -> None:
-        self.closed.emit()
         self._fadeOut()
 
     def _fadeOut(self) -> None:

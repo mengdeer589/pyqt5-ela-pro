@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from PyQt5.QtCore import QRectF
+from PyQt5.QtGui import QPainter, QPainterPath, QPaintEvent
 from PyQt5.QtWidgets import QWidget, QTextBrowser, QVBoxLayout, QFrame
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaScrollBar
@@ -67,7 +69,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
 
         :param r: 圆角半径（像素）
         """
-        self._border_radius = r
+        self._border_radius = max(0, r)
         self.update()
 
     def borderRadius(self) -> int:
@@ -88,7 +90,24 @@ class ElaMarkdownViewer(ElaThemeWidget):
             f"code, pre {{ background-color: {code_bg.name()}; }}"
         )
         self._text_browser.setStyleSheet(css)
+        self.update()
 
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self._theme_mode = mode
         self._applyThemeStyle()
+
+    def paintEvent(self, _event: Optional[QPaintEvent]) -> None:
+        """绘制圆角背景（圆角半径为 0 时绘制普通矩形背景）。"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        bg_color = eTheme.getThemeColor(
+            self._theme_mode, ElaThemeType.ThemeColor.BasicPress
+        )
+        if self._border_radius > 0:
+            path = QPainterPath()
+            path.addRoundedRect(
+                QRectF(self.rect()), self._border_radius, self._border_radius
+            )
+            painter.fillPath(path, bg_color)
+        else:
+            painter.fillRect(self.rect(), bg_color)

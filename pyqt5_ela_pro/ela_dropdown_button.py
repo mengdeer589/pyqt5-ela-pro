@@ -64,6 +64,7 @@ class ElaDropDownButton(ElaThemeWidget):
         self.setObjectName("ElaDropDownButton")
         self.setFixedHeight(35)
         self.setMouseTracking(True)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self._icon_font = QFont("ElaAwesome")
         self._arrow_font = QFont("ElaAwesome")
 

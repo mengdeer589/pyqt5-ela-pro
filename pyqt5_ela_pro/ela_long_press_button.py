@@ -70,6 +70,7 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         self._progress = 0.0
         self._triggered = False
         self._progress_color = QColor()
+        self._custom_progress_color = False
         self._icon_name = None
         self._icon_size = icon_size
 
@@ -109,6 +110,7 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
 
         :param color: 进度条颜色
         """
+        self._custom_progress_color = True
         self._progress_color = color
         self.update()
 
@@ -136,9 +138,10 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
 
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self._theme_mode = mode
-        self._progress_color = eTheme.getThemeColor(
-            mode, ElaThemeType.ThemeColor.PrimaryNormal
-        )
+        if not self._custom_progress_color:
+            self._progress_color = eTheme.getThemeColor(
+                mode, ElaThemeType.ThemeColor.PrimaryNormal
+            )
         self.update()
 
     def deleteLater(self) -> None:
@@ -193,7 +196,10 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         if not self.isEnabled():
             return
         super().mousePressEvent(event)
-        if not self._mouse_pressed_timer.isActive():
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and not self._mouse_pressed_timer.isActive()
+        ):
             self._mouse_pressed_timer.start()
             self._go_backwards_timer.stop()
             self._triggered = False
@@ -261,4 +267,22 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
                 self._theme_mode, ElaThemeType.ThemeColor.BasicTextDisable
             )
         painter.setPen(text_color)
-        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self.text())
+
+        icon = self.icon()
+        icon_size = self.iconSize()
+        has_icon = not icon.isNull() and icon_size.width() > 0
+        spacing = 8
+        if has_icon:
+            fm = painter.fontMetrics()
+            text_width = fm.horizontalAdvance(self.text())
+            total_width = icon_size.width() + spacing + text_width
+            start_x = rect.x() + (rect.width() - total_width) // 2
+            icon_y = rect.y() + (rect.height() - icon_size.height()) // 2
+            icon_rect = QRect(start_x, icon_y, icon_size.width(), icon_size.height())
+            text_rect = QRect(
+                icon_rect.right() + spacing, rect.y(), text_width, rect.height()
+            )
+            painter.drawPixmap(icon_rect, icon.pixmap(icon_size))
+        else:
+            text_rect = rect
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, self.text())

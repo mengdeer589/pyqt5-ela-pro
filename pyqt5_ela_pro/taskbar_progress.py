@@ -12,7 +12,12 @@ from typing import Optional
 
 from PyQt5.QtCore import pyqtSignal, QObject
 from PyQt5.QtWidgets import QWidget
-from PyQt5.QtWinExtras import QWinTaskbarButton, QWinTaskbarProgress
+
+try:
+    from PyQt5.QtWinExtras import QWinTaskbarButton, QWinTaskbarProgress
+except ImportError:  # pragma: no cover - 非 Windows 平台无 QtWinExtras
+    QWinTaskbarButton = None  # type: ignore[assignment,misc]
+    QWinTaskbarProgress = None  # type: ignore[assignment,misc]
 
 
 class ElaTaskbarProgress(QObject):

@@ -55,8 +55,10 @@ class ElaProgressButton(_ThemeAwareMixin, ElaPushButton):
         self._icon_name: Optional[ElaIconType.IconName] = None
         self._icon_size = 16
         self._progress = 0.0
-        self._progress_color = QColor()
         self._custom_progress_color = getProgressColor is not None
+        self._progress_color = (
+            getProgressColor if self._custom_progress_color else QColor()
+        )
         self._theme_mode = eTheme.getThemeMode()
         self.setFixedHeight(38)
 

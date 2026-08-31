@@ -165,11 +165,14 @@ class _ThemeAwareMixin:
 
 def _adjust_combobox_popup(combo_box) -> None:
     """在 super().showPopup() 之后调用。用最终弹窗高度判断是否需要移到上方。"""
-    from PyQt5.QtWidgets import QApplication, QWidget
+    from PyQt5.QtWidgets import QApplication, QWidget, QWIDGETSIZE_MAX
 
     container = combo_box.findChild(QWidget, "ElaComboBoxContainer")
     if not container or not container.isVisible():
         return
+
+    # 复位上次压缩的固定高度，避免后续弹窗持续偏小
+    container.setFixedHeight(QWIDGETSIZE_MAX)
 
     combo_global = combo_box.mapToGlobal(QPoint(0, 0))
     combo_top = combo_global.y()
@@ -187,7 +190,13 @@ def _adjust_combobox_popup(combo_box) -> None:
     n = combo_box.maxVisibleItems()
     if combo_box.count() < n:
         n = combo_box.count()
-    final_height = n * item_h + 8
+    search_widget = container.findChild(QWidget, "SearchWidget")
+    search_height = 0
+    if search_widget is not None:
+        search_height = (
+            search_widget.height() or search_widget.sizeHint().height() or 40
+        )
+    final_height = n * item_h + 8 + search_height
 
     # 下方所需总空间：组合框底 + 3px 间距 + 弹窗高度
     needed_below = combo_bottom + 3 + final_height
