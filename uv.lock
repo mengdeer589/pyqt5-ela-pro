@@ -56,7 +56,7 @@ version = "1.3.1"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
 dependencies = [
     { name = "typing-extensions", version = "4.13.2", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version < '3.9'" },
-    { name = "typing-extensions", version = "4.15.0", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.9' and python_full_version < '3.13'" },
+    { name = "typing-extensions", version = "4.16.0", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.9' and python_full_version < '3.13'" },
 ]
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219" }
 wheels = [
@@ -185,14 +185,14 @@ all = [
 dev = [
     { name = "pytest", version = "8.3.5", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version < '3.9'" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version == '3.9.*'" },
-    { name = "pytest", version = "9.1.0", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.10'" },
+    { name = "pytest", version = "9.1.1", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.10'" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "pytest", version = "8.3.5", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version < '3.9'" },
     { name = "pytest", version = "8.4.2", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version == '3.9.*'" },
-    { name = "pytest", version = "9.1.0", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.10'" },
+    { name = "pytest", version = "9.1.1", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.10'" },
     { name = "pytest-mock", version = "3.14.1", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version < '3.9'" },
     { name = "pytest-mock", version = "3.15.1", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.9'" },
 ]
@@ -202,7 +202,7 @@ requires-dist = [
     { name = "comtypes", marker = "extra == 'all'", specifier = ">=1.4.0" },
     { name = "pypinyin", specifier = ">=0.50.0" },
     { name = "pyqt5", specifier = ">=5.15.0" },
-    { name = "pyqt5-elawidgettools", specifier = ">=0.8.0" },
+    { name = "pyqt5-elawidgettools", path = "../../python_win7/PyElaWidgetTools/scripts/wheel/dist/PyQt5_ElaWidgetTools-0.11.1-cp37-abi3-win_amd64.whl" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pywin32", marker = "extra == 'all'", specifier = ">=306" },
 ]
@@ -216,16 +216,17 @@ dev = [
 
 [[package]]
 name = "pyqt5-elawidgettools"
-version = "0.10.1"
-source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+version = "0.11.1"
+source = { path = "../../python_win7/PyElaWidgetTools/scripts/wheel/dist/PyQt5_ElaWidgetTools-0.11.1-cp37-abi3-win_amd64.whl" }
 dependencies = [
     { name = "pyqt5" },
 ]
 wheels = [
-    { url = "https://mirrors.aliyun.com/pypi/packages/46/39/b0f3ab354552daec7494fd916471a098b310400e782882fcd4009e0bfaf3/pyqt5_elawidgettools-0.10.1-cp37-abi3-manylinux1_x86_64.whl", hash = "sha256:4f7816731938462beb8d9b77bee4de285d64efe6f44bfcef6cfbda8bf7d0595e" },
-    { url = "https://mirrors.aliyun.com/pypi/packages/34/82/ece04e0bb0c8e55b3a283349198b6bec1ae04a78a9eeaec3e28a2469744d/pyqt5_elawidgettools-0.10.1-cp37-abi3-win32.whl", hash = "sha256:78345c5ed15bdd00d321c0334741ea549ee46b7329781fac95a336a33a626fd7" },
-    { url = "https://mirrors.aliyun.com/pypi/packages/5e/31/8d55126c350a8893408a2d8c7e8c668ff4c0eef8770759360235c6bddc7e/pyqt5_elawidgettools-0.10.1-cp37-abi3-win_amd64.whl", hash = "sha256:aeab79c196e393439c0fa8acebc80ee684afcffdf5a56f37370cf828da5b2732" },
+    { filename = "pyqt5_elawidgettools-0.11.1-cp37-abi3-win_amd64.whl", hash = "sha256:7bc8f5b98f88e03e019986944b41f26be32be700ed878a524b08ef4b887713b9" },
 ]
+
+[package.metadata]
+requires-dist = [{ name = "pyqt5" }]
 
 [[package]]
 name = "pyqt5-qt5"
@@ -405,7 +406,7 @@ wheels = [
 
 [[package]]
 name = "pytest"
-version = "9.1.0"
+version = "9.1.1"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
 resolution-markers = [
     "(python_full_version >= '3.10' and platform_machine != 'AMD64') or (python_full_version >= '3.10' and sys_platform != 'win32')",
@@ -420,9 +421,9 @@ dependencies = [
     { name = "pygments", marker = "python_full_version >= '3.10'" },
     { name = "tomli", marker = "python_full_version == '3.10.*'" },
 ]
-sdist = { url = "https://mirrors.aliyun.com/pypi/packages/84/0e/b5858858d74958632c49b72cb25a3976ff9f632397626715be71c89d3971/pytest-9.1.0.tar.gz", hash = "sha256:41dd9148c08072446394cefd3d79701701335a9f4cae69ba92e39f6c7f5c061c" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/e4/47/b9efed96c114afcfa3c9d3fe98a76a1d14c74a9e266d397cf6eb64be5e01/pytest-9.1.1.tar.gz", hash = "sha256:1088fbde8f2b49d95a549a195707afa7a76a3ce9bcadc26b6d71f0ffda5fe313" }
 wheels = [
-    { url = "https://mirrors.aliyun.com/pypi/packages/8b/5a/ba30a81239b909821b3153e303e7def45178bf353da4f72380e6c5e8793b/pytest-9.1.0-py3-none-any.whl", hash = "sha256:8ebb0e7888bdf2bdfc602ec51f8f62d50200af37356c74e503c79a94f5c81f32" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl", hash = "sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c" },
 ]
 
 [[package]]
@@ -453,7 +454,7 @@ resolution-markers = [
 ]
 dependencies = [
     { name = "pytest", version = "8.4.2", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version == '3.9.*'" },
-    { name = "pytest", version = "9.1.0", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.10'" },
+    { name = "pytest", version = "9.1.1", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.10'" },
 ]
 sdist = { url = "https://mirrors.aliyun.com/pypi/packages/68/14/eb014d26be205d38ad5ad20d9a80f7d201472e08167f0bb4361e251084a9/pytest_mock-3.15.1.tar.gz", hash = "sha256:1849a238f6f396da19762269de72cb1814ab44416fa73a8686deac10b0d87a0f" }
 wheels = [
@@ -594,7 +595,7 @@ wheels = [
 
 [[package]]
 name = "typing-extensions"
-version = "4.15.0"
+version = "4.16.0"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
 resolution-markers = [
     "(python_full_version >= '3.10' and platform_machine != 'AMD64') or (python_full_version >= '3.10' and sys_platform != 'win32')",
@@ -602,7 +603,7 @@ resolution-markers = [
     "(python_full_version == '3.9.*' and platform_machine != 'AMD64') or (python_full_version == '3.9.*' and sys_platform != 'win32')",
     "python_full_version == '3.9.*' and platform_machine == 'AMD64' and sys_platform == 'win32'",
 ]
-sdist = { url = "https://mirrors.aliyun.com/pypi/packages/72/94/1a15dd82efb362ac84269196e94cf00f187f7ed21c242792a923cdb1c61f/typing_extensions-4.15.0.tar.gz", hash = "sha256:0cea48d173cc12fa28ecabc3b837ea3cf6f38c6d1136f85cbaaf598984861466" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/f6/cc/6253133b5bb138fc3306cebfbda2c520f545d36b5be2c7255cc528bb45d6/typing_extensions-4.16.0.tar.gz", hash = "sha256:dc983d19a509c94dba722ee6abd33940f7c05a89e243c47e907eb4db6f1a43e5" }
 wheels = [
-    { url = "https://mirrors.aliyun.com/pypi/packages/18/67/36e9267722cc04a6b9f15c7f3441c2363321a3ea07da7ae0c0707beb2a9c/typing_extensions-4.15.0-py3-none-any.whl", hash = "sha256:f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/49/d3/b8441a820a491ddfc024b0b0cf0393375b75ea13866d9c66727e54c2fc80/typing_extensions-4.16.0-py3-none-any.whl", hash = "sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8" },
 ]

@@ -29,8 +29,8 @@ classifiers = [
 ]
 dependencies = [
     "PyQt5>=5.15.0",
-    "pyqt5-elawidgettools>=0.8.0",
     "pypinyin>=0.50.0",
+    "pyqt5-elawidgettools==0.12.1",
 ]
 
 [project.optional-dependencies]
@@ -61,6 +61,9 @@ pyqt5_ela_pro = ["icons/*.svg", "icons/*.png", "icons/*.ico", "icons/packages/*.
 
 [tool.uv]
 required-environments="sys_platform == 'win32' and platform_machine == 'AMD64'"
+
+[tool.uv.sources]
+pyqt5-elawidgettools = { path = "../../python_win7/PyElaWidgetTools/scripts/wheel/dist/PyQt5_ElaWidgetTools-0.11.1-cp37-abi3-win_amd64.whl" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
