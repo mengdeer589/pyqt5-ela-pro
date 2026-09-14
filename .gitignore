@@ -28,3 +28,5 @@ PyQt-Fluent-Widgets/
 /ElaWidgetTools/
 /ElaWidgetToolsExample/
 /bin_5_15_2_x64_MSVC/
+*.whl
+chart_export.png
