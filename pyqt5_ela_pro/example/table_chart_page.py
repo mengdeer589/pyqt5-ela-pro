@@ -8,21 +8,36 @@
 import random
 import math
 
-from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QFileDialog, QGraphicsScene, QGraphicsView
+from PyQt5.QtWidgets import (
+    QHBoxLayout,
+    QVBoxLayout,
+    QFileDialog,
+    QGraphicsScene,
+    QGraphicsView,
+)
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor, QFont
-from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaLineEdit, ElaComboBox, ElaCheckBox, ElaSlider
-from pyqt5_ela_pro import ElaDataTable, ElaTrendChart, ElaPlotWidget, ElaDashboardGauge
+from PyQt5ElaWidgetTools import (
+    ElaText,
+    ElaPushButton,
+    ElaLineEdit,
+    ElaComboBox,
+    ElaCheckBox,
+    ElaSlider,
+)
+from pyqt5_ela_pro import ElaDataTable, ElaPlotWidget, ElaDashboardGauge
 from .base_page import ExamplePage
 
 try:
     import pyqtgraph  # noqa: F401
+
     _HAS_PYQTGRAPH = True
 except ImportError:
     _HAS_PYQTGRAPH = False
 
 try:
     import matplotlib  # noqa: F401
+
     _HAS_MATPLOTLIB = True
 except ImportError:
     _HAS_MATPLOTLIB = False
@@ -34,9 +49,6 @@ class TableChartPage(ExamplePage):
     PAGE_TITLE = "表格与图表"
 
     def __init__(self, parent=None):
-        self._trendChart = None
-        self._gridVisible = True
-        self._legendVisible = True
         self._basicTable = None
         self._asyncTable = None
         self._styleTable = None
@@ -57,7 +69,6 @@ class TableChartPage(ExamplePage):
         self._demoParquetTable(parent_layout)
 
     def _demoChart(self, parent_layout):
-        self._demoTrendChart(parent_layout)
         parent_layout.addSpacing(20)
         self._demoPyqtgraphChart(parent_layout)
         parent_layout.addSpacing(20)
@@ -68,7 +79,9 @@ class TableChartPage(ExamplePage):
 
     def _demoBasicTable(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("01. ela_ext - ElaDataTable 基础表格", self._demoBasicTable)
+            self._createHeaderRow(
+                "01. ela_ext - ElaDataTable 基础表格", self._demoBasicTable
+            )
         )
         self._addInfoText(
             "使用 setTableData() 填充静态数据，支持列表和字典两种格式", parent_layout
@@ -89,7 +102,9 @@ class TableChartPage(ExamplePage):
 
     def _demoAsyncTable(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("02. ela_ext - ElaDataTable 异步加载", self._demoAsyncTable)
+            self._createHeaderRow(
+                "02. ela_ext - ElaDataTable 异步加载", self._demoAsyncTable
+            )
         )
         self._addInfoText(
             "使用 setTableDataAsync() 在后台线程加载大量数据", parent_layout
@@ -122,7 +137,9 @@ class TableChartPage(ExamplePage):
 
     def _demoStyleTable(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("03. ela_ext - ElaDataTable 单元格样式", self._demoStyleTable)
+            self._createHeaderRow(
+                "03. ela_ext - ElaDataTable 单元格样式", self._demoStyleTable
+            )
         )
         self._addInfoText(
             "设置前景色、背景色、字体、对齐方式、行背景高亮", parent_layout
@@ -168,7 +185,9 @@ class TableChartPage(ExamplePage):
 
     def _demoSortTable(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("04. ela_ext - ElaDataTable 表头排序", self._demoSortTable)
+            self._createHeaderRow(
+                "04. ela_ext - ElaDataTable 表头排序", self._demoSortTable
+            )
         )
         self._addInfoText(
             "点击表头可排序，再次点击切换升序/降序，支持对齐方式设置", parent_layout
@@ -220,7 +239,9 @@ class TableChartPage(ExamplePage):
 
     def _demoParquetTable(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("05. ela_ext - ElaParquetTable Parquet 文件查看", self._demoParquetTable)
+            self._createHeaderRow(
+                "05. ela_ext - ElaParquetTable Parquet 文件查看", self._demoParquetTable
+            )
         )
         self._addInfoText(
             "分页浏览 Parquet 文件，显示列统计信息。需要安装 polars",
@@ -245,6 +266,7 @@ class TableChartPage(ExamplePage):
         parent_layout.addSpacing(10)
 
         from pyqt5_ela_pro import ElaParquetTable
+
         try:
             self._parquet_table = ElaParquetTable(page_size=50, parent=self)
             self._parquet_table.setFixedHeight(350)
@@ -276,19 +298,23 @@ class TableChartPage(ExamplePage):
                 self._parquet_info = None
         except ImportError as e:
             from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+
             ElaMessageBar.error(
                 ElaMessageBarType.PositionPolicy.Top,
                 "缺少依赖",
                 f"需要 polars 库: {e}",
-                5000, self,
+                5000,
+                self,
             )
         except Exception as e:
             from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+
             ElaMessageBar.error(
                 ElaMessageBarType.PositionPolicy.Top,
                 "加载失败",
                 str(e),
-                5000, self,
+                5000,
+                self,
             )
 
     def _onSetParquetPageSize(self, size):
@@ -324,75 +350,12 @@ class TableChartPage(ExamplePage):
             )
         self._asyncTable.setTableDataAsync(large_data, callback=self._onAsyncLoaded)
 
-    def _demoTrendChart(self, parent_layout):
-        parent_layout.addLayout(
-            self._createHeaderRow("02. ela_ext - ElaTrendChart 趋势图", self._demoTrendChart)
-        )
-        self._addInfoText(
-            "支持多曲线绘制、主题切换、网格线显示、交互式指示器\n"
-            "启用交互后，左键拖拽平移，滚轮缩放，双击重置视图",
-            parent_layout,
-        )
-        self._trendChart = ElaTrendChart(self)
-        self._trendChart.setFixedSize(600, 300)
-        x_data = list(range(100))
-        y1_data = self._generateWaveData(100, base=50, amplitude=30, phase=10)
-        y2_data = self._generateWaveData(100, base=40, amplitude=20, phase=15)
-        y3_data = self._generateWaveData(100, base=60, amplitude=25, phase=8)
-        self._trendChart.addCurve(x=x_data, y=y1_data, name="系列A")
-        self._trendChart.addCurve(x=x_data, y=y2_data, name="系列B")
-        self._trendChart.addCurve(x=x_data, y=y3_data, name="系列C")
-        self._trendChart.adjustViewRect()
-        self._trendChart.setGridVisible(self._gridVisible)
-        self._trendChart.setLegendVisible(self._legendVisible)
-        self._trendChart.setOnPointClicked(self._onChartPointClicked)
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(15)
-        grid_btn = ElaPushButton("切换网格线", self)
-        grid_btn.setFixedWidth(100)
-        grid_btn.clicked.connect(self._toggleGrid)
-        btn_layout.addWidget(grid_btn)
-        legend_btn = ElaPushButton("切换图例", self)
-        legend_btn.setFixedWidth(100)
-        legend_btn.clicked.connect(self._toggleLegend)
-        btn_layout.addWidget(legend_btn)
-        refresh_btn = ElaPushButton("刷新数据", self)
-        refresh_btn.setFixedWidth(100)
-        refresh_btn.clicked.connect(self._onRefreshChartData)
-        btn_layout.addWidget(refresh_btn)
-        data_count_label = ElaText("数据点数:", self)
-        data_count_label.setTextPixelSize(14)
-        btn_layout.addWidget(data_count_label)
-        self._data_count_input = ElaLineEdit(self)
-        self._data_count_input.setFixedWidth(80)
-        self._data_count_input.setText("100")
-        btn_layout.addWidget(self._data_count_input)
-        self._interact_btn = ElaPushButton("启用交互", self)
-        self._interact_btn.setFixedWidth(100)
-        self._interact_btn.clicked.connect(self._toggleChartInteraction)
-        btn_layout.addWidget(self._interact_btn)
-        png_btn = ElaPushButton("导出PNG", self)
-        png_btn.setFixedWidth(80)
-        png_btn.clicked.connect(self._exportPng)
-        btn_layout.addWidget(png_btn)
-        svg_btn = ElaPushButton("导出SVG", self)
-        svg_btn.setFixedWidth(80)
-        svg_btn.clicked.connect(self._exportSvg)
-        type_label = ElaText("图表类型:", self)
-        type_label.setTextPixelSize(14)
-        btn_layout.addWidget(type_label)
-        self._chart_type_combo = ElaComboBox(self)
-        self._chart_type_combo.setFixedWidth(120)
-        self._chart_type_combo.addItems(["折线图", "散点图"])
-        btn_layout.addWidget(self._chart_type_combo)
-        btn_layout.addStretch()
-        parent_layout.addWidget(self._trendChart)
-        parent_layout.addLayout(btn_layout)
-        parent_layout.addSpacing(20)
-
     def _demoPyqtgraphChart(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("03. ela_ext - ElaPlotWidget 实时波形图 (pyqtgraph)", self._demoPyqtgraphChart)
+            self._createHeaderRow(
+                "03. ela_ext - ElaPlotWidget 实时波形图 (pyqtgraph)",
+                self._demoPyqtgraphChart,
+            )
         )
         if not _HAS_PYQTGRAPH:
             self._addInfoText(
@@ -489,7 +452,8 @@ class TableChartPage(ExamplePage):
             self._pg_sim_timer.stop()
             return
         val = (
-            math.sin(self._pg_t * 0.02) * 50 + 50
+            math.sin(self._pg_t * 0.02) * 50
+            + 50
             + 0.5 * math.sin(self._pg_t * 0.05) * 25
             + random.gauss(0, 1) * 5
         )
@@ -522,7 +486,10 @@ class TableChartPage(ExamplePage):
 
     def _demoFigureCanvas(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("04. ela_ext - ElaFigureCanvas 图表 (matplotlib)", self._demoFigureCanvas)
+            self._createHeaderRow(
+                "04. ela_ext - ElaFigureCanvas 图表 (matplotlib)",
+                self._demoFigureCanvas,
+            )
         )
         if not _HAS_MATPLOTLIB:
             self._addInfoText(
@@ -532,6 +499,7 @@ class TableChartPage(ExamplePage):
             return
         from pyqt5_ela_pro import ElaFigureCanvas
         from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
+
         self._addInfoText(
             "基于 matplotlib 的图表画布，支持主题自适应\n"
             "跟随 Ela 主题自动切换 Light/Dark 配色\n"
@@ -550,7 +518,7 @@ class TableChartPage(ExamplePage):
         self._mpl_ax.grid(True, alpha=0.7)
         self._mpl_canvas.figure.tight_layout()
 
-        self._mpl_line, = self._mpl_ax.plot([], [], 'b-', lw=0.5)
+        (self._mpl_line,) = self._mpl_ax.plot([], [], "b-", lw=0.5)
         self._mpl_total = 40000
         self._mpl_data_x = list(range(self._mpl_total))
         self._mpl_data_y = [0.0] * self._mpl_total
@@ -665,7 +633,9 @@ class TableChartPage(ExamplePage):
 
     def _demoDashboardGauge(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("05. ela_ext - ElaDashboardGauge 仪表盘", self._demoDashboardGauge)
+            self._createHeaderRow(
+                "05. ela_ext - ElaDashboardGauge 仪表盘", self._demoDashboardGauge
+            )
         )
         self._addInfoText(
             "全 QPainter 自绘仪表盘，支持弧形刻度、指针、颜色分段和动画过渡",
@@ -771,74 +741,14 @@ class TableChartPage(ExamplePage):
         self._gauge_slider.setValue(int(self._gauge_tick_val))
         self._gauge.setValue(self._gauge_tick_val)
 
-    def _toggleGrid(self):
-        self._gridVisible = not self._gridVisible
-        self._trendChart.setGridVisible(self._gridVisible)
-
-    def _toggleLegend(self):
-        self._legendVisible = not self._legendVisible
-        self._trendChart.setLegendVisible(self._legendVisible)
-
-    def _toggleChartInteraction(self):
-        enabled = not self._trendChart.isInteractionEnabled()
-        self._trendChart.setInteractionEnabled(enabled)
-        self._interact_btn.setText("禁用交互" if enabled else "启用交互")
-
-    def _exportPng(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self, "导出 PNG", "chart.png", "PNG 图片 (*.png)"
-        )
-        if path:
-            self._trendChart.saveToPng(path)
-
-    def _exportSvg(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self, "导出 SVG", "chart.svg", "SVG 矢量图 (*.svg)"
-        )
-        if path:
-            self._trendChart.saveToSvg(path)
-
-    def _generateWaveData(self, count, base=50, amplitude=10, phase=5):
-        data = []
-        for i in range(count):
-            value = base + amplitude * (i / count) + random.random() * phase
-            data.append(value)
-        return data
-
-    def _onChartPointClicked(self, name: str, x: float, y: float):
-        print(f"点击: {name}, x={x:.2f}, y={y:.2f}")
-
-    def _onRefreshChartData(self):
-        if not self._trendChart:
-            return
-        text = self._data_count_input.text() if self._data_count_input else "100"
-        try:
-            count = max(1, int(text))
-        except ValueError:
-            count = 100
-        x_data = list(range(count))
-        y1_data = [random.uniform(50, 100) for _ in x_data]
-        y2_data = [random.uniform(40, 80) for _ in x_data]
-        y3_data = [random.uniform(60, 90) for _ in x_data]
-        self._trendChart.clearCurves()
-
-        chart_type = self._chart_type_combo.currentText() if self._chart_type_combo else "折线图"
-        t = "scatter" if chart_type == "散点图" else "line"
-        if t == "scatter":
-            self._trendChart.addCurve(x=x_data, y=y1_data, name="圆形", curve_type=t, dot_shape="circle")
-            self._trendChart.addCurve(x=x_data, y=y2_data, name="方块", curve_type=t, dot_shape="square")
-            self._trendChart.addCurve(x=x_data, y=y3_data, name="菱形", curve_type=t, dot_shape="diamond")
-        else:
-            self._trendChart.addCurve(x=x_data, y=y1_data, name="实线", curve_type=t, line_style="solid")
-            self._trendChart.addCurve(x=x_data, y=y2_data, name="虚线", curve_type=t, line_style="dash")
-            self._trendChart.addCurve(x=x_data, y=y3_data, name="点线", curve_type=t, line_style="dot")
-        self._trendChart.adjustViewRect()
-
     def _demoGraphicsView(self, parent_layout):
         from PyQt5.QtGui import QColor, QBrush, QPen
 
         parent_layout.addLayout(
-            self._createHeaderRow("06. PyQt5ElaWidgetTools - ElaGraphicsScene / ElaGraphicsView 图形视图", self._demoGraphicsView)
+            self._createHeaderRow(
+                "06. PyQt5ElaWidgetTools - ElaGraphicsScene / ElaGraphicsView 图形视图",
+                self._demoGraphicsView,
+            )
         )
         self._addInfoText(
             "Ela 主题的图形视图框架，支持场景中放置可交互的图形项", parent_layout
@@ -850,22 +760,29 @@ class TableChartPage(ExamplePage):
         view.setFixedHeight(300)
         view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
 
-        rect = view.scene().addRect(-60, -60, 120, 120, QPen(QColor("#1677ff"), 2), QBrush(QColor("#e6f4ff")))
+        rect = view.scene().addRect(
+            -60, -60, 120, 120, QPen(QColor("#1677ff"), 2), QBrush(QColor("#e6f4ff"))
+        )
         rect.setFlag(rect.GraphicsItemFlag.ItemIsMovable, True)
         rect.setFlag(rect.GraphicsItemFlag.ItemIsSelectable, True)
 
-        circle = view.scene().addEllipse(-50, -50, 100, 100, QPen(QColor("#52c41a"), 2), QBrush(QColor("#f6ffed")))
+        circle = view.scene().addEllipse(
+            -50, -50, 100, 100, QPen(QColor("#52c41a"), 2), QBrush(QColor("#f6ffed"))
+        )
         circle.setPos(150, 0)
         circle.setFlag(circle.GraphicsItemFlag.ItemIsMovable, True)
         circle.setFlag(circle.GraphicsItemFlag.ItemIsSelectable, True)
 
         from PyQt5.QtGui import QPainterPath
+
         tp = QPainterPath()
         tp.moveTo(0, -50)
         tp.lineTo(50, 50)
         tp.lineTo(-50, 50)
         tp.closeSubpath()
-        triangle = view.scene().addPath(tp, QPen(QColor("#fa8c16"), 2), QBrush(QColor("#fff7e6")))
+        triangle = view.scene().addPath(
+            tp, QPen(QColor("#fa8c16"), 2), QBrush(QColor("#fff7e6"))
+        )
         triangle.setPos(-150, 100)
         triangle.setFlag(triangle.GraphicsItemFlag.ItemIsMovable, True)
         triangle.setFlag(triangle.GraphicsItemFlag.ItemIsSelectable, True)

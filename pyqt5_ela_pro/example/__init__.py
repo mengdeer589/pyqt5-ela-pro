@@ -18,6 +18,12 @@ from .advanced_page import AdvancedComponentsPage
 
 from .application_utils_page import ApplicationUtilitiesPage
 
+from .charts_page import ChartsPage
+
+from .blueprint_page import BlueprintPage
+
+from .markdown_page import MarkdownPage
+
 __all__ = [
     "ExamplePage",
     "BasicContainerPage",
@@ -32,6 +38,8 @@ __all__ = [
     "BrowserExamplePage",
     "ApplicationComponentsPage",
     "AdvancedComponentsPage",
-
     "ApplicationUtilitiesPage",
+    "ChartsPage",
+    "BlueprintPage",
+    "MarkdownPage",
 ]

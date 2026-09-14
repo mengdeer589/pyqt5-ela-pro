@@ -233,3 +233,25 @@ class TestElaDrawer:
         parent = QWidget()
         drawer = ElaDrawer(parent=parent)
         drawer.deleteLater()
+
+    def test_show_drawer_without_parent_returns_immediately(self):
+        """Regression: parentless showDrawer must not setParent(self) and hang."""
+        drawer = ElaDrawer()
+        drawer.setContentWidget(QWidget())
+
+        drawer.showDrawer()
+
+        assert drawer.isOpened() is False
+        drawer.deleteLater()
+
+    def test_show_drawer_with_parent_opens(self):
+        """Test showDrawer with a parent widget opens the drawer."""
+        parent = QWidget()
+        drawer = ElaDrawer(parent=parent)
+        drawer.setContentWidget(QWidget())
+
+        drawer.showDrawer()
+
+        assert drawer.isOpened() is True
+        parent.deleteLater()
+        drawer.deleteLater()

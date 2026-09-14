@@ -99,3 +99,23 @@ class TestElaDialogBase:
         for d in dialogs:
             d.deleteLater()
         parent.deleteLater()
+
+    def test_set_param_widget_twice_keeps_widget_alive(self, qapp):
+        """Regression: re-setting the same widget must not deleteLater it."""
+        import sip
+        from PyQt5.QtCore import QCoreApplication, QEvent
+        from pyqt5_ela_pro.dialog_base import ElaDialogBase
+
+        parent = QWidget()
+        dlg = ElaDialogBase(parent=parent)
+        content = QWidget()
+
+        dlg.setParamWidget(content)
+        dlg.setParamWidget(content)
+        QCoreApplication.sendPostedEvents(content, QEvent.DeferredDelete)
+        qapp.processEvents()
+
+        assert not sip.isdeleted(content)
+        assert dlg._paramLay.indexOf(content) != -1
+        dlg.deleteLater()
+        parent.deleteLater()

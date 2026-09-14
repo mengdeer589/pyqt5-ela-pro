@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import pyqtSignal, QObject
+from PyQt5.QtCore import pyqtSignal, QObject, QTimer
 from PyQt5.QtWidgets import QWidget
 
 try:
@@ -53,6 +53,7 @@ class ElaTaskbarProgress(QObject):
         self._button: Optional[QWinTaskbarButton] = None
         self._progress: Optional[QWinTaskbarProgress] = None
         self._attached = False
+        self._attach_timer: Optional[QTimer] = None
 
     def _connect_signals(self) -> None:
         if self._progress is not None:
@@ -77,19 +78,24 @@ class ElaTaskbarProgress(QObject):
             self._button.setWindow(wh)
             self._attached = True
         else:
-            self._window.windowHandleChanged.connect(self._on_window_handle_created)
+            # QWidget 在 Qt5 没有 windowHandleChanged 信号，
+            # 只能轮询等待 show()/create() 后 windowHandle() 可用
+            if self._attach_timer is None:
+                self._attach_timer = QTimer(self)
+                self._attach_timer.setInterval(50)
+                self._attach_timer.timeout.connect(self._on_window_handle_created)
+            self._attach_timer.start()
 
     def _on_window_handle_created(self) -> None:
+        if self._window is None or self._button is None:
+            return
         wh = self._window.windowHandle()
-        if wh is not None:
-            try:
-                self._window.windowHandleChanged.disconnect(
-                    self._on_window_handle_created
-                )
-            except (TypeError, RuntimeError):
-                pass
-            self._button.setWindow(wh)
-            self._attached = True
+        if wh is None:
+            return
+        if self._attach_timer is not None:
+            self._attach_timer.stop()
+        self._button.setWindow(wh)
+        self._attached = True
 
     def _is_win_extras_available(self) -> bool:
         return QWinTaskbarButton is not None and callable(QWinTaskbarButton)
@@ -184,6 +190,8 @@ class ElaTaskbarProgress(QObject):
             self._progress.reset()
 
     def deleteLater(self) -> None:
+        if self._attach_timer is not None:
+            self._attach_timer.stop()
         self._disconnect_signals()
         super().deleteLater()
 

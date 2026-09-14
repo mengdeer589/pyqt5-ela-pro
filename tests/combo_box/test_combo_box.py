@@ -135,6 +135,7 @@ class TestElaSearchMultiBox:
         box = ElaSearchMultiBox()
         box.addItem("test")
         box.showPopup()
+        box.hidePopup()  # 关闭 Popup：残留的活动弹出窗口会拦截后续测试的鼠标事件
         box.deleteLater()
 
 

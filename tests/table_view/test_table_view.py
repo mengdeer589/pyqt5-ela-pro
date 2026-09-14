@@ -111,3 +111,42 @@ class TestElaDataTable:
         from pyqt5_ela_pro.table_view import ElaDataTable
         table = ElaDataTable()
         table.deleteLater()  # should not raise TypeError when disconnecting
+
+    def test_set_column_widths_by_header_name(self):
+        """Test string header keys resolve to columns."""
+        from pyqt5_ela_pro.table_view import ElaDataTable
+        table = ElaDataTable()
+        table.setTableData([["A", "B"], [1, 2], [3, 4]])
+
+        table.setColumnWidths({"A": 120})
+
+        assert table.columnWidth(0) == 120
+        table.deleteLater()
+
+    def test_apply_column_widths_with_header_name_on_show(self):
+        """Regression: tableViewShow must not pass str keys to setColumnWidth."""
+        from PyQt5.QtWidgets import QApplication
+        from pyqt5_ela_pro.table_view import ElaDataTable
+
+        table = ElaDataTable()
+        table.setTableData([["A", "B"], [1, 2], [3, 4]])
+        table.setColumnWidths({"A": 140, "不存在的列": 200})
+
+        table.show()
+        table.tableViewShow.emit()
+        QApplication.processEvents()
+
+        assert table.columnWidth(0) == 140
+        table.close()
+        table.deleteLater()
+
+    def test_resolve_column_unknown_name_returns_none(self):
+        """Test _resolve_column returns None for unmatched header name."""
+        from pyqt5_ela_pro.table_view import ElaDataTable
+        table = ElaDataTable()
+        table.setTableData([["A", "B"], [1, 2]])
+
+        assert table._resolve_column("A") == 0
+        assert table._resolve_column(1) == 1
+        assert table._resolve_column("missing") is None
+        table.deleteLater()

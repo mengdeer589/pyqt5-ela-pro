@@ -43,6 +43,7 @@ class ElaMessageDialog(ElaDialogBase):
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(title=title, middleText=middleText, parent=parent)
+        self._message_widget: Optional[ElaText] = None
         self.setMessage(message)
 
     def setMessage(self, message: str) -> None:
@@ -50,15 +51,19 @@ class ElaMessageDialog(ElaDialogBase):
 
         :param message: 消息文本
         """
-        if self._paramLay.count() > 2:
-            item = self._paramLay.takeAt(2)
-            if item and item.widget():
-                item.widget().deleteLater()
+        old_message = self._message_widget
+        self._message_widget = None
+        if old_message is not None:
+            try:
+                old_message.deleteLater()
+            except RuntimeError:
+                pass
 
         message_widget = ElaText(message, self._paramWidget)
         message_widget.setTextPixelSize(12)
         message_widget.setWordWrap(True)
-        self._paramLay.addWidget(message_widget)
+        self._message_widget = message_widget
+        self._paramLay.insertWidget(2, message_widget)
 
     def show(
         self,

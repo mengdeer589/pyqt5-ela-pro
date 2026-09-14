@@ -8,6 +8,9 @@
   accentBg       — 半透明背景色（用于 filled 变体、outlined 悬浮）
   accentBgHover  — 背景色悬浮态
   textColor      — 实心背景上的文字颜色（通常为白色）
+
+``get_color_scheme`` 额外派生实心按钮专用色（保证文字对比度 ≥ 4.5:1）：
+  solid / solidHover / solidActive / solidText
 """
 
 from __future__ import annotations
@@ -16,6 +19,24 @@ from PyQt5.QtGui import QColor
 from PyQt5ElaWidgetTools import ElaThemeType
 
 _COLOR_PALETTE: dict[str, dict[str, dict[str, str]]] = {
+    "default": {
+        "light": {
+            "accent": "#4f5459",
+            "accentHover": "#6a7075",
+            "accentActive": "#3a3f44",
+            "accentBg": "#f2f3f4",
+            "accentBgHover": "#e4e6e8",
+            "textColor": "#ffffff",
+        },
+        "dark": {
+            "accent": "#5a5f63",
+            "accentHover": "#6e747a",
+            "accentActive": "#45494d",
+            "accentBg": "#2c2e30",
+            "accentBgHover": "#3a3d40",
+            "textColor": "#ffffff",
+        },
+    },
     "blue": {
         "light": {
             "accent": "#0067c0",
@@ -119,6 +140,24 @@ _COLOR_PALETTE: dict[str, dict[str, dict[str, str]]] = {
             "accent": "#c92980",
             "accentHover": "#dd5099",
             "accentActive": "#a81e6b",
+            "accentBg": "#2c1120",
+            "accentBgHover": "#421a31",
+            "textColor": "#ffffff",
+        },
+    },
+    "pink": {
+        "light": {
+            "accent": "#f759ab",
+            "accentHover": "#ff85c0",
+            "accentActive": "#c41d7f",
+            "accentBg": "#fff0f6",
+            "accentBgHover": "#ffd6e7",
+            "textColor": "#ffffff",
+        },
+        "dark": {
+            "accent": "#c95a91",
+            "accentHover": "#d97cab",
+            "accentActive": "#a14473",
             "accentBg": "#2c1120",
             "accentBgHover": "#421a31",
             "textColor": "#ffffff",
@@ -253,9 +292,7 @@ _COLOR_PALETTE: dict[str, dict[str, dict[str, str]]] = {
 }
 
 _COLOR_ALIAS: dict[str, str] = {
-    "default": "blue",
     "primary": "blue",
-    "pink": "magenta",
 }
 
 
@@ -263,16 +300,82 @@ def _resolve_color(name: str) -> str:
     return _COLOR_ALIAS.get(name, name)
 
 
+def _relative_luminance(color: QColor) -> float:
+    """WCAG 相对亮度。"""
+
+    def channel(value: int) -> float:
+        v = value / 255.0
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+
+    return (
+        0.2126 * channel(color.red())
+        + 0.7152 * channel(color.green())
+        + 0.0722 * channel(color.blue())
+    )
+
+
+def _contrast_ratio(a: QColor, b: QColor) -> float:
+    """WCAG 对比度（1~21）。"""
+    la, lb = _relative_luminance(a), _relative_luminance(b)
+    high, low = max(la, lb), min(la, lb)
+    return (high + 0.05) / (low + 0.05)
+
+
+def _mix(a: QColor, b: QColor, t: float) -> QColor:
+    return QColor(
+        int(a.red() * (1 - t) + b.red() * t),
+        int(a.green() * (1 - t) + b.green() * t),
+        int(a.blue() * (1 - t) + b.blue() * t),
+    )
+
+
+#: 实心背景使用黑字的色系（亮黄色系，白字天然不达标）
+_BLACK_TEXT_COLORS = {"yellow", "lime", "gold"}
+
+
+def _solid_palette(accent: QColor, color_name: str) -> dict[str, QColor]:
+    """派生实心按钮配色：保证 ``solidText`` 与 ``solid`` 对比度 ≥ 4.5:1。
+
+    亮黄色系（黄 / 柠檬 / 金）固定黑字且不压暗；其余颜色统一白字，
+    并按需逐步加深底色直到达标，避免霓虹色块配白字的低对比问题。
+    """
+    white, black = QColor("#ffffff"), QColor("#000000")
+    if color_name in _BLACK_TEXT_COLORS:
+        text, solid = black, QColor(accent)
+    else:
+        text, solid = white, QColor(accent)
+        for _ in range(32):
+            if _contrast_ratio(solid, text) >= 4.5:
+                break
+            solid = _mix(solid, black, 0.06)
+    hover = _mix(solid, white, 0.08)
+    if _contrast_ratio(hover, text) < 4.0:
+        hover = _mix(solid, black, 0.08)
+    active = _mix(solid, black, 0.12)
+    return {
+        "solid": solid,
+        "solidHover": hover,
+        "solidActive": active,
+        "solidText": text,
+    }
+
+
 def get_color_scheme(
     color_name: str, mode: ElaThemeType.ThemeMode
 ) -> dict[str, QColor]:
-    """获取指定颜色名称在当前主题下的完整色板（QColor 对象）。"""
+    """获取指定颜色名称在当前主题下的完整色板（QColor 对象）。
+
+    在原始 6 个键之外，额外包含对比度达标的实心按钮色：
+    ``solid`` / ``solidHover`` / ``solidActive`` / ``solidText``。
+    """
     resolved = _resolve_color(color_name)
     if resolved not in _COLOR_PALETTE:
         resolved = "blue"
     mode_key = "light" if mode == ElaThemeType.ThemeMode.Light else "dark"
     raw = _COLOR_PALETTE[resolved][mode_key]
-    return {k: QColor(v) for k, v in raw.items()}
+    scheme = {k: QColor(v) for k, v in raw.items()}
+    scheme.update(_solid_palette(scheme["accent"], resolved))
+    return scheme
 
 
 def get_accent_color(color_name: str, mode: ElaThemeType.ThemeMode) -> QColor:

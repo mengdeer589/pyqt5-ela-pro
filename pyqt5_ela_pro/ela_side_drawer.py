@@ -297,7 +297,7 @@ class ElaDrawer(ElaThemeWidget):
         if not self._content_widget:
             return
 
-        win = self.window()
+        win = self.window() if self.parentWidget() else None
         if not win:
             return
         if self.parentWidget() is not win:

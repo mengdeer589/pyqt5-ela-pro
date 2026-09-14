@@ -96,6 +96,8 @@ from .ela_dashboard_gauge import ElaDashboardGauge
 
 from .ela_divider import ElaDivider
 
+from .ela_drawer_area import ElaDrawerArea
+
 from .ela_button import ElaButton
 
 from .ela_chip import ElaChip
@@ -130,9 +132,9 @@ from .ela_timeline import ElaTimeline
 
 from .ela_toast import ElaToast
 
-from .ela_trend_chart import ElaTrendChart
-
 from .ela_upload_area import ElaUploadArea
+
+from .charts import ElaChartWidget
 
 from .ela_tag_box import ElaTagBox
 
@@ -156,6 +158,32 @@ from .browser_embedder import ElaBrowserEmbedder
 
 from .splitter import ElaSplitter
 
+from .blueprint import (
+    ElaBlueprintCanvas,
+    ElaBlueprintGraph,
+    ElaBlueprintNode,
+    ElaEdge,
+    ElaEdgeWidget,
+    ElaExecutionController,
+    ElaNodeContextMenu,
+    ElaNodeCreationMenu,
+    ElaNodeRegistry,
+    ElaNodeSpec,
+    ElaNodeWidget,
+    ElaPin,
+    ElaPinDirection,
+    ElaPinHandle,
+    ElaTempWire,
+    PIN_COLORS,
+    bezier_path,
+    format_elapsed,
+    gl_available,
+    pin_color,
+    register_node_type,
+    register_pin_type,
+    types_compatible,
+)
+
 
 __all__ = [
     # ── Functions ──
@@ -171,8 +199,12 @@ __all__ = [
     "show_notify",
     # ── Components ──
     "ElaAnimatedMixin",
+    "ElaBlueprintCanvas",
+    "ElaBlueprintGraph",
+    "ElaBlueprintNode",
     "ElaBrowserEmbedder",
     "ElaButton",
+    "ElaChartWidget",
     "ElaChip",
     "ElaConfirmDialog",
     "ElaDashboardGauge",
@@ -180,18 +212,30 @@ __all__ = [
     "ElaDialogBase",
     "ElaDivider",
     "ElaDrawer",
+    "ElaDrawerArea",
     "ElaDrawerPosition",
     "ElaDropDownButton",
+    "ElaEdge",
+    "ElaEdgeWidget",
     "ElaExcelViewer",
+    "ElaExecutionController",
     "ElaFigureCanvas",
     "ElaGroupBox",
     "ElaInfoBadge",
     "ElaLongPressButton",
     "ElaMarkdownViewer",
     "ElaMessageDialog",
+    "ElaNodeContextMenu",
+    "ElaNodeCreationMenu",
+    "ElaNodeRegistry",
+    "ElaNodeSpec",
+    "ElaNodeWidget",
     "ElaNotifyPopup",
     "ElaParquetTable",
     "ElaPasswordEdit",
+    "ElaPin",
+    "ElaPinDirection",
+    "ElaPinHandle",
     "ElaPlotWidget",
     "ElaPagination",
     "ElaPowerPointViewer",
@@ -214,14 +258,22 @@ __all__ = [
     "ElaTagSearchBox",
     "ElaTagSearchMultiBox",
     "ElaTaskbarProgress",
+    "ElaTempWire",
     "ElaThemeWidget",
     "ElaTimeline",
     "ElaToast",
     "ElaToolTip",
     "ElaToolTipPosition",
-    "ElaTrendChart",
     "ElaUploadArea",
     "ElaWindowEmbedder",
     "ElaWordViewer",
+    "PIN_COLORS",
+    "bezier_path",
+    "format_elapsed",
+    "gl_available",
+    "pin_color",
+    "register_node_type",
+    "register_pin_type",
+    "types_compatible",
     "__version__",
 ]

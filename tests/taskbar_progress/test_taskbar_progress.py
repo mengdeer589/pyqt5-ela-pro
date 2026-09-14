@@ -296,3 +296,44 @@ class TestElaTaskbarProgressMethods:
             assert tb._attached is False  # no handle, no attachment
 
             window.deleteLater()
+
+    def test_ensure_attached_without_handle_starts_polling(self):
+        """Regression: QWidget has no windowHandleChanged signal in Qt5.
+
+        Calling a setter before the window is shown must not raise
+        AttributeError; attachment is retried by polling instead.
+        """
+        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', MagicMock()):
+            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
+
+            window = QWidget()
+            tb = ElaTaskbarProgress(window)
+
+            tb.setValue(5)  # old implementation raised AttributeError here
+
+            assert tb._attached is False
+            assert tb._attach_timer is not None
+            assert tb._attach_timer.isActive() is True
+
+            tb.deleteLater()
+            window.deleteLater()
+
+    def test_on_window_handle_created_attaches_and_stops_polling(self):
+        """Test polling slot attaches once the window handle becomes available."""
+        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', MagicMock()):
+            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
+
+            window = QWidget()
+            tb = ElaTaskbarProgress(window)
+            tb.setValue(5)
+            fake_handle = MagicMock()
+            window.windowHandle = lambda: fake_handle
+
+            tb._on_window_handle_created()
+
+            assert tb._attached is True
+            tb._button.setWindow.assert_called_once_with(fake_handle)
+            assert tb._attach_timer.isActive() is False
+
+            tb.deleteLater()
+            window.deleteLater()

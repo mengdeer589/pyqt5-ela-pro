@@ -10,7 +10,7 @@ class TestElaButtonInit:
         assert btn._variant == "outlined"
         assert btn._color_name == "default"
         assert btn._danger is False
-        assert btn._border_radius == 3
+        assert btn._border_radius == 6
         assert btn._icon_name is None
         assert btn._hovered is False
         assert btn.text() == ""
@@ -23,19 +23,24 @@ class TestElaButtonInit:
 
     def test_initialization_with_icon(self):
         from PyQt5ElaWidgetTools import ElaIconType
+
         btn = ElaButton(icon=ElaIconType.IconName.House)
         assert btn._icon_name == ElaIconType.IconName.House
         btn.deleteLater()
 
     def test_initialization_with_all_params(self):
         btn = ElaButton(
-            text="删除", variant="solid", color="danger",
-            danger=True, size="small", parent=None,
+            text="删除",
+            variant="solid",
+            color="danger",
+            danger=True,
+            size="small",
+            parent=None,
         )
         assert btn._variant == "solid"
         assert btn._color_name == "danger"
         assert btn._danger is True
-        assert btn._border_radius == 3
+        assert btn._border_radius == 4
         btn.deleteLater()
 
     def test_initial_sizes_vary_by_size_param(self):
@@ -95,9 +100,24 @@ class TestElaButtonColor:
 
     def test_set_color_all_16(self):
         btn = ElaButton()
-        for c in ["default", "primary", "danger", "blue", "purple", "cyan",
-                   "green", "magenta", "pink", "red", "orange", "yellow",
-                   "volcano", "geekblue", "lime", "gold"]:
+        for c in [
+            "default",
+            "primary",
+            "danger",
+            "blue",
+            "purple",
+            "cyan",
+            "green",
+            "magenta",
+            "pink",
+            "red",
+            "orange",
+            "yellow",
+            "volcano",
+            "geekblue",
+            "lime",
+            "gold",
+        ]:
             btn.setColor(c)
             assert btn.color() == c
         btn.deleteLater()
@@ -156,8 +176,21 @@ class TestElaButtonSize:
 class TestElaButtonBorderRadius:
     def test_border_radius_default(self):
         btn = ElaButton()
-        assert btn.borderRadius() == 3
+        assert btn.borderRadius() == 6
         btn.deleteLater()
+
+    def test_border_radius_varies_by_size(self):
+        small = ElaButton(size="small")
+        middle = ElaButton(size="middle")
+        large = ElaButton(size="large")
+        assert (small.borderRadius(), middle.borderRadius(), large.borderRadius()) == (
+            4,
+            6,
+            8,
+        )
+        small.deleteLater()
+        middle.deleteLater()
+        large.deleteLater()
 
     def test_set_border_radius(self):
         btn = ElaButton()
@@ -181,6 +214,7 @@ class TestElaButtonBorderRadius:
 class TestElaButtonIcon:
     def test_set_ela_icon(self):
         from PyQt5ElaWidgetTools import ElaIconType
+
         btn = ElaButton()
         btn.setElaIcon(ElaIconType.IconName.Pencil)
         assert btn._icon_name == ElaIconType.IconName.Pencil
@@ -188,6 +222,7 @@ class TestElaButtonIcon:
 
     def test_set_icon_updates_icon_size(self):
         from PyQt5ElaWidgetTools import ElaIconType
+
         btn = ElaButton()
         btn.setElaIcon(ElaIconType.IconName.House, iconSize=20)
         assert btn._icon_size == 20
@@ -221,6 +256,7 @@ class TestElaButtonTheme:
     def test_on_theme_changed_updates_mode(self):
         btn = ElaButton()
         from PyQt5ElaWidgetTools import ElaThemeType
+
         btn._onThemeChanged(ElaThemeType.ThemeMode.Dark)
         assert btn._theme_mode == ElaThemeType.ThemeMode.Dark
         btn.deleteLater()

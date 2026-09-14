@@ -9,7 +9,7 @@ import traceback
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QWidget
 from PyQt5.QtGui import QFont
 from PyQt5ElaWidgetTools import (
-    ElaText, ElaPushButton, ElaDrawerArea, ElaIconType, ElaToggleSwitch, ElaDialog,
+    ElaText, ElaPushButton, ElaIconType, ElaToggleSwitch, ElaDialog,
 )
 from pyqt5_ela_pro import (
     ElaToast,
@@ -19,6 +19,7 @@ from pyqt5_ela_pro import (
 )
 from pyqt5_ela_pro import (
     ElaDrawer,
+    ElaDrawerArea,
     ElaDrawerPosition,
     ElaThemeWidget,
     ElaButton,
@@ -81,6 +82,9 @@ class DrawerTooltipPage(ExamplePage):
         switch_btn = ElaToggleSwitch(self)
 
         def _on_toggle(toggled: bool):
+            # setIsToggled 同步开关时原生会回发 toggled，状态一致时跳过避免回声
+            if toggled == drawer.getIsExpand():
+                return
             switch_text.setText("开" if toggled else "关")
             drawer.expand() if toggled else drawer.collapse()
 

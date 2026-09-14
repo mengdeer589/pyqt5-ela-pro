@@ -100,8 +100,9 @@ class ElaDialogBase(ElaContentDialog):
         """
         while self._paramLay.count() > 2:
             item = self._paramLay.takeAt(2)
-            if item and item.widget():
-                item.widget().deleteLater()
+            old_widget = item.widget() if item else None
+            if old_widget is not None and old_widget is not widget:
+                old_widget.deleteLater()
         self._paramLay.addWidget(widget)
 
     def deleteLater(self) -> None:

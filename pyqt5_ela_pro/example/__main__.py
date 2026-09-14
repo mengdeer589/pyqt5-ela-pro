@@ -10,7 +10,7 @@ from pyqt5_ela_pro import ElaSplashScreen
 
 os.environ["QT_LOGGING_RULES"] = "*.debug=false;qt.qpa.fonts.warning=false"
 
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
 from PyQt5ElaWidgetTools import (
@@ -28,6 +28,9 @@ from pyqt5_ela_pro.example import (
     FormButtonPage,
     ComboBoxPage,
     TableChartPage,
+    ChartsPage,
+    BlueprintPage,
+    MarkdownPage,
     DrawerTooltipPage,
     AnimationIconPage,
     WindowEmbedderPage,
@@ -51,24 +54,63 @@ class ExampleWindow(ElaWindow):
         # PyQt5ElaWidgetTools 原生组件
         # ════════════════════════════════════════════
         try:
-            self.addPageNode("基础控件", BasicContainerPage(self), ElaIconType.IconName.House)
-            self.addPageNode("容器展示", ContainerDisplayPage(self), ElaIconType.IconName.Square)
-            self.addPageNode("扩展组件", ExtensionComponentsPage(self), ElaIconType.IconName.Puzzle)
-            self.addPageNode("应用框架", ApplicationComponentsPage(self), ElaIconType.IconName.Grid)
+            self.addPageNode(
+                "基础控件", BasicContainerPage(self), ElaIconType.IconName.House
+            )
+            self.addPageNode(
+                "容器展示", ContainerDisplayPage(self), ElaIconType.IconName.Square
+            )
+            self.addPageNode(
+                "扩展组件", ExtensionComponentsPage(self), ElaIconType.IconName.Puzzle
+            )
+            self.addPageNode(
+                "应用框架", ApplicationComponentsPage(self), ElaIconType.IconName.Grid
+            )
 
             # ════════════════════════════════════════════
             # pyqt5_ela_pro 扩展组件
             # ════════════════════════════════════════════
             self.addPageNode("增强按钮", FormButtonPage(self), ElaIconType.IconName.Pen)
-            self.addPageNode("下拉框组件", ComboBoxPage(self), ElaIconType.IconName.List)
-            self.addPageNode("表格与图表", TableChartPage(self), ElaIconType.IconName.Table)
-            self.addPageNode("弹窗与提示", DrawerTooltipPage(self), ElaIconType.IconName.Bell)
-            self.addPageNode("动画与图标", AnimationIconPage(self), ElaIconType.IconName.Play)
-            self.addPageNode("应用辅助", ApplicationUtilitiesPage(self), ElaIconType.IconName.Sitemap)
-            self.addPageNode("Office 文档预览", AdvancedComponentsPage(self), ElaIconType.IconName.FileWord)
-            self.addPageNode("窗口嵌入", WindowEmbedderPage(self), ElaIconType.IconName.WindowRestore)
-            self.addPageNode("浏览器嵌入", BrowserExamplePage(self), ElaIconType.IconName.Globe)
-        except Exception as e:
+            self.addPageNode(
+                "下拉框组件", ComboBoxPage(self), ElaIconType.IconName.List
+            )
+            self.addPageNode(
+                "表格与图表", TableChartPage(self), ElaIconType.IconName.Table
+            )
+            self.addPageNode(
+                "Markdown 渲染", MarkdownPage(self), ElaIconType.IconName.FileCode
+            )
+            self.addPageNode(
+                "弹窗与提示", DrawerTooltipPage(self), ElaIconType.IconName.Bell
+            )
+            self.addPageNode(
+                "动画与图标", AnimationIconPage(self), ElaIconType.IconName.Play
+            )
+            self.addPageNode(
+                "应用辅助", ApplicationUtilitiesPage(self), ElaIconType.IconName.Sitemap
+            )
+            self.addPageNode(
+                "Office 文档预览",
+                AdvancedComponentsPage(self),
+                ElaIconType.IconName.FileWord,
+            )
+            self.addPageNode(
+                "窗口嵌入", WindowEmbedderPage(self), ElaIconType.IconName.WindowRestore
+            )
+            self.addPageNode(
+                "浏览器嵌入", BrowserExamplePage(self), ElaIconType.IconName.Globe
+            )
+            self.addPageNode(
+                "ElaChartWidget 图表引擎",
+                ChartsPage(self),
+                ElaIconType.IconName.ChartLine,
+            )
+            self.addPageNode(
+                "节点图编辑器",
+                BlueprintPage(self),
+                ElaIconType.IconName.Circle,
+            )
+        except Exception:
             print(traceback.format_exc())
 
         # ── DockWidget 停靠面板演示 ────────────────────
@@ -119,29 +161,33 @@ if __name__ == "__main__":
     splash.setSubTitle("组件示例")
     splash.show()
 
+    # 注意：不能在 QTimer 事件回调中 show() 顶层窗口（多页面窗口首帧渲染
+    # 与回调上下文产生竞态导致 Qt 崩溃），故 splash 展示用 processEvents
+    # 手动驱动，窗口在事件循环开始前的主路径构建 / 显示。
     messages = [
         "正在加载组件...",
         "正在初始化主题...",
         "正在构建页面...",
         "正在准备就绪...",
     ]
-    step = [0]
-    timer = QTimer()
-    timer.setInterval(100)
+    import time as _time
 
-    def next_step():
+    t_start = _time.monotonic()
+    step = [0]
+    while _time.monotonic() - t_start < 0.5:
+        app.processEvents()
+        _time.sleep(0.02)
         if step[0] < len(messages):
             splash.setValue(int((step[0] + 1) / len(messages) * 100))
             splash.setStatusText(messages[step[0]])
             step[0] += 1
-        else:
-            timer.stop()
-            window = ExampleWindow()
-            app.processEvents()
-            splash.finish(window)
+    splash.close()
 
-    timer.timeout.connect(next_step)
-    timer.start()
-    # window = ExampleWindow()
-    # window.show()
-    sys.exit(app.exec_())
+    window = ExampleWindow()
+    window.show()
+    rc = app.exec_()
+    # 退出前显式销毁并冲刷删除队列：让各组件的清理钩子（断开全局主题信号等）
+    # 在解释器退出前完成，避免进程退出时的 Qt 清理竞态崩溃
+    window.deleteLater()
+    app.processEvents()
+    sys.exit(rc)

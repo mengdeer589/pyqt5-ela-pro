@@ -62,9 +62,27 @@ ElaButtonSize = Literal["small", "middle", "large"]
 # ── Size presets ─────────────────────────────────────────────
 
 _SIZE_MAP: dict[str, dict[str, int]] = {
-    "small": {"height": 28, "fontSize": 12, "paddingH": 8, "iconSize": 14},
-    "middle": {"height": 38, "fontSize": 15, "paddingH": 12, "iconSize": 16},
-    "large": {"height": 46, "fontSize": 16, "paddingH": 16, "iconSize": 18},
+    "small": {
+        "height": 28,
+        "fontSize": 12,
+        "paddingH": 14,
+        "iconSize": 14,
+        "radius": 4,
+    },
+    "middle": {
+        "height": 38,
+        "fontSize": 14,
+        "paddingH": 18,
+        "iconSize": 16,
+        "radius": 6,
+    },
+    "large": {
+        "height": 46,
+        "fontSize": 16,
+        "paddingH": 22,
+        "iconSize": 18,
+        "radius": 8,
+    },
 }
 
 
@@ -102,7 +120,9 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         self._variant = variant
         self._color_name = color
         self._danger = danger
-        self._border_radius = 3
+        self._border_radius = 6
+        self._padding_h = 18
+        self._size_height = 38
         self._icon_name: Optional[ElaIconType.IconName] = icon
         self._icon_size = iconSize
         self._hovered = False
@@ -209,10 +229,27 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
 
     def _apply_size(self, size: ElaButtonSize) -> None:
         cfg = _SIZE_MAP[size]
+        self._padding_h = cfg["paddingH"]
+        self._size_height = cfg["height"]
+        self._border_radius = cfg["radius"]
         self.setFixedHeight(cfg["height"])
         font = self.font()
         font.setPixelSize(cfg["fontSize"])
         self.setFont(font)
+        self.updateGeometry()
+        self.update()
+
+    def sizeHint(self) -> QSize:
+        """按文字 / 图标与内边距计算合适宽度（不再依赖样式默认值）。"""
+        fm = self.fontMetrics()
+        width = fm.horizontalAdvance(self.text())
+        if self._icon_name is not None:
+            width += self._icon_size + 6
+        width += 2 * self._padding_h
+        return QSize(max(64, width), self._size_height)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(max(48, 2 * self._padding_h), self._size_height)
 
     def _effective_color(self) -> str:
         return "danger" if self._danger else self._color_name
@@ -269,16 +306,14 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
     # ── Paint ─────────────────────────────────────────────
 
     def paintEvent(self, _event: QPaintEvent) -> None:
+        painter = QPainter(self)
         try:
-            painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
             painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
             painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
             w = self.width()
             h = self.height()
-            sw = 3
-            r = QRect(sw, sw, w - 2 * sw, h - 2 * sw)
             br = self._border_radius
 
             disabled = not self.isEnabled()
@@ -286,189 +321,120 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
             hovered = self._hovered
             variant = self._variant
             cname = self._effective_color()
-
-            neutral_outlined = (
-                cname == "default"
-                and variant in ("outlined", "dashed")
-                and not hovered
-                and not pressed
-                and not disabled
-            )
-            neutral_text = cname == "default" and variant == "text" and not disabled
             is_default = cname == "default"
-
             scheme = self._scheme()
-            mode = self._theme_mode
-
-            # ── Shadow (ElaPushButton 风格) ─────────────
-
-            if not disabled:
-                shadow_path = QPainterPath()
-                shadow_color = QColor(0x9C, 0x9B, 0x9E) if self._is_dark() else QColor(0x70, 0x70, 0x70)
-                for i in range(sw):
-                    inset = sw - i
-                    shadow_path.addRoundedRect(
-                        QRectF(inset, inset, w - 2 * inset, h - 2 * inset), br + i, br + i
-                    )
-                    alpha = min(1 * (sw - i + 1), 255)
-                    shadow_color.setAlpha(alpha)
-                    painter.setPen(shadow_color)
-                    painter.drawPath(shadow_path)
-
-            # ── Resolve background ────────────────────────
-
-            if disabled:
-                if variant in ("text", "link"):
-                    bg = Qt.GlobalColor.transparent
-                else:
-                    bg = self._disabled_bg()
-            elif variant == "solid":
-                bg = (
-                    scheme["accentActive"]
-                    if pressed
-                    else (scheme["accentHover"] if hovered else scheme["accent"])
-                )
-            elif variant in ("outlined", "dashed"):
-                if neutral_outlined:
-                    bg = Qt.GlobalColor.transparent
-                elif is_default:
-                    bg = self._pressed_tint() if pressed else self._hover_tint()
-                elif pressed:
-                    bg = scheme["accentBgHover"]
-                elif hovered:
-                    bg = scheme["accentBg"]
-                else:
-                    bg = Qt.GlobalColor.transparent
-            elif variant == "filled":
-                if pressed:
-                    bg = scheme["accentBgHover"]
-                elif hovered:
-                    bg = scheme["accentBg"]
-                else:
-                    bg = scheme["accentBg"]
-            elif variant == "text":
-                if pressed:
-                    bg = self._pressed_tint()
-                elif hovered:
-                    bg = self._hover_tint()
-                else:
-                    bg = Qt.GlobalColor.transparent
-            else:
-                bg = Qt.GlobalColor.transparent
-
-            # ── Resolve border pen ────────────────────────
-
-            if variant == "solid":
-                border_pen = Qt.PenStyle.NoPen
-            elif variant in ("outlined", "dashed"):
-                if disabled:
-                    bc = self._disabled_border()
-                elif neutral_outlined:
-                    bc = self._neutral_border()
-                elif is_default:
-                    bc = self._neutral_border()
-                elif pressed:
-                    bc = scheme["accentActive"]
-                elif hovered:
-                    bc = scheme["accentHover"]
-                else:
-                    bc = scheme["accent"]
-                border_pen = QPen(bc, 1)
-                if variant == "dashed":
-                    border_pen.setStyle(Qt.PenStyle.DashLine)
-            else:
-                border_pen = Qt.PenStyle.NoPen
-
-            # ── Resolve text color ────────────────────────
-
-            if disabled:
-                text_color = self._disabled_text()
-            elif neutral_outlined or neutral_text:
-                text_color = self._neutral_text()
-            elif variant == "solid":
-                text_color = scheme["textColor"]
-            elif variant in ("outlined", "dashed"):
-                if is_default:
-                    text_color = self._neutral_text()
-                elif pressed:
-                    text_color = scheme["accentActive"]
-                elif hovered:
-                    text_color = scheme["accentHover"]
-                else:
-                    text_color = scheme["accent"]
-            elif variant == "filled":
-                if pressed:
-                    text_color = scheme["accentActive"]
-                elif hovered:
-                    text_color = scheme["accentHover"]
-                else:
-                    text_color = scheme["accent"]
-            elif variant == "text":
-                text_color = (
-                    scheme["accent"] if cname != "default" else self._neutral_text()
-                )
-            else:
-                if pressed:
-                    text_color = scheme["accentActive"]
-                elif hovered:
-                    text_color = scheme["accentHover"]
-                else:
-                    text_color = scheme["accent"]
-
-            # ── Draw background ───────────────────────────
 
             path = QPainterPath()
-            path.addRoundedRect(QRectF(r), br, br)
+            path.addRoundedRect(QRectF(0.5, 0.5, w - 1.0, h - 1.0), br, br)
+
+            # -- Resolve background / border / text color --
+            border_pen = None
+            if disabled:
+                bg = (
+                    Qt.GlobalColor.transparent
+                    if variant in ("text", "link")
+                    else self._disabled_bg()
+                )
+                text_color = self._disabled_text()
+                if variant in ("outlined", "dashed"):
+                    border_pen = QPen(self._disabled_border(), 1)
+            elif variant == "solid":
+                bg = (
+                    scheme["solidActive"]
+                    if pressed
+                    else (scheme["solidHover"] if hovered else scheme["solid"])
+                )
+                text_color = scheme["solidText"]
+            elif variant in ("outlined", "dashed"):
+                if is_default:
+                    bg = (
+                        self._hover_tint()
+                        if (hovered or pressed)
+                        else Qt.GlobalColor.transparent
+                    )
+                    text_color = self._neutral_text()
+                    border_color = self._neutral_border()
+                else:
+                    bg = (
+                        scheme["accentBgHover"]
+                        if (hovered or pressed)
+                        else scheme["accentBg"]
+                    )
+                    text_color = scheme["accent"]
+                    border_color = QColor(scheme["accent"])
+                    border_color.setAlpha(110 if not self._is_dark() else 150)
+                border_pen = QPen(border_color, 1)
+            elif variant == "filled":
+                bg = (
+                    scheme["accentBgHover"]
+                    if (hovered or pressed)
+                    else scheme["accentBg"]
+                )
+                text_color = scheme["accent"]
+            elif variant == "text":
+                bg = (
+                    self._pressed_tint()
+                    if pressed
+                    else (self._hover_tint() if hovered else Qt.GlobalColor.transparent)
+                )
+                text_color = (
+                    scheme["accent"] if not is_default else self._neutral_text()
+                )
+            elif variant == "link":
+                bg = Qt.GlobalColor.transparent
+                text_color = (
+                    scheme["accent"] if not is_default else self._neutral_text()
+                )
+            else:
+                bg = Qt.GlobalColor.transparent
+                text_color = self._neutral_text()
+
+            if variant == "dashed" and border_pen is not None:
+                border_pen.setStyle(Qt.PenStyle.DashLine)
+
             painter.setBrush(bg)
-            painter.setPen(border_pen)
+            painter.setPen(border_pen if border_pen is not None else Qt.PenStyle.NoPen)
             painter.drawPath(path)
 
-            # ── Bottom edge line (ElaPushButton 风格) ─────
-
-            if not pressed and variant in ("outlined", "dashed") and not disabled:
-                bottom_color = eTheme.getThemeColor(mode, ElaThemeType.BasicBaseLine)
-                painter.setPen(bottom_color)
-                painter.drawLine(sw + br, h - sw, w - sw, h - sw)
-
-            # ── Draw icon + text ──────────────────────────
-
+            # -- Draw icon + text --
             painter.setPen(text_color)
             icon_name = self._icon_name
-            icon_sz = self._icon_size
             btn_text = self.text()
-
             if icon_name is not None:
-                sz = QSize(icon_sz, icon_sz)
                 spacing = 6
-                ch = h - 2 * sw
+                icon_sz = QSize(self._icon_size, self._icon_size)
                 fm = painter.fontMetrics()
                 tw = fm.horizontalAdvance(btn_text)
-                total_w = sz.width() + spacing + tw
-                sx = sw + (w - 2 * sw - total_w) // 2
-                iy = sw + (ch - sz.height()) // 2
-                ir = QRect(sx, iy, sz.width(), sz.height())
+                total_w = icon_sz.width() + spacing + tw
+                sx = (w - total_w) // 2
+                iy = (h - icon_sz.height()) // 2
+                ir = QRect(sx, iy, icon_sz.width(), icon_sz.height())
                 icon = ElaIcon.getInstance().getElaIcon(icon_name, text_color)
-                painter.drawPixmap(ir, icon.pixmap(sz))
-                tr = QRect(ir.right() + spacing, sw, tw, ch)
-                painter.drawText(
-                    tr, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, btn_text
-                )
-                if variant == "link" and hovered and not disabled:
-                    painter.drawLine(
-                        tr.left(), ir.bottom() + 1, tr.right(), ir.bottom() + 1
-                    )
-            else:
-                tr = QRect(sw, sw, w - 2 * sw, h - 2 * sw)
+                painter.drawPixmap(ir, icon.pixmap(icon_sz))
+                tr = QRect(ir.right() + spacing, 0, tw, h)
                 painter.drawText(
                     tr,
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                    btn_text,
+                )
+                if variant == "link" and hovered and not disabled:
+                    underline_y = ir.center().y() + fm.ascent() // 2 + 2
+                    painter.setPen(QPen(text_color, 1))
+                    painter.drawLine(
+                        tr.left(), underline_y, tr.left() + tw, underline_y
+                    )
+            else:
+                painter.drawText(
+                    QRect(0, 0, w, h),
                     Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter,
                     btn_text,
                 )
                 if variant == "link" and hovered and not disabled:
                     fm = painter.fontMetrics()
                     tw = fm.horizontalAdvance(btn_text)
-                    tx = sw + (w - 2 * sw - tw) // 2
-                    ty = sw + (h - 2 * sw) // 2 + fm.ascent() // 2 + 2
+                    tx = (w - tw) // 2
+                    ty = h // 2 + fm.ascent() // 2 + 2
+                    painter.setPen(QPen(text_color, 1))
                     painter.drawLine(tx, ty, tx + tw, ty)
-        except Exception:
-            pass
+        finally:
+            painter.end()

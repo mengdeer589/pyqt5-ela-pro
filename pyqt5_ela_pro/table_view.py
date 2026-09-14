@@ -200,10 +200,25 @@ class ElaDataTable(ElaTableView):
         self._current_sort_order = Qt.SortOrder.AscendingOrder
         hh.sectionClicked.connect(self._onHeaderClicked)
 
+    def _resolve_column(self, key: int | str) -> Optional[int]:
+        """将列标识解析为列索引。
+
+        int 原样返回；str 按表头名称匹配，找不到返回 ``None``。
+        """
+        if isinstance(key, int):
+            return key
+        for col in range(self.columnCount()):
+            header_item = self._model.horizontalHeaderItem(col)
+            if header_item and header_item.text() == key:
+                return col
+        return None
+
     def _apply_column_widths(self) -> None:
         """将缓存的所有列宽应用到视图中。"""
-        for col, width in self._columnWidths.items():
-            self.setColumnWidth(col, width)
+        for key, width in self._columnWidths.items():
+            col = self._resolve_column(key)
+            if col is not None:
+                super().setColumnWidth(col, width)
 
     def _retire_thread(self, thread: _LoadThread) -> None:
         """取消并清理旧加载线程。
@@ -483,14 +498,9 @@ class ElaDataTable(ElaTableView):
         """
         self._columnWidths.update(widths)
         for key, width in widths.items():
-            if isinstance(key, int):
-                super().setColumnWidth(key, width)
-            else:
-                for col in range(self.columnCount()):
-                    header_item = self._model.horizontalHeaderItem(col)
-                    if header_item and header_item.text() == key:
-                        super().setColumnWidth(col, width)
-                        break
+            col = self._resolve_column(key)
+            if col is not None:
+                super().setColumnWidth(col, width)
 
     def setTableData(
         self,

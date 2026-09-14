@@ -289,7 +289,7 @@ class FormButtonPage(ExamplePage):
         }
 
         grid = QGridLayout()
-        grid.setSpacing(6)
+        grid.setSpacing(8)
 
         # Header row
         corner = ElaText("颜色\\变体", self)

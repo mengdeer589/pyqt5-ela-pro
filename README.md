@@ -14,6 +14,26 @@ ElaPasswordEdit、ElaConfirmDialog、ElaMarkdownViewer、ElaUploadArea、ElaSpla
 [PyQt-SiliconUI](https://github.com/ChinaIceF/PyQt-SiliconUI) 的部分组件设计思路，
 在 **Minimax** 与 **DeepSeek** 模型的辅助下完成。
 
+其中 **ElaChartWidget 图表引擎**、**蓝图节点图编辑器（Blueprint）** 与
+**ElaMarkdownViewer 的流式增量渲染 / 公式占位嵌入方案** 移植自
+[InstructionX_UIKit](https://github.com/KKPIP-Tech/InstructionX_UIKit)（PySide6 → PyQt5；
+原库无 LICENSE），移植时统一 `Ela*` 命名并适配 Ela 主题。
+
+## 组件来源
+
+| 组件 / 模块 | 来源 |
+|---|---|
+| 输入、容器、展示、对话框等原生组件 | 上游 [ElaWidgetTools](https://github.com/Liniyous/ElaWidgetTools) C++ + [PyQt5-ElaWidgetTools](https://github.com/HIllya51/PyElaWidgetTools) 绑定 |
+| `ElaSplitter`、`ElaPagination`、`ElaToast`、`ElaSpotlight`、`ElaSteps`、`ElaTimeline`、`ElaRatingControl`、`ElaInfoBadge`、`ElaChip`、`ElaDropDownButton`、`ElaSplitButton`、`ElaPasswordEdit`、`ElaConfirmDialog`、`ElaMarkdownViewer`、`ElaUploadArea`、`ElaSplashScreen` | [ElaWidgetTools（RainbowCandyX fork）](https://github.com/RainbowCandyX/ElaWidgetTools) C++ 源码移植 |
+| `ElaDrawer` | PyQt-SiliconUI `SiLayerDrawer` 设计 |
+| `ElaDrawerArea` | 上游 `PyQt5ElaWidgetTools.ElaDrawerArea` 子类化修复（自定义标题栏点击展开/收起） |
+| `ElaButton`、`ElaDivider`、`ElaChip` 等 | Ant Design 风格自研（对照 ElaWidgetTools 既有组件） |
+| `ElaChartWidget`（`charts/`） | InstructionX_UIKit `charts`（类 ECharts `set_option` 引擎）移植 |
+| 蓝图节点图编辑器（`blueprint/`） | InstructionX_UIKit `blueprint` + `anim.painted.SpinnerArc` 移植 |
+| `ElaMarkdownViewer` 流式增量渲染 / 公式提取 | InstructionX_UIKit `components.markdown_view` 思路移植；公式渲染为自研 `math_lite.py` |
+| `ElaTagBox` / `ElaTagMultiBox` / `ElaTagSearchBox` / `ElaTagSearchMultiBox` / `ElaTagLineEdit` | PyQt-Fluent-Widgets Tag 组件设计参考 |
+| `ElaBrowserEmbedder` / `ElaWindowEmbedder` | 自研（Chromium CDP + win32gui） |
+
 ## 特性
 
 ### 输入组件
@@ -44,12 +64,36 @@ ElaPasswordEdit、ElaConfirmDialog、ElaMarkdownViewer、ElaUploadArea、ElaSpla
 
 ### 数据展示
 - **ElaDataTable** — 数据表格（支持排序、样式、对齐）
-- **ElaParquetTable** — Parquet 文件分页查看（内置 ElaPagination 翻页）
-- **ElaTrendChart** — 趋势图（多曲线、散点图、交互操作）
+- **ElaParquetTable** — Parquet 文件分页查看（内置 ElaPagination 翻页，需 `polars`）
+- **ElaChartWidget** — 类 ECharts 图表引擎（纯 QPainter，21 种系列；大数据降采样需 `tsdownsample`）
 - **ElaDashboardGauge** — 仪表盘组件（全 QPainter 自绘，指针动画，颜色分段）
 - **ElaPlotWidget** — pyqtgraph 绘图控件（主题感知，可选依赖 pyqtgraph）
 - **ElaTimeline** — 时间线（时间戳、标题、正文、可选图标）
-- **ElaMarkdownViewer** — Markdown 查看器（基于 QTextBrowser，主题自适应）
+- **ElaMarkdownViewer** — Markdown 查看器：主题自适应、Typora 风格排版
+  （标题层级字号 / 1.6 倍行高 / 引用块浅底色 / 无边框代码卡片 / 图片居中）、
+  GFM 语法（表格 / 任务列表 / 删除线）、
+  GitHub Alert 提示块（`> [!NOTE]` 等）、脚注跳转与回跳、`[toc]` 目录与标题锚点、
+  行内高亮 `==text==` / 上下标 `~x~` `^x^` / emoji 短代码、
+  代码语法高亮与语言标签（可选 Pygments）、代码块悬停复制按钮、行号与超长折叠、
+  推理块（` … `）与 `<details>` 折叠（流式未闭合显示「思考中…」）、
+  `diff` 围栏行级着色、YAML front matter 自动剥离、链接悬浮显示地址、
+  `renderIssues()` 渲染降级记录、
+  行内与块级数学公式（零依赖 `math_lite`：矩阵 / `align` / `gather` / `cases` /
+  `\binom` / `\substack` / `\mathbb`，`\boxed` / `\overbrace` / `\xrightarrow` /
+  `\boldsymbol` / `\textcolor` / `\cancel`，极限算子自动堆叠，
+  `\newcommand` / `\def` 宏展开，中文按系统字体回退；
+  未收录命令容错为字面文本、结构性错误才回退源码）、
+  公式 / Mermaid 悬浮显示源码、点击或右键复制、
+  Mermaid 图渲染（可选依赖 `mermaidx`，无浏览器；缺失时回退代码卡片）、
+  任务列表可点击勾选、图片点击信号与预览、本地图片右键另存为、
+  表格斑马纹与列宽设置、
+  图片基准路径与超宽缩放、远程图片默认拦截、
+  搜索 / 缩放 / `exportPdf(path, page_size, margins_mm)` / `printDocument()` 打印、
+  `toHtml(embed_images=True)` 单文件导出（图片内嵌 data URI）、
+  `markdownSelection()` / `selectionQuoted` 选中内容还原为 Markdown 源（引用回复）、
+  锚点跳转可返回上一位置、
+  流式追加（`appendMarkdown` / `endStream`，贴底自动跟随、末尾打字光标，
+  面向 AI 对话场景）
 
 ### 导航与布局
 - **ElaDivider** — 分割线（水平/垂直，支持文字，实线/虚线）
@@ -98,6 +142,9 @@ uv pip install -e .
 
 # 或使用 pip
 pip install -e .
+
+# 安装全部可选能力（窗口嵌入 / Office 预览 / Markdown 高亮 / 图表降采样）
+pip install -e ".[all]"
 ```
 
 ## 快速开始
@@ -181,13 +228,16 @@ pyqt5_ela_pro/              # 核心组件包
   #
   # 展示组件
   ela_timeline.py           # ElaTimeline
-  ela_trend_chart.py        # ElaTrendChart
+  charts/                   # ElaChartWidget 图表引擎（core/axes/系列/组件）
   ela_dashboard_gauge.py    # ElaDashboardGauge
   ela_pyqtgraph_canvas.py   # ElaPlotWidget（可选依赖 pyqtgraph）
   ela_figure_canvas.py      # ElaFigureCanvas（可选依赖 matplotlib）
   ela_info_badge.py         # ElaInfoBadge
   ela_chip.py               # ElaChip
-  ela_markdown_viewer.py    # ElaMarkdownViewer
+  ela_markdown_viewer.py    # ElaMarkdownViewer（流式 / 公式 / 高亮 / 表格）
+  math_lite.py              # 零依赖 LaTeX 数学公式轻量渲染（矩阵/cases/组合数/字母表）
+  ela_drawer_area.py        # ElaDrawerArea（上游组件点击标题栏展开/收起修复）
+  blueprint/                # 蓝图节点图编辑器（移植自 InstructionX_UIKit）
   parquet_table.py          # ElaParquetTable
   #
   # 窗口
@@ -206,6 +256,7 @@ pyqt5_ela_pro/              # 核心组件包
     form_button_page.py      # 按钮 & 对话框
     combo_box_page.py        # 9 种下拉框变体
     table_chart_page.py      # 表格、图表
+    markdown_page.py         # ElaMarkdownViewer（文本 / 代码 / 公式 / Mermaid 分类 + 流式）
     drawer_tooltip_page.py   # 抽屉、提示
     animation_icon_page.py   # 动画、图标
     application_page.py      # 应用框架
@@ -272,7 +323,7 @@ pyqt5_ela_pro/              # 核心组件包
 | **ElaGroupBox** | 布局 | 分组框（圆角边框、居中标题、可放置子控件） |
 | **ElaDataTable** | 数据展示 | 数据表格控件 |
 | **ElaParquetTable** | 数据展示 | Parquet 文件分页查看 |
-| **ElaTrendChart** | 数据展示 | 折线图 / 散点图 |
+| **ElaChartWidget** | 数据展示 | 类 ECharts 引擎：21 系列 + 交互组件 |
 | **ElaDashboardGauge** | 数据展示 | 仪表盘（全自绘，指针动画，颜色分段） |
 | **ElaPlotWidget** | 数据展示 | pyqtgraph 绘图控件（主题自适应，可选依赖） |
 | **ElaFigureCanvas** | 数据展示 | Matplotlib 画布（主题感知，可选依赖） |
@@ -309,7 +360,8 @@ python -m pyqt5_ela_pro.example
 | 应用框架 | ElaAppBar、ElaStatusBar |
 | 增强按钮 | ElaButton、ElaDropDownButton、ElaSplitButton、ElaToast 等 |
 | 下拉框组件 | 全部 9 种下拉框变体 + 空选项演示 |
-| 表格与图表 | ElaDataTable（基础/异步/样式/排序）、ElaParquetTable、ElaTrendChart、ElaFigureCanvas |
+| 表格与图表 | ElaDataTable（基础/异步/样式/排序）、ElaParquetTable、ElaFigureCanvas |
+| Markdown 渲染 | 按「文本与排版 / 代码块 / 数学公式 / Mermaid 图」四块分类展示 + 流式渲染（聊天发送 / 同内容回放） |
 | 弹窗与提示 | ElaDrawer、ElaDrawerArea、ElaToolTip、ElaStateToolTip、ElaSpotlight |
 | 动画与图标 | 淡入淡出、窗口抖动、ElaAnimatedMixin、SVG 图标浏览器 |
 | 应用辅助 | ElaSplashScreen、ElaTaskbarProgress |
@@ -322,9 +374,13 @@ python -m pyqt5_ela_pro.example
 |---|---|---|
 | Python >= 3.8 | 是 | — |
 | PyQt5 >= 5.15.0 | 是 | 界面框架 |
-| PyQt5-ElaWidgetTools >= 0.8.0 | 是 | 上游基础组件库 |
+| PyQt5-ElaWidgetTools == 0.12.1 | 是 | 上游基础组件库 |
 | pypinyin >= 0.50.0 | 是 | 拼音搜索支持 |
-| pywin32 | 否 | 窗口嵌入 / 浏览器嵌入 |
+| pywin32 | 否（`[all]`） | 窗口嵌入 / 浏览器嵌入 / 任务栏进度 |
+| comtypes | 否（`[all]`） | Office 文档预览（ActiveX） |
+| pygments | 否（`[all]`） | `ElaMarkdownViewer` 代码语法高亮（缺失自动降级） |
+| tsdownsample | 否（`[all]`） | `ElaChartWidget` 大数据降采样（缺失自动降级） |
+| mermaidx | 否（`[all]`，Python≥3.10） | `ElaMarkdownViewer` Mermaid 图渲染（无浏览器；缺失回退代码卡片） |
 | polars | 否 | Parquet 文件查看 |
 | pyqtgraph | 否 | ElaPlotWidget 图表 |
 | matplotlib | 否 | ElaFigureCanvas 图表 |
