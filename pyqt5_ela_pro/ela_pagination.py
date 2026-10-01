@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QRect, QRectF, QSize, pyqtSignal
+from PyQt5.QtCore import Qt, QEvent, QRect, QRectF, QSize, pyqtSignal
 from PyQt5.QtGui import (
     QPainter,
     QPainterPath,
@@ -71,9 +71,7 @@ class ElaPagination(ElaThemeWidget):
         self._current_page = page
         self.currentPageChanged.emit(page)
         if self._jumper_visible:
-            self._page_label.setText(
-                f"第{self._current_page}/{self._total_pages}页"
-            )
+            self._page_label.setText(f"第{self._current_page}/{self._total_pages}页")
             self._page_label.adjustSize()
         self.update()
 
@@ -272,6 +270,14 @@ class ElaPagination(ElaThemeWidget):
             self.update()
         super().mouseMoveEvent(event)
 
+    def leaveEvent(self, event: QEvent) -> None:
+        # 指针移出后必须清掉 hover 高亮：本控件没有 leaveEvent 时，最后 hover 的
+        # 页码会一直保持高亮底色，直到指针再次进入并移动。
+        if self._hover_index != -1:
+            self._hover_index = -1
+            self.update()
+        super().leaveEvent(event)
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event)
@@ -309,13 +315,9 @@ class ElaPagination(ElaThemeWidget):
         primary = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryNormal)
         base = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase)
         hover = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicHover)
-        disable_bg = eTheme.getThemeColor(
-            mode, ElaThemeType.ThemeColor.BasicDisable
-        )
+        disable_bg = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicDisable)
         text = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
-        text_dis = eTheme.getThemeColor(
-            mode, ElaThemeType.ThemeColor.BasicTextDisable
-        )
+        text_dis = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextDisable)
 
         for i, (r, val) in enumerate(self._getButtonRects()):
             is_current = val > 0 and val == self._current_page

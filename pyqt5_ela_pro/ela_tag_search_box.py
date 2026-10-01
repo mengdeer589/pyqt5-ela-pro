@@ -2,7 +2,7 @@
 具名可搜索下拉框组件。
 
 带有标题标签的可搜索下拉框，继承自 ElaSearchBox，
-支持汉字拼音首字母搜索。
+支持汉字原文、全拼与拼音首字母搜索。
 """
 
 from __future__ import annotations
@@ -14,7 +14,8 @@ from PyQt5.QtWidgets import QWidget
 
 from .combo_box import ElaSearchBox
 from .ela_tag_combo_base import (
-    _TagBoxThemeMixin, _TagBoxAnimMixin,
+    _TagBoxThemeMixin,
+    _TagBoxAnimMixin,
     _paint_tag_single,
 )
 from ._internal import _adjust_combobox_popup
@@ -23,7 +24,7 @@ from ._internal import _adjust_combobox_popup
 class ElaTagSearchBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaSearchBox):
     """具名可搜索下拉框。
 
-    带有标题标签的可搜索下拉框，支持汉字拼音首字母搜索。
+    带有标题标签的可搜索下拉框，支持汉字原文、全拼与拼音首字母搜索。
     继承自 ElaSearchBox，使用胶囊样式。
 
     :param title: 标题文字

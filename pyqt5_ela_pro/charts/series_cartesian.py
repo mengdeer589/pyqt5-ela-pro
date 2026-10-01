@@ -2,11 +2,11 @@
 直角坐标系列（完整 10 个：bar / pictorialBar / line / scatter /
 effectScatter / candlestick / boxplot / heatmap / parallel / themeRiver）。
 
-本模块导入时经 ``register_series`` 注册全部系列（line 为完整版，覆盖
+本模块导入时经 ``registerSeries`` 注册全部系列（line 为完整版，覆盖
 core 兜底版）。
 
 通用约定：
-- 坐标映射经 ``self.chart.coord_for(self.opt)``；柱 / 热力支持
+- 坐标映射经 ``self.chart.coordFor(self.opt)``；柱 / 热力支持
   「yAxis 为 category」，直接用 AxisModel 双向映射。
 - 数值轴范围：core 只按单点值统计，stack 柱 / K线高低 / 箱线极值会溢出，
   故这些渲染器在 ``layout`` 中用 ``_grid_value_extent`` 重设数值轴范围（幂等）。
@@ -23,7 +23,6 @@ core 兜底版）。
 from __future__ import annotations
 
 import math
-import weakref
 
 from PyQt5.QtCore import QPointF, QRectF, Qt, QTimer
 from PyQt5.QtGui import (
@@ -37,11 +36,13 @@ from PyQt5.QtGui import (
 
 from ._tokens import T
 from . import _downsample as _ds
+from ._symbol import drawSymbol
 from ._utils import dist_point_segment
+from ._utils import clamp as _clamp
 from ._utils import to_float as _to_float
 from ._utils import with_alpha
-from .axes import CalendarCoord, GridCoord, chart_font, format_value
-from .core import SeriesRenderer, parse_data_point, register_series
+from .axes import CalendarCoord, GridCoord, chartFont, formatValue
+from .core import SeriesRenderer, parseDataPoint, registerSeries
 
 __all__ = [
     "BarSeriesRenderer",
@@ -138,8 +139,105 @@ def _grid_series_opts(chart):
     return out
 
 
+def _finite(v) -> bool:
+    """是否为有限数值（None / NaN / inf 一律 False）。"""
+    try:
+        return math.isfinite(v)
+    except TypeError:
+        return False
+
+
+def _numeric_xy(data):
+    """数值化 ``[(x, y), ...]`` → numpy 数组；不可数值化返回 ``(None, None)``。
+
+    折线已有这套快路径（``LineSeriesRenderer._to_arrays``），但 bar /
+    candlestick / boxplot 的 ``layout`` 仍在逐项调 ``parseDataPoint``
+    ——本优化的先冲来自「逐项调
+    ``parseDataPoint``」（cProfile 下 tottime 前三），而不是柱的绝对数量。
+
+    纯数值序列（x 取下标）与 ``[x, y]`` 对序列走 numpy；含 dict / None /
+    混合形态返回 ``(None, None)``，调用方回退 Python 循环（数据量通常较小）。
+    """
+    if _ds.np is None:
+        return None, None
+    n = len(data) if hasattr(data, "__len__") else 0
+    if not n:
+        return None, None
+    np_ = _ds.np
+    # **必须先抽样确认元素类型**：``asarray`` 对 ``[1.0, None]`` 会把 None
+    # 变成 NaN 并成功返回（ndim==1），对 ``[[1,2,3]]`` 也会成功返回
+    # （ndim==2, shape[1]==3）。若直接信任返回值，这两种结构型数据会被
+    # 误当数值序列 —— ``[x, y, z]`` 的第三列被静默丢弃、None 间隙被
+    # 当成 NaN 跳过（后者恰好正确，但前者是错误）。
+    step = max(1, n // 64)
+    probes = set(range(0, n, step))
+    probes.update(range(min(24, n)))
+    probes.update(range(max(0, n - 24), n))
+    for i in probes:
+        item = data[i]
+        if isinstance(item, bool):
+            return None, None
+        if isinstance(item, (int, float)):
+            continue
+        if isinstance(item, (list, tuple)):
+            # 只接受长度恰为 2 的 [x, y]；[x, y, z] 等结构型退回
+            if len(item) == 2 and all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) for v in item
+            ):
+                continue
+            return None, None
+        return None, None
+    try:
+        arr = np_.asarray(data, dtype=np_.float64)
+    except (TypeError, ValueError):
+        return None, None
+    if arr.ndim == 1:
+        # 纯数值：x = 下标
+        return np_.arange(n, dtype=np_.float64), arr
+    if arr.ndim == 2 and arr.shape[1] == 2:
+        return arr[:, 0], arr[:, 1]
+    return None, None
+
+
+#: ``_grid_value_extent`` 的结果缓存：(数据对象身份, 长度) → (dmin, dmax)。
+#:
+#: **必须缓存**：本函数被 ``_fix_value_axis`` 在**每个** bar / candlestick /
+#: boxplot 系列的 ``layout()`` 里各调一次，而它要遍历**全部** grid 系列的
+#: 全部数据。6 条折线 + 1 条柱的实测：布局 29.7 ms → 597.6 ms（20 倍），
+#: 因为 7 个系列各扫一遍 120 万个点，且每次 ``_layout_all(force=True)``
+#: 都会重来一遍。
+#:
+#: 值只取决于数据内容，与窗口 / 尺寸无关，故按「数据对象身份 + 长度」缓存
+#: 安全；缓存值**持有数据强引用**（tuple 第一项），防 id 复用串数据。
+_GRID_EXTENT_CACHE: dict = {}
+_GRID_EXTENT_CACHE_LIMIT = 32
+
+
 def _grid_value_extent(chart):
-    """grid 数值轴真实范围（类型感知）：stack 柱按堆叠和。返回 (dmin, dmax) 或 None。"""
+    """grid 数值轴真实范围（类型感知）：stack 柱按堆叠和。返回 (dmin, dmax) 或 None。
+
+    带缓存（见 ``_GRID_EXTENT_CACHE``）：逐系列 ``layout`` 都会调它，
+    百万点下每次全量遍历会让布局时间放大一个数量级。
+    """
+    opts = _grid_series_opts(chart)
+    key = tuple((id(s), id(s.get("data")), len(s.get("data") or ())) for s in opts)
+    hit = _GRID_EXTENT_CACHE.get(key)
+    # 命中时复核 series 对象仍是同一批（key 里只有 id，靠强引用 + is 兜底）
+    if hit is not None:
+        cached_ext, cached_opts = hit
+        if len(cached_opts) == len(opts) and all(
+            a is b for a, b in zip(cached_opts, opts)
+        ):
+            return cached_ext
+    ext = _grid_value_extent_uncached(chart, opts)
+    if len(_GRID_EXTENT_CACHE) >= _GRID_EXTENT_CACHE_LIMIT:
+        _GRID_EXTENT_CACHE.clear()
+    _GRID_EXTENT_CACHE[key] = (ext, tuple(opts))
+    return ext
+
+
+def _grid_value_extent_uncached(chart, opts) -> tuple:
+    """``_grid_value_extent`` 的实际计算（无缓存）。"""
     dmin = None
     dmax = None
 
@@ -152,13 +250,13 @@ def _grid_value_extent(chart):
 
     stack_pos = {}
     stack_neg = {}
-    for s in _grid_series_opts(chart):
+    for s in opts:
         stype = str(s.get("type") or "line")
         data = s.get("data") or []
         if stype == "bar" and s.get("stack"):
             key = str(s.get("stack"))
             for i, item in enumerate(data):
-                _, y = parse_data_point(item, i)
+                _, y = parseDataPoint(item, i)
                 if y is None:
                     continue
                 if y >= 0:
@@ -179,7 +277,7 @@ def _grid_value_extent(chart):
                     feed(nums[4])
         else:
             for i, item in enumerate(data):
-                _, y = parse_data_point(item, i)
+                _, y = parseDataPoint(item, i)
                 feed(y)
     for v in stack_pos.values():
         feed(v)
@@ -191,15 +289,15 @@ def _grid_value_extent(chart):
 
 
 def _axis_label(axis, x):
-    """类别轴标签（x 为类别名或下标）；数值轴退回 format_value。"""
+    """类别轴标签（x 为类别名或下标）；数值轴退回 formatValue。"""
     if axis is not None and axis.type == "category" and axis.categories:
-        idx = axis.category_index(x)
+        idx = axis.categoryIndex(x)
         if 0 <= idx < len(axis.categories):
             return axis.categories[idx]
         all_cats = getattr(axis, "_all_categories", None) or []
         if 0 <= idx < len(all_cats):
             return all_cats[idx]
-    return format_value(x)
+    return formatValue(x)
 
 
 def _fix_value_axis(axis, chart):
@@ -208,7 +306,7 @@ def _fix_value_axis(axis, chart):
         return
     ext = _grid_value_extent(chart)
     if ext is not None:
-        axis.set_extent(ext[0], ext[1])
+        axis.setExtent(ext[0], ext[1])
 
 
 # ---------------------------------------------------------------------------
@@ -222,9 +320,9 @@ class BarSeriesRenderer(SeriesRenderer):
     option 键：
     - ``stack``: str，同名堆叠（正值向上累加、负值向下累加）；
     - ``barWidth``: 像素（>1）或占槽位比例（0~1]）；
-    - ``barBorderRadius``: 圆角 px（数值或数值列表，取最大）；
+    - ``itemStyle.borderRadius``: 圆角 px（数值或数值列表，取最大）；
     - yAxis 为 ``category`` 时自动切换为水平条形；
-    - ``anim_t`` 高度生长动画；``update_option`` 时 prev_data 逐柱插值。
+    - ``anim_t`` 高度生长动画；setOption 时 prev_data 逐柱插值。
     """
 
     def __init__(self, chart, opt):
@@ -236,7 +334,7 @@ class BarSeriesRenderer(SeriesRenderer):
     # -- 布局 -------------------------------------------------------------
     def layout(self, rect: QRectF) -> None:
         self._bars = []
-        coord = self.chart.coord_for(self.opt)
+        coord = self.chart.coordFor(self.opt)
         if not isinstance(coord, GridCoord):
             return
         self._horizontal = coord.y_axis.type == "category"
@@ -275,41 +373,74 @@ class BarSeriesRenderer(SeriesRenderer):
             c0, c1 = coord.plot.top(), coord.plot.bottom()
         else:
             c0, c1 = coord.plot.left(), coord.plot.right()
-        band = cat_axis.band_width(c0, c1)
+        band = cat_axis.bandWidth(c0, c1)
         if band <= 0:
             band = abs(c1 - c0) / max(1, len(self.data()))
         group_w = band * 0.8
+        # barCategoryGap：组间距（百分比 / 0~1 比例 / 像素）
+        cat_gap_raw = self.opt.get("barCategoryGap")
+        if cat_gap_raw is not None:
+            gap = self._resolve_gap(cat_gap_raw, band)
+            group_w = max(2.0, band - gap)
         slot_w = group_w / n_slots
         bar_w = self._resolve_bar_width(slot_w)
+        # barGap：组内柱间距（百分比 / 0~1 比例 / 像素；默认 0）
+        bar_gap_raw = self.opt.get("barGap")
+        if bar_gap_raw is not None and n_slots > 1:
+            inner_gap = self._resolve_gap(bar_gap_raw, slot_w)
+            bar_w = max(2.0, bar_w - inner_gap * (n_slots - 1) / n_slots)
 
         # 堆叠基线：同 stack 且排在我之前的可见 bar 系列按正负分桶累加
         pos_bases, neg_bases = self._stack_bases()
         prev = self.prev_data if isinstance(self.prev_data, list) else None
-        radius = self.opt.get("barBorderRadius", 0)
+        radius = self.itemStyle().get("borderRadius", 0)
         if isinstance(radius, (list, tuple)):
             radius = max((_to_float(r, 0.0) for r in radius), default=0.0)
         radius = _to_float(radius, 0.0)
 
-        for i, item in enumerate(self.data()):
-            x, y = parse_data_point(item, i)
-            if y is None:
+        # numpy 快路径：数值 / [x, y] 序列向量化取值。逐项 parseDataPoint
+        # cProfile 下是 bar 布局的主要 tottime 项。
+        data = self.data()
+        np_x, np_y = _numeric_xy(data)
+        if np_x is not None:
+            xs_all = np_x.tolist()
+            ys_all = np_y.tolist()
+            labels = self._cat_labels_bulk(cat_axis, xs_all)
+        else:
+            xs_all = ys_all = labels = None
+        # 预取映射端点：逐柱重复调 coord.plot.left() 等是 8 万次属性访问
+        if self._horizontal:
+            a0, a1 = coord.plot.left(), coord.plot.right()
+        else:
+            a0, a1 = coord.plot.bottom(), coord.plot.top()
+        half_gw = group_w / 2
+        half_bw = bar_w / 2
+        n_prev = len(prev) if prev is not None else 0
+        for i, (x, y) in enumerate(
+            zip(xs_all, ys_all)
+            if ys_all is not None
+            else (
+                (px, py)
+                for j, item in enumerate(data)
+                for px, py in (parseDataPoint(item, j),)
+            )
+        ):
+            if not _finite(y):
                 continue
             v0 = (pos_bases if y >= 0 else neg_bases).get(i, 0.0)
             v1 = v0 + y
             center = cat_axis.map(x, c0, c1)
-            slot_center = center - group_w / 2 + slot_w * (slot_idx + 0.5)
+            slot_center = center - half_gw + slot_w * (slot_idx + 0.5)
+            pa = val_axis.map(v0, a0, a1)
+            pb = val_axis.map(v1, a0, a1)
             if self._horizontal:
-                pa = val_axis.map(v0, coord.plot.left(), coord.plot.right())
-                pb = val_axis.map(v1, coord.plot.left(), coord.plot.right())
-                r = QRectF(min(pa, pb), slot_center - bar_w / 2, abs(pb - pa), bar_w)
+                r = QRectF(min(pa, pb), slot_center - half_bw, abs(pb - pa), bar_w)
             else:
-                pa = val_axis.map(v0, coord.plot.bottom(), coord.plot.top())
-                pb = val_axis.map(v1, coord.plot.bottom(), coord.plot.top())
-                r = QRectF(slot_center - bar_w / 2, min(pa, pb), bar_w, abs(pb - pa))
+                r = QRectF(slot_center - half_bw, min(pa, pb), bar_w, abs(pb - pa))
             prev_y = None
-            if prev is not None and i < len(prev):
-                _, prev_y = parse_data_point(prev[i], i)
-            label = self._cat_label(cat_axis, x, i)
+            if prev is not None and i < n_prev:
+                _, prev_y = parseDataPoint(prev[i], i)
+            label = labels[i] if labels is not None else self._cat_label(cat_axis, x, i)
             self._bars.append(
                 {
                     "index": i,
@@ -332,13 +463,28 @@ class BarSeriesRenderer(SeriesRenderer):
             return max(2.0, slot_w * bw)
         return max(2.0, min(bw, slot_w))
 
+    @staticmethod
+    def _resolve_gap(raw, band: float) -> float:
+        """barGap / barCategoryGap → 像素（支持 "30%" / 0.3 比例 / 像素值）。"""
+        if isinstance(raw, str) and raw.strip().endswith("%"):
+            try:
+                return max(0.0, band * float(raw.strip()[:-1]) / 100.0)
+            except ValueError:
+                return 0.0
+        value = _to_float(raw, None)
+        if value is None:
+            return 0.0
+        if 0 < value <= 1:
+            return max(0.0, band * value)
+        return max(0.0, value)
+
     def _stack_bases(self):
         """同 stack 前序可见 bar 系列的逐点基线 ``(pos, neg)`` 双桶。"""
         pos, neg = {}, {}
         stack = self.opt.get("stack")
         if not stack:
             return pos, neg
-        for r in self.chart.series_renderers:
+        for r in self.chart.seriesRenderers:
             if r is self:
                 break
             if not isinstance(r, BarSeriesRenderer) or not r.visible:
@@ -346,7 +492,7 @@ class BarSeriesRenderer(SeriesRenderer):
             if str(r.opt.get("stack") or "") != str(stack):
                 continue
             for i, item in enumerate(r.data()):
-                _, y = parse_data_point(item, i)
+                _, y = parseDataPoint(item, i)
                 if y is None:
                     continue
                 bucket = pos if y >= 0 else neg
@@ -356,13 +502,42 @@ class BarSeriesRenderer(SeriesRenderer):
     @staticmethod
     def _cat_label(cat_axis, x, i):
         if cat_axis.type == "category" and cat_axis.categories:
-            idx = cat_axis.category_index(x)
+            idx = cat_axis.categoryIndex(x)
             if 0 <= idx < len(cat_axis.categories):
                 return cat_axis.categories[idx]
             all_cats = getattr(cat_axis, "_all_categories", None) or []
             if 0 <= idx < len(all_cats):
                 return all_cats[idx]
-        return format_value(x)
+        return formatValue(x)
+
+    def _cat_labels_bulk(self, cat_axis, xs):
+        """批量取类别标签（``xs`` 为 x 序列）。
+
+        与逐项 ``_cat_label`` 等价，但把「类别轴有无标签」这个判断提到
+        循环外 —— 逐项判断是逐图元重复的属性访问与
+        ``formatValue`` 调用（cProfile 下合计占 tottime 约 8%）；
+        ``formatValue``（实测占 bar 布局 tottime 8%）。
+
+        ``cat_axis`` 不是 category 轴时（即数值轴）：逐项结果只取决于 x，
+        仍逐项走 ``formatValue``，只是省掉了重复的类型判断。
+        """
+        is_cat = cat_axis.type == "category" and bool(cat_axis.categories)
+        if not is_cat:
+            return [formatValue(x) for x in xs]
+        cats = cat_axis.categories
+        n_cats = len(cats)
+        all_cats = getattr(cat_axis, "_all_categories", None) or []
+        n_all = len(all_cats)
+        out = []
+        for x in xs:
+            idx = cat_axis.categoryIndex(x)
+            if 0 <= idx < n_cats:
+                out.append(cats[idx])
+            elif 0 <= idx < n_all:
+                out.append(all_cats[idx])
+            else:
+                out.append(formatValue(x))
+        return out
 
     # -- 绘制 -------------------------------------------------------------
     def _animated_value(self, bar, anim_t):
@@ -376,15 +551,45 @@ class BarSeriesRenderer(SeriesRenderer):
     def paint(self, p: QPainter, anim_t: float) -> None:
         if not self._bars:
             return
-        coord = self.chart.coord_for(self.opt)
+        coord = self.chart.coordFor(self.opt)
         if not isinstance(coord, GridCoord):
             return
         val_axis = coord.x_axis if self._horizontal else coord.y_axis
         p.save()
         p.setClipRect(coord.plot)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(self.color())
+        hover = self.chart.hoverInfo()
+        hovered = (
+            hover[1].get("dataIndex")
+            if hover is not None and hover[0] is self
+            else None
+        )
+        show_label = self.labelShown()
+        if show_label:
+            font = chartFont(self.labelFontSize())
+            p.setFont(font)
+            p.setPen(self.labelColor())
+            fm = QFontMetricsF(font)
+        # 外观在循环外解析一次（uniformItemStyleResolved 走 O(1) 快路径）。
+        # 逐图元调 itemColor / itemOpacity / itemBorder / _bar_radius 时，
+        # 逐图元调四个方法 = 4 次属性查找，实测合计占单帧 tottime
+        # 约 25%。为 None 时
+        # 说明存在 per-item itemStyle，退回逐项查找。
+        uni = self.uniformItemStyleResolved()
+        # 统一外观下的主色与 pen 也提到循环外：colorForSeries 会走
+        # palette()（带缓存但仍有 dict 查找），材料多时是 tottime 前三。
+        # 颜色仍逐柱拷贝（下面要 setAlphaF），pen / brush 可整段复用。
+        if uni is not None:
+            uni_color = uni["color"] or self.chart.colorForSeries(self)
+            uni_has_border = uni["borderColor"] is not None and uni["borderWidth"] > 0
+            uni_pen = (
+                QPen(uni["borderColor"], uni["borderWidth"]) if uni_has_border else None
+            )
+        else:
+            uni_color = None
+            uni_has_border = False
+            uni_pen = None
         for bar in self._bars:
+            index = bar["index"]
             y_t = self._animated_value(bar, anim_t)
             v1 = bar["v0"] + y_t
             w = bar["w"]
@@ -398,18 +603,110 @@ class BarSeriesRenderer(SeriesRenderer):
                 r = QRectF(bar["center"] - w / 2, min(pa, pb), w, abs(pb - pa))
             if r.width() <= 0 or r.height() <= 0:
                 continue
-            radius = min(bar["radius"], r.width() / 2, r.height() / 2)
+            if uni is not None:
+                # 统一外观：直接取循环外解析好的值（颜色仍需逐项拷贝，
+                # 因为下面会 setAlphaF 改它）
+                color = QColor(uni_color)
+                alpha = uni["opacity"]
+                border_color, border_w = uni["borderColor"], uni["borderWidth"]
+                raw_r = uni["borderRadius"]
+                radius = (
+                    0.0
+                    if raw_r is None
+                    else max(0.0, min(raw_r, r.width() / 2, r.height() / 2))
+                )
+            else:
+                color = QColor(self.itemColor(index))
+                alpha = self.itemOpacity(index)
+                border_color, border_w = self.itemBorder(index)
+                radius = self._bar_radius(index, r)
+            if hovered is not None:
+                if index != hovered:
+                    # 未命中项：blur.itemStyle.opacity 优先，缺省淡化（扩展语义）
+                    blur = self.blurOpacity()
+                    alpha *= blur if blur is not None else 0.35
+                else:
+                    emphasis = self.emphasisColor(index)
+                    color = emphasis if emphasis is not None else color.lighter(112)
+                    emp_opacity = self.emphasisOpacity(index)
+                    if emp_opacity is not None:
+                        alpha = emp_opacity
+            if alpha < 1.0:
+                color.setAlphaF(color.alphaF() * alpha)
+            p.setBrush(color)
+            if uni is not None:
+                # 统一描边：pen 已在循环外建好，逐柱新建 QPen 是纯浪费
+                p.setPen(uni_pen if uni_has_border else Qt.PenStyle.NoPen)
+            elif border_color is not None and border_w > 0:
+                p.setPen(QPen(border_color, border_w))
+            else:
+                p.setPen(Qt.PenStyle.NoPen)
             if radius > 0.5:
                 p.drawRoundedRect(r, radius, radius)
             else:
                 p.drawRect(r)
+            if show_label:
+                self._paint_bar_label(p, r, bar, fm)
         p.restore()
 
+    def _bar_radius(self, index: int, rect: QRectF) -> float:
+        """柱圆角：数据项 → 系列 ``itemStyle.borderRadius``。"""
+        raw = self._itemStyleFor(index).get("borderRadius")
+        if raw is None:
+            raw = self.itemStyle().get("borderRadius")
+        if isinstance(raw, (list, tuple)):
+            raw = max((_to_float(v, 0.0) for v in raw), default=0.0)
+        radius = _to_float(raw, 0.0)
+        return max(0.0, min(radius, rect.width() / 2, rect.height() / 2))
+
+    def _paint_bar_label(self, p: QPainter, rect: QRectF, bar: dict, fm) -> None:
+        """柱数据标签（默认柱顶 / 横条右端，``label.position`` 可改）。"""
+        text = self.labelText(bar["index"], bar["y"], bar["label"])
+        if not text:
+            return
+        position = str(self.labelOption().get("position") or "")
+        if not position:
+            position = "right" if self._horizontal else "top"
+        if position == "inside":
+            box = rect.adjusted(2, 2, -2, -2)
+            p.drawText(
+                box,
+                (
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                    if self._horizontal
+                    else Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop
+                ),
+                text,
+            )
+            return
+        if self._horizontal:
+            anchor = QPointF(rect.right() + 4, rect.center().y() + fm.height() / 4)
+            p.drawText(anchor, text)
+        else:
+            anchor = QPointF(
+                rect.center().x() - fm.horizontalAdvance(text) / 2, rect.top() - 3
+            )
+            p.drawText(anchor, text)
+
     # -- 交互 -------------------------------------------------------------
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
+        """柱命中检测：命中框（外扩 2px）内**第一根**柱，命中则返回 None。
+
+        线性扫描是正确实现：柱数量与绘制区宽度同量级（几十至几百根），
+        扫描成本可忽略，且语义唯一（返回第一根而不是最层或最近者）。
+
+        **曾为二分索引，已撤回**：它是为「2 万根柱」这个**不存在的**
+        场景写的（实测 2 万根的 hitTest 占 2330ms/200 次，但真实业务不会给
+        几十根柱实时悬停）。为它引入了两处非饱定性：柱可能**互相重叠**（
+        实测 74/200 与线性扫描不一致）、且**二分后还要再检另一轴**（
+        实测 1095/3000 不一致）。特别住：它会把「为不存在的问题优化得很
+        优雅」变成一段难以验证的代码，而且下一次改动柱宽下限就可能静默改坏它。
+
+        要真正优化柱命中，先用 ``benchmark()`` 确认柱数量是真实需求（见 AGENTS.md
+        「大数据性能」小节）。
+        """
         for bar in self._bars:
-            r = bar["rect"].adjusted(-2, -2, 2, 2)
-            if r.contains(pos):
+            if bar["rect"].adjusted(-2, -2, 2, 2).contains(pos):
                 return {
                     "name": bar["label"],
                     "value": bar["y"],
@@ -418,7 +715,7 @@ class BarSeriesRenderer(SeriesRenderer):
                 }
         return None
 
-    def value_at_index(self, index: int):
+    def valueAtIndex(self, index: int):
         idx = self._full_index(index)  # dataZoom 窗口偏移换算
         for bar in self._bars:
             if bar["index"] == idx:
@@ -459,7 +756,7 @@ class LineSeriesRenderer(SeriesRenderer):
       大数据时按「当前绘图范围（x 轴数值窗口）× 画布像素宽度」动态采样，
       只渲染窗口内数据，范围 / 尺寸 / 数据变化时自动重采样；
     - 支持 grid / polar（闭合）/ singleAxis 坐标系；
-    - ``update_option`` 旧→新数据插值（采样路径按原始下标对齐）。
+    - 过渡动画：旧→新数据插值（采样路径按原始下标对齐）。
     """
 
     def __init__(self, chart, opt):
@@ -476,10 +773,69 @@ class LineSeriesRenderer(SeriesRenderer):
         self._y_vals = []  # Python 回退路径的 y 值（含 None）
         self._x_vals = []  # Python 回退路径的 x 原始值
         self._np_cache_key = None  # (id(data), len(data))
-        self._sample_cache_key = None  # (n, n_out, algo, threshold, lo, hi)
+        # 当前缓存所依据的数据对象（**强引用**）。裸 id 单独用不可靠：对象被
+        # 回收后 id 会被复用，可能把上一份数据的 numpy 视图当成当前的。持引用
+        # 既保证 id 有效，也让 `data is self._data_ref` 成为精确的身份判据。
+        self._data_ref = None
+        self._cached_len = -1  # ``_data_ref`` 生效时的长度（检测原地增长）
+        self._sample_cache_key = None  # (数据身份, n, n_out, algo, threshold, lo, hi)
         self._sample_indices = None  # 采样点全局下标（np 数组或 list）
 
     # -- 数据解析 ---------------------------------------------------------
+    def _stacked_data(self):
+        """``stack`` 模式：叠加前序同名 stack 可见系列的值（不影响原始 opt）。
+
+        返回叠加后的 data；无 stacking 时返回 ``None``。基线存于
+        ``self._stack_base``（index → 基线值），tooltip / 标签按原始值展示。
+        """
+        stack = self.opt.get("stack")
+        if not stack:
+            self._stack_base = None
+            return None
+        base: dict = {}
+        for r in self.chart.seriesRenderers:
+            if r is self:
+                break
+            if not isinstance(r, LineSeriesRenderer) or not r.visible:
+                continue
+            if str(r.opt.get("stack") or "") != str(stack):
+                continue
+            for i, item in enumerate(r.data()):
+                _, y = parseDataPoint(item, i)
+                if y is not None:
+                    base[i] = base.get(i, 0.0) + y
+        self._stack_base = base or None
+        if not base:
+            return None
+        out = []
+        for i, item in enumerate(self.dataView()):
+            x, y = parseDataPoint(item, i)
+            if y is None:
+                out.append(item)
+                continue
+            stacked = y + base.get(i, 0.0)
+            if isinstance(item, dict):
+                value = item.get("value")
+                if isinstance(value, (list, tuple)) and len(value) >= 2:
+                    merged = dict(item)
+                    merged["value"] = [value[0], stacked] + list(value[2:])
+                    out.append(merged)
+                else:
+                    out.append({**item, "value": stacked})
+            elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                out.append([item[0], stacked] + list(item[2:]))
+            else:
+                out.append(stacked)
+        return out
+
+    def _raw_value(self, index):
+        """原始值（stack 模式下由叠加值还原）。"""
+        y = self._y_at(index)
+        if y is None:
+            return None
+        base = getattr(self, "_stack_base", None) or {}
+        return y - base.get(index, 0.0)
+
     def _to_arrays(self, data):
         """数值化 data → (x_arr|None, y_arr)；x_arr=None 表示纯数值（x=下标）。
 
@@ -501,10 +857,14 @@ class LineSeriesRenderer(SeriesRenderer):
 
     def _load_data(self):
         """解析当前 data 到 numpy / Python 双路径，并填充取值缓存。"""
-        data = self.data()
+        data = self._stacked_data() or self.dataView()
         self._data_len = len(data)
-        key = (id(data), len(data))
-        if key != self._np_cache_key:
+        # 身份判据：``is``（配合 ``_data_ref`` 强引用）+ **长度**。两者都要：
+        # - 只比 ``is``：原地增长（appendData 之类先 extend 同一 list）会漏判，
+        #   numpy 视图停留在旧长度上，新点画不出来；
+        # - 只比 ``(id, len)``：id 在对象回收后会被复用，可能把上一份数据的
+        #   numpy 视图当成当前的（``_data_ref`` 强引用从根上排除这一类）。
+        if data is not self._data_ref or self._data_len != self._cached_len:
             self._np_x = self._np_y = None
             self._y_vals = []
             self._x_vals = []
@@ -516,10 +876,12 @@ class LineSeriesRenderer(SeriesRenderer):
             if self._np_y is None:
                 # 回退：逐项解析（数据量通常较小）
                 for i, item in enumerate(data):
-                    x, y = parse_data_point(item, i)
+                    x, y = parseDataPoint(item, i)
                     self._x_vals.append(x)
                     self._y_vals.append(y)
-            self._np_cache_key = key
+            self._np_cache_key = (id(data), len(data))
+            self._data_ref = data
+            self._cached_len = self._data_len
         self._sampled = False
         self._prev_pts_map = None
 
@@ -544,12 +906,21 @@ class LineSeriesRenderer(SeriesRenderer):
 
     # -- 采样参数 ---------------------------------------------------------
     def _sampling_params(self):
+        """``sampling``：ECharts 字符串（``lttb`` / ``average`` / ``min`` /
+        ``max`` / ``minmax`` / ``sum``）或扩展 dict
+        {``algorithm``, ``threshold``, ``pointsPerPixel``}；False 关闭。"""
         sopt = self.opt.get("sampling", True)
         enabled = bool(sopt) and _ds.available()
         threshold = 2000.0
         ppb = 2.0
         algo = "minmax"
-        if isinstance(sopt, dict):
+        if isinstance(sopt, str):
+            name = sopt.strip().lower()
+            if name in ("false", "none", "off"):
+                enabled = False
+            elif name:
+                algo = name
+        elif isinstance(sopt, dict):
             threshold = _to_float(sopt.get("threshold"), threshold)
             ppb = _to_float(sopt.get("pointsPerPixel"), ppb)
             algo = str(sopt.get("algorithm") or algo)
@@ -571,7 +942,7 @@ class LineSeriesRenderer(SeriesRenderer):
 
     # -- 布局 -------------------------------------------------------------
     def layout(self, rect: QRectF) -> None:
-        coord = self.chart.coord_for(self.opt)
+        coord = self.chart.coordFor(self.opt)
         self._prev_points = list(self._points)
         self._points = []
         self._point_idx = []
@@ -590,10 +961,22 @@ class LineSeriesRenderer(SeriesRenderer):
         if window_idx is not None:
             n_win = len(window_idx)
             n_out = max(2, int(plot_w * ppb))
-            # 缓存键必须包含窗口范围：缩放 / 平移后窗口内点数可能不变
-            # （n_win 相同），但采样点集必须按新窗口重新计算
+            # 缓存键必须包含两项身份信息：
+            # ① **数据身份** —— 否则「换成等长的另一份数据」会得到完全相同的键
+            #    而跳过重算，用旧数据的采样下标去画新数据（尖峰错位 / 漏点）。
+            #    这里用 ``_load_data`` 刚刷新过的 ``_np_cache_key``（含 id+len）。
+            # ② **窗口范围** —— 缩放 / 平移后窗口内点数可能不变（n_win 相同），
+            #    但采样点集必须按新窗口重新计算。
             lo, hi = coord.x_axis.vmin, coord.x_axis.vmax
-            cache_key = (self._data_len, n_out, algo, threshold, lo, hi)
+            cache_key = (
+                self._np_cache_key,
+                self._data_len,
+                n_out,
+                algo,
+                threshold,
+                lo,
+                hi,
+            )
             if self._sample_cache_key != cache_key:
                 yf = self._np_y[window_idx]
                 if enabled and n_win > threshold:
@@ -629,9 +1012,9 @@ class LineSeriesRenderer(SeriesRenderer):
                 continue
             try:
                 if single:
-                    self._points.append(coord.map_point(yi))
+                    self._points.append(coord.mapPoint(yi))
                 else:
-                    self._points.append(coord.map_point(self._x_at(orig), yi))
+                    self._points.append(coord.mapPoint(self._x_at(orig), yi))
             except Exception:
                 self._points.append(None)
             self._point_idx.append(orig)
@@ -639,7 +1022,7 @@ class LineSeriesRenderer(SeriesRenderer):
         self._build_prev_map(coord, single, ppb, algo, threshold)
 
     def _build_prev_map(self, coord, single, ppb, algo, threshold):
-        """采样路径动画：按原始下标对齐旧数据采样点（update_option 用）。"""
+        """采样路径动画：按原始下标对齐旧数据采样点（过渡动画用）。"""
         self._prev_pts_map = None
         if not self._sampled or self.prev_data is None:
             return
@@ -670,7 +1053,7 @@ class LineSeriesRenderer(SeriesRenderer):
             if not math.isfinite(float(v)):
                 continue
             try:
-                prev_map[o] = coord.map_point(float(px[o]), float(v))
+                prev_map[o] = coord.mapPoint(float(px[o]), float(v))
             except Exception:
                 pass
         self._prev_pts_map = prev_map
@@ -697,16 +1080,16 @@ class LineSeriesRenderer(SeriesRenderer):
             return out
         prev_src = self._prev_points
         if self.prev_data is not None and len(self.prev_data) == self._data_len:
-            coord = self.chart.coord_for(self.opt)
+            coord = self.chart.coordFor(self.opt)
             single = getattr(coord, "kind", "") == "singleAxis" if coord else False
             prev = []
             for i, item in enumerate(self.prev_data):
-                x, y = parse_data_point(item, i)
+                x, y = parseDataPoint(item, i)
                 if y is None or coord is None:
                     prev.append(None)
                     continue
                 try:
-                    prev.append(coord.map_point(y) if single else coord.map_point(x, y))
+                    prev.append(coord.mapPoint(y) if single else coord.mapPoint(x, y))
                 except Exception:
                     prev.append(None)
             prev_src = prev
@@ -768,37 +1151,50 @@ class LineSeriesRenderer(SeriesRenderer):
         valid = [pt for pt in pts if pt is not None]
         if not valid:
             return
-        coord = self.chart.coord_for(self.opt)
+        coord = self.chart.coordFor(self.opt)
         color = self.color()
         ls = self.opt.get("lineStyle") or {}
         width = _to_float(ls.get("width"), 2.0)
         if isinstance(ls.get("color"), str) and ls["color"]:
             color = QColor(ls["color"])
-
-        # 分段（None 断点切开）
-        segs = []
-        seg = []
-        for pt in pts:
-            if pt is None:
-                if seg:
-                    segs.append(seg)
-                    seg = []
-            else:
-                seg.append(pt)
-        if seg:
-            segs.append(seg)
-
-        p.save()
-        if isinstance(coord, GridCoord):
-            p.setClipRect(coord.plot)
         polar = getattr(coord, "kind", "") == "polar"
-
         # 大数据（超采样阈值）：QPainterPath / drawPolyline 对陡峭线段序列
         # （minmax 保形锯齿）的光栅化会退化到每段 ~1ms（1856 段可达秒级），
         # 逐条 drawLine 仅 ~10ms —— 此处对 heavy 数据改用逐段直线绘制；
         # smooth / step 在 heavy 时退化为直线（ECharts 大数据同策略）
         _, heavy_threshold, _, _ = self._sampling_params()
         heavy = self._data_len > heavy_threshold
+
+        # 分段（None 断点切开）；stack 模式同时准备逐点基线
+        base_pts = None
+        if getattr(self, "_stack_base", None) and not polar and not heavy:
+            base_pts = []
+            for orig in self._point_idx:
+                try:
+                    base_pts.append(
+                        coord.mapPoint(
+                            self._x_at(orig), self._stack_base.get(orig, 0.0)
+                        )
+                    )
+                except Exception:
+                    base_pts.append(None)
+        segs = []
+        seg = []
+        seg_base = []
+        for pos, pt in enumerate(pts):
+            if pt is None:
+                if seg:
+                    segs.append((seg, seg_base))
+                    seg, seg_base = [], []
+            else:
+                seg.append(pt)
+                seg_base.append(base_pts[pos] if base_pts is not None else None)
+        if seg:
+            segs.append((seg, seg_base))
+
+        p.save()
+        if isinstance(coord, GridCoord):
+            p.setClipRect(coord.plot)
 
         # 面积填充（先填充后描线）
         area = self.opt.get("areaStyle")
@@ -807,7 +1203,7 @@ class LineSeriesRenderer(SeriesRenderer):
             if isinstance(area, dict):
                 opacity = _to_float(area.get("opacity"), 0.22)
             base_y = self._baseline_y(coord)
-            for seg_pts in segs:
+            for seg_pts, seg_bases in segs:
                 if len(seg_pts) < 2:
                     continue
                 if heavy:
@@ -823,17 +1219,43 @@ class LineSeriesRenderer(SeriesRenderer):
                     p.setPen(Qt.PenStyle.NoPen)
                     p.setBrush(with_alpha(color, 255 * opacity))
                     p.drawPath(fill)
+                    continue
+                if seg_bases and all(b is not None for b in seg_bases):
+                    # stack：沿基线曲线回填（ECharts 堆叠面积语义）
+                    fill.lineTo(seg_bases[-1])
+                    for base_pt in reversed(seg_bases[:-1]):
+                        fill.lineTo(base_pt)
+                    bottom = max(pt.y() for pt in seg_bases)
                 elif base_y is not None:
                     fill.lineTo(QPointF(seg_pts[-1].x(), base_y))
                     fill.lineTo(QPointF(seg_pts[0].x(), base_y))
-                    fill.closeSubpath()
-                    top = min(pt.y() for pt in seg_pts)
-                    grad = QLinearGradient(QPointF(0, top), QPointF(0, base_y))
+                    bottom = base_y
+                else:
+                    continue
+                fill.closeSubpath()
+                top = min(pt.y() for pt in seg_pts)
+                raw_area_color = area.get("color") if isinstance(area, dict) else None
+                if isinstance(raw_area_color, dict):
+                    grad = QLinearGradient(QPointF(0, top), QPointF(0, bottom))
+                    for stop in raw_area_color.get("colorStops") or []:
+                        try:
+                            grad.setColorAt(
+                                _clamp(_to_float(stop.get("offset"), 0.0), 0.0, 1.0),
+                                QColor(stop.get("color")),
+                            )
+                        except Exception:
+                            continue
+                    brush = grad
+                elif isinstance(raw_area_color, str) and raw_area_color:
+                    brush = with_alpha(QColor(raw_area_color), 255 * opacity)
+                else:
+                    grad = QLinearGradient(QPointF(0, top), QPointF(0, bottom))
                     grad.setColorAt(0.0, with_alpha(color, 255 * opacity))
                     grad.setColorAt(1.0, with_alpha(color, 0))
-                    p.setPen(Qt.PenStyle.NoPen)
-                    p.setBrush(grad)
-                    p.drawPath(fill)
+                    brush = grad
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(brush)
+                p.drawPath(fill)
 
         # 折线本体
         pen = QPen(color, width)
@@ -852,7 +1274,7 @@ class LineSeriesRenderer(SeriesRenderer):
             pen.setStyle(Qt.PenStyle.DotLine)
         p.setPen(pen)
         p.setBrush(Qt.BrushStyle.NoBrush)
-        for seg_pts in segs:
+        for seg_pts, _seg_bases in segs:
             if len(seg_pts) < 2:
                 continue
             if heavy:
@@ -864,22 +1286,92 @@ class LineSeriesRenderer(SeriesRenderer):
                     path.closeSubpath()
                 p.drawPath(path)
 
-        # 数据点符号：小数据全画；大数据（超阈值）时按 ``symbolInterval``
-        # 每隔 N 个原始数据点画一个形状（默认 500），避免逐点椭圆开销
-        if bool(self.opt.get("showSymbol", True)):
+        # 数据点符号：小数据全画；大数据（超阈值）时隔点绘制形状，
+        # 避免逐点椭圆开销（ECharts 大数据下同样会退化符号绘制）。
+        # ECharts 语义：``circle`` 为实心、``emptyCircle``（默认）为空心。
+        symbol_name = str(self.opt.get("symbol") or "emptyCircle")
+        if symbol_name != "none" and bool(self.opt.get("showSymbol", True)):
             r = max(1.0, _to_float(self.opt.get("symbolSize"), 6.0) / 2)
             r *= max(0.2, anim_t)
-            p.setPen(QPen(color, 1.5))
-            p.setBrush(QColor(T("color.bg.elevated")))
+            hover = self.chart.hoverInfo()
+            hovered = (
+                hover[1].get("dataIndex")
+                if hover is not None and hover[0] is self
+                else None
+            )
+            show_label = self.labelShown()
+            if show_label:
+                font = chartFont(self.labelFontSize())
+                p.setFont(font)
+                fm = QFontMetricsF(font)
             if heavy:
-                interval = int(_to_float(self.opt.get("symbolInterval"), 500.0))
-                interval = max(1, interval)
+                interval = 500
                 single = getattr(coord, "kind", "") == "singleAxis"
-                sym_pts = self._symbol_points(coord, single, interval)
+                sym_items = [
+                    (None, pt) for pt in self._symbol_points(coord, single, interval)
+                ]
             else:
-                sym_pts = valid
-            for pt in sym_pts:
-                p.drawEllipse(pt, r, r)
+                sym_items = [
+                    (orig, pt)
+                    for pt, orig in zip(self._points, self._point_idx)
+                    if pt is not None
+                ]
+            hollow = symbol_name in ("emptyCircle", "circle")
+            kind = "circle" if hollow else symbol_name
+            # 循环外解析一次统一外观（None = 存在 per-item itemStyle）
+            uni = self.uniformItemStyleResolved()
+            uni_color = (
+                (uni["color"] or self.chart.colorForSeries(self)) if uni else None
+            )
+            for orig, pt in sym_items:
+                if uni is not None:
+                    item_color = QColor(uni_color)
+                    alpha = uni["opacity"]
+                    border_color, border_w = uni["borderColor"], uni["borderWidth"]
+                else:
+                    item_color = QColor(self.itemColor(orig))
+                    alpha = self.itemOpacity(orig)
+                    border_color, border_w = self.itemBorder(orig)
+                rr = r
+                if hovered is not None:
+                    if orig == hovered:
+                        rr = r * 1.3
+                        emphasis = self.emphasisColor(orig)
+                        if emphasis is not None:
+                            item_color = emphasis
+                        if border_color is None:
+                            border_color = item_color.lighter(115)
+                            border_w = max(border_w, 1.5)
+                    else:
+                        blur = self.blurOpacity()
+                        alpha *= blur if blur is not None else 0.35
+                if hollow:
+                    p.setPen(
+                        QPen(
+                            border_color or with_alpha(item_color, int(235 * alpha)),
+                            border_w or 1.5,
+                        )
+                    )
+                    p.setBrush(QColor(T("color.bg.elevated")))
+                    p.drawEllipse(pt, rr, rr)
+                else:
+                    p.setPen(
+                        QPen(
+                            border_color or with_alpha(item_color, int(235 * alpha)),
+                            border_w or 1.0,
+                        )
+                    )
+                    p.setBrush(with_alpha(item_color, int(235 * alpha)))
+                    drawSymbol(p, kind, pt, rr * 2)
+                if show_label and orig is not None:
+                    text = self.labelText(orig, self._raw_value(orig), self._x_at(orig))
+                    p.setPen(self.labelColor())
+                    p.drawText(
+                        QPointF(
+                            pt.x() - fm.horizontalAdvance(text) / 2, pt.y() - rr - 4
+                        ),
+                        text,
+                    )
         p.restore()
 
     def _symbol_points(self, coord, single, interval: int):
@@ -901,13 +1393,13 @@ class LineSeriesRenderer(SeriesRenderer):
                 if not isinstance(xi, (int, float)) or not (lo <= xi <= hi):
                     continue
             try:
-                pts.append(coord.map_point(yi) if single else coord.map_point(xi, yi))
+                pts.append(coord.mapPoint(yi) if single else coord.mapPoint(xi, yi))
             except Exception:
                 continue
         return pts
 
     # -- 交互 -------------------------------------------------------------
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         best = None
         best_d = 10.0  # 命中半径 px
         for i, pt in enumerate(self._points):
@@ -922,17 +1414,17 @@ class LineSeriesRenderer(SeriesRenderer):
         orig = self._point_idx[best] if best < len(self._point_idx) else best
         return {
             "name": self.name,
-            "value": self._y_at(orig),
+            "value": self._raw_value(orig),
             "series": self.name,
             "dataIndex": orig,
             "x": self._x_at(orig),
         }
 
-    def value_at_index(self, index: int):
+    def valueAtIndex(self, index: int):
         idx = self._full_index(index)  # dataZoom 窗口偏移换算
         if not isinstance(idx, int) or not (0 <= idx < self._data_len):
             return None
-        y = self._y_at(idx)
+        y = self._raw_value(idx)
         if y is None:
             return None
         # 命中点坐标：精确下标优先，否则取采样集中最近的原始下标
@@ -977,7 +1469,7 @@ class ScatterSeriesRenderer(SeriesRenderer):
 
     def layout(self, rect: QRectF) -> None:
         self._dots = []
-        coord = self.chart.coord_for(self.opt)
+        coord = self.chart.coordFor(self.opt)
         if coord is None:
             return
         single = getattr(coord, "kind", "") == "singleAxis"
@@ -987,11 +1479,11 @@ class ScatterSeriesRenderer(SeriesRenderer):
         zmin = min(known) if known else 0.0
         zmax = max(known) if known else 1.0
         for i, item in enumerate(self.data()):
-            x, y = parse_data_point(item, i)
+            x, y = parseDataPoint(item, i)
             if y is None:
                 continue
             try:
-                pt = coord.map_point(y) if single else coord.map_point(x, y)
+                pt = coord.mapPoint(y) if single else coord.mapPoint(x, y)
             except Exception:
                 continue
             if fixed is not None:
@@ -1009,22 +1501,70 @@ class ScatterSeriesRenderer(SeriesRenderer):
         if not self._dots:
             return
         p.save()
-        coord = self.chart.coord_for(self.opt)
+        coord = self.chart.coordFor(self.opt)
         if isinstance(coord, GridCoord):
             p.setClipRect(coord.plot)
-        color = self.color()
-        p.setPen(QPen(with_alpha(color, 230), 1))
-        p.setBrush(with_alpha(color, 190))
+        kind = str(self.opt.get("symbol") or "circle")
+        hover = self.chart.hoverInfo()
+        hovered = (
+            hover[1].get("dataIndex")
+            if hover is not None and hover[0] is self
+            else None
+        )
+        show_label = self.labelShown()
+        if show_label:
+            font = chartFont(self.labelFontSize())
+            p.setFont(font)
+            p.setPen(self.labelColor())
+            fm = QFontMetricsF(font)
         scale = max(0.0, anim_t)
+        # 循环外解析一次统一外观（None = 存在 per-item itemStyle，走逐项查找）
+        uni = self.uniformItemStyleResolved()
+        uni_color = (uni["color"] or self.chart.colorForSeries(self)) if uni else None
         for d in self._dots:
+            index = d["index"]
             r = d["r"] * scale
             if r <= 0:
                 continue
-            p.drawEllipse(d["pt"], r, r)
+            if uni is not None:
+                color = QColor(uni_color)
+                alpha = uni["opacity"]
+                border_color, border_w = uni["borderColor"], uni["borderWidth"]
+            else:
+                color = QColor(self.itemColor(index))
+                alpha = self.itemOpacity(index)
+                border_color, border_w = self.itemBorder(index)
+            if hovered is not None:
+                if index == hovered:
+                    r *= 1.25
+                    emphasis = self.emphasisColor(index)
+                    if emphasis is not None:
+                        color = emphasis
+                    if border_color is None:
+                        border_color = color.lighter(115)
+                        border_w = max(border_w, 1.4)
+                else:
+                    blur = self.blurOpacity()
+                    alpha *= blur if blur is not None else 0.35
+            p.setBrush(with_alpha(color, int(190 * alpha)))
+            p.setPen(
+                QPen(border_color or with_alpha(color, int(230 * alpha)), border_w or 1)
+            )
+            if alpha <= 0.02:
+                continue
+            drawSymbol(p, kind, d["pt"], r * 2)
+            if show_label:
+                text = self.labelText(index, d["value"], formatValue(d["x"]))
+                anchor = QPointF(
+                    d["pt"].x() - fm.horizontalAdvance(text) / 2,
+                    d["pt"].y() - r - 4,
+                )
+                p.setPen(self.labelColor())
+                p.drawText(anchor, text)
         p.restore()
 
     # -- 交互 -------------------------------------------------------------
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         best = None
         best_d = 1e9
         for d in self._dots:
@@ -1042,7 +1582,7 @@ class ScatterSeriesRenderer(SeriesRenderer):
             "x": best["x"],
         }
 
-    def value_at_index(self, index: int):
+    def valueAtIndex(self, index: int):
         idx = self._full_index(index)  # dataZoom 窗口偏移换算
         for d in self._dots:
             if d["index"] == idx:
@@ -1066,7 +1606,13 @@ class HeatmapSeriesRenderer(SeriesRenderer):
     - Grid 直角热力：xAxis / yAxis 均为 category，数据项 [x, y, value]
       （x/y 为类别名或下标），按 band 填格；
     - 日历热力：``coordinateSystem: "calendar"``，数据项 [日期, value]，
-      GitHub 风格逐格填充（圆角小格）。
+      GitHub 风格逐格填充（无数据日也铺浅色底格，属引擎扩展）。
+      ``calendar.itemStyle``（color / borderColor / borderWidth / borderRadius）
+      控制空日底色与格子间距圆角。
+
+    数据项可携带 ECharts 风格 tooltip：``{"value": [日期, 值],
+    "tooltip": {"formatter": "557万 tokens · 4轮消息"}}``（formatter 支持
+    字符串模板或 callable(params)，命中时优先于系列 ``tooltip.formatter``）。
 
     色带：默认 ``color.primary.subtle`` → ``color.primary`` 按值线性插值；
     option 含 ``visualMap``（顶层）时按 ``visualMap.min/max`` 与
@@ -1075,27 +1621,40 @@ class HeatmapSeriesRenderer(SeriesRenderer):
 
     def __init__(self, chart, opt):
         super().__init__(chart, opt)
-        self._cells = []  # [dict(rect, value, label)]
+        self._cells = []  # [dict(rect, value, label, color[, text, title])]
         self._calendar = False
+        self._empty_color = None
+        self._cell_gap = 1.0
+        self._cell_radius = 2.0
 
     # -- 数据 -------------------------------------------------------------
     def _parse_items(self):
-        """→ [(x, y, value)]（日历模式 y 为 None，x 为日期）。"""
+        """→ [(x, y, value, text, style)]（日历模式 y 为 None，x 为日期）。"""
         out = []
         for item in self.data():
-            v = item.get("value") if isinstance(item, dict) else item
+            text = None
+            if isinstance(item, dict):
+                v = item.get("value")
+                tooltip = item.get("tooltip")
+                if isinstance(tooltip, dict):
+                    fmt = tooltip.get("formatter")
+                    if isinstance(fmt, str):
+                        text = fmt
+            else:
+                v = item
             if not isinstance(v, (list, tuple)) or len(v) < 2:
                 continue
+            style = self.itemStyleOf(item)
             if self._calendar:
                 val = _to_float(v[1], None)
                 if val is not None:
-                    out.append((v[0], None, val))
+                    out.append((v[0], None, val, text, style))
             else:
                 if len(v) < 3:
                     continue
                 val = _to_float(v[2], None)
                 if val is not None:
-                    out.append((v[0], v[1], val))
+                    out.append((v[0], v[1], val, text, style))
         return out
 
     def _colors_and_range(self, items):
@@ -1111,51 +1670,137 @@ class HeatmapSeriesRenderer(SeriesRenderer):
             vmax = _to_float(vm.get("max"), None)
         if colors is None:
             colors = [T("color.primary.subtle"), T("color.primary")]
-        vals = [v for _, _, v in items]
+        vals = [v for _, _, v, _, _ in items]
         if vmin is None:
             vmin = min(vals) if vals else 0.0
         if vmax is None:
             vmax = max(vals) if vals else 1.0
         return colors, vmin, vmax
 
+    def _load_calendar_style(self, coord) -> None:
+        """读取日历外观：``calendar.itemStyle`` 控制空日底色与格子间距 / 圆角。"""
+        style = coord.itemStyle() if hasattr(coord, "itemStyle") else {}
+        raw_empty = style.get("color")
+        if isinstance(raw_empty, str) and raw_empty.lower() in ("none", "transparent"):
+            self._empty_color = None
+        elif raw_empty:
+            color = QColor(raw_empty)
+            self._empty_color = (
+                color if color.isValid() else QColor(T("color.bg.muted"))
+            )
+        else:
+            self._empty_color = QColor(T("color.bg.muted"))
+        series_style = self.itemStyle()
+        try:
+            self._cell_gap = max(0.0, float(series_style.get("borderWidth", 1.0)))
+        except (TypeError, ValueError):
+            self._cell_gap = 1.0
+        try:
+            self._cell_radius = max(0.0, float(series_style.get("borderRadius", 2.0)))
+        except (TypeError, ValueError):
+            self._cell_radius = 2.0
+
+    def _calendar_cells(self, coord, data_map, colors, vmin, vmax) -> list:
+        """范围内全部日期 → 单元格（无数据日为底色格，可命中）。"""
+        gap = self._cell_gap
+        span = vmax - vmin
+        cells = []
+        data_index = 0
+        for day in coord.iterDates():
+            rect = coord.cellRect(day)
+            if rect.isNull():
+                continue
+            cell = rect.adjusted(gap, gap, -gap, -gap)
+            entry = data_map.get(day)
+            if entry is None:
+                cells.append(
+                    {
+                        "index": data_index,
+                        "rect": cell,
+                        "value": None,
+                        "label": day.isoformat(),
+                        "color": self._empty_color,
+                        "title": day.isoformat(),
+                        "tooltipFormatter": None,
+                        "empty": True,
+                    }
+                )
+                data_index += 1
+                continue
+            value, text, item_style = entry
+            t = 0.5 if span == 0 else (value - vmin) / span
+            raw = item_style.get("color")
+            color = (
+                QColor(raw) if isinstance(raw, str) and raw else _ramp_color(colors, t)
+            )
+            border_color, border_w = self.itemBorder(data_index)
+            if border_color is None and border_w <= 0:
+                raw_border = item_style.get("borderColor")
+                try:
+                    raw_width = float(item_style.get("borderWidth", 0))
+                except (TypeError, ValueError):
+                    raw_width = 0.0
+                if isinstance(raw_border, str) and raw_border:
+                    border_color = QColor(raw_border)
+                    border_w = max(0.0, raw_width)
+            cells.append(
+                {
+                    "index": data_index,
+                    "rect": cell,
+                    "value": value,
+                    "label": day.isoformat(),
+                    "color": color,
+                    "border": (border_color, border_w),
+                    "title": day.isoformat(),
+                    "tooltipFormatter": text,
+                    "empty": False,
+                }
+            )
+            data_index += 1
+        return cells
+
     # -- 布局 -------------------------------------------------------------
     def layout(self, rect: QRectF) -> None:
         self._cells = []
-        coord = self.chart.coord_for(self.opt)
+        coord = self.chart.coordFor(self.opt)
         self._calendar = isinstance(coord, CalendarCoord)
         items = self._parse_items()
         if not items or coord is None:
             return
         colors, vmin, vmax = self._colors_and_range(items)
         span = vmax - vmin
-        for x, y, val in items:
+        if self._calendar:
+            self._load_calendar_style(coord)
+            data_map = {}
+            for x, _y, val, text, style in items:
+                day = coord._parse_date(x)
+                if day is not None:
+                    data_map[day] = (val, text, style)
+            self._cells = self._calendar_cells(coord, data_map, colors, vmin, vmax)
+            return
+        for data_index, (x, y, val, text, _style) in enumerate(items):
+            if not isinstance(coord, GridCoord):
+                continue
             t = 0.5 if span == 0 else (val - vmin) / span
             color = _ramp_color(colors, t)
-            if self._calendar:
-                r = coord.cell_rect(x)
-                if r.isNull():
-                    continue
-                label = str(x)
-                cell = r.adjusted(1, 1, -1, -1)
-            else:
-                if not isinstance(coord, GridCoord):
-                    continue
-                px = coord.x_axis.map(x, coord.plot.left(), coord.plot.right())
-                py = coord.y_axis.map(y, coord.plot.bottom(), coord.plot.top())
-                bw = (
-                    coord.x_axis.band_width(coord.plot.left(), coord.plot.right())
-                    or 10.0
-                )
-                bh = (
-                    coord.y_axis.band_width(coord.plot.bottom(), coord.plot.top())
-                    or 10.0
-                )
-                label = (
-                    f"{_axis_label(coord.x_axis, x)}, {_axis_label(coord.y_axis, y)}"
-                )
-                cell = QRectF(px - bw / 2 + 1, py - bh / 2 + 1, bw - 2, bh - 2)
+            px = coord.x_axis.map(x, coord.plot.left(), coord.plot.right())
+            py = coord.y_axis.map(y, coord.plot.bottom(), coord.plot.top())
+            bw = coord.x_axis.bandWidth(coord.plot.left(), coord.plot.right()) or 10.0
+            bh = coord.y_axis.bandWidth(coord.plot.bottom(), coord.plot.top()) or 10.0
+            label = f"{_axis_label(coord.x_axis, x)}, {_axis_label(coord.y_axis, y)}"
+            cell = QRectF(px - bw / 2 + 1, py - bh / 2 + 1, bw - 2, bh - 2)
+            border_color, border_w = self.itemBorder(data_index)
             self._cells.append(
-                {"rect": cell, "value": val, "label": label, "color": color}
+                {
+                    "index": data_index,
+                    "rect": cell,
+                    "value": val,
+                    "label": label,
+                    "color": self.itemColor(data_index, default=color),
+                    "border": (border_color, border_w),
+                    "tooltipFormatter": text,
+                    "empty": False,
+                }
             )
 
     # -- 绘制 -------------------------------------------------------------
@@ -1163,29 +1808,86 @@ class HeatmapSeriesRenderer(SeriesRenderer):
         if not self._cells:
             return
         p.save()
-        coord = self.chart.coord_for(self.opt)
+        coord = self.chart.coordFor(self.opt)
         if isinstance(coord, GridCoord):
             p.setClipRect(coord.plot)
-        p.setPen(Qt.PenStyle.NoPen)
-        radius = 2.0 if self._calendar else 0.0
+        hover = self.chart.hoverInfo()
+        hovered = (
+            hover[1].get("dataIndex")
+            if hover is not None and hover[0] is self
+            else None
+        )
+        show_label = self.labelShown()
+        if show_label:
+            font = chartFont(self.labelFontSize())
+            p.setFont(font)
+            fm = QFontMetricsF(font)
+            label_color = self.labelColor()
+        radius = self._cell_radius if self._calendar else 0.0
         for cell in self._cells:
-            c = QColor(cell["color"])
-            c.setAlpha(int(255 * max(0.15, anim_t)))
+            color = cell["color"]
+            if color is None:
+                continue
+            c = self._cell_fill_color(cell, hovered, anim_t)
+            border_color, border_w = cell.get("border", (None, 0))
+            if hovered is not None and cell.get("index") == hovered:
+                # 仅高亮悬浮格：不加粗描边、不淡化其余格（避免快速移动整图闪烁）
+                if border_color is None or border_w <= 0:
+                    border_color = c.darker(130)
+                    border_w = 1.0
+            if border_color is not None and border_w > 0:
+                p.setPen(QPen(border_color, border_w))
+            else:
+                p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(c)
             if radius:
                 p.drawRoundedRect(cell["rect"], radius, radius)
             else:
                 p.drawRect(cell["rect"])
+            if show_label and cell["value"] is not None:
+                text = formatValue(cell["value"])
+                rect = cell["rect"]
+                if (
+                    rect.width() >= fm.horizontalAdvance(text) + 4
+                    and rect.height() >= fm.height()
+                ):
+                    p.setPen(label_color)
+                    p.drawText(rect, Qt.AlignmentFlag.AlignCenter, text)
         p.restore()
 
+    def _cell_fill_color(self, cell: dict, hovered, anim_t: float) -> QColor:
+        """单元格填充色：仅命中格加亮，其余保持原样（不做整图淡化）。
+
+        ``emphasis.itemStyle.color`` 可覆盖命中格颜色（ECharts 语义）。
+        """
+        index = cell.get("index")
+        if hovered is not None and index == hovered:
+            emphasis = self.emphasisColor(index)
+            color = (
+                QColor(emphasis)
+                if emphasis is not None
+                else QColor(cell["color"]).lighter(112)
+            )
+        else:
+            color = QColor(cell["color"])
+            blur = self.blurOpacity()
+            if hovered is not None and blur is not None:
+                color.setAlphaF(color.alphaF() * blur)
+        alpha = self.itemOpacity(index)
+        color.setAlpha(int(255 * max(0.15, anim_t) * alpha))
+        return color
+
     # -- 交互 -------------------------------------------------------------
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         for cell in self._cells:
             if cell["rect"].adjusted(-1, -1, 1, 1).contains(pos):
                 return {
                     "name": cell["label"],
                     "value": cell["value"],
                     "series": self.name,
+                    "dataIndex": cell.get("index"),
+                    "title": cell.get("title"),
+                    "tooltipFormatter": cell.get("tooltipFormatter"),
                 }
         return None
 
@@ -1238,7 +1940,7 @@ class PictorialBarSeriesRenderer(BarSeriesRenderer):
     def paint(self, p: QPainter, anim_t: float) -> None:
         if not self._bars:
             return
-        coord = self.chart.coord_for(self.opt)
+        coord = self.chart.coordFor(self.opt)
         if not isinstance(coord, GridCoord):
             return
         val_axis = coord.x_axis if self._horizontal else coord.y_axis
@@ -1290,11 +1992,12 @@ class EffectScatterSeriesRenderer(ScatterSeriesRenderer):
     """涟漪散点：散点 + QTimer 驱动的扩散圆动画。
 
     option 键：
-    - ``rippleEffect``: {"period": 秒（默认 3）, "scale": 扩散倍数（默认 2.6）}；
+    - ``rippleEffect``: {``period`` 秒（默认 3）、``scale`` 扩散倍数（默认 2.6）、
+      ``brushType``（``"fill"`` 默认 / ``"stroke"``）、``number`` 同时可见环数}；
     - 其余同 scatter（symbolSize / 第三维映射）。
 
     动画生命周期：QTimer 以 chart 为 parent，随控件销毁；回调经 weakref
-    持有渲染器，渲染器被替换（update_option 重建）后回调自动停止并
+    持有渲染器，渲染器被替换（setOption 重建）后回调自动停止并
     deleteLater，不泄漏。仅系列可见时推进（隐藏后定时器暂停、重新显示时
     经 ``_on_visible_changed`` 恢复，不空转）。
     """
@@ -1305,39 +2008,56 @@ class EffectScatterSeriesRenderer(ScatterSeriesRenderer):
         super().__init__(chart, opt)
         self._phase = 0.0
         ripple = self.opt.get("rippleEffect") or {}
+        if not isinstance(ripple, dict):
+            ripple = {}
         self._period = max(0.2, _to_float(ripple.get("period"), 3.0))
         self._scale = max(1.2, _to_float(ripple.get("scale"), 2.6))
-        self_ref = weakref.ref(self)
+        #: 每点同时可见的涟漪环数（ECharts rippleEffect.number，默认 3）
+        self._number = max(1, min(8, int(_to_float(ripple.get("number"), 3))))
+        #: 波纹绘制方式：fill（默认）/ stroke（ECharts brushType）
+        brush = str(ripple.get("brushType") or "fill").lower()
+        self._brush = "stroke" if brush == "stroke" else "fill"
         timer = QTimer(chart)  # parent 挂 ChartWidget，随控件销毁
         timer.setInterval(self._TICK_MS)
-
-        def _on_timeout(timer_ref=weakref.ref(timer)):
-            self_obj = self_ref()
-            t = timer_ref()
-            if self_obj is None or t is None:
-                if t is not None:
-                    t.stop()
-                    t.deleteLater()
-                return
-            try:
-                alive = self_obj in self_obj.chart.series_renderers
-            except RuntimeError:
-                alive = False  # chart 已销毁
-            if not alive:
-                t.stop()
-                t.deleteLater()
-                return
-            if not self_obj.visible:
-                if t.isActive():
-                    t.stop()  # 隐藏不空转；重新显示经 _on_visible_changed 恢复
-                return
-            if not t.isActive():
-                t.start()
-            self_obj._tick()
-
-        timer.timeout.connect(_on_timeout)
+        # 绑定方法插槽：PyQt5 对带默认参数的闭包插槽签名处理不稳定（会触发
+        # "missing 1 required positional argument" 并终止进程）
+        timer.timeout.connect(self._on_timer)
         timer.start()
         self._timer = timer
+
+    def _stop_timer(self) -> None:
+        """停止并释放定时器（渲染器被替换 / 图表销毁 / 异常时调用）。"""
+        timer = getattr(self, "_timer", None)
+        self._timer = None
+        if timer is not None:
+            try:
+                timer.stop()
+                timer.deleteLater()
+            except Exception:
+                pass
+
+    def _on_timer(self) -> None:
+        """定时器回调（整体包裹：Qt 回调中的异常会终止进程）。"""
+        timer = self._timer
+        if timer is None:
+            return
+        try:
+            alive = self in self.chart.seriesRenderers
+        except RuntimeError:
+            alive = False  # chart 已销毁
+        if not alive:
+            self._stop_timer()
+            return
+        if not self.visible:
+            if timer.isActive():
+                timer.stop()  # 隐藏不空转；重新显示经 _on_visible_changed 恢复
+            return
+        if not timer.isActive():
+            timer.start()
+        try:
+            self._tick()
+        except Exception:
+            self._stop_timer()
 
     def _tick(self):
         """推进涟漪相位并请求重绘（测试可手动调用）。"""
@@ -1351,17 +2071,10 @@ class EffectScatterSeriesRenderer(ScatterSeriesRenderer):
         仍存活但渲染器不再需要动画的场景，避免活动 QTimer 在事件循环
         处理时对已删除对象发起重绘。
         """
-        t = getattr(self, "_timer", None)
-        if t is not None:
-            try:
-                t.stop()
-                t.deleteLater()
-            except Exception:
-                pass
-            self._timer = None
+        self._stop_timer()
 
     def _on_visible_changed(self):
-        """显隐变化钩子（core.set_series_visible 调用）：显示恢复时重启定时器。"""
+        """显隐变化钩子（core 内部调用）：显示恢复时重启定时器。"""
         if self.visible and self._timer is not None and not self._timer.isActive():
             self._timer.start()
 
@@ -1369,18 +2082,28 @@ class EffectScatterSeriesRenderer(ScatterSeriesRenderer):
         super().paint(p, anim_t)
         if not self._dots:
             return
-        color = self.color()
         p.save()
-        coord = self.chart.coord_for(self.opt)
+        coord = self.chart.coordFor(self.opt)
         if isinstance(coord, GridCoord):
             p.setClipRect(coord.plot)
-        p.setBrush(Qt.BrushStyle.NoBrush)
+        # 多环涟漪：相位错开（首帧即有可见扩散环），ECharts rippleEffect 语义
         for d in self._dots:
+            color = self.itemColor(d["index"])
+            opacity = self.itemOpacity(d["index"])
             r0 = max(d["r"], 3.0)
-            rr = r0 * (1.0 + self._phase * (self._scale - 1.0))
-            alpha = 140 * (1.0 - self._phase)
-            p.setPen(QPen(with_alpha(color, alpha), 1.6))
-            p.drawEllipse(d["pt"], rr, rr)
+            for k in range(self._number):
+                phase = (self._phase + k / self._number) % 1.0
+                rr = r0 * (1.0 + phase * (self._scale - 1.0))
+                alpha = 140 * (1.0 - phase) * opacity
+                if alpha <= 2:
+                    continue
+                if self._brush == "stroke":
+                    p.setPen(QPen(with_alpha(color, int(alpha)), 1.6))
+                    p.setBrush(Qt.BrushStyle.NoBrush)
+                else:  # fill（ECharts brushType 默认）
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.setBrush(with_alpha(color, int(alpha * 0.55)))
+                p.drawEllipse(d["pt"], rr, rr)
         p.restore()
 
 
@@ -1392,12 +2115,12 @@ class EffectScatterSeriesRenderer(ScatterSeriesRenderer):
 class CandlestickSeriesRenderer(SeriesRenderer):
     """K线（OHLC）。数据项：[开, 收, 最低, 最高]（或 {"value": [...]}）。
 
-    配色遵循 A 股习惯：红涨绿跌 —— 涨（收 ≥ 开）用 ``color.danger``，
-    跌用 ``color.success``；可用 option 键 ``colorUp`` / ``colorDown``
-    覆盖（如美股习惯可传 colorUp=绿色、colorDown=红色）。
+    配色遵循 ECharts 默认（红涨绿跌）：``itemStyle.color``（涨）/ ``color0``（跌）、
+    ``itemStyle.borderColor`` / ``borderColor0``；缺省涨用 ``color.danger``、
+    跌用 ``color.success``（与库主题语义一致）。
 
-    option 键：``barWidth``（实体宽 px，缺省为 band 的 60%，上限 24）、
-    ``colorUp`` / ``colorDown``；``update_option`` 同长度数据逐值插值。
+    option 键：``barWidth``（实体宽 px，缺省为 band 的 60%，上限 24）；
+    setOption 同长度数据逐值插值。
     """
 
     def __init__(self, chart, opt):
@@ -1407,11 +2130,11 @@ class CandlestickSeriesRenderer(SeriesRenderer):
     # -- 布局 -------------------------------------------------------------
     def layout(self, rect: QRectF) -> None:
         self._items = []
-        coord = self.chart.coord_for(self.opt)
+        coord = self.chart.coordFor(self.opt)
         if not isinstance(coord, GridCoord):
             return
         _fix_value_axis(coord.y_axis, self.chart)
-        band = coord.x_axis.band_width(coord.plot.left(), coord.plot.right())
+        band = coord.x_axis.bandWidth(coord.plot.left(), coord.plot.right())
         if band <= 0:
             band = coord.plot.width() / max(1, len(self.data()))
         w = _to_float(self.opt.get("barWidth"), None)
@@ -1443,20 +2166,22 @@ class CandlestickSeriesRenderer(SeriesRenderer):
                 }
             )
 
-    # -- 配色 -------------------------------------------------------------
+    # -- 配色（ECharts itemStyle 语义：color=涨 / color0=跌） ---------------
     def _up_color(self):
-        c = self.opt.get("colorUp")
+        style = self.itemStyle()
+        c = style.get("color") or style.get("borderColor")
         return QColor(c) if isinstance(c, str) and c else QColor(T("color.danger"))
 
     def _down_color(self):
-        c = self.opt.get("colorDown")
+        style = self.itemStyle()
+        c = style.get("color0") or style.get("borderColor0")
         return QColor(c) if isinstance(c, str) and c else QColor(T("color.success"))
 
     # -- 绘制 -------------------------------------------------------------
     def paint(self, p: QPainter, anim_t: float) -> None:
         if not self._items:
             return
-        coord = self.chart.coord_for(self.opt)
+        coord = self.chart.coordFor(self.opt)
         if not isinstance(coord, GridCoord):
             return
         ax = coord.y_axis
@@ -1497,8 +2222,8 @@ class CandlestickSeriesRenderer(SeriesRenderer):
         p.restore()
 
     # -- 交互 -------------------------------------------------------------
-    def hit_test(self, pos: QPointF):
-        coord = self.chart.coord_for(self.opt)
+    def hitTest(self, pos: QPointF):
+        coord = self.chart.coordFor(self.opt)
         if not isinstance(coord, GridCoord):
             return None
         ax = coord.y_axis
@@ -1517,8 +2242,8 @@ class CandlestickSeriesRenderer(SeriesRenderer):
                 }
         return None
 
-    def value_at_index(self, index: int):
-        coord = self.chart.coord_for(self.opt)
+    def valueAtIndex(self, index: int):
+        coord = self.chart.coordFor(self.opt)
         idx = self._full_index(index)  # dataZoom 窗口偏移换算
         for it in self._items:
             if it["index"] == idx:
@@ -1545,8 +2270,10 @@ class CandlestickSeriesRenderer(SeriesRenderer):
 class BoxplotSeriesRenderer(SeriesRenderer):
     """箱线图。数据项：[min, Q1, 中位, Q3, max]（或 {"value": [...]}）。
 
-    option 键：``barWidth``（箱体宽 px，缺省 band 的 50%，上限 28）。
-    绘制：箱体（Q1~Q3 半透明填充 + 描边）+ 中位线 + 上下须线（含端帽）。
+    option 键：``barWidth``（箱体宽 px，缺省 band 的 50%，上限 28）；
+    ``itemStyle``：``color``（箱体填充，缺省系列色 24% 透明）、
+    ``borderColor``（描边 / 须线）、``borderWidth``。
+    绘制：箱体（Q1~Q3 填充 + 描边）、中位线 + 上下须线（含端帽）。
     """
 
     def __init__(self, chart, opt):
@@ -1555,11 +2282,11 @@ class BoxplotSeriesRenderer(SeriesRenderer):
 
     def layout(self, rect: QRectF) -> None:
         self._items = []
-        coord = self.chart.coord_for(self.opt)
+        coord = self.chart.coordFor(self.opt)
         if not isinstance(coord, GridCoord):
             return
         _fix_value_axis(coord.y_axis, self.chart)
-        band = coord.x_axis.band_width(coord.plot.left(), coord.plot.right())
+        band = coord.x_axis.bandWidth(coord.plot.left(), coord.plot.right())
         if band <= 0:
             band = coord.plot.width() / max(1, len(self.data()))
         w = _to_float(self.opt.get("barWidth"), None)
@@ -1575,11 +2302,26 @@ class BoxplotSeriesRenderer(SeriesRenderer):
     def paint(self, p: QPainter, anim_t: float) -> None:
         if not self._items:
             return
-        coord = self.chart.coord_for(self.opt)
+        coord = self.chart.coordFor(self.opt)
         if not isinstance(coord, GridCoord):
             return
         ax = coord.y_axis
         color = self.color()
+        style = self.itemStyle()
+        fill_raw = style.get("color")
+        stroke_raw = style.get("borderColor")
+        stroke = (
+            QColor(stroke_raw) if isinstance(stroke_raw, str) and stroke_raw else color
+        )
+        try:
+            stroke_w = max(0.5, float(style.get("borderWidth", 1.4)))
+        except (TypeError, ValueError):
+            stroke_w = 1.4
+        fill = QColor(fill_raw) if isinstance(fill_raw, str) and fill_raw else None
+        if fill is not None:
+            fill.setAlphaF(fill.alphaF() * 0.35)
+        else:
+            fill = with_alpha(color, 60)
         p.save()
         p.setClipRect(coord.plot)
         for it in self._items:
@@ -1598,23 +2340,23 @@ class BoxplotSeriesRenderer(SeriesRenderer):
             y_max = ax.map(vmax, coord.plot.bottom(), coord.plot.top())
             cx, w = it["cx"], it["w"]
             # 须线 + 端帽
-            p.setPen(QPen(color, 1.2))
+            p.setPen(QPen(stroke, 1.2))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawLine(QPointF(cx, y_max), QPointF(cx, y_min))
             p.drawLine(QPointF(cx - w / 4, y_min), QPointF(cx + w / 4, y_min))
             p.drawLine(QPointF(cx - w / 4, y_max), QPointF(cx + w / 4, y_max))
             # 箱体
             box = QRectF(cx - w / 2, min(y_q1, y_q3), w, max(1.0, abs(y_q3 - y_q1)))
-            p.setPen(QPen(color, 1.4))
-            p.setBrush(with_alpha(color, 60))
+            p.setPen(QPen(stroke, stroke_w))
+            p.setBrush(fill)
             p.drawRect(box)
             # 中位线
-            p.setPen(QPen(color, 2))
+            p.setPen(QPen(stroke, 2))
             p.drawLine(QPointF(cx - w / 2, y_med), QPointF(cx + w / 2, y_med))
         p.restore()
 
-    def hit_test(self, pos: QPointF):
-        coord = self.chart.coord_for(self.opt)
+    def hitTest(self, pos: QPointF):
+        coord = self.chart.coordFor(self.opt)
         if not isinstance(coord, GridCoord):
             return None
         ax = coord.y_axis
@@ -1626,15 +2368,15 @@ class BoxplotSeriesRenderer(SeriesRenderer):
                 and y_max - 3 <= pos.y() <= y_min + 3
             ):
                 return {
-                    "name": format_value(it["x"]),
+                    "name": formatValue(it["x"]),
                     "value": it["vals"],
                     "series": self.name,
                     "dataIndex": it["index"],
                 }
         return None
 
-    def value_at_index(self, index: int):
-        coord = self.chart.coord_for(self.opt)
+    def valueAtIndex(self, index: int):
+        coord = self.chart.coordFor(self.opt)
         idx = self._full_index(index)  # dataZoom 窗口偏移换算
         for it in self._items:
             if it["index"] == idx:
@@ -1766,8 +2508,26 @@ class ParallelSeriesRenderer(SeriesRenderer):
             )
         )
         color = self.color()
-        # 数据线（半透明，多条重叠可见）
-        pen = QPen(with_alpha(color, 110), 1.6)
+        # lineStyle：{"color", "width", "opacity"}（ECharts parallel 语义）
+        line_style = self.opt.get("lineStyle") or {}
+        if isinstance(line_style.get("color"), str) and line_style["color"]:
+            color = QColor(line_style["color"])
+        try:
+            width = max(0.5, float(line_style.get("width", 1.6)))
+        except (TypeError, ValueError):
+            width = 1.6
+        try:
+            opacity = max(0.0, min(1.0, float(line_style.get("opacity", 110 / 255.0))))
+        except (TypeError, ValueError):
+            opacity = 110 / 255.0
+        hover = self.chart.hoverInfo()
+        hovered = (
+            hover[1].get("dataIndex")
+            if hover is not None and hover[0] is self
+            else None
+        )
+        # 数据线（半透明，多条重叠可见；hover 高亮当前行、淡化其他）
+        pen = QPen(with_alpha(color, int(255 * opacity)), width)
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         p.setPen(pen)
@@ -1777,6 +2537,11 @@ class ParallelSeriesRenderer(SeriesRenderer):
             pts = row["pts"]
             if len(pts) < 2:
                 continue
+            if hovered is not None:
+                if row["index"] == hovered:
+                    p.setPen(QPen(color.lighter(112), width + 0.6))
+                elif row["index"] != hovered:
+                    p.setPen(QPen(with_alpha(color, int(255 * opacity * 0.25)), width))
             if reveal < 1.0:
                 # 入场：按进度自左向右揭示
                 total = len(pts) - 1
@@ -1800,7 +2565,7 @@ class ParallelSeriesRenderer(SeriesRenderer):
         # 轴 + 标签
         c_axis = QColor(T("color.border.strong"))
         c_text = QColor(T("color.text.secondary"))
-        font = chart_font(T("font.xs"))
+        font = chartFont(T("font.xs"))
         p.setFont(font)
         fm = QFontMetricsF(font)
         for ax in self._axes:
@@ -1820,7 +2585,7 @@ class ParallelSeriesRenderer(SeriesRenderer):
             p.drawText(
                 QRectF(ax["x"] - 50, self._area.top() + 2, 100, fm.height()),
                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                format_value(ax["vmax"]),
+                formatValue(ax["vmax"]),
             )
             p.drawText(
                 QRectF(
@@ -1830,12 +2595,12 @@ class ParallelSeriesRenderer(SeriesRenderer):
                     fm.height(),
                 ),
                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom,
-                format_value(ax["vmin"]),
+                formatValue(ax["vmin"]),
             )
         p.restore()
 
     # -- 交互 -------------------------------------------------------------
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         best = None
         best_d = 6.0
         for row in self._rows:
@@ -1983,7 +2748,7 @@ class ThemeRiverSeriesRenderer(SeriesRenderer):
                 p.drawPath(path)
         # 底部时间轴标签（约 5 个均布）
         n = len(self._times)
-        font = chart_font(T("font.xs"))
+        font = chartFont(T("font.xs"))
         p.setFont(font)
         fm = QFontMetricsF(font)
         p.setPen(QColor(T("color.text.secondary")))
@@ -1996,10 +2761,37 @@ class ThemeRiverSeriesRenderer(SeriesRenderer):
                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
                 self._times[i],
             )
+        # 流带标签（ECharts themeRiver label：带端显示系列名）
+        label_opt = dict(self.opt.get("label") or {})
+        if bool(label_opt.get("show", True)) and n:
+            label_font = chartFont(self.labelFontSize())
+            p.setFont(label_font)
+            label_fm = QFontMetricsF(label_font)
+            p.setPen(self.labelColor())
+            last = n - 1
+            for s in self._streams:
+                y0 = s["top"][last].y()
+                y1 = s["bot"][last].y()
+                if y1 - y0 < label_fm.height() * 0.9:
+                    continue
+                text = (
+                    str(label_opt.get("formatter") or "").replace("{b}", s["name"])
+                    or s["name"]
+                )
+                p.drawText(
+                    QRectF(
+                        self._area.left() + self._area.width() * (last + 0.5) / n - 60,
+                        (y0 + y1) / 2 - label_fm.height() / 2,
+                        120,
+                        label_fm.height(),
+                    ),
+                    Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+                    text,
+                )
         p.restore()
 
     # -- 交互 -------------------------------------------------------------
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         if not self._streams or not self._times:
             return None
         n = len(self._times)
@@ -2026,13 +2818,13 @@ class ThemeRiverSeriesRenderer(SeriesRenderer):
         return None
 
 
-register_series("bar", BarSeriesRenderer)
-register_series("pictorialBar", PictorialBarSeriesRenderer)
-register_series("line", LineSeriesRenderer)
-register_series("scatter", ScatterSeriesRenderer)
-register_series("effectScatter", EffectScatterSeriesRenderer)
-register_series("candlestick", CandlestickSeriesRenderer)
-register_series("boxplot", BoxplotSeriesRenderer)
-register_series("heatmap", HeatmapSeriesRenderer)
-register_series("parallel", ParallelSeriesRenderer)
-register_series("themeRiver", ThemeRiverSeriesRenderer)
+registerSeries("bar", BarSeriesRenderer)
+registerSeries("pictorialBar", PictorialBarSeriesRenderer)
+registerSeries("line", LineSeriesRenderer)
+registerSeries("scatter", ScatterSeriesRenderer)
+registerSeries("effectScatter", EffectScatterSeriesRenderer)
+registerSeries("candlestick", CandlestickSeriesRenderer)
+registerSeries("boxplot", BoxplotSeriesRenderer)
+registerSeries("heatmap", HeatmapSeriesRenderer)
+registerSeries("parallel", ParallelSeriesRenderer)
+registerSeries("themeRiver", ThemeRiverSeriesRenderer)

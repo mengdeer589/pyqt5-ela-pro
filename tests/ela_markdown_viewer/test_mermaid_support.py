@@ -9,23 +9,19 @@ from __future__ import annotations
 import threading
 import time
 
+import pytest
+from _qthelpers import wait_until as _wait_until
 from PyQt5.QtGui import QColor, QImage, QTextCursor, QTextTable
-from PyQt5.QtTest import QTest
 
+import pyqt5_ela_pro.mermaid_support as support
 from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
-from pyqt5_ela_pro.mermaid_support import ElaMermaidRenderer
+from pyqt5_ela_pro.mermaid_support import (
+    MERMAID_THEME_VARIABLES,
+    ElaMermaidRenderer,
+    _build_config,
+)
 
 MERMAID_MARKDOWN = "```mermaid\nflowchart LR\n    A --> B\n```"
-
-
-def _wait_until(qapp, predicate, timeout_ms: int = 4000) -> bool:
-    deadline = time.monotonic() + timeout_ms / 1000.0
-    while time.monotonic() < deadline:
-        qapp.processEvents()
-        if predicate():
-            return True
-        QTest.qWait(20)
-    return predicate()
 
 
 def _fragments(viewer: ElaMarkdownViewer) -> list:
@@ -75,13 +71,9 @@ def _fake_image(theme: str) -> QImage:
 
 class TestMermaidLazyImport:
     def test_mermaidx_not_imported_at_module_level(self):
-        import pyqt5_ela_pro.mermaid_support as support
-
         assert "mermaidx" not in vars(support)
 
     def test_probe_happens_only_for_mermaid_fence(self, monkeypatch):
-        import pyqt5_ela_pro.mermaid_support as support
-
         calls = []
 
         def fake_available():
@@ -100,11 +92,6 @@ class TestMermaidLazyImport:
 
 class TestMermaidTheme:
     def test_build_config_base_theme_and_variables(self):
-        from pyqt5_ela_pro.mermaid_support import (
-            MERMAID_THEME_VARIABLES,
-            _build_config,
-        )
-
         config = _build_config("light")
         assert config["theme"] == "base"
         assert (
@@ -122,24 +109,22 @@ class TestMermaidTheme:
         )
 
     def test_set_theme_variables_override_and_reset(self):
-        from pyqt5_ela_pro.mermaid_support import MERMAID_THEME_VARIABLES
-
         renderer = ElaMermaidRenderer()
-        renderer.set_theme_variables("light", {"primaryColor": "#123456"})
-        assert renderer.theme_variables("light")["primaryColor"] == "#123456"
+        renderer.setThemeVariables("light", {"primaryColor": "#123456"})
+        assert renderer.themeVariables("light")["primaryColor"] == "#123456"
 
-        renderer.set_theme_variables("light", None)
+        renderer.setThemeVariables("light", None)
         assert (
-            renderer.theme_variables("light")["primaryColor"]
+            renderer.themeVariables("light")["primaryColor"]
             == MERMAID_THEME_VARIABLES["light"]["primaryColor"]
         )
         renderer.deleteLater()
 
     def test_constructor_theme_variables(self):
         renderer = ElaMermaidRenderer(
-            theme_variables={"light": {"primaryColor": "#ABCDEF"}}
+            themeVariables={"light": {"primaryColor": "#ABCDEF"}}
         )
-        assert renderer.theme_variables("light")["primaryColor"] == "#ABCDEF"
+        assert renderer.themeVariables("light")["primaryColor"] == "#ABCDEF"
         renderer.deleteLater()
 
 
@@ -149,27 +134,25 @@ class TestMermaidRendererUnit:
             raise RuntimeError("resvg 不可用")
 
         renderer = ElaMermaidRenderer()
-        renderer.set_renderer(failing)
+        renderer.setRenderer(failing)
         renderer.request("E1", "light")
         assert _wait_until(qapp, lambda: renderer.lookup("E1", "light")[0])
-        error = renderer.last_error()
+        error = renderer.lastError()
         assert error is not None and "resvg 不可用" in error
 
         # 恢复为正常渲染后，错误被清除
-        renderer.set_renderer(lambda code, theme: _fake_image(theme))
+        renderer.setRenderer(lambda code, theme: _fake_image(theme))
         renderer.request("E1", "light")
         assert _wait_until(qapp, lambda: renderer.lookup("E1", "light")[1] is not None)
-        assert renderer.last_error() is None
+        assert renderer.lastError() is None
         renderer.deleteLater()
 
     def test_unavailable_backend_reports_reason(self, qapp, monkeypatch):
-        import pyqt5_ela_pro.mermaid_support as support
-
         monkeypatch.setattr(support, "_AVAILABLE", False)
         monkeypatch.setattr(support, "_AVAILABLE_ERROR", "ImportError: DLL load failed")
         renderer = ElaMermaidRenderer()
         assert not renderer.available()
-        assert "DLL load failed" in (renderer.last_error() or "")
+        assert "DLL load failed" in (renderer.lastError() or "")
         renderer.deleteLater()
 
     def test_dedupe_and_cache(self, qapp):
@@ -181,7 +164,7 @@ class TestMermaidRendererUnit:
             return _fake_image(theme)
 
         renderer = ElaMermaidRenderer()
-        renderer.set_renderer(fake)
+        renderer.setRenderer(fake)
         assert renderer.available()
 
         renderer.request("A", "light")
@@ -211,7 +194,7 @@ class TestMermaidRendererUnit:
             return None
 
         renderer = ElaMermaidRenderer()
-        renderer.set_renderer(failing)
+        renderer.setRenderer(failing)
         renderer.request("B", "light")
         assert _wait_until(qapp, lambda: renderer.lookup("B", "light")[0])
         known, image = renderer.lookup("B", "light")
@@ -222,10 +205,10 @@ class TestMermaidRendererUnit:
 
     def test_clear_cache(self, qapp):
         renderer = ElaMermaidRenderer()
-        renderer.set_renderer(lambda code, theme: _fake_image(theme))
+        renderer.setRenderer(lambda code, theme: _fake_image(theme))
         renderer.request("C", "light")
         assert _wait_until(qapp, lambda: renderer.lookup("C", "light")[0])
-        renderer.clear_cache()
+        renderer.clearCache()
         assert renderer.lookup("C", "light") == (False, None)
         renderer.deleteLater()
 
@@ -309,7 +292,11 @@ class TestMermaidViewerIntegration:
         )
         tables = _code_tables(v)
         assert tables
-        assert tables[0].cellAt(0, 0).firstCursorPosition().block().text() == "mermaid"
+        # Typora 风格：无语言头栏，代码内容在首格
+        assert (
+            "flowchart LR"
+            in tables[0].cellAt(0, 0).firstCursorPosition().block().text()
+        )
         assert not _mermaid_images(v)
         v.close()
         v.deleteLater()
@@ -361,8 +348,6 @@ class TestMermaidViewerIntegration:
 
 class TestMermaidxRealRender:
     def test_real_mermaidx_render(self, qapp):
-        import pytest
-
         pytest.importorskip("mermaidx")
         v = ElaMarkdownViewer()
         v.resize(560, 400)
@@ -377,8 +362,6 @@ class TestMermaidxRealRender:
         v.deleteLater()
 
     def test_real_mermaidx_chinese_labels(self, qapp):
-        import pytest
-
         pytest.importorskip("mermaidx")
         v = ElaMarkdownViewer()
         v.resize(560, 400)

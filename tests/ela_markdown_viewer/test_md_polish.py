@@ -6,14 +6,15 @@ streaming caret, formula tooltip/copy, PDF export.
 
 from __future__ import annotations
 
+import pytest
 from PyQt5.QtCore import QEvent, QPointF, Qt
 from PyQt5.QtGui import QMouseEvent, QPixmap, QTextCursor
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
 from pyqt5_ela_pro.ela_markdown_viewer import (
-    ElaMarkdownViewer,
     _STREAM_HIGHLIGHT_MAX_CHARS,
+    ElaMarkdownViewer,
 )
 
 
@@ -113,8 +114,6 @@ class TestStreamHighlightThrottle:
         v.deleteLater()
 
     def test_closed_fence_highlighted(self):
-        import pytest
-
         pytest.importorskip("pygments")
         v = ElaMarkdownViewer()
         v.setMarkdown("```python\n" + self.LINES + "```")
@@ -125,8 +124,6 @@ class TestStreamHighlightThrottle:
         v.deleteLater()
 
     def test_small_unclosed_fence_still_highlighted(self):
-        import pytest
-
         pytest.importorskip("pygments")
         v = ElaMarkdownViewer()
         v.setMarkdown("```python\ndef add(a, b):\n    return a + b\n")

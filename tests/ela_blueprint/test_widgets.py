@@ -3,26 +3,20 @@
 from __future__ import annotations
 
 import pytest
-
 from PyQt5.QtCore import QPointF
+from PyQt5.QtGui import QPainter
 
+import pyqt5_ela_pro.blueprint.viewport as vp_mod
 from pyqt5_ela_pro.blueprint import (
     ElaBlueprintCanvas,
     ElaNodeCreationMenu,
-    ElaNodeRegistry,
+    ElaPinDirection,
+    ElaTempWire,
     bezier_path,
     format_elapsed,
     register_node_type,
 )
 from pyqt5_ela_pro.blueprint.node_widget import BODY_MIN_ZOOM
-
-
-@pytest.fixture(autouse=True)
-def clean_registry():
-    reg = ElaNodeRegistry.instance()
-    reg._specs = {}
-    yield reg
-    reg._specs = {}
 
 
 @pytest.fixture
@@ -104,14 +98,10 @@ class TestEdgeWidget:
 
 class TestTempWire:
     def test_draw_no_crash(self, qapp):
-        from pyqt5_ela_pro.blueprint import ElaTempWire
-
         wire = ElaTempWire(QPointF(0, 0), "exec")
         wire.set_end(QPointF(120, 60))
         wire.magnet = True
         pm = qapp.primaryScreen().grabWindow(0)  # 任意 QPixmap 目标
-        from PyQt5.QtGui import QPainter
-
         p = QPainter(pm)
         wire.draw(p)
         p.end()
@@ -211,8 +201,6 @@ class TestCreationMenu:
             "输出",
             inputs=[{"id": "img", "data_type": "image"}],
         )
-        from pyqt5_ela_pro.blueprint import ElaPinDirection
-
         menu = ElaNodeCreationMenu(canvas)
         menu.popup_at(
             canvas.mapToGlobal(canvas.rect().topLeft()),
@@ -225,8 +213,6 @@ class TestCreationMenu:
 
 class TestViewport:
     def test_gl_env_off_forces_raster(self, qapp, monkeypatch):
-        import pyqt5_ela_pro.blueprint.viewport as vp_mod
-
         monkeypatch.setenv("ELABLUEPRINT_GL", "off")
         vp_mod._GL_STATE = None  # 重置模块级探测缓存
         c = ElaBlueprintCanvas()
@@ -235,8 +221,6 @@ class TestViewport:
         c.deleteLater()
 
     def test_gl_env_on(self, qapp, monkeypatch):
-        import pyqt5_ela_pro.blueprint.viewport as vp_mod
-
         monkeypatch.setenv("ELABLUEPRINT_GL", "on")
         vp_mod._GL_STATE = None
         c = ElaBlueprintCanvas()

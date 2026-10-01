@@ -53,6 +53,7 @@ from .menu import ElaNodeContextMenu, ElaNodeCreationMenu
 from .model import (
     ElaBlueprintGraph,
     ElaBlueprintNode,
+    ElaEdge,
     ElaPinDirection,
     types_compatible,
 )
@@ -302,8 +303,6 @@ class ElaBlueprintCanvas(QWidget):
         gdata = data.get("graph", data)
         for nd in gdata.get("nodes", []):
             self.graph.add_node(ElaBlueprintNode.from_dict(nd))
-        from .model import ElaEdge
-
         for ed in gdata.get("edges", []):
             edge = ElaEdge.from_dict(ed)
             self.graph._edges[edge.id] = edge
@@ -320,6 +319,9 @@ class ElaBlueprintCanvas(QWidget):
     def _on_node_added(self, node: ElaBlueprintNode) -> None:
         widget = ElaNodeWidget(node, self._viewport, owner=self._owner)
         widget.installEventFilter(self)
+        # 节点后续 add_input/add_output 会新建热区（ElaNodeWidget.sync_pins），
+        # 那时也要装事件过滤器，否则新引脚拖不出连线。
+        widget.pinsSynced.connect(self._on_widget_pins_synced)
         for pin in node.inputs + node.outputs:
             handle = widget.pin_widget(pin.id, pin.direction)
             if handle is not None:
@@ -335,6 +337,14 @@ class ElaBlueprintCanvas(QWidget):
         widget.show()
         self._node_widgets[node.id] = widget
         self.update()
+
+    def _on_widget_pins_synced(self, handles) -> None:
+        """节点新增引脚后，widget 交回新建的热区，补装事件过滤器。"""
+        for handle in handles or ():
+            try:
+                handle.installEventFilter(self)
+            except RuntimeError:  # 已被销毁
+                continue
 
     def _on_node_removed(self, node_id: str) -> None:
         widget = self._node_widgets.pop(node_id, None)

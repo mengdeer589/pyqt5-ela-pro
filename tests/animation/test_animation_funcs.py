@@ -5,7 +5,12 @@ from __future__ import annotations
 from PyQt5.QtCore import QPropertyAnimation, QTimer
 from PyQt5.QtWidgets import QWidget
 
-from pyqt5_ela_pro.animation import fade_in, fade_out, _animation_registry, ElaAnimatedMixin
+from pyqt5_ela_pro.animation import (
+    fade_in,
+    fade_out,
+    _animation_registry,
+    ElaAnimatedMixin,
+)
 
 
 class TestAnimationRegistryCleanup:
@@ -147,6 +152,7 @@ class TestElaAnimatedMixin:
 
     def test_mixin_provides_fade_methods(self, qapp):
         """Test mixin provides fade_in and fade_out methods."""
+
         class TestWindow(ElaAnimatedMixin, QWidget):
             pass
 
@@ -161,6 +167,7 @@ class TestElaAnimatedMixin:
 
     def test_mixin_fade_in_shows_window(self, qapp):
         """Test mixin's fade_in shows hidden window."""
+
         class TestWindow(ElaAnimatedMixin, QWidget):
             pass
 
@@ -174,6 +181,7 @@ class TestElaAnimatedMixin:
 
     def test_mixin_fade_out_creates_animation(self, qapp):
         """Test mixin's fade_out creates animation."""
+
         class TestWindow(ElaAnimatedMixin, QWidget):
             pass
 
@@ -189,6 +197,7 @@ class TestElaAnimatedMixin:
 
     def test_mixin_reuses_animation_instance(self, qapp):
         """Test mixin reuses same animation instance on multiple calls."""
+
         class TestWindow(ElaAnimatedMixin, QWidget):
             pass
 

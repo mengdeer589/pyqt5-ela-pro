@@ -46,11 +46,17 @@ class ElaRatingControl(ElaThemeWidget):
         self._icon_font = QFont("ElaAwesome")
 
     def setMaxRating(self, n: int) -> None:
-        """设置最大评分值。
+        """设置最大评分值（当前评分会重新夹取到新上限）。
 
         :param n: 最大评分
         """
         self._max_rating = n
+        # 收紧上限时必须重新夹取，否则 rating() 会大于 maxRating()：
+        # 值与界面（只画 n 颗星）不一致。
+        clamped = max(0.0, min(float(self._max_rating), self._rating))
+        if clamped != self._rating:
+            self._rating = clamped
+            self.ratingChanged.emit(self._rating)
         self.updateGeometry()
         self.update()
 

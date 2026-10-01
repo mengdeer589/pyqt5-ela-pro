@@ -203,6 +203,20 @@ class TestHeadingAnchorsAndToc:
         assert "[toc]" not in v.document().toPlainText()
         v.deleteLater()
 
+    def test_links_underlined(self):
+        """opencode TUI 风格：链接带下划线。"""
+        v = ElaMarkdownViewer()
+        v.setMarkdown("访问 [示例](https://example.com) 链接")
+
+        anchors = [
+            fragment
+            for fragment in _fragments(v)
+            if fragment.charFormat().isAnchor() and fragment.charFormat().anchorHref()
+        ]
+        assert anchors
+        assert all(fragment.charFormat().fontUnderline() for fragment in anchors)
+        v.deleteLater()
+
 
 class TestFootnotes:
     SOURCE = "正文引用[^a] 与第二处[^b]\n\n[^a]: 第一条脚注\n[^b]: 第二条脚注\n"

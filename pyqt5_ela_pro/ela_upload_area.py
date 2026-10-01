@@ -221,13 +221,23 @@ class ElaUploadArea(ElaThemeWidget):
         self._theme_mode = mode
         self.update()
 
+    def _normalized_suffixes(self) -> list[str]:
+        """后缀统一成不带点的形式（``QFileInfo.suffix()`` 不含点）。
+
+        ``setAcceptedSuffixes`` 文档与测试都用 ``[".txt"]`` 写法，而
+        ``QFileInfo.suffix()`` 返回 ``"txt"``，直接比较会让所有真实文件被拒。
+        """
+        return [s.lstrip(".").lower() for s in self._accepted_suffixes if s]
+
     def _validateFile(self, file_path: str) -> tuple[bool, str]:
         info = QFileInfo(file_path)
         if not info.exists():
             return False, "文件不存在"
+        if info.isDir():
+            return False, "不支持的路径: 目录"
         if self._accepted_suffixes:
             suffix = info.suffix().lower()
-            if suffix not in [s.lower() for s in self._accepted_suffixes]:
+            if suffix not in self._normalized_suffixes():
                 return False, f"不支持的文件类型: {suffix}"
         if self._max_file_size > 0 and info.size() > self._max_file_size:
             return False, "文件过大"
@@ -262,7 +272,7 @@ class ElaUploadArea(ElaThemeWidget):
         title = self._dialog_title if self._dialog_title else "选择文件"
         filter_str = self._mime_filter
         if not filter_str and self._accepted_suffixes:
-            patterns = ["*." + s for s in self._accepted_suffixes]
+            patterns = ["*." + s for s in self._normalized_suffixes()]
             filter_str = f"允许的文件 ({' '.join(patterns)})"
         if self._is_multiple:
             files, _ = QFileDialog.getOpenFileNames(self, title, "", filter_str)
@@ -304,6 +314,11 @@ class ElaUploadArea(ElaThemeWidget):
         self.update()
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        # 只有左键才进入「按下」态：否则右键按下+释放在区域内会弹出模态文件框，
+        # 用户无法用右键取消/忽略。
+        if event.button() != Qt.MouseButton.LeftButton:
+            event.ignore()
+            return
         self._is_pressed = True
 
         # Check if clicking on an X button to remove a file
@@ -324,7 +339,11 @@ class ElaUploadArea(ElaThemeWidget):
         self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if self._is_pressed and self.rect().contains(event.pos()):
+        if (
+            self._is_pressed
+            and event.button() == Qt.MouseButton.LeftButton
+            and self.rect().contains(event.pos())
+        ):
             self._openFileDialog()
         self._is_pressed = False
         self.update()
@@ -353,17 +372,13 @@ class ElaUploadArea(ElaThemeWidget):
         if self._is_drag_over:
             painter.setPen(
                 QPen(
-                    eTheme.getThemeColor(
-                        mode, ElaThemeType.ThemeColor.PrimaryNormal
-                    ),
+                    eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryNormal),
                     2,
                     Qt.PenStyle.DashLine,
                 )
             )
             painter.setBrush(
-                eTheme.getThemeColor(
-                    mode, ElaThemeType.ThemeColor.BasicBaseDeepAlpha
-                )
+                eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBaseDeepAlpha)
             )
         elif self._is_hover:
             painter.setPen(
@@ -456,9 +471,7 @@ class ElaUploadArea(ElaThemeWidget):
                 self._fi_font.setPixelSize(12)
                 painter.setFont(self._fi_font)
                 painter.setPen(
-                    eTheme.getThemeColor(
-                        mode, ElaThemeType.ThemeColor.PrimaryNormal
-                    )
+                    eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryNormal)
                 )
                 painter.drawText(
                     QRectF(12, start_y + i * lh, 16, lh),
@@ -485,9 +498,7 @@ class ElaUploadArea(ElaThemeWidget):
                 self._x_font.setPixelSize(10)
                 painter.setFont(self._x_font)
                 painter.setPen(
-                    eTheme.getThemeColor(
-                        mode, ElaThemeType.ThemeColor.BasicTextNoFocus
-                    )
+                    eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextNoFocus)
                 )
                 painter.drawText(
                     QRectF(self.width() - 28, start_y + i * lh, 16, lh),
@@ -498,9 +509,7 @@ class ElaUploadArea(ElaThemeWidget):
             if len(self._file_paths) > max_display:
                 painter.setFont(QApplication.font())
                 painter.setPen(
-                    eTheme.getThemeColor(
-                        mode, ElaThemeType.ThemeColor.BasicTextNoFocus
-                    )
+                    eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextNoFocus)
                 )
                 painter.drawText(
                     QRectF(0, start_y + max_display * lh, self.width(), lh),

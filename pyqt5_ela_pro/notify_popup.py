@@ -8,15 +8,24 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QPropertyAnimation, QPoint, QTimer, pyqtSignal, QEvent
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
+from PyQt5.QtCore import (
+    Qt,
+    QEvent,
+    QPoint,
+    QPropertyAnimation,
+    QRect,
+    QTimer,
+    pyqtSignal,
+)
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout
 from PyQt5.QtGui import QPainter, QPaintEvent, QEnterEvent
 
 from PyQt5ElaWidgetTools import (
     eTheme,
     ElaThemeType,
     ElaText,
-    ElaIconType, ElaToolButton,
+    ElaIconType,
+    ElaToolButton,
 )
 
 
@@ -115,23 +124,27 @@ class ElaNotifyPopup(QWidget):
 
     def _update_positions(self):
         screen = self._get_screen_geometry()
+        # availableGeometry() 是带原点的矩形：必须叠加 x()/y()，否则主屏不在虚拟
+        # 原点时（如左侧副屏 x=-1920）弹窗会被摆到错误的屏幕甚至屏幕外。
         self._start_pos = QPoint(
-            screen.width() - self.width() - 5,
-            screen.height(),
+            screen.x() + screen.width() - self.width() - 5,
+            screen.y() + screen.height(),
         )
         self._end_pos = QPoint(
-            screen.width() - self.width() - 5,
-            max(0, screen.height() - self.height() - 5 - self._y_offset),
+            screen.x() + screen.width() - self.width() - 5,
+            max(
+                screen.y(),
+                screen.y() + screen.height() - self.height() - 5 - self._y_offset,
+            ),
         )
 
     @staticmethod
     def _get_screen_geometry():
-        from PyQt5.QtWidgets import QApplication
-
-        screen = QApplication.primaryScreen()
-        if screen:
-            return screen.availableGeometry()
-        return QApplication.instance().primaryScreen().availableGeometry()
+        app = QApplication.instance()
+        screen = app.primaryScreen() if app is not None else None
+        if screen is None:
+            return QRect(0, 0, 1920, 1080)
+        return screen.availableGeometry()
 
     def showNotification(
         self, title: str = "", content: str = "", timeout: int = -1

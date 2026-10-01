@@ -176,7 +176,9 @@ class ElaDataTable(ElaTableView):
         if hh:
             hh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
             hh.setMinimumSectionSize(TABLE_MIN_SECTION_SIZE)
-            hh.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
+            hh.setDefaultAlignment(
+                Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
+            )
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         if vh:
             vh.setMinimumSectionSize(TABLE_ROW_MIN_HEIGHT)
@@ -388,20 +390,29 @@ class ElaDataTable(ElaTableView):
         if row_count == 0:
             return
 
-        items_with_value = []
+        # 空/非数值单元格排在最后（升序降序都一样）：此前一律当 0 处理，
+        # 升序时空值会顶到最前面（"", "9", "10"），降序时又混在中间。
+        numeric: list[tuple[float, int]] = []
+        blanks: list[int] = []
         for row in range(row_count):
             item = self._model.item(row, column)
-            text = item.text() if item else "0"
+            text = item.text() if item else ""
+            raw = text.replace(",", "").replace(" ", "").strip()
+            if not raw:
+                blanks.append(row)
+                continue
             try:
-                value = float(text.replace(",", "").replace(" ", ""))
+                value = float(raw)
             except ValueError:
-                value = 0
-            items_with_value.append((value, row))
+                blanks.append(row)
+                continue
+            numeric.append((value, row))
 
         reverse = order == Qt.SortOrder.DescendingOrder
-        items_with_value.sort(key=lambda x: x[0], reverse=reverse)
+        numeric.sort(key=lambda x: x[0], reverse=reverse)
+        order_rows = [row for _, row in numeric] + blanks
 
-        self._reorder_rows([row for _, row in items_with_value])
+        self._reorder_rows(order_rows)
 
     def _reorder_rows(self, row_order: list[int]) -> None:
         """根据排序后的顺序重新排列行。
@@ -548,36 +559,51 @@ class ElaDataTable(ElaTableView):
             headers = data[0]
             rows = data[1:]
 
+        # 必须 try/finally：任何一步抛异常（某个 __str__ 抛错、表头不是 str…）
+        # 都会把模型永久 blockSignals(True)，此后视图再也不更新。
+        # setTableDataAsync 的 _on_finished 已经是这么写的。
         self._model.blockSignals(True)
+        try:
+            self.setHorizontalHeaderLabels(headers)
+            self.setColumnCount(len(headers))
 
-        self.setHorizontalHeaderLabels(headers)
-        self.setColumnCount(len(headers))
+            # 先清除旧行，避免 setItem 逐个 delete 旧 item 的性能退化
+            old_count = self._model.rowCount()
+            if old_count > 0:
+                self._model.removeRows(0, old_count)
+            self._model.setRowCount(len(rows))
 
-        # 先清除旧行，避免 setItem 逐个 delete 旧 item 的性能退化
-        old_count = self._model.rowCount()
-        if old_count > 0:
-            self._model.removeRows(0, old_count)
-        self._model.setRowCount(len(rows))
-
-        if show_row_index:
             vh = self.verticalHeader()
-            if vh:
-                vh.setHidden(False)
-            self.setVerticalHeaderLabels([str(row_index_start + i) for i in range(len(rows))])
-            vh.resizeSections(QHeaderView.ResizeMode.ResizeToContents)
+            if show_row_index:
+                if vh:
+                    vh.setHidden(False)
+                self.setVerticalHeaderLabels(
+                    [str(row_index_start + i) for i in range(len(rows))]
+                )
+            elif vh:
+                # 之前以 show_row_index=True 填过表时，行号会留在新数据旁边
+                vh.setHidden(True)
+                self.setVerticalHeaderLabels([])
 
-        for row_idx, row_data in enumerate(rows):
-            for col_idx, cell_data in enumerate(row_data):
-                item = QStandardItem(str(cell_data))
-                if center_columns and col_idx in center_columns:
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-                elif col_idx in self._columnAlignments:
-                    item.setTextAlignment(self._columnAlignments[col_idx])
-                else:
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
-                self._model.setItem(row_idx, col_idx, item)
+            if show_row_index and vh:
+                vh.resizeSections(QHeaderView.ResizeMode.ResizeToContents)
 
-        self._model.blockSignals(False)
+            for row_idx, row_data in enumerate(rows):
+                for col_idx, cell_data in enumerate(row_data):
+                    item = QStandardItem(str(cell_data))
+                    if center_columns and col_idx in center_columns:
+                        item.setTextAlignment(
+                            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
+                        )
+                    elif col_idx in self._columnAlignments:
+                        item.setTextAlignment(self._columnAlignments[col_idx])
+                    else:
+                        item.setTextAlignment(
+                            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
+                        )
+                    self._model.setItem(row_idx, col_idx, item)
+        finally:
+            self._model.blockSignals(False)
         self._model.layoutChanged.emit()
 
     def setTableDataAsync(

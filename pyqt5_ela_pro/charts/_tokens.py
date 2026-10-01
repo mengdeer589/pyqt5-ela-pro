@@ -123,37 +123,35 @@ def T(key):
     return chart_token(eTheme.getThemeMode(), key)
 
 
+#: 公开入口：按当前主题读取令牌（第三方扩展自定义系列 / 组件时取主题色）
+chartToken = T
+
+
 # ---------------------------------------------------------------------------
-# 系列默认调色板（数据色：与 Ela 交互色/状态色解耦，两主题各一套保证区分度）
+# 系列默认调色板（ECharts 默认 9 色：light / dark 共用，保证跨主题一致观感）
 # ---------------------------------------------------------------------------
 
-#: 数据系列取色板（light / dark 各 8 色）
-_PALETTE_LIGHT = [
-    "#0072BD",
-    "#D95319",
-    "#EDB120",
-    "#77AC30",
-    "#7E2F8E",
-    "#009688",
-    "#A2142F",
-    "#6E6E6E",
-]
-
-_PALETTE_DARK = [
-    "#4DA6D9",
-    "#E67A52",
-    "#F5C940",
-    "#8DB34A",
-    "#A855C4",
-    "#40B0A8",
-    "#D45060",
-    "#9E9E9E",
+#: ECharts 默认数据系列调色板
+ECHARTS_PALETTE = [
+    "#5470c6",
+    "#91cc75",
+    "#fac858",
+    "#ee6666",
+    "#73c0de",
+    "#3ba272",
+    "#fc8452",
+    "#9a60b4",
+    "#ea7ccc",
 ]
 
 
 def palette_for_mode(mode) -> list:
-    """当前主题的数据系列调色板（首色取主题主色，其余按主题固定表）。"""
-    dark = mode == ElaThemeType.ThemeMode.Dark
-    out = [_ela_color(mode, "PrimaryNormal")]
-    out.extend(QColor(c) for c in (_PALETTE_DARK if dark else _PALETTE_LIGHT))
-    return out
+    """当前主题的数据系列调色板（ECharts 默认 9 色，主题无关）。
+
+    **必须每次新建 list**：调用方会 ``setAlphaF`` 改单个元素的 alpha
+    （bar / scatter 逐图元调透明度），返回共享实例会让一次绘制污染全局
+    调色板 —— 表现为「悬浮过某根柱之后所有系列颜色都变了」。而 bar /
+    scatter 的绘制路径逐图元取色，本函数单帧被调上万次，每次新建 9 个
+    QColor 是绘制路径最大的 Python 开销（profiling 占 tottime 16%）。
+    """
+    return [QColor(c) for c in ECHARTS_PALETTE]

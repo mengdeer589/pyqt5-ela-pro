@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import math
 import mimetypes
 import os
 import re
@@ -59,6 +60,7 @@ from PyQt5.QtCore import (
     QFileInfo,
     QIODevice,
     QMarginsF,
+    QPoint,
     QPointF,
     QRectF,
     QSize,
@@ -71,6 +73,7 @@ from PyQt5.QtGui import (
     QBrush,
     QColor,
     QCursor,
+    QDesktopServices,
     QFont,
     QFontDatabase,
     QImage,
@@ -78,6 +81,7 @@ from PyQt5.QtGui import (
     QPainterPath,
     QPaintEvent,
     QPalette,
+    QPen,
     QTextBlockFormat,
     QTextCharFormat,
     QTextCursor,
@@ -94,12 +98,12 @@ from PyQt5.QtGui import (
     QPageSize,
     QPdfWriter,
 )
+from PyQt5 import sip
 from PyQt5.QtWidgets import (
     QApplication,
     QDialog,
     QFileDialog,
     QFrame,
-    QMenu,
     QTextBrowser,
     QTextEdit,
     QToolButton,
@@ -111,10 +115,13 @@ from PyQt5ElaWidgetTools import (
     eTheme,
     ElaIcon,
     ElaIconType,
+    ElaMenu,
     ElaScrollBar,
     ElaThemeType,
 )
 
+from ._internal import execElaMenu
+from ._styles import FlatIconButton, setTransparentTextBase
 from .math_lite import (
     MATH_ENVS,
     clear_cache as clear_math_cache,
@@ -139,10 +146,18 @@ _CODE_TOKEN_SUFFIX = "\ue001"
 _MERMAID_TOKEN_PREFIX = "\ue000elamermaid"
 _MERMAID_IMAGE_PREFIX = "elamermaid://"
 _MERMAID_TIP_PREFIX = "Mermaid: "
+#: Mermaid 待渲染任务视口优先级刷新间隔（毫秒）
+_MERMAID_PRIORITY_INTERVAL_MS = 80
+#: Mermaid 占位/降级图锚点前缀（异步结果按此定位）
+_MERMAID_PENDING_PREFIX = "mermaid-pending-"
+#: Mermaid 图片左右留白（与视口宽度相减）
+_MERMAID_IMAGE_MARGIN = 24
 
 #: 可折叠块（推理块 / details）：起始与结束占位符
 _FOLD_TOKEN_PREFIX = "\ue000elafold"
 _FOLD_END_TOKEN_PREFIX = "\ue000elafoldend"
+#: 右键菜单行高（ElaMenu，与 terminal_view.py 一致）
+_CONTEXT_MENU_ITEM_HEIGHT = 28
 
 #: 内部控件锚点前缀（不显示 href tooltip）
 _CONTROL_ANCHOR_PREFIXES = (
@@ -288,20 +303,36 @@ _TOC_LINE_RE = re.compile(r"^\[toc\]$", re.IGNORECASE)
 #: 引用块左缩进判定阈值（Qt Markdown 导入器为引用块设置 ~40px 左缩进）
 _QUOTE_LEFT_MARGIN = 20.0
 
-#: Typora 风格标题排版：级别 → (字号倍率, 上边距, 下边距)
+#: Typora（github.css）标题排版：级别 → (字号倍率, 上边距, 下边距, 行高%)
 _HEADING_TYPOGRAPHY = {
-    1: (1.9, 22.0, 10.0),
-    2: (1.55, 18.0, 8.0),
-    3: (1.3, 14.0, 6.0),
-    4: (1.15, 12.0, 4.0),
-    5: (1.05, 10.0, 4.0),
-    6: (1.0, 10.0, 4.0),
+    1: (2.25, 16.0, 16.0, 120.0),
+    2: (1.75, 16.0, 16.0, 122.0),
+    3: (1.5, 16.0, 16.0, 143.0),
+    4: (1.25, 16.0, 16.0, 150.0),
+    5: (1.0, 16.0, 16.0, 150.0),
+    6: (1.0, 16.0, 16.0, 150.0),
 }
 #: 正文行高（百分比，Typora 风格松弛行距）
 _BODY_LINE_HEIGHT = 160.0
 #: 列表项 / 引用块的行间距（比段落紧凑）
-_LIST_ITEM_MARGIN = 3.0
-_QUOTE_BLOCK_MARGIN = 4.0
+_LIST_ITEM_MARGIN = 4.0
+_QUOTE_BLOCK_MARGIN = 8.0
+#: 普通段落的下边距（Typora 0.8em ≈ 12px）
+_PARAGRAPH_MARGIN = 12.0
+#: 表格与前后块的间距（Typora 0.8em ≈ 12px）
+_TABLE_BLOCK_MARGIN = 12.0
+#: h1 / h2 底部分隔线厚度（像素）
+_HEADING_RULE_WIDTH = 1.0
+#: 引用块左侧竖线（宽度 / 内缩，像素）
+_QUOTE_RAIL_WIDTH = 4.0
+_QUOTE_RAIL_INSET = 4.0
+#: 分割线（hr）厚度（像素，opencode TUI 为 1px 正文色线）
+_HR_LINE_WIDTH = 1.0
+#: 代码卡圆角半径（像素，软卡片：无描边）
+_CODE_CARD_RADIUS = 6.0
+#: 行内代码水平内边距 / 圆角（像素）
+_INLINE_CODE_PADDING = 3.0
+_INLINE_CODE_RADIUS = 3.0
 
 #: 脚注 / Callout / 高亮 / 目录占位符前缀（末尾拼索引或 id + ``_CODE_TOKEN_SUFFIX``）
 _FOOTNOTE_REF_PREFIX = "\ue000elafnref"
@@ -316,6 +347,14 @@ _CODE_MARKER = QTextFormat.UserProperty + 101
 _CODE_TEXT_PROPERTY = QTextFormat.UserProperty + 102
 #: 代码块源行范围 "start,end"（存于 QTextTableFormat，供引用回复还原）
 _CODE_SOURCE_PROPERTY = QTextFormat.UserProperty + 103
+#: 代码块语言（存于 QTextTableFormat，供复制按钮 tooltip）
+_CODE_LANG_PROPERTY = QTextFormat.UserProperty + 104
+#: 分割线（hr）标记（存于块格式，Qt 自带横线颜色不可控，改为自绘 2px 线）
+_HR_MARK = QTextFormat.UserProperty + 105
+#: Callout 竖线颜色（存于块格式，值为 #rrggbb 字符串）
+_CALLOUT_RAIL_PROPERTY = QTextFormat.UserProperty + 106
+#: 行内代码标记（存于字符格式，供自绘圆角底与边框）
+_INLINE_CODE_MARK = QTextFormat.UserProperty + 107
 _CODE_MARKER_VALUE = "elacode"
 #: 代码复制按钮尺寸（像素）
 _CODE_BUTTON_SIZE = 24
@@ -336,8 +375,14 @@ _ANCHOR_HISTORY_CAP = 50
 #: 滚动跟随判定余量（像素）
 _SCROLL_MARGIN = 4
 
-#: 流式刷新间隔（毫秒）：按未稳定尾部大小自适应
-_STREAM_INTERVAL = 40
+#: 流式刷新间隔（毫秒）：按未稳定尾部大小自适应。
+#:
+#: 40ms 实测只有约 10.7 次视觉更新/秒 —— 不刷屏，但明显"跳"，读起来是分段
+#: 出现而非逐字浮现（人眼平滑阈值约 20-40 次/秒，对齐 opencode 的 24ms 节奏）。
+#: 改为 24ms 后实测 16.9-17.5 次/秒，**墙钟时间不变**（12 万字流式仍 7 次渲染、
+#: 0.69s），即平滑度提升不花吞吐代价。150/400ms 两档保持不变 —— 它们负责
+#: 在超长尾部时保护渲染吞吐，不该为观感让路。
+_STREAM_INTERVAL = 24
 _STREAM_INTERVAL_MID = 150
 _STREAM_INTERVAL_LONG = 400
 _STREAM_MID_CHARS = 16000
@@ -357,37 +402,342 @@ _LARGE_RENDER_BUDGET_MS = 16
 #: Pygments 惰性导入状态（{"loaded": bool, "module": (get_lexer_by_name, Token) | None}）
 _PYGMENTS_STATE = {"loaded": False, "module": None}
 
-#: 代码高亮配色（GitHub 风格，双主题高对比；Pygments 仅用于词法分析）
-_TOKEN_PALETTE_LIGHT = {
-    "keyword": "#cf222e",
-    "constant": "#0550ae",
-    "type": "#953800",
-    "function": "#8250df",
-    "class": "#953800",
-    "decorator": "#8250df",
-    "builtin": "#0550ae",
-    "attribute": "#0550ae",
-    "tag": "#116329",
-    "string": "#0a3069",
-    "number": "#0550ae",
-    "comment": "#6e7781",
-    "operator": "#57606a",
+#: markdown 内置主题注册表：名称 → {"light": {...}, "dark": {...}}。
+#: 每套主题含 ``semantic``（标题 / 加粗 / 斜体 / 行内代码 / 链接 / 引用 /
+#: 列表 / 高亮底色）与 ``syntax``（13 个语法高亮 token 键）；结构色
+#: （背景 / 正文 / 边框）仍由 eTheme 令牌提供。用 :func:`registerMarkdownTheme`
+#: 可注册自定义主题，:func:`setDefaultMarkdownTheme` 改默认，查看器实例上
+#: ``setMarkdownTheme(name)`` 切换。
+_MD_THEME_SEMANTIC_KEYS = (
+    "heading",
+    "strong",
+    "emphasis",
+    "code",
+    "link",
+    "quote",
+    "list",
+    "mark",
+)
+_MD_THEME_SYNTAX_KEYS = (
+    "keyword",
+    "constant",
+    "type",
+    "function",
+    "class",
+    "decorator",
+    "builtin",
+    "attribute",
+    "tag",
+    "string",
+    "number",
+    "comment",
+    "operator",
+)
+
+_MD_THEMES = {
+    # opencode 终端版（默认）：标题紫/橙、加粗橙、斜体黄、行内码绿、链接青
+    "opencode": {
+        "light": {
+            "semantic": {
+                "heading": "#d68c27",
+                "strong": "#d68c27",
+                "emphasis": "#b0851f",
+                "code": "#3d9a57",
+                "link": "#318795",
+                "quote": "#b0851f",
+                "list": "#d68c27",
+                "mark": "#f2cc0c",
+            },
+            "syntax": {
+                "keyword": "#d68c27",
+                "constant": "#d68c27",
+                "type": "#b0851f",
+                "function": "#3b7dd8",
+                "class": "#b0851f",
+                "decorator": "#3b7dd8",
+                "builtin": "#3b7dd8",
+                "attribute": "#d1383d",
+                "tag": "#d1383d",
+                "string": "#3d9a57",
+                "number": "#d68c27",
+                "comment": "#8a8a8a",
+                "operator": "#318795",
+            },
+        },
+        "dark": {
+            "semantic": {
+                "heading": "#9d7cd8",
+                "strong": "#f5a742",
+                "emphasis": "#e5c07b",
+                "code": "#7fd88f",
+                "link": "#56b6c2",
+                "quote": "#e5c07b",
+                "list": "#9d7cd8",
+                "mark": "#f2cc0c",
+            },
+            "syntax": {
+                "keyword": "#9d7cd8",
+                "constant": "#f5a742",
+                "type": "#e5c07b",
+                "function": "#fab283",
+                "class": "#e5c07b",
+                "decorator": "#fab283",
+                "builtin": "#fab283",
+                "attribute": "#e06c75",
+                "tag": "#e06c75",
+                "string": "#7fd88f",
+                "number": "#f5a742",
+                "comment": "#808080",
+                "operator": "#56b6c2",
+            },
+        },
+    },
+    # GitHub 风格：标题 / 强调沿用正文色（靠字重 / 斜体区分），链接蓝
+    "github": {
+        "light": {
+            "semantic": {
+                "heading": "#1f2328",
+                "strong": "#1f2328",
+                "emphasis": "#1f2328",
+                "code": "#1f2328",
+                "link": "#0969da",
+                "quote": "#59636e",
+                "list": "#1f2328",
+                "mark": "#ffd33d",
+            },
+            "syntax": {
+                "keyword": "#cf222e",
+                "constant": "#0550ae",
+                "type": "#953800",
+                "function": "#8250df",
+                "class": "#953800",
+                "decorator": "#8250df",
+                "builtin": "#0550ae",
+                "attribute": "#0550ae",
+                "tag": "#116329",
+                "string": "#0a3069",
+                "number": "#0550ae",
+                "comment": "#59636e",
+                "operator": "#59636e",
+            },
+        },
+        "dark": {
+            "semantic": {
+                "heading": "#f0f6fc",
+                "strong": "#f0f6fc",
+                "emphasis": "#f0f6fc",
+                "code": "#f0f6fc",
+                "link": "#4493f8",
+                "quote": "#9198a1",
+                "list": "#f0f6fc",
+                "mark": "#d29922",
+            },
+            "syntax": {
+                "keyword": "#ff7b72",
+                "constant": "#79c0ff",
+                "type": "#ffa657",
+                "function": "#d2a8ff",
+                "class": "#ffa657",
+                "decorator": "#d2a8ff",
+                "builtin": "#79c0ff",
+                "attribute": "#79c0ff",
+                "tag": "#7ee787",
+                "string": "#a5d6ff",
+                "number": "#79c0ff",
+                "comment": "#8b949e",
+                "operator": "#c9d1d9",
+            },
+        },
+    },
+    # Solarized：黄 / 橙 / 紫 / 绿 / 蓝 五色语义
+    "solarized": {
+        "light": {
+            "semantic": {
+                "heading": "#b58900",
+                "strong": "#cb4b16",
+                "emphasis": "#6c71c4",
+                "code": "#859900",
+                "link": "#268bd2",
+                "quote": "#657b83",
+                "list": "#268bd2",
+                "mark": "#b58900",
+            },
+            "syntax": {
+                "keyword": "#859900",
+                "constant": "#d33682",
+                "type": "#b58900",
+                "function": "#268bd2",
+                "class": "#b58900",
+                "decorator": "#6c71c4",
+                "builtin": "#268bd2",
+                "attribute": "#dc322f",
+                "tag": "#dc322f",
+                "string": "#2aa198",
+                "number": "#d33682",
+                "comment": "#93a1a1",
+                "operator": "#657b83",
+            },
+        },
+        "dark": {
+            "semantic": {
+                "heading": "#b58900",
+                "strong": "#cb4b16",
+                "emphasis": "#6c71c4",
+                "code": "#859900",
+                "link": "#268bd2",
+                "quote": "#93a1a1",
+                "list": "#268bd2",
+                "mark": "#b58900",
+            },
+            "syntax": {
+                "keyword": "#859900",
+                "constant": "#d33682",
+                "type": "#b58900",
+                "function": "#268bd2",
+                "class": "#b58900",
+                "decorator": "#6c71c4",
+                "builtin": "#268bd2",
+                "attribute": "#dc322f",
+                "tag": "#dc322f",
+                "string": "#2aa198",
+                "number": "#d33682",
+                "comment": "#586e75",
+                "operator": "#93a1a1",
+            },
+        },
+    },
+    # Dracula（深色）/ Alucard（浅色）
+    "dracula": {
+        "light": {
+            "semantic": {
+                "heading": "#644ac9",
+                "strong": "#a34d14",
+                "emphasis": "#846e15",
+                "code": "#14710a",
+                "link": "#036a96",
+                "quote": "#6c664b",
+                "list": "#a3144d",
+                "mark": "#f1fa8c",
+            },
+            "syntax": {
+                "keyword": "#a3144d",
+                "constant": "#a3144d",
+                "type": "#644ac9",
+                "function": "#14710a",
+                "class": "#644ac9",
+                "decorator": "#14710a",
+                "builtin": "#036a96",
+                "attribute": "#a34d14",
+                "tag": "#a34d14",
+                "string": "#846e15",
+                "number": "#644ac9",
+                "comment": "#6c664b",
+                "operator": "#a3144d",
+            },
+        },
+        "dark": {
+            "semantic": {
+                "heading": "#bd93f9",
+                "strong": "#ffb86c",
+                "emphasis": "#f1fa8c",
+                "code": "#50fa7b",
+                "link": "#8be9fd",
+                "quote": "#f1fa8c",
+                "list": "#ff79c6",
+                "mark": "#f1fa8c",
+            },
+            "syntax": {
+                "keyword": "#ff79c6",
+                "constant": "#bd93f9",
+                "type": "#8be9fd",
+                "function": "#50fa7b",
+                "class": "#8be9fd",
+                "decorator": "#50fa7b",
+                "builtin": "#8be9fd",
+                "attribute": "#ffb86c",
+                "tag": "#ff79c6",
+                "string": "#f1fa8c",
+                "number": "#bd93f9",
+                "comment": "#6272a4",
+                "operator": "#ff79c6",
+            },
+        },
+    },
 }
-_TOKEN_PALETTE_DARK = {
-    "keyword": "#ff7b72",
-    "constant": "#79c0ff",
-    "type": "#ffa657",
-    "function": "#d2a8ff",
-    "class": "#ffa657",
-    "decorator": "#d2a8ff",
-    "builtin": "#79c0ff",
-    "attribute": "#79c0ff",
-    "tag": "#7ee787",
-    "string": "#a5d6ff",
-    "number": "#79c0ff",
-    "comment": "#8b949e",
-    "operator": "#c9d1d9",
-}
+#: 默认 markdown 主题（可用 setDefaultMarkdownTheme 调整，影响之后新建的查看器）
+_DEFAULT_MD_THEME = "opencode"
+
+
+def _md_theme_spec(name: str) -> dict:
+    """取主题定义（未知名称回落默认主题）。"""
+    return _MD_THEMES.get(name) or _MD_THEMES[_DEFAULT_MD_THEME]
+
+
+def markdownThemes() -> list:
+    """全部内置 / 已注册的 markdown 主题名（按注册顺序）。"""
+    return list(_MD_THEMES)
+
+
+def defaultMarkdownTheme() -> str:
+    """获取新建查看器使用的默认 markdown 主题名。"""
+    return _DEFAULT_MD_THEME
+
+
+def setDefaultMarkdownTheme(name: str) -> bool:
+    """设置默认 markdown 主题（只影响之后新建的查看器，不重渲染已存在实例）。
+
+    :returns: 主题存在并设置成功返回 ``True``，未知名称返回 ``False``
+    """
+    global _DEFAULT_MD_THEME
+    if name not in _MD_THEMES:
+        return False
+    _DEFAULT_MD_THEME = name
+    return True
+
+
+def registerMarkdownTheme(
+    name: str, light: Optional[dict] = None, dark: Optional[dict] = None
+) -> None:
+    """注册 / 覆盖一套 markdown 主题。
+
+    :param name: 主题名（覆盖同名主题；``"opencode"`` 亦可覆盖）
+    :param light/dark: ``{"semantic": {...}, "syntax": {...}}``，可省略或只给
+        部分键（其余键合并自 opencode 默认主题）。``semantic`` 的 8 个键为
+        ``heading`` / ``strong`` / ``emphasis`` / ``code`` / ``link`` /
+        ``quote`` / ``list``（列表项，含项目符号）/ ``mark``（``==高亮==``
+        底色的基色，与背景混合后使用）。
+    """
+    if not isinstance(name, str) or not name:
+        raise ValueError("registerMarkdownTheme: 主题名不能为空")
+    base = _MD_THEMES.get("opencode") or {}
+    _MD_THEMES[name] = {
+        variant: _merge_md_variant(base.get(variant, {}), patch)
+        for variant, patch in (("light", light), ("dark", dark))
+    }
+
+
+def unregisterMarkdownTheme(name: str) -> bool:
+    """移除已注册主题（``"opencode"`` 不可移除）；返回是否移除成功。"""
+    if name == "opencode" or name not in _MD_THEMES:
+        return False
+    _MD_THEMES.pop(name, None)
+    return True
+
+
+def _merge_md_variant(base: dict, patch: Optional[dict]) -> dict:
+    """把主题补丁合并到基准变体上（只接受已存在的键与字符串值）。"""
+    merged = {
+        "semantic": dict(base.get("semantic") or {}),
+        "syntax": dict(base.get("syntax") or {}),
+    }
+    if isinstance(patch, dict):
+        for section in ("semantic", "syntax"):
+            values = patch.get(section)
+            if isinstance(values, dict):
+                for key, value in values.items():
+                    if key in merged[section] and isinstance(value, str):
+                        merged[section][key] = value
+    return merged
 
 
 def _default_code_font_family() -> str:
@@ -580,7 +930,7 @@ def _token_style(token_type, token, palette):
     if token_type in token.Keyword.Constant:
         return palette["constant"], False
     if token_type in token.Keyword:
-        return palette["keyword"], False
+        return palette["keyword"], True
     if token_type in token.Name.Function:
         return palette["function"], False
     if token_type in token.Name.Class:
@@ -611,7 +961,34 @@ class _ElaTextBrowser(QTextBrowser):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.remote_images_enabled = False
+        #: 嵌入模式：滚轮事件不消费，交给外层滚动容器
+        self.forward_wheel = False
         self._press_pos = None
+
+    def wheelEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        if self.forward_wheel:
+            event.ignore()
+            return
+        super().wheelEvent(event)
+
+    def paintEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        """先画行内代码底、再走文档绘制、最后画装饰线（Typora 风格）。"""
+        viewer = self.parent()
+        under = getattr(viewer, "_paint_inline_code_backgrounds", None)
+        if callable(under):
+            painter = QPainter(self.viewport())
+            try:
+                under(self, painter)
+            finally:
+                painter.end()
+        super().paintEvent(event)
+        over = getattr(viewer, "_paint_document_decorations", None)
+        if callable(over):
+            painter = QPainter(self.viewport())
+            try:
+                over(self, painter)
+            finally:
+                painter.end()
 
     def loadResource(self, resource_type, url):  # noqa: N802 (Qt 命名)
         if (
@@ -697,6 +1074,12 @@ class ElaMarkdownViewer(ElaThemeWidget):
         super().__init__(parent)
 
         self._border_radius = 0
+        #: 嵌入模式（透明背景 + 隐藏滚动条 + 高度随文档自适应）
+        self._embedded = False
+        #: 嵌入模式高度附加余量（避免取整误差触发内部滚动）
+        self._embedded_extra = 2
+        #: 嵌入模式是否裁剪文末空白（最后一段落的下边距不计入高度）
+        self._embedded_trim_bottom = False
         #: 原始 Markdown 文本（``markdown()`` 原样返回，避免 toMarkdown 往返丢失）
         self._source = ""
         #: 行内代码文本（解析后按顺序定位并套用代码样式）
@@ -709,6 +1092,23 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._mermaid_override = None
         self._mermaid_disabled = False
         self._mermaid_renderer: Optional[ElaMermaidRenderer] = None
+        #: Mermaid 待渲染任务队列（按视口距离优先，逐个提交给渲染器）
+        self._mermaid_jobs: list[dict] = []
+        self._mermaid_job_keys: set = set()
+        #: 在途 Mermaid 请求数（引擎串行，>0 时不再提交下一个）
+        self._mermaid_active = 0
+        #: 引擎预热开关（默认关闭；开启后首次渲染不必等待引擎冷启动）
+        self._mermaid_prewarm = False
+        #: 视口优先级刷新计时器（滚动时节流重算）
+        self._mermaid_priority_timer = QTimer(self)
+        self._mermaid_priority_timer.setSingleShot(True)
+        self._mermaid_priority_timer.setInterval(_MERMAID_PRIORITY_INTERVAL_MS)
+        self._mermaid_priority_timer.timeout.connect(self._refresh_mermaid_priorities)
+        #: 任务提交计时器（延后一拍，先让文档滚动/贴底逻辑生效再选下一个任务）
+        self._mermaid_pump_timer = QTimer(self)
+        self._mermaid_pump_timer.setSingleShot(True)
+        self._mermaid_pump_timer.setInterval(0)
+        self._mermaid_pump_timer.timeout.connect(self._pump_mermaid)
         #: 行内高亮文本（``==text==``，解析后按顺序套用背景色）
         self._mark_texts: list[str] = []
         #: 脚注定义（预处理时抽取到文末）：[(id, text)]
@@ -744,9 +1144,12 @@ class ElaMarkdownViewer(ElaThemeWidget):
         #: 表格斑马纹开关与列宽（百分比列表；``None`` 表示自动）
         self._table_zebra = False
         self._table_column_widths: Optional[list] = None
-        #: token 调色板（可被 setCodeTokenColors 覆盖）
-        self._token_palette_light = dict(_TOKEN_PALETTE_LIGHT)
-        self._token_palette_dark = dict(_TOKEN_PALETTE_DARK)
+        #: markdown 主题名（``setMarkdownTheme`` 切换，按浅 / 深自动取对应变体）
+        self._md_theme = defaultMarkdownTheme()
+        #: token 颜色覆盖（setCodeTokenColors；对所有主题生效）
+        self._token_overrides: dict = {}
+        #: 当前生效的 token 调色板（_applyThemeStyle 填充：主题 + 覆盖）
+        self._token_palette: dict = {}
         #: 公式占位标记模板（实例唯一，跨实例零碰撞；结尾 q 是终止符）
         self._math_mark = f"elamath{id(self):x}z{{}}q"
         #: 高亮结果缓存 {(lang, code, theme_key): [(text, QColor, bold, italic)]}
@@ -766,9 +1169,12 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._mark_bg = QColor()
         self._muted_color = QColor()
         self._placeholder_color = QColor()
-        self._quote_bg = QColor()
+        self._quote_rail_color = QColor()
+        self._heading_rule_color = QColor()
+        self._hr_color = QColor()
         self._search_bg = QColor()
-        self._code_header_bg = QColor()
+        self._inline_code_bg = QColor()
+        self._inline_code_border = QColor()
         self._code_button_hover_bg = QColor()
         self._code_button_press_bg = QColor()
         self._diff_add_bg = QColor()
@@ -819,7 +1225,13 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._text_browser = _ElaTextBrowser(self)
         self._text_browser.setFrameShape(QFrame.Shape.NoFrame)
         self._text_browser.setReadOnly(True)
-        self._text_browser.setOpenExternalLinks(True)
+        # 必须为 False：Qt 的 QTextBrowserPrivate::_q_anchorClicked 在
+        # openExternalLinks 为真时会先调 QDesktopServices::openUrl() 并**直接
+        # return**，不再发出 anchorClicked —— 那样任务列表复选框（#elatask-）、
+        # 代码/思考折叠（#elafold- / #elacode-expand-）与内部锚点跳转全部失效。
+        # 外部链接改由 _on_anchor_clicked 自行打开（见 _open_external_links）。
+        self._open_external_links = True
+        self._text_browser.setOpenExternalLinks(False)
         self._text_browser.setWordWrapMode(
             QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere
         )
@@ -897,13 +1309,16 @@ class ElaMarkdownViewer(ElaThemeWidget):
     def setOpenExternalLinks(self, on: bool) -> None:
         """设置链接是否用系统浏览器打开。
 
-        :param on: ``True`` 时外部打开，``False`` 时发出 ``anchorClicked``
+        内部锚点（``#elatask-`` / ``#elafold-`` / ``#elacode-expand-`` / ``#sec``）
+        始终由组件自己处理；本开关只影响**带 scheme 的外部链接**是否交给系统浏览器。
+
+        :param on: ``True`` 时外部链接用系统浏览器打开
         """
-        self._text_browser.setOpenExternalLinks(bool(on))
+        self._open_external_links = bool(on)
 
     def openExternalLinks(self) -> bool:
-        """链接是否使用系统浏览器打开。"""
-        return self._text_browser.openExternalLinks()
+        """外部链接是否使用系统浏览器打开。"""
+        return self._open_external_links
 
     def scrollToAnchor(self, name: str) -> None:
         """滚动到指定锚点。
@@ -929,7 +1344,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._anchor_back_stack.clear()
 
     def _on_anchor_clicked(self, url: QUrl) -> None:
-        """链接点击：内部锚点跳转 / 代码折叠控制 + 转发 ``linkActivated``。"""
+        """链接点击：内部锚点跳转 / 折叠与任务勾选控制 + 外部链接 + 转发 ``linkActivated``。"""
         target = url.toString()
         if target.startswith("#elacode-expand-"):
             self._toggle_code_block_expanded(target[len("#elacode-expand-") :])
@@ -947,6 +1362,12 @@ class ElaMarkdownViewer(ElaThemeWidget):
             if len(self._anchor_back_stack) > _ANCHOR_HISTORY_CAP:
                 self._anchor_back_stack.pop(0)
             self._text_browser.scrollToAnchor(url.fragment())
+            self.linkActivated.emit(target)
+            return
+        # 带 scheme / 绝对地址：外部链接。Qt 侧的 openExternalLinks 恒为 False
+        # （否则 anchorClicked 不会发出），所以这里自己交给系统浏览器。
+        if self._open_external_links:
+            QDesktopServices.openUrl(url)
         self.linkActivated.emit(target)
 
     def _toggle_code_block_expanded(self, raw_index: str) -> None:
@@ -1076,18 +1497,18 @@ class ElaMarkdownViewer(ElaThemeWidget):
         """缩小一级。"""
         self.setZoomFactor(self._zoom_factor - step)
 
-    def searchText(self, text: str, case_sensitive: bool = False) -> int:
+    def searchText(self, text: str, caseSensitive: bool = False) -> int:
         """高亮全部匹配并选中第一处。
 
         :param text: 搜索文本
-        :param case_sensitive: 是否区分大小写
+        :param caseSensitive: 是否区分大小写
         :returns: 匹配数量
         """
         self.clearSearch()
         if not text:
             return 0
         flags = QTextDocument.FindFlag(0)
-        if case_sensitive:
+        if caseSensitive:
             flags |= QTextDocument.FindFlag.FindCaseSensitively
         cursor = QTextCursor(self.document())
         while True:
@@ -1171,14 +1592,14 @@ class ElaMarkdownViewer(ElaThemeWidget):
         """是否允许加载远程图片。"""
         return self._remote_images_enabled
 
-    def toHtml(self, embed_images: bool = False) -> str:
+    def toHtml(self, embedImages: bool = False) -> str:
         """导出当前渲染结果为 HTML。
 
-        :param embed_images: ``True`` 时把公式 / Mermaid / 本地图片内嵌为
+        :param embedImages: ``True`` 时把公式 / Mermaid / 本地图片内嵌为
             data URI（单文件分享用；远程图片保持原样），默认关闭
         """
         html = self.document().toHtml()
-        if not embed_images:
+        if not embedImages:
             return html
 
         def replace(match: re.Match) -> str:
@@ -1314,31 +1735,31 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self,
         path: str,
         *,
-        page_size="A4",
-        margins_mm=15.0,
+        pageSize="A4",
+        marginsMm=15.0,
     ) -> bool:
         """把当前渲染结果导出为 PDF 文件。
 
         :param path: 目标文件路径
-        :param page_size: 纸张，``"A4"`` / ``"Letter"`` 等
+        :param pageSize: 纸张，``"A4"`` / ``"Letter"`` 等
             :class:`QPageSize.PageSizeId` 名称，或直接传 :class:`QPageSize`
-        :param margins_mm: 页边距（毫米）：单值表示四边一致，
+        :param marginsMm: 页边距（毫米）：单值表示四边一致，
             二元组 ``(水平, 垂直)`` 或四元组 ``(左, 上, 右, 下)``
         :returns: 是否导出成功
         """
         if not path:
             return False
-        if isinstance(page_size, QPageSize):
-            size = page_size
+        if isinstance(pageSize, QPageSize):
+            size = pageSize
         else:
             size_id = getattr(
-                QPageSize.PageSizeId, str(page_size).upper(), QPageSize.PageSizeId.A4
+                QPageSize.PageSizeId, str(pageSize).upper(), QPageSize.PageSizeId.A4
             )
             size = QPageSize(size_id)
-        if isinstance(margins_mm, (int, float)):
-            margins = QMarginsF(*([float(margins_mm)] * 4))
+        if isinstance(marginsMm, (int, float)):
+            margins = QMarginsF(*([float(marginsMm)] * 4))
         else:
-            values = [float(value) for value in margins_mm]
+            values = [float(value) for value in marginsMm]
             if len(values) == 2:
                 margins = QMarginsF(values[0], values[1], values[0], values[1])
             elif len(values) == 4:
@@ -1384,7 +1805,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._highlight_cache.clear()
         clear_math_cache()
         if self._mermaid_renderer is not None:
-            self._mermaid_renderer.clear_cache()
+            self._mermaid_renderer.clearCache()
 
     def setHighlightCacheSize(self, size: int) -> None:
         """设置代码高亮缓存条数上限。
@@ -1397,6 +1818,10 @@ class ElaMarkdownViewer(ElaThemeWidget):
             and len(self._highlight_cache) > self._highlight_cache_cap
         ):
             self._highlight_cache.pop(next(iter(self._highlight_cache)))
+
+    def highlightCacheSize(self) -> int:
+        """获取代码高亮缓存条数上限（0 表示不缓存）。"""
+        return self._highlight_cache_cap
 
     # -- 流式追加 ----------------------------------------------------------
 
@@ -1414,6 +1839,9 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._stream_first_flush = True
         self._stream_capture_at_bottom = True
         self._source = ""
+        # 清空文档会销毁旧代码表对象；按钮 / 表格引用必须同步失效，
+        # 否则重绘或布局刷新会访问已删除的 C++ 对象（PyQt 静默 abort）
+        self._rebuild_code_buttons([])
         self._text_browser.document().clear()
         self._caret_visible = True
         self._caret_timer.start()
@@ -1476,15 +1904,20 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return self._stick_to_bottom
 
     def _stop_stream(self) -> None:
-        self._stream_timer.stop()
-        self._caret_timer.stop()
+        if not sip.isdeleted(self._stream_timer):
+            self._stream_timer.stop()
+        if not sip.isdeleted(self._caret_timer):
+            self._caret_timer.stop()
         if self._caret_visible:
             self._caret_visible = False
-            self.update()
+            if not sip.isdeleted(self):
+                self.update()
         self._stream_active = False
 
     def _toggle_stream_caret(self) -> None:
         """流式末尾打字光标闪烁。"""
+        if sip.isdeleted(self):
+            return
         self._caret_visible = not self._caret_visible
         self.update()
 
@@ -1516,11 +1949,16 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._large_render_chunks = self._split_large_chunks(self._source)
         self._large_render_index = 0
         self._render_issues = []
+        # 同 beginStream：清空文档前先让旧代码表引用失效（分块渲染期间
+        # 事件循环仍会重绘，访问已删除表格会 PyQt abort）
+        self._rebuild_code_buttons([])
         self._text_browser.document().clear()
         self._large_render_timer.start(0)
 
     def _render_large_step(self) -> None:
         """渲染一个时间片内的若干块，随后让出事件循环。"""
+        if sip.isdeleted(self) or sip.isdeleted(self._text_browser):
+            return
         if not self._large_render_chunks:
             return
         timer = QElapsedTimer()
@@ -1565,10 +2003,18 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._large_render_index = 0
 
     def _stream_flush(self) -> None:
-        """流式刷新：提交新稳定段并替换未稳定尾部。"""
+        """流式刷新：提交新稳定段并替换未稳定尾部。
+
+        迟到的定时器回调可能落在控件已销毁之后（窗口关闭 / 消息重建），
+        此时直接忽略，避免访问已删除的 C++ 对象（PyQt 会 abort）。
+        """
+        if sip.isdeleted(self) or sip.isdeleted(self._text_browser):
+            return
         try:
             self._flush_stream()
         except Exception:
+            if sip.isdeleted(self) or sip.isdeleted(self._text_browser):
+                return
             # 增量状态异常：退回全量渲染，保证内容正确
             self._stop_stream()
             self._render()
@@ -1598,6 +2044,11 @@ class ElaMarkdownViewer(ElaThemeWidget):
 
             # 删除旧尾部
             if document.characterCount() > 1:
+                # 必须先丢弃 _code_buttons_tables：removeSelectedText 会连带销毁
+                # 尾段里的代码卡 QTextTable，而 _schedule_layout_refresh 是 80ms 后
+                # 才补 _sync_code_buttons —— 期间任何一次重绘都会让
+                # _paint_code_card_chrome 访问已析构的表对象（0xC0000409 静默 abort）。
+                self._rebuild_code_buttons([])
                 cursor = QTextCursor(document)
                 position = min(self._stream_tail_pos, document.characterCount() - 1)
                 cursor.setPosition(position)
@@ -1636,6 +2087,9 @@ class ElaMarkdownViewer(ElaThemeWidget):
         else:
             bar.setValue(min(old_value, bar.maximum()))
         browser.viewport().update()
+        self._sync_embedded_height()
+        # 立刻重建代码按钮（不要等 80ms 后的 _schedule_layout_refresh）
+        self._sync_code_buttons()
         self._schedule_layout_refresh()
 
     def _render_fragment(self, text: str, resource_doc: QTextDocument):
@@ -1702,29 +2156,44 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return self._line_numbers_enabled
 
     def setCodeTokenColors(self, colors: Optional[dict] = None) -> None:
-        """覆盖代码高亮 token 颜色（``None`` 恢复内置 GitHub 双主题）。
+        """覆盖代码高亮 token 颜色（``None`` 清除覆盖、回到主题自带配色）。
 
         可用键：``keyword/constant/type/function/class/decorator/builtin/
-        attribute/tag/string/number/comment/operator``（未提供的键保留默认）。
+        attribute/tag/string/number/comment/operator``（未提供的键保留主题默认；
+        覆盖对浅 / 深两套同时生效）。
 
         :param colors: ``{token 类型: 颜色字符串}``
         """
-        light = dict(_TOKEN_PALETTE_LIGHT)
-        dark = dict(_TOKEN_PALETTE_DARK)
+        overrides = {}
         if colors:
             for key, value in colors.items():
-                if key in light and isinstance(value, str):
-                    light[key] = value
-                    dark[key] = value
-        self._token_palette_light = light
-        self._token_palette_dark = dark
-        self._highlight_cache.clear()
-        if self._source:
-            self._render()
+                if key in _MD_THEME_SYNTAX_KEYS and isinstance(value, str):
+                    overrides[key] = value
+        self._token_overrides = overrides
+        self._applyThemeStyle()
 
     def codeTokenColors(self) -> dict:
-        """获取当前 token 调色板（浅色主题一份，颜色为 hex 字符串）。"""
-        return dict(self._token_palette_light)
+        """获取当前主题 / 模式下的 token 调色板（含覆盖；颜色为 hex 字符串）。"""
+        return dict(self._token_palette)
+
+    def setMarkdownTheme(self, name: str) -> bool:
+        """切换 markdown 主题（内置 / 已注册），立即重渲染已有内容。
+
+        :param name: :func:`markdownThemes` 里的主题名
+        :returns: 切换成功（或本来就是该主题）返回 ``True``；未知名称返回
+            ``False`` 且不改动当前主题
+        """
+        if name not in _MD_THEMES:
+            return False
+        if name == self._md_theme:
+            return True
+        self._md_theme = name
+        self._applyThemeStyle()
+        return True
+
+    def markdownTheme(self) -> str:
+        """当前 markdown 主题名（默认取 :func:`defaultMarkdownTheme`）。"""
+        return self._md_theme
 
     def setTableZebra(self, on: bool) -> None:
         """设置表格斑马纹（数据行奇偶淡底）。
@@ -1783,6 +2252,113 @@ class ElaMarkdownViewer(ElaThemeWidget):
         """
         return self._border_radius
 
+    # -- 嵌入模式 ----------------------------------------------------------
+
+    def setEmbeddedMode(self, on: bool) -> None:
+        """嵌入模式：透明背景、隐藏内部滚动条、高度随文档自适应。
+
+        适合把查看器嵌进聊天消息等外层滚动容器：
+
+        - 不再自绘背景（由父容器提供底色）；
+        - 两个滚动条始终隐藏，滚轮事件交给外层容器；
+        - 文档高度变化（含流式追加）时自动调整控件高度。
+
+        :param on: 是否启用（默认关闭，关闭后恢复原有行为）
+        """
+        on = bool(on)
+        if on == self._embedded:
+            return
+        self._embedded = on
+        policy = (
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            if on
+            else Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self._text_browser.setVerticalScrollBarPolicy(policy)
+        self._text_browser.setHorizontalScrollBarPolicy(policy)
+        self._text_browser.forward_wheel = on
+        if on:
+            self._sync_embedded_height()
+        else:
+            self.setMinimumHeight(0)
+            self.setMaximumHeight(16777215)
+            self.updateGeometry()
+        self.update()
+
+    def embeddedMode(self) -> bool:
+        """是否处于嵌入模式。"""
+        return self._embedded
+
+    def setEmbeddedExtra(self, extra: int) -> None:
+        """设置嵌入模式高度余量（像素，默认 2）。
+
+        :param extra: 追加到文档高度上的余量，避免取整误差触发内部滚动
+        """
+        self._embedded_extra = max(0, int(extra))
+        self._sync_embedded_height()
+
+    def embeddedExtra(self) -> int:
+        """获取嵌入模式高度余量（像素）。"""
+        return self._embedded_extra
+
+    def setEmbeddedTrimBottom(self, on: bool) -> None:
+        """设置嵌入模式是否裁剪文末空白（默认关闭）。
+
+        开启后，控件高度不再包含文末段落的下边距（Qt Markdown 导入器会给
+        每个段落加下边距，最后一个段落的下边距是纯空白），控件底边贴合
+        正文内容 —— 聊天消息中「正文 → 工具面板 / 下一步思考」的视觉间距
+        因此与其它分段间距一致。表格 / 代码块等非段落结尾按块边界取更小
+        值（``min``），不会裁剪内容。
+        """
+        on = bool(on)
+        if on == self._embedded_trim_bottom:
+            return
+        self._embedded_trim_bottom = on
+        self._sync_embedded_height()
+
+    def embeddedTrimBottom(self) -> bool:
+        """是否裁剪嵌入模式下的文末空白。"""
+        return self._embedded_trim_bottom
+
+    def _sync_embedded_height(self) -> None:
+        """嵌入模式下按文档高度更新控件高度（幂等，仅变化时应用）。"""
+        if not self._embedded:
+            return
+        document = self._text_browser.document()
+        margins = self._text_browser.contentsMargins()
+        content = document.size().height()
+        if self._embedded_trim_bottom:
+            content = min(content, self._embedded_content_bottom(document))
+        height = (
+            int(math.ceil(content + margins.top() + margins.bottom()))
+            + self._embedded_extra
+        )
+        height = max(1, height)
+        if self._embedded_trim_bottom:
+            # 裁剪后控件高度小于文档高度，内部出现可滚动范围：必须把滚动位置
+            # 归零（否则 QTextBrowser 会贴底显示文末边距、并裁掉首行上边距）。
+            bar = self._text_browser.verticalScrollBar()
+            if bar.value() != 0:
+                bar.setValue(0)
+        if self.minimumHeight() == height and self.maximumHeight() == height:
+            return
+        self.setFixedHeight(height)
+
+    @staticmethod
+    def _embedded_content_bottom(document: QTextDocument) -> float:
+        """文末内容底边（不含最后一段落的下边距与文末文档边距）。
+
+        布局未就绪（流式首帧 / 宽度为 0）时返回文档高度，保持原行为。
+        """
+        total = document.size().height()
+        last = document.lastBlock()
+        if not last.isValid():
+            return total
+        rect = document.documentLayout().blockBoundingRect(last)
+        if rect.height() <= 0 or rect.bottom() <= 0:
+            return total
+        return rect.bottom()
+
     # -- 渲染 --------------------------------------------------------------
 
     def _render(self) -> None:
@@ -1812,6 +2388,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
             bar.setValue(min(old_value, bar.maximum()))
         browser.viewport().update()
         self._sync_code_buttons()
+        self._sync_embedded_height()
         self._schedule_layout_refresh()
 
     def _render_into(
@@ -1845,7 +2422,9 @@ class ElaMarkdownViewer(ElaThemeWidget):
         if maths:
             self._embed_math(document, maths, resource_doc or document)
         self._apply_images(document, resource_doc)
-        self._embed_mermaid(document, resource_doc)
+        self._embed_mermaid(
+            document, resource_doc, reset=document is self._text_browser.document()
+        )
 
     @staticmethod
     def _collect_footnote_defs(lines: list[str]) -> tuple[list, set]:
@@ -2153,7 +2732,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
     # -- 代码块 ------------------------------------------------------------
 
     def _code_format(self) -> QTextCharFormat:
-        """行内代码格式（等宽 + 主题底色；中文回退到无衬线字体）。"""
+        """行内代码格式（等宽 + 标记属性；底色/圆角由自绘提供）。"""
         fmt = QTextCharFormat()
         fmt.setFontFamilies(
             [self._code_font_family, "Microsoft YaHei UI", "Microsoft YaHei"]
@@ -2162,12 +2741,12 @@ class ElaMarkdownViewer(ElaThemeWidget):
         point_size = self._math_point_size()
         if point_size > 0:
             fmt.setFontPointSize(point_size * 0.92)
-        fmt.setBackground(self._code_bg)
-        fmt.setForeground(self._code_text)
+        fmt.setProperty(_INLINE_CODE_MARK, True)
+        fmt.setForeground(self._md_code_color)
         return fmt
 
     def _code_text_format(self) -> QTextCharFormat:
-        """围栏代码文本格式（底色由单元格提供，避免逐行色块连片）。"""
+        """围栏代码文本格式（0.9em 等宽，Typora 风格；底色由单元格提供）。"""
         fmt = QTextCharFormat()
         fmt.setFontFamilies(
             [self._code_font_family, "Microsoft YaHei UI", "Microsoft YaHei"]
@@ -2177,7 +2756,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         base_font = self.document().defaultFont()
         point_size = base_font.pointSizeF()
         if point_size > 0:
-            fmt.setFontPointSize(point_size)
+            fmt.setFontPointSize(point_size * 0.9)
         return fmt
 
     def _code_table_format(
@@ -2198,6 +2777,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         fmt.setAlignment(Qt.AlignmentFlag.AlignLeft)
         fmt.setProperty(_CODE_MARKER, _CODE_MARKER_VALUE)
         fmt.setProperty(_CODE_TEXT_PROPERTY, code)
+        fmt.setProperty(_CODE_LANG_PROPERTY, lang)
         if source_lines is not None:
             fmt.setProperty(
                 _CODE_SOURCE_PROPERTY, f"{source_lines[0]},{source_lines[1]}"
@@ -2215,28 +2795,6 @@ class ElaMarkdownViewer(ElaThemeWidget):
         fmt.setRightPadding(14)
         return fmt
 
-    def _code_label_format(self) -> QTextCharFormat:
-        """语言标签字符格式：小号、次级文字色。"""
-        fmt = QTextCharFormat()
-        fmt.setForeground(self._muted_color)
-        font = self.document().defaultFont()
-        size = font.pointSizeF()
-        if size > 0:
-            fmt.setFontPointSize(size * 0.82)
-        fmt.setFontFamilies([font.family(), "Microsoft YaHei UI", "Microsoft YaHei"])
-        return fmt
-
-    def _code_header_cell_format(self) -> QTextTableCellFormat:
-        """语言标签单元格：微深底色 + 与代码区一致的内边距。"""
-        fmt = QTextTableCellFormat()
-        fmt.setBackground(QBrush(self._code_header_bg))
-        fmt.setBorder(0)
-        fmt.setTopPadding(4)
-        fmt.setBottomPadding(4)
-        fmt.setLeftPadding(14)
-        fmt.setRightPadding(14)
-        return fmt
-
     def _insert_fenced_code(self, document: QTextDocument) -> None:
         """用真实代码内容替换占位符：表格包裹（可选语言标签行）+ 语法高亮。
 
@@ -2246,24 +2804,31 @@ class ElaMarkdownViewer(ElaThemeWidget):
         """
         if not self._fenced_blocks:
             return
-        for index, (lang, code_text, closed) in enumerate(self._fenced_blocks):
-            token = f"{_CODE_TOKEN_PREFIX}{index}{_CODE_TOKEN_SUFFIX}"
-            found = document.find(token)
-            if found.isNull():
-                continue
-            source_lines = (
-                self._fenced_source_lines[index]
-                if index < len(self._fenced_source_lines)
-                else None
-            )
-            self._insert_code_card(
-                found,
-                lang,
-                code_text,
-                closed=closed,
-                fold_index=index,
-                source_lines=source_lines,
-            )
+        # 多张代码卡合并成一次编辑块：每张卡内部的 endEditBlock 都会触发重排，
+        # 一页几十个代码块时能省下可观的布局时间（嵌套编辑块 Qt 会一并合并）
+        outer = QTextCursor(document)
+        outer.beginEditBlock()
+        try:
+            for index, (lang, code_text, closed) in enumerate(self._fenced_blocks):
+                token = f"{_CODE_TOKEN_PREFIX}{index}{_CODE_TOKEN_SUFFIX}"
+                found = document.find(token)
+                if found.isNull():
+                    continue
+                source_lines = (
+                    self._fenced_source_lines[index]
+                    if index < len(self._fenced_source_lines)
+                    else None
+                )
+                self._insert_code_card(
+                    found,
+                    lang,
+                    code_text,
+                    closed=closed,
+                    fold_index=index,
+                    source_lines=source_lines,
+                )
+        finally:
+            outer.endEditBlock()
 
     def _insert_code_card(
         self,
@@ -2274,23 +2839,17 @@ class ElaMarkdownViewer(ElaThemeWidget):
         fold_index: Optional[int] = None,
         source_lines: Optional[tuple] = None,
     ) -> None:
-        """把当前选中的占位符替换为代码卡片（语言标签 + 高亮 + 可选折叠）。"""
+        """把当前选中的占位符替换为代码卡片（Typora 风格：无头栏、单行）。
+
+        语言标签不再占一行，改为存入表格式供复制按钮 tooltip 展示。
+        """
         document = cursor.document()
         cursor.beginEditBlock()
         cursor.removeSelectedText()
-        rows = 2 if lang else 1
         table = cursor.insertTable(
-            rows, 1, self._code_table_format(lang, code_text, source_lines)
+            1, 1, self._code_table_format(lang, code_text, source_lines)
         )
-        if lang:
-            header_cell = table.cellAt(0, 0)
-            header_cell.setFormat(self._code_header_cell_format())
-            header_cell.firstCursorPosition().insertText(
-                lang, self._code_label_format()
-            )
-            code_cell = table.cellAt(1, 0)
-        else:
-            code_cell = table.cellAt(0, 0)
+        code_cell = table.cellAt(0, 0)
         code_cell.setFormat(self._code_cell_format())
         cell_cursor = code_cell.firstCursorPosition()
 
@@ -2431,11 +2990,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
             lexer = get_lexer_by_name(lang, stripnl=False, ensurenl=False)
         except Exception:
             return [(code, base)]
-        palette = (
-            self._token_palette_dark
-            if theme_key == "dark"
-            else self._token_palette_light
-        )
+        palette = self._token_palette
         result = []
         try:
             for token_type, value in lexer.get_tokens(code):
@@ -2735,13 +3290,15 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 if block_format.leftMargin() < _QUOTE_LEFT_MARGIN:
                     break
                 block_format.setBackground(background)
+                # 语义色左竖线（GitHub / Typora 风格），由自绘统一绘制
+                block_format.setProperty(_CALLOUT_RAIL_PROPERTY, color.name())
                 cursor = QTextCursor(document)
                 cursor.setPosition(block.position())
                 cursor.setBlockFormat(block_format)
                 block = block.next()
 
     def _apply_inline_code_formats(self, document: QTextDocument) -> None:
-        """定位行内代码文本并套用等宽字体与主题背景色。"""
+        """定位行内代码文本并套用等宽字体与标记属性（底色由自绘提供）。"""
         if not self._inline_codes:
             return
         fmt = self._code_format()
@@ -2752,11 +3309,10 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 found = document.find(code_text, search_pos)
                 if found.isNull():
                     break
-                # 已带代码背景 / 位于围栏代码表格内的匹配无需重复处理
-                if (
-                    found.charFormat().background().style() != Qt.BrushStyle.NoBrush
-                    or self._in_code_table(found)
-                ):
+                # 已标记 / 位于围栏代码表格内的匹配无需重复处理
+                if found.charFormat().property(
+                    _INLINE_CODE_MARK
+                ) or self._in_code_table(found):
                     search_pos = found.selectionEnd()
                     continue
                 found.mergeCharFormat(fmt)
@@ -2775,75 +3331,110 @@ class ElaMarkdownViewer(ElaThemeWidget):
         if base <= 0:
             pixel = document.defaultFont().pixelSize()
             base = pixel * 0.75 if pixel > 0 else 10.0
-        block = document.begin()
-        while block.isValid():
-            probe = QTextCursor(document)
-            probe.setPosition(block.position())
-            table = probe.currentTable()
-            if table is not None:
-                if self._in_code_table(probe):
+        cursor = QTextCursor(document)
+        probe = QTextCursor(document)
+        # 整个排版阶段合并成一次编辑块：逐块 setBlockFormat 会各自触发一次重排，
+        # 几百个块的文档会明显卡顿（实测 760 块 ≈ 108ms）；合并后只在末尾重排一次
+        cursor.beginEditBlock()
+        try:
+            block = document.begin()
+            while block.isValid():
+                probe.setPosition(block.position())
+                table = probe.currentTable()
+                if table is not None:
+                    if self._in_code_table(probe):
+                        block = block.next()
+                        continue
+                    table_format = block.blockFormat()
+                    table_format.setLineHeight(
+                        150.0, QTextBlockFormat.LineHeightTypes.ProportionalHeight
+                    )
+                    # 单元格内统一无块边距（间距由单元格 padding 提供），
+                    # 避免导入器给首格加的默认段落边距造成表头基线不齐
+                    table_format.setTopMargin(0)
+                    table_format.setBottomMargin(0)
+                    self._apply_block_format(document, block, table_format, cursor)
                     block = block.next()
                     continue
-                table_format = block.blockFormat()
-                table_format.setLineHeight(
-                    150.0, QTextBlockFormat.LineHeightTypes.ProportionalHeight
-                )
-                # 单元格内统一无块边距（间距由单元格 padding 提供），
-                # 避免导入器给首格加的默认段落边距造成表头基线不齐
-                table_format.setTopMargin(0)
-                table_format.setBottomMargin(0)
-                self._apply_block_format(document, block, table_format)
+                block_format = block.blockFormat()
+                level = block_format.headingLevel()
+                if level:
+                    scale, top, bottom, line_height = _HEADING_TYPOGRAPHY.get(
+                        level, (1.0, 16.0, 16.0, 150.0)
+                    )
+                    block_format.setTopMargin(top)
+                    block_format.setBottomMargin(bottom)
+                    block_format.setLineHeight(
+                        line_height, QTextBlockFormat.LineHeightTypes.ProportionalHeight
+                    )
+                    self._apply_block_format(document, block, block_format, cursor)
+                    self._style_heading_fragments(
+                        document, block, base * scale, level, cursor
+                    )
+                elif block_format.hasProperty(
+                    QTextFormat.BlockTrailingHorizontalRulerWidth
+                ):
+                    # hr：Qt 自带横线仅 1px 且颜色不可控（实测属性/调色板均无效），
+                    # 清除属性后由 _paint_document_decorations 自绘 2px 主题线
+                    block_format.clearProperty(
+                        QTextFormat.BlockTrailingHorizontalRulerWidth
+                    )
+                    block_format.setProperty(_HR_MARK, True)
+                    block_format.setTopMargin(16.0)
+                    block_format.setBottomMargin(16.0)
+                    self._apply_block_format(document, block, block_format, cursor)
+                else:
+                    block_format.setLineHeight(
+                        _BODY_LINE_HEIGHT,
+                        QTextBlockFormat.LineHeightTypes.ProportionalHeight,
+                    )
+                    if block.textList() is not None:
+                        block_format.setTopMargin(_LIST_ITEM_MARGIN)
+                        block_format.setBottomMargin(_LIST_ITEM_MARGIN)
+                    elif block_format.leftMargin() >= _QUOTE_LEFT_MARGIN:
+                        block_format.setLeftMargin(_QUOTE_LEFT_MARGIN)
+                        block_format.setTopMargin(_QUOTE_BLOCK_MARGIN)
+                        block_format.setBottomMargin(_QUOTE_BLOCK_MARGIN)
+                        self._mute_quote_fragments(document, block, cursor)
+                    elif block.text().strip():
+                        block_format.setBottomMargin(_PARAGRAPH_MARGIN)
+                    self._apply_block_format(document, block, block_format, cursor)
                 block = block.next()
-                continue
-            block_format = block.blockFormat()
-            level = block_format.headingLevel()
-            if level:
-                scale, top, bottom = _HEADING_TYPOGRAPHY.get(level, (1.0, 10.0, 4.0))
-                block_format.setTopMargin(top)
-                block_format.setBottomMargin(bottom)
-                block_format.setLineHeight(
-                    145.0, QTextBlockFormat.LineHeightTypes.ProportionalHeight
-                )
-                self._apply_block_format(document, block, block_format)
-                self._style_heading_fragments(document, block, base * scale, level)
-            else:
-                block_format.setLineHeight(
-                    _BODY_LINE_HEIGHT,
-                    QTextBlockFormat.LineHeightTypes.ProportionalHeight,
-                )
-                if block.textList() is not None:
-                    block_format.setTopMargin(_LIST_ITEM_MARGIN)
-                    block_format.setBottomMargin(_LIST_ITEM_MARGIN)
-                elif block_format.leftMargin() >= _QUOTE_LEFT_MARGIN:
-                    block_format.setLeftMargin(_QUOTE_LEFT_MARGIN)
-                    block_format.setTopMargin(_QUOTE_BLOCK_MARGIN)
-                    block_format.setBottomMargin(_QUOTE_BLOCK_MARGIN)
-                    if block_format.background().style() == Qt.BrushStyle.NoBrush:
-                        block_format.setBackground(QBrush(self._quote_bg))
-                        self._mute_quote_fragments(document, block)
-                self._apply_block_format(document, block, block_format)
-            block = block.next()
+        finally:
+            cursor.endEditBlock()
 
     @staticmethod
     def _apply_block_format(
-        document: QTextDocument, block, block_format: QTextBlockFormat
+        document: QTextDocument,
+        block,
+        block_format: QTextBlockFormat,
+        cursor: Optional[QTextCursor] = None,
     ) -> None:
-        """把块格式写回指定块。"""
-        cursor = QTextCursor(document)
+        """把块格式写回指定块（``cursor`` 可复用以避免逐块创建）。"""
+        cursor = cursor if cursor is not None else QTextCursor(document)
         cursor.setPosition(block.position())
         cursor.setBlockFormat(block_format)
 
-    @staticmethod
     def _style_heading_fragments(
-        document: QTextDocument, block, point_size: float, level: int
+        self,
+        document: QTextDocument,
+        block,
+        point_size: float,
+        level: int,
+        cursor: Optional[QTextCursor] = None,
     ) -> None:
-        """标题片段：按层级放大字号并加粗。"""
-        weight = QFont.Weight.Bold if level <= 3 else QFont.Weight.DemiBold
+        """标题片段：按层级放大字号、加粗，并强制为正文色（h6 次级色）。
+
+        Qt Markdown 导入器可能给标题带上默认前景色（如深蓝），样式表无法
+        覆盖；这里显式着色，保证深浅主题下标题颜色可控（Typora 风格）。
+        """
+        weight = QFont.Weight.Bold
+        color = self._muted_color if level >= 6 else self._md_heading_color
+        edit = cursor if cursor is not None else QTextCursor(document)
         iterator = block.begin()
         while not iterator.atEnd():
             fragment = iterator.fragment()
             if fragment.isValid() and fragment.text():
-                edit = QTextCursor(document)
                 edit.setPosition(fragment.position())
                 edit.setPosition(
                     fragment.position() + fragment.length(),
@@ -2852,30 +3443,38 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 fmt = QTextCharFormat()
                 fmt.setFontPointSize(point_size)
                 fmt.setFontWeight(weight)
+                fmt.setForeground(color)
                 edit.mergeCharFormat(fmt)
             iterator += 1
 
-    def _mute_quote_fragments(self, document: QTextDocument, block) -> None:
-        """引用块正文使用次级文字色（链接 / 行内代码保持自身颜色）。"""
+    def _mute_quote_fragments(
+        self, document: QTextDocument, block, cursor: Optional[QTextCursor] = None
+    ) -> None:
+        """引用块正文：opencode TUI 风格（斜体 + 引用色；链接 / 行内代码保持自身颜色）。"""
+        edit = cursor if cursor is not None else QTextCursor(document)
         iterator = block.begin()
         while not iterator.atEnd():
             fragment = iterator.fragment()
             if fragment.isValid() and (
                 fragment.charFormat().foreground().style() == Qt.BrushStyle.NoBrush
             ):
-                edit = QTextCursor(document)
                 edit.setPosition(fragment.position())
                 edit.setPosition(
                     fragment.position() + fragment.length(),
                     QTextCursor.MoveMode.KeepAnchor,
                 )
                 fmt = QTextCharFormat()
-                fmt.setForeground(self._muted_color)
+                fmt.setForeground(self._md_quote_color)
+                fmt.setFontItalic(True)
                 edit.mergeCharFormat(fmt)
             iterator += 1
 
     def _style_task_markers(self, document: QTextDocument) -> None:
-        """任务复选框保持正文色（仍可点击，避免显示成整段链接色）。"""
+        """任务复选框跟随主题 list 色（仍可点击，避免显示成整段链接色）。
+
+        任务项整行是 anchor（点击切换勾选），文字会拿到链接色；勾选框单独
+        取 list 色，既跟主题走，又与链接色区分得开。
+        """
         if not self._task_items:
             return
         for marker in ("☑", "☐"):
@@ -2887,7 +3486,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 fmt = found.charFormat()
                 if fmt.isAnchor() and fmt.anchorHref().startswith("#elatask-"):
                     plain = QTextCharFormat()
-                    plain.setForeground(self._text_color)
+                    plain.setForeground(self._md_list_color)
                     found.mergeCharFormat(plain)
                 cursor = found
 
@@ -2900,17 +3499,23 @@ class ElaMarkdownViewer(ElaThemeWidget):
         header_brush = QBrush(self._table_header_bg)
         border_brush = QBrush(self._table_border)
 
-        stack = [document.rootFrame()]
-        while stack:
-            frame = stack.pop()
-            for child in frame.childFrames():
-                stack.append(child)
-                if isinstance(child, QTextTable):
-                    if self._is_code_table(child):
-                        continue
-                    self._trim_table_cell_blocks(document, child)
-                    self._style_table(child, header_brush, border_brush)
-                    self._set_table_margins(document, child)
+        # 同段落排版：整轮表格样式合并成一次编辑块，避免每个单元格重排一次
+        cursor = QTextCursor(document)
+        cursor.beginEditBlock()
+        try:
+            stack = [document.rootFrame()]
+            while stack:
+                frame = stack.pop()
+                for child in frame.childFrames():
+                    stack.append(child)
+                    if isinstance(child, QTextTable):
+                        if self._is_code_table(child):
+                            continue
+                        self._trim_table_cell_blocks(document, child)
+                        self._style_table(child, header_brush, border_brush)
+                        self._set_table_margins(document, child)
+        finally:
+            cursor.endEditBlock()
 
     def _trim_table_cell_blocks(
         self, document: QTextDocument, table: QTextTable
@@ -2960,12 +3565,12 @@ class ElaMarkdownViewer(ElaThemeWidget):
         if before_pos >= 0:
             before = document.findBlock(before_pos)
             if before.isValid() and before.position() < table.firstPosition():
-                self._set_block_margins(document, before, bottom=7.0)
+                self._set_block_margins(document, before, bottom=_TABLE_BLOCK_MARGIN)
         after_pos = table.lastPosition() + 1
         if after_pos < document.characterCount():
             after = document.findBlock(after_pos)
             if after.isValid() and after.position() > table.lastPosition():
-                self._set_block_margins(document, after, top=7.0)
+                self._set_block_margins(document, after, top=_TABLE_BLOCK_MARGIN)
 
     def _is_code_table(self, table: QTextTable) -> bool:
         """是否为代码块包裹表（表格式标记优先，单列同色兜底）。
@@ -2979,7 +3584,11 @@ class ElaMarkdownViewer(ElaThemeWidget):
             return True
         if table.columns() != 1 or table.rows() > 2:
             return False
-        background = table.cellAt(0, 0).format().background()
+        cell = table.cellAt(0, 0)
+        if cell is None:
+            # cellAt() 对被合并覆盖的单元格返回 None
+            return False
+        background = cell.format().background()
         return (
             background.style() != Qt.BrushStyle.NoBrush
             and background.color() == self._code_bg
@@ -3036,18 +3645,33 @@ class ElaMarkdownViewer(ElaThemeWidget):
             for column in range(table.columns()):
                 cell = table.cellAt(row, column)
                 cell_format = cell.format().toTableCellFormat()
-                cell_format.setTopPadding(7)
-                cell_format.setBottomPadding(7)
-                cell_format.setLeftPadding(12)
-                cell_format.setRightPadding(12)
+                # Typora（github.css）：单元格 6px 13px 内边距 + 全网格 1px
+                cell_format.setTopPadding(6)
+                cell_format.setBottomPadding(6)
+                cell_format.setLeftPadding(13)
+                cell_format.setRightPadding(13)
                 cell_format.setBorderBrush(border_brush)
-                cell_format.setBottomBorder(1.0)
+                cell_format.setBorder(1.0)
                 if row == 0:
                     cell_format.setBackground(header_brush)
-                    cell_format.setFontWeight(QFont.Weight.DemiBold)
+                    cell_format.setFontWeight(QFont.Weight.Bold)
+                    cell_format.setForeground(QBrush(self._md_heading_color))
                 elif self._table_zebra and row % 2 == 0:
                     cell_format.setBackground(stripe_brush)
                 cell.setFormat(cell_format)
+                if row == 0:
+                    self._color_table_header_text(cell)
+
+    def _color_table_header_text(self, cell) -> None:
+        """表头文字显式着标题色（片段级，避免被后置的正文着色覆盖）。"""
+        start = cell.firstCursorPosition()
+        end = cell.lastCursorPosition()
+        if end.position() <= start.position():
+            return
+        start.setPosition(end.position(), QTextCursor.MoveMode.KeepAnchor)
+        fmt = QTextCharFormat()
+        fmt.setForeground(self._md_heading_color)
+        start.mergeCharFormat(fmt)
 
     # -- 公式 --------------------------------------------------------------
 
@@ -3089,7 +3713,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
                     block_format.setAlignment(Qt.AlignmentFlag.AlignHCenter)
                     found.setBlockFormat(block_format)
                 continue
-            if report.get("degraded"):
+            if report.get("degraded") and not report.get("repaired"):
                 self._record_issue("math", latex)
             digest = hashlib.md5(
                 f"{latex}|{self._text_color.name()}|{point_size:.2f}|{display}".encode(
@@ -3157,6 +3781,29 @@ class ElaMarkdownViewer(ElaThemeWidget):
         """当前是否有可用的 Mermaid 渲染后端。"""
         return self._mermaid_enabled()
 
+    def mermaidEnabled(self) -> bool:
+        """是否启用 Mermaid 渲染（``setMermaidEnabled`` 的开关状态）。"""
+        return not self._mermaid_disabled
+
+    def setMermaidPrewarm(self, on: bool) -> None:
+        """设置是否后台预热 Mermaid 引擎（默认关闭）。
+
+        开启后立即创建渲染器并在后台启动 mermaid.js 引擎（约 0.4s），
+        首次出图不再叠加冷启动耗时；仅在未设置自定义渲染函数时生效。
+        """
+        self._mermaid_prewarm = bool(on)
+        if not self._mermaid_prewarm:
+            return
+        had_renderer = self._mermaid_renderer is not None
+        renderer = self._ensure_mermaid_renderer()
+        # 新建渲染器时 _ensure_mermaid_renderer 已触发预热，这里只补已有渲染器
+        if renderer is not None and had_renderer:
+            renderer.prewarm()
+
+    def mermaidPrewarm(self) -> bool:
+        """获取 Mermaid 引擎预热开关状态。"""
+        return self._mermaid_prewarm
+
     def mermaidRenderer(self) -> Optional[ElaMermaidRenderer]:
         """获取（惰性创建的）Mermaid 渲染器。"""
         return self._ensure_mermaid_renderer()
@@ -3193,6 +3840,10 @@ class ElaMarkdownViewer(ElaThemeWidget):
             except TypeError:
                 pass
             self._mermaid_renderer = None
+        # 旧渲染器的在途结果不再回调（信号已断开），计数一并复位
+        self._mermaid_active = 0
+        self._mermaid_jobs.clear()
+        self._mermaid_job_keys.clear()
 
     def _mermaid_enabled(self) -> bool:
         if self._mermaid_disabled:
@@ -3207,22 +3858,38 @@ class ElaMarkdownViewer(ElaThemeWidget):
         if self._mermaid_renderer is None:
             renderer = ElaMermaidRenderer(parent=self)
             if self._mermaid_override is not None:
-                renderer.set_renderer(self._mermaid_override)
+                renderer.setRenderer(self._mermaid_override)
             if not renderer.available():
                 return None
             renderer.rendered.connect(self._on_mermaid_rendered)
             self._mermaid_renderer = renderer
+            if self._mermaid_prewarm:
+                renderer.prewarm()
         return self._mermaid_renderer
 
     def _theme_key(self) -> str:
         return "dark" if self._is_dark_theme else "light"
 
-    def _embed_mermaid(self, document: QTextDocument, resource_doc) -> None:
-        """把 Mermaid 占位符替换为渲染图片（异步；失败/未装回退代码卡片）。"""
+    def _embed_mermaid(
+        self, document: QTextDocument, resource_doc, reset: bool = False
+    ) -> None:
+        """把 Mermaid 占位符替换为渲染图片（异步；失败/未装回退代码卡片）。
+
+        未命中缓存的图进入待渲染队列（:attr:`_mermaid_jobs`），由
+        :meth:`_pump_mermaid` 按**距视口距离**逐个提交（引擎串行，逐个提交
+        不损失吞吐，但能保证当前可见的图最先出图）。
+
+        :param reset: 全量渲染（主文档）时重置任务队列；流式片段渲染
+            （临时文档）只追加，避免丢弃前面片段尚未完成的占位任务
+        """
+        if reset:
+            self._mermaid_jobs.clear()
+            self._mermaid_job_keys.clear()
         if not self._mermaid_blocks:
             return
         theme = self._theme_key()
         renderer = self._ensure_mermaid_renderer()
+        resource_document = resource_doc or document
         for index, code in enumerate(self._mermaid_blocks):
             token = f"{_MERMAID_TOKEN_PREFIX}{index}{_CODE_TOKEN_SUFFIX}"
             found = document.find(token)
@@ -3237,21 +3904,134 @@ class ElaMarkdownViewer(ElaThemeWidget):
                     self._insert_code_card(found, "mermaid", code)
                 else:
                     self._insert_mermaid_image(
-                        found, code, image, resource_doc or document, theme
+                        found, code, image, resource_document, theme
                     )
                 continue
-            renderer.request(code, theme)
-            self._insert_mermaid_placeholder(found, index, code)
+            # 其它主题已有同源码图片时先顶上（避免主题切换时长期空白），
+            # 挂上 pending 锚点，当前主题渲染完成后再替换。
+            anchor = f"{_MERMAID_PENDING_PREFIX}{self._mermaid_digest(code)}-{index}"
+            known_other, other_theme, other_image = renderer.lookupAnyTheme(code, theme)
+            if known_other and other_image is not None:
+                self._insert_mermaid_image(
+                    found,
+                    code,
+                    other_image,
+                    resource_document,
+                    other_theme,
+                    pending_anchor=anchor,
+                )
+            else:
+                self._insert_mermaid_placeholder(found, index, code, anchor)
+            key = (self._mermaid_digest(code), theme)
+            if key in self._mermaid_job_keys:
+                continue
+            self._mermaid_job_keys.add(key)
+            self._mermaid_jobs.append(
+                {
+                    "index": index,
+                    "code": code,
+                    "digest": key[0],
+                    "anchor": anchor,
+                    "theme": theme,
+                    "distance": float("inf"),
+                }
+            )
+        self._refresh_mermaid_priorities()
+        self._schedule_mermaid_pump()
+
+    def _mermaid_view_max_width(self) -> float:
+        """当前视口可用的图片最大宽度（像素）。"""
+        return max(self._text_browser.viewport().width() - _MERMAID_IMAGE_MARGIN, 120)
+
+    def _mermaid_anchor_positions(self) -> dict:
+        """一次遍历收集 ``mermaid-pending-`` 锚点的视口 y 坐标。"""
+        positions: dict = {}
+        if not self._mermaid_jobs:
+            return positions
+        browser = self._text_browser
+        document = self.document()
+        block = document.begin()
+        while block.isValid():
+            iterator = block.begin()
+            while not iterator.atEnd():
+                fragment = iterator.fragment()
+                if fragment.isValid():
+                    for name in fragment.charFormat().anchorNames():
+                        if name.startswith(_MERMAID_PENDING_PREFIX):
+                            cursor = QTextCursor(document)
+                            cursor.setPosition(fragment.position())
+                            positions[name] = browser.cursorRect(cursor).center().y()
+                iterator += 1
+            block = block.next()
+        return positions
+
+    def _refresh_mermaid_priorities(self) -> None:
+        """重算待渲染任务与视口中心的距离（滚动/文档变化后调用）。"""
+        if sip.isdeleted(self) or not self._mermaid_jobs:
+            return
+        center = max(1, self._text_browser.viewport().height()) / 2.0
+        positions = self._mermaid_anchor_positions()
+        for job in self._mermaid_jobs:
+            y = positions.get(job.get("anchor"))
+            job["distance"] = float("inf") if y is None else abs(y - center)
+
+    def _schedule_mermaid_pump(self, delay: int = 0) -> None:
+        """延后提交下一个任务（让贴底/滚动逻辑先更新视口位置）。"""
+        if not self._mermaid_pump_timer.isActive():
+            self._mermaid_pump_timer.start(delay)
+
+    def _pump_mermaid(self) -> None:
+        """提交下一个待渲染任务（引擎串行，同一时刻只保留一个在途请求）。"""
+        if sip.isdeleted(self):
+            return
+        if self._mermaid_disabled or not self._mermaid_jobs or self._mermaid_active:
+            return
+        renderer = self._ensure_mermaid_renderer()
+        if renderer is None:
+            return
+        theme = self._theme_key()
+        self._refresh_mermaid_priorities()
+        renderer.setMaxImageWidth(self._mermaid_view_max_width())
+        while self._mermaid_jobs:
+            job = min(self._mermaid_jobs, key=lambda item: item["distance"])
+            self._mermaid_jobs.remove(job)
+            job_theme = job.get("theme", theme)
+            if job_theme != theme:
+                continue  # 旧主题任务：主题已切换，丢弃
+            known, image = renderer.lookup(job["code"], theme)
+            if known:
+                self._replace_mermaid_pending(job["code"], theme, image)
+                continue
+            self._mermaid_active += 1
+            renderer.request(job["code"], theme)
+            return
+
+    def _replace_mermaid_pending(self, code: str, theme: str, image) -> None:
+        """把文档中该源码的 pending 锚点（占位文本/旧主题图）替换为最终结果。"""
+        prefix = f"mermaid-pending-{self._mermaid_digest(code)}-"
+        ranges = self._find_anchor_ranges(self.document(), prefix)
+        if not ranges:
+            return
+        document = self.document()
+        for start, end in reversed(ranges):
+            cursor = QTextCursor(document)
+            cursor.setPosition(start)
+            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            if image is None:
+                self._record_issue("mermaid", code)
+                self._insert_code_card(cursor, "mermaid", code)
+            else:
+                self._insert_mermaid_image(cursor, code, image, document, theme)
 
     @staticmethod
     def _mermaid_digest(code: str) -> str:
         return hashlib.md5(code.encode("utf-8")).hexdigest()[:12]
 
     def _insert_mermaid_placeholder(
-        self, cursor: QTextCursor, index: int, code: str
+        self, cursor: QTextCursor, index: int, code: str, anchor: Optional[str] = None
     ) -> None:
         """渲染进行中占位（带唯一锚点名，供异步结果定位替换）。"""
-        name = f"mermaid-pending-{self._mermaid_digest(code)}-{index}"
+        name = anchor or f"mermaid-pending-{self._mermaid_digest(code)}-{index}"
         fmt = QTextCharFormat()
         fmt.setForeground(self._muted_color)
         fmt.setFontItalic(True)
@@ -3268,8 +4048,13 @@ class ElaMarkdownViewer(ElaThemeWidget):
         image: QImage,
         resource_doc: QTextDocument,
         theme: str,
+        pending_anchor: Optional[str] = None,
     ) -> None:
-        """把占位符替换为 Mermaid 渲染图片（居中、限宽、tooltip 存源码）。"""
+        """把占位符替换为 Mermaid 渲染图片（居中、限宽、tooltip 存源码）。
+
+        :param pending_anchor: 非空时给图片挂上 pending 锚点（旧主题降级图），
+            当前主题渲染完成后可再次定位替换
+        """
         digest = hashlib.md5(f"{code}|{theme}".encode("utf-8")).hexdigest()
         url = f"{_MERMAID_IMAGE_PREFIX}{digest}"
         resource_doc.addResource(
@@ -3277,7 +4062,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         )
         width = image.width() / 2.0
         height = image.height() / 2.0
-        max_width = max(self._text_browser.viewport().width() - 24, 120)
+        max_width = self._mermaid_view_max_width()
         if width > max_width > 0:
             height = height * max_width / width
             width = max_width
@@ -3287,6 +4072,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
         image_format.setHeight(height)
         image_format.setToolTip(f"{_MERMAID_TIP_PREFIX}{code}")
         image_format.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignMiddle)
+        if pending_anchor:
+            image_format.setAnchorNames([pending_anchor])
         cursor.beginEditBlock()
         cursor.removeSelectedText()
         cursor.insertImage(image_format)
@@ -3319,26 +4106,16 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return ranges
 
     def _on_mermaid_rendered(self, code: str, theme: str, image) -> None:
-        """渲染完成（GUI 线程）：替换对应占位符为图片或回退代码卡片。"""
+        """渲染完成（GUI 线程）：替换对应占位符/降级图，并提交下一个任务。"""
+        self._mermaid_active = max(0, self._mermaid_active - 1)
         if self._mermaid_disabled:
             return
-        if theme != self._theme_key():
-            # 主题已切换：以新主题的请求结果为准
-            return
-        prefix = f"mermaid-pending-{self._mermaid_digest(code)}-"
-        ranges = self._find_anchor_ranges(self.document(), prefix)
-        if not ranges:
-            return
-        document = self.document()
-        for start, end in reversed(ranges):
-            cursor = QTextCursor(document)
-            cursor.setPosition(start)
-            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
-            if image is None:
-                self._record_issue("mermaid", code)
-                self._insert_code_card(cursor, "mermaid", code)
-            else:
-                self._insert_mermaid_image(cursor, code, image, document, theme)
+        try:
+            if theme == self._theme_key():
+                self._replace_mermaid_pending(code, theme, image)
+        finally:
+            # 延后一拍：替换图片可能引起滚动/贴底，下一个任务按最新视口选择
+            self._schedule_mermaid_pump()
 
     def _image_format_at_cursor(self) -> Optional[QTextImageFormat]:
         """光标处（含前一字符）的图片格式；没有则返回 ``None``。"""
@@ -3413,37 +4190,59 @@ class ElaMarkdownViewer(ElaThemeWidget):
         """应用主题色（样式表 + 调色板），并重新渲染已有内容。"""
         mode = self._theme_mode
         self._text_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
-        self._link_color = eTheme.getThemeColor(
-            mode, ElaThemeType.ThemeColor.PrimaryNormal
-        )
         self._code_text = self._text_color
         # 表格 / 代码背景：与查看器背景预混合成不透明色
         # （QTextDocument 的 CSS 不支持 alpha 通道，且纯 BasicBaseDeep 在
         # 暗色主题下过亮，代码块与表格色块连片会显得"重"）
         background = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicPress)
         self._is_dark_theme = background.lightness() < 128
+        # 语义配色 / 语法高亮走 markdown 主题注册表（内置 opencode / github /
+        # solarized / dracula，可注册自定义）；背景 / 正文 / 边框仍由 eTheme
+        # 令牌提供，保证与 Ela 主题整体协调
+        variant = _md_theme_spec(self._md_theme)[
+            "dark" if self._is_dark_theme else "light"
+        ]
+        semantic = variant["semantic"]
+        self._token_palette = dict(variant["syntax"])
+        self._token_palette.update(self._token_overrides)
+        self._link_color = QColor(semantic["link"])
+        self._md_heading_color = QColor(semantic["heading"])
+        self._md_strong_color = QColor(semantic["strong"])
+        self._md_emphasis_color = QColor(semantic["emphasis"])
+        self._md_code_color = QColor(semantic["code"])
+        self._md_quote_color = QColor(semantic["quote"])
+        self._md_list_color = QColor(semantic["list"])
+        self._md_mark_color = QColor(semantic["mark"])
         code_alpha = 0.1 if self._is_dark_theme else 0.06
         self._code_bg = self._blend(background, self._text_color, code_alpha)
         self._code_border = self._blend(background, self._text_color, 0.18)
-        self._table_header_bg = self._blend(background, self._text_color, 0.06)
-        self._table_border = self._blend(background, self._text_color, 0.12)
+        self._table_header_bg = self._blend(
+            background, self._text_color, 0.05 if self._is_dark_theme else 0.035
+        )
+        self._table_border = self._blend(background, self._text_color, 0.14)
         self._table_stripe_bg = self._blend(
             background, self._text_color, 0.06 if self._is_dark_theme else 0.035
         )
         self._base_bg = QColor(background)
         self._mark_bg = self._blend(
-            background, QColor("#f2cc0c"), 0.26 if self._is_dark_theme else 0.34
+            background, self._md_mark_color, 0.26 if self._is_dark_theme else 0.34
         )
         self._muted_color = self._blend(background, self._text_color, 0.45)
         self._placeholder_color = self._blend(background, self._text_color, 0.38)
-        self._quote_bg = self._blend(
-            background, self._text_color, 0.06 if self._is_dark_theme else 0.035
+        # opencode TUI：引用竖线与 hr 都用正文色
+        self._quote_rail_color = QColor(self._text_color)
+        self._heading_rule_color = self._blend(
+            background, self._text_color, 0.16 if self._is_dark_theme else 0.08
         )
+        self._hr_color = QColor(self._text_color)
         self._search_bg = self._blend(
             background, QColor("#ff922b"), 0.4 if self._is_dark_theme else 0.5
         )
-        self._code_header_bg = self._blend(
-            self._code_bg, self._text_color, 0.07 if self._is_dark_theme else 0.05
+        self._inline_code_bg = self._blend(
+            background, self._text_color, 0.12 if self._is_dark_theme else 0.07
+        )
+        self._inline_code_border = self._blend(
+            background, self._text_color, 0.2 if self._is_dark_theme else 0.12
         )
         self._code_button_hover_bg = self._blend(background, self._text_color, 0.16)
         self._code_button_press_bg = self._blend(background, self._text_color, 0.24)
@@ -3465,9 +4264,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         palette.setColor(QPalette.ColorRole.Text, self._text_color)
         palette.setColor(QPalette.ColorRole.Link, self._link_color)
         self._text_browser.setPalette(palette)
-        self._text_browser.setStyleSheet(
-            "QTextBrowser { background-color: transparent; border: none; }"
-        )
+        setTransparentTextBase(self._text_browser)
 
         if self._source:
             self._render()
@@ -3483,16 +4280,28 @@ class ElaMarkdownViewer(ElaThemeWidget):
         )
 
     def _apply_fragment_colors(self, document: QTextDocument) -> None:
-        """为正文与链接补上主题色。
+        """为正文 / 链接 / 加粗 / 斜体 / 删除线补上语义色（opencode TUI 风格）。
 
         Qt Markdown 导入器把链接硬编码为蓝色（内联样式），样式表无法覆盖，
-        因此解析后统一改写字符格式；同时给未指定前景色的正文片段显式着色。
+        因此解析后统一改写字符格式；同时给未指定前景色的正文片段显式着色：
+
+        - 链接 → 链接色 + 下划线（TUI 风格；URL 仍走 tooltip）
+        - 删除线 → 次级色（保留删除线，比 TUI 的"仅变灰"在 GUI 更清晰）
+        - 加粗 → strong 色；斜体 → emphasis 色
+        - 列表项 → list 色（**含项目符号**：Qt 的 bullet / 编号用块内首个
+          片段的前景色绘制，所以染片段即染标记，不用自绘）
+        - 其余正文 → 正文色
+
+        标题 / 行内代码等已有显式前景色的片段**不覆盖**（由各自阶段负责）。
+        全部改写合并进一个编辑块，逐片段开销只有几个格式读取。
         """
         edit_cursor = QTextCursor(document)
         edit_cursor.beginEditBlock()
 
         block = document.begin()
         while block.isValid():
+            # 列表项整块取 list 色（bullet / 编号跟随块内首片段前景色）
+            in_list = block.textList() is not None
             iterator = block.begin()
             while not iterator.atEnd():
                 fragment = iterator.fragment()
@@ -3502,7 +4311,16 @@ class ElaMarkdownViewer(ElaThemeWidget):
                     if fmt.isAnchor() and fmt.anchorHref():
                         color = self._link_color
                     elif fmt.foreground().style() == Qt.BrushStyle.NoBrush:
-                        color = self._text_color
+                        if fmt.fontStrikeOut():
+                            color = self._muted_color
+                        elif int(fmt.fontWeight()) >= int(QFont.Weight.DemiBold):
+                            color = self._md_strong_color
+                        elif fmt.fontItalic():
+                            color = self._md_emphasis_color
+                        elif in_list:
+                            color = self._md_list_color
+                        else:
+                            color = self._text_color
                     if color is not None:
                         edit_cursor.setPosition(fragment.position())
                         edit_cursor.setPosition(
@@ -3511,6 +4329,9 @@ class ElaMarkdownViewer(ElaThemeWidget):
                         )
                         char_format = QTextCharFormat()
                         char_format.setForeground(color)
+                        if fmt.isAnchor():
+                            # opencode TUI：链接带下划线
+                            char_format.setFontUnderline(True)
                         href = fmt.anchorHref()
                         if (
                             fmt.isAnchor()
@@ -3681,10 +4502,16 @@ class ElaMarkdownViewer(ElaThemeWidget):
 
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt 命名)
         """拦截右键菜单，并在鼠标移动时管理代码复制按钮显隐。"""
-        if obj is self._text_browser and event.type() == QEvent.Type.ContextMenu:
-            self._show_context_menu(event.pos())
-            return True
         viewport = self._text_browser.viewport()
+        if event.type() == QEvent.Type.ContextMenu and obj in (
+            self._text_browser,
+            viewport,
+        ):
+            # 右键实际投递到 **viewport**（QAbstractScrollArea 的视口）—— 只拦
+            # QTextBrowser 本体的话走的是 Qt 自带菜单（复制 / 复制链接 / 全选），
+            # 自建菜单可达性为 0。坐标统一用 globalPos，免得再换算视口偏移。
+            self._show_context_menu(event.globalPos())
+            return True
         if obj is viewport:
             if event.type() == QEvent.Type.MouseMove:
                 pressed = bool(
@@ -3715,33 +4542,57 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 return
         self._hide_code_buttons()
 
-    def _show_context_menu(self, pos) -> None:
-        menu = self._create_context_menu()
-        menu.exec_(self._text_browser.mapToGlobal(pos))
+    def _show_context_menu(self, global_pos) -> None:
+        # 副屏上 ElaMenu 偶发不按 sizeHint 撑开（只显示第一项）—— execElaMenu 兜底
+        execElaMenu(self._create_context_menu(), global_pos)
 
-    def _create_context_menu(self) -> QMenu:
-        """构建右键菜单（默认 + 复制代码块 / 公式 / Mermaid / 全文）。"""
+    def _create_context_menu(self) -> ElaMenu:
+        """构建右键菜单（Ela 风格：图标 + 统一行高）。
+
+        只保留只读视图真正可用的动作 —— Qt 标准菜单里的撤销 / 剪切 / 粘贴 /
+        删除对本组件没有意义（`setReadOnly(True)`），所以不用
+        ``createStandardContextMenu()``，改为自建（对齐 ``terminal_view.py`` 的
+        右键菜单写法）。
+        """
         browser = self._text_browser
-        menu = browser.createStandardContextMenu()
+        cursor = browser.textCursor()
+        menu = ElaMenu(self)
+        menu.setMenuItemHeight(_CONTEXT_MENU_ITEM_HEIGHT)
+
+        copy = menu.addElaIconAction(ElaIconType.IconName.Copy, "复制")
+        copy.setEnabled(cursor.hasSelection())
+        copy.triggered.connect(browser.copy)
+        select_all = menu.addElaIconAction(ElaIconType.IconName.BorderAll, "全选")
+        select_all.triggered.connect(browser.selectAll)
+
         menu.addSeparator()
-        copy_code = menu.addAction("复制代码块")
-        copy_code.setEnabled(self._in_code_table(browser.textCursor()))
+        copy_code = menu.addElaIconAction(ElaIconType.IconName.Code, "复制代码块")
+        copy_code.setEnabled(self._in_code_table(cursor))
         copy_code.triggered.connect(self._copy_code_at_cursor)
-        copy_formula = menu.addAction("复制 LaTeX 公式")
+        copy_formula = menu.addElaIconAction(
+            ElaIconType.IconName.SquareRootVariable, "复制 LaTeX 公式"
+        )
         copy_formula.setEnabled(bool(self._formula_latex_at_cursor()))
         copy_formula.triggered.connect(self._copy_formula_at_cursor)
-        copy_mermaid = menu.addAction("复制 Mermaid 源码")
+        copy_mermaid = menu.addElaIconAction(
+            ElaIconType.IconName.DiagramProject, "复制 Mermaid 源码"
+        )
         copy_mermaid.setEnabled(bool(self._mermaid_source_at_cursor()))
         copy_mermaid.triggered.connect(self._copy_mermaid_at_cursor)
-        save_image = menu.addAction("图片另存为…")
+        save_image = menu.addElaIconAction(
+            ElaIconType.IconName.FloppyDisk, "图片另存为…"
+        )
         save_image.setEnabled(bool(self._image_local_path_at_cursor()))
         save_image.triggered.connect(self._save_image_at_cursor)
-        quote = menu.addAction("复制选中为 Markdown")
-        quote.setEnabled(browser.textCursor().hasSelection())
+
+        menu.addSeparator()
+        quote = menu.addElaIconAction(
+            ElaIconType.IconName.FileCode, "复制选中为 Markdown"
+        )
+        quote.setEnabled(cursor.hasSelection())
         quote.triggered.connect(self._copy_selection_markdown)
-        copy_all = menu.addAction("复制全文")
+        copy_all = menu.addElaIconAction(ElaIconType.IconName.ClipboardList, "复制全文")
         copy_all.triggered.connect(self._copy_all)
-        menu.addAction("全选").triggered.connect(browser.selectAll)
         return menu
 
     def _formula_latex_at_cursor(self) -> str:
@@ -3798,12 +4649,17 @@ class ElaMarkdownViewer(ElaThemeWidget):
 
     def _on_layout_refresh(self) -> None:
         """尺寸变化后重排：图片宽度与代码复制按钮位置。"""
+        if sip.isdeleted(self) or sip.isdeleted(self._text_browser):
+            return
         if self._source:
             self._apply_images(self.document())
         self._sync_code_buttons()
+        self._sync_embedded_height()
 
     def _on_view_scrolled(self, _value: int) -> None:
         self._sync_code_buttons()
+        if self._mermaid_jobs and not self._mermaid_priority_timer.isActive():
+            self._mermaid_priority_timer.start()
 
     def _on_document_size_changed(self, _size) -> None:
         self._schedule_layout_refresh()
@@ -3852,14 +4708,15 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._code_buttons_tables = list(tables)
         viewport = self._text_browser.viewport()
         for index in range(len(tables)):
-            button = QToolButton(viewport)
+            button = FlatIconButton(viewport)
             button.setObjectName("ElaMarkdownCopyButton")
             button.setFixedSize(_CODE_BUTTON_SIZE, _CODE_BUTTON_SIZE)
             button.setIconSize(QSize(14, 14))
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setAutoRaise(True)
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            button.setToolTip("复制代码")
+            lang = tables[index].format().property(_CODE_LANG_PROPERTY) or ""
+            button.setToolTip(f"复制代码 · {lang}" if lang else "复制代码")
             button.clicked.connect(
                 lambda _checked=False, i=index: self._copy_code_block(i)
             )
@@ -3870,14 +4727,11 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._position_code_buttons()
 
     def _apply_code_button_style(self, button: QToolButton) -> None:
-        """按钮图标与悬浮底色（随主题刷新）。"""
+        """按钮图标与悬浮 / 按下底色（随主题刷新；自绘，不用 QSS）。"""
         button.setIcon(self._code_copy_icon())
-        button.setStyleSheet(
-            "QToolButton { background: transparent; border: none;"
-            " border-radius: 6px; }"
-            f"QToolButton:hover {{ background: {self._code_button_hover_bg.name()}; }}"
-            f"QToolButton:pressed {{ background: {self._code_button_press_bg.name()}; }}"
-        )
+        button.setHoverColor(self._code_button_hover_bg)
+        button.setPressColor(self._code_button_press_bg)
+        button.setCornerRadius(6)
 
     def _code_copy_icon(self):
         return ElaIcon.getInstance().getElaIcon(
@@ -3904,19 +4758,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
             button.move(max(0, x), max(0, y))
 
     def _code_button_y(self, table: QTextTable, rect: QRectF, button) -> int:
-        """复制按钮的纵向位置：有语言标签时在标签行内居中。"""
-        if table.rows() > 1:
-            code_cell = table.cellAt(1, 0)
-            code_format = code_cell.format().toTableCellFormat()
-            caret = self._text_browser.cursorRect(
-                QTextCursor(code_cell.firstCursorPosition())
-            )
-            header_bottom = (
-                caret.top() - code_format.topPadding() - table.format().border()
-            )
-            available = header_bottom - rect.top()
-            if available > button.height():
-                return int(rect.top() + (available - button.height()) / 2.0)
+        """复制按钮的纵向位置（无头栏，固定在代码卡右上角）。"""
         return int(rect.top() + 6)
 
     def _code_table_viewport_rect(self, table: QTextTable) -> QRectF:
@@ -3926,7 +4768,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         内边距整体平移（宽度与高度可信），因此这里用首个单元格光标位置
         反推左上角；代码表宽度固定 100%，右边界取文档内容右缘。
         """
-        if table.rows() < 1 or table.columns() < 1:
+        if sip.isdeleted(table) or table.rows() < 1 or table.columns() < 1:
             return QRectF()
         layout = self.document().documentLayout()
         frame_rect = layout.frameBoundingRect(table)
@@ -3959,6 +4801,174 @@ class ElaMarkdownViewer(ElaThemeWidget):
             )
             bottom = max(top, candidate)
         return QRectF(left, top, max(right - left, 0.0), max(bottom - top, 0.0))
+
+    # -- 自绘装饰（Typora 风格） -------------------------------------------
+
+    def _visible_blocks(self, browser) -> tuple:
+        """当前视口内可见的块范围 ``(first, last)``。"""
+        document = self.document()
+        viewport = browser.viewport()
+        first = document.findBlock(browser.cursorForPosition(QPoint(0, 0)).position())
+        last = document.findBlock(
+            browser.cursorForPosition(
+                QPoint(0, max(0, viewport.height() - 1))
+            ).position()
+        )
+        if not first.isValid():
+            first = document.begin()
+        if not last.isValid():
+            last = first
+        return first, last
+
+    def _paint_inline_code_backgrounds(self, browser, painter) -> None:
+        """行内代码圆角底 + 边框（在文档绘制之前调用，避免盖住文字）。"""
+        document = self.document()
+        layout = document.documentLayout()
+        offset = browser.verticalScrollBar().value()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        first, last = self._visible_blocks(browser)
+        block = first
+        while block.isValid():
+            rect = layout.blockBoundingRect(block)
+            if rect.top() - offset > browser.viewport().height():
+                break
+            self._paint_block_inline_codes(browser, painter, block)
+            if block.blockNumber() >= last.blockNumber():
+                break
+            block = block.next()
+
+    def _paint_block_inline_codes(self, browser, painter, block) -> None:
+        """绘制单个块内全部行内代码标记的圆角底与边框。
+
+        坐标一律用 ``cursorRect``（段起点的真实视口位置）反推行原点，
+        ``cursorToX`` 只负责段内宽度——列表缩进 / 引用缩进 / 表格单元格
+        局部坐标三种场景都成立（曾因 ``cursorRect + cursorToX`` 重复计入
+        缩进而错位）。
+        """
+        text_layout = block.layout()
+        if text_layout is None:
+            return
+        block_start = block.position()
+        marks = []
+        iterator = block.begin()
+        while not iterator.atEnd():
+            fragment = iterator.fragment()
+            if fragment.isValid() and fragment.charFormat().property(_INLINE_CODE_MARK):
+                marks.append((fragment.position() - block_start, fragment.length()))
+            iterator += 1
+        if not marks:
+            return
+        document = self.document()
+        for index in range(text_layout.lineCount()):
+            line = text_layout.lineAt(index)
+            line_start = line.textStart()
+            line_end = line_start + line.textLength()
+            for frag_pos, frag_len in marks:
+                segment_start = max(frag_pos, line_start)
+                segment_end = min(frag_pos + frag_len, line_end)
+                if segment_end <= segment_start:
+                    continue
+                cursor = QTextCursor(document)
+                cursor.setPosition(block_start + segment_start)
+                start_rect = browser.cursorRect(cursor)
+                if not start_rect.isValid():
+                    continue
+                origin_x = start_rect.left() - line.cursorToX(segment_start)[0]
+                x2 = origin_x + line.cursorToX(segment_end)[0]
+                if x2 <= start_rect.left():
+                    continue
+                background = QRectF(
+                    start_rect.left() - _INLINE_CODE_PADDING,
+                    start_rect.top() + 1.0,
+                    (x2 - start_rect.left()) + 2 * _INLINE_CODE_PADDING,
+                    max(1.0, start_rect.height() - 2.0),
+                )
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(self._inline_code_bg)
+                painter.drawRoundedRect(
+                    background, _INLINE_CODE_RADIUS, _INLINE_CODE_RADIUS
+                )
+                pen = QPen(self._inline_code_border)
+                pen.setWidthF(1.0)
+                painter.setPen(pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRoundedRect(
+                    background, _INLINE_CODE_RADIUS, _INLINE_CODE_RADIUS
+                )
+
+    def _paint_document_decorations(self, browser, painter) -> None:
+        """标题分隔线 / hr / 引用竖线 / 代码卡圆角（文档绘制之后调用）。"""
+        document = self.document()
+        layout = document.documentLayout()
+        offset = browser.verticalScrollBar().value()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        first, last = self._visible_blocks(browser)
+        block = first
+        while block.isValid():
+            rect = layout.blockBoundingRect(block)
+            if rect.top() - offset > browser.viewport().height():
+                break
+            block_format = block.blockFormat()
+            level = block_format.headingLevel()
+            if level in (1, 2):
+                painter.fillRect(
+                    QRectF(
+                        rect.x(),
+                        rect.bottom() - offset - _HEADING_RULE_WIDTH,
+                        rect.width(),
+                        _HEADING_RULE_WIDTH,
+                    ),
+                    self._heading_rule_color,
+                )
+            if block_format.property(_HR_MARK):
+                painter.fillRect(
+                    QRectF(
+                        rect.x(),
+                        rect.center().y() - offset - _HR_LINE_WIDTH / 2.0,
+                        rect.width(),
+                        _HR_LINE_WIDTH,
+                    ),
+                    self._hr_color,
+                )
+            quote_level = block_format.property(QTextFormat.BlockQuoteLevel) or 0
+            if quote_level:
+                rail = block_format.property(_CALLOUT_RAIL_PROPERTY)
+                color = QColor(rail) if rail else self._quote_rail_color
+                painter.fillRect(
+                    QRectF(
+                        rect.x()
+                        + _QUOTE_RAIL_INSET
+                        + (int(quote_level) - 1) * _QUOTE_LEFT_MARGIN,
+                        rect.top() - offset,
+                        _QUOTE_RAIL_WIDTH,
+                        rect.height(),
+                    ),
+                    color,
+                )
+            if block.blockNumber() >= last.blockNumber():
+                break
+            block = block.next()
+        self._paint_code_card_chrome(browser, painter)
+
+    def _paint_code_card_chrome(self, browser, painter) -> None:
+        """代码软卡片：6px 圆角（无描边，Qt 表格无圆角 API，用四角遮罩补齐）。"""
+        viewport_height = browser.viewport().height()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        for table in self._code_buttons_tables:
+            rect = self._code_table_viewport_rect(table)
+            if rect.isNull() or rect.bottom() < 0 or rect.top() > viewport_height:
+                continue
+            rounded = QRectF(rect)
+            path = QPainterPath()
+            path.addRoundedRect(rounded, _CODE_CARD_RADIUS, _CODE_CARD_RADIUS)
+            painter.save()
+            painter.setClipRect(rect)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(self._base_bg)
+            outer = QPainterPath()
+            outer.addRect(rect)
+            painter.drawPath(outer.subtracted(path))
+            painter.restore()
 
     def _update_code_button_hover(self, pos, pressed: bool = False) -> None:
         """鼠标移动时显示所在代码块的复制按钮，其余隐藏。
@@ -4002,7 +5012,10 @@ class ElaMarkdownViewer(ElaThemeWidget):
         """复制指定代码块并给出短暂的对勾反馈。"""
         if not 0 <= index < len(self._code_buttons_tables):
             return
-        self._copy_text(self._code_table_text(self._code_buttons_tables[index]))
+        table = self._code_buttons_tables[index]
+        if sip.isdeleted(table):
+            return
+        self._copy_text(self._code_table_text(table))
         button = self._code_buttons[index]
         button.setIcon(self._code_check_icon())
         QTimer.singleShot(1000, lambda: self._restore_code_button_icon(button))
@@ -4023,20 +5036,21 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._applyThemeStyle()
 
     def paintEvent(self, _event: Optional[QPaintEvent]) -> None:
-        """绘制圆角背景（圆角半径为 0 时绘制普通矩形背景）。"""
+        """绘制圆角背景（圆角半径为 0 时绘制普通矩形背景）；嵌入模式跳过。"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        bg_color = eTheme.getThemeColor(
-            self._theme_mode, ElaThemeType.ThemeColor.BasicPress
-        )
-        if self._border_radius > 0:
-            path = QPainterPath()
-            path.addRoundedRect(
-                QRectF(self.rect()), self._border_radius, self._border_radius
+        if not self._embedded:
+            bg_color = eTheme.getThemeColor(
+                self._theme_mode, ElaThemeType.ThemeColor.BasicPress
             )
-            painter.fillPath(path, bg_color)
-        else:
-            painter.fillRect(self.rect(), bg_color)
+            if self._border_radius > 0:
+                path = QPainterPath()
+                path.addRoundedRect(
+                    QRectF(self.rect()), self._border_radius, self._border_radius
+                )
+                painter.fillPath(path, bg_color)
+            else:
+                painter.fillRect(self.rect(), bg_color)
         if self._placeholder and not self._source:
             painter.setPen(self._placeholder_color)
             font = QFont(painter.font())

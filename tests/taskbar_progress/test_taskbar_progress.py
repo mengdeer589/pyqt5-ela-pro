@@ -3,337 +3,155 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
+
+import pytest
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QWidget
 
+from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
+
+# 所有公开方法都写着 `if self._progress is not None`，所以「没有 QtWinExtras」
+# 时它们必须是**可断言的空操作**：不能挂上 button、不能置 _attached。
+# 原来这批用例只有「调用没抛」没有断言，等于什么都没验。
+NOOP_METHODS = [
+    "setRange",
+    "setValue",
+    "show",
+    "pause",
+    "resume",
+    "stop",
+    "reset",
+    "hide",
+]
 
-class TestElaTaskbarProgressImport:
-    """Test cases for ElaTaskbarProgress import behavior."""
 
-    def test_taskbar_progress_module_imports(self):
-        """Test that taskbar_progress module can be imported."""
-        from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-        assert ElaTaskbarProgress is not None
+@pytest.fixture
+def no_win_extras():
+    """模拟「没装 pywin32 扩展」的环境。
 
-    def test_has_valueChanged_signal(self):
-        """Test ElaTaskbarProgress has valueChanged signal."""
-        from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
+    注意 patch 打的是已导入模块的属性，所以模块级的 ``ElaTaskbarProgress``
+    引用照样有效 —— 原先在 ``with`` 块里重复 import 一次纯属噪音。
+    """
+    with patch("pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton", None):
+        yield
 
-        assert hasattr(ElaTaskbarProgress, 'valueChanged')
-        sig = getattr(ElaTaskbarProgress, 'valueChanged')
-        assert isinstance(sig, pyqtSignal)
 
-    def test_has_pausedChanged_signal(self):
-        """Test ElaTaskbarProgress has pausedChanged signal."""
-        from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
+@pytest.fixture
+def window(make):
+    return make(QWidget)
 
-        assert hasattr(ElaTaskbarProgress, 'pausedChanged')
-        sig = getattr(ElaTaskbarProgress, 'pausedChanged')
-        assert isinstance(sig, pyqtSignal)
 
-    def test_has_stoppedChanged_signal(self):
-        """Test ElaTaskbarProgress has stoppedChanged signal."""
-        from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
+@pytest.fixture
+def tb(make, window, no_win_extras):
+    return make(ElaTaskbarProgress, window)
 
-        assert hasattr(ElaTaskbarProgress, 'stoppedChanged')
-        sig = getattr(ElaTaskbarProgress, 'stoppedChanged')
-        assert isinstance(sig, pyqtSignal)
 
-    def test_has_visibilityChanged_signal(self):
-        """Test ElaTaskbarProgress has visibilityChanged signal."""
-        from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
+def test_module_imports():
+    assert ElaTaskbarProgress is not None
 
-        assert hasattr(ElaTaskbarProgress, 'visibilityChanged')
-        sig = getattr(ElaTaskbarProgress, 'visibilityChanged')
-        assert isinstance(sig, pyqtSignal)
 
+@pytest.mark.parametrize(
+    "signal_name",
+    ["valueChanged", "pausedChanged", "stoppedChanged", "visibilityChanged"],
+)
+def test_declares_signal(signal_name):
+    assert isinstance(getattr(ElaTaskbarProgress, signal_name), pyqtSignal)
 
-class TestElaTaskbarProgressMethods:
-    """Test cases for ElaTaskbarProgress methods with mocked Win32."""
 
-    def test_initialization_stores_window(self):
-        """Test initialization stores the window reference."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
+def test_has_on_window_handle_created_method():
+    assert hasattr(ElaTaskbarProgress, "_on_window_handle_created")
 
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
 
-            assert tb._window is window
+def test_initialization_stores_window(tb, window):
+    assert tb._window is window
 
-            window.deleteLater()
 
-    def test_initial_button_is_none(self):
-        """Test initial _button is None before attachment."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
+@pytest.mark.parametrize(
+    ("attr", "expected"),
+    [
+        ("_button", None),
+        ("_progress", None),
+        ("_attached", False),
+        ("_attach_timer", None),
+    ],
+)
+def test_initial_state_before_attachment(tb, attr, expected):
+    assert getattr(tb, attr) == expected
 
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
 
-            assert tb._button is None
+@pytest.mark.parametrize(
+    ("prop", "expected"),
+    [
+        ("value", 0),
+        ("minimum", 0),
+        ("maximum", 0),
+        ("isPaused", False),
+        ("isVisible", False),
+        ("isStopped", False),
+    ],
+)
+def test_property_falls_back_when_no_progress(tb, prop, expected):
+    assert getattr(tb, prop) == expected
 
-            window.deleteLater()
 
-    def test_initial_progress_is_none(self):
-        """Test initial _progress is None before attachment."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
+@pytest.mark.parametrize("method", NOOP_METHODS)
+def test_public_methods_are_noop_without_win_extras(tb, method):
+    """无 QtWinExtras 时调用公开方法不得产生任何副作用。"""
+    if method == "setRange":
+        tb.setRange(0, 100)
+    elif method == "setValue":
+        tb.setValue(50)
+    else:
+        getattr(tb, method)()
 
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
+    assert tb._button is None
+    assert tb._progress is None
+    assert tb._attached is False
+    assert tb._attach_timer is None
 
-            assert tb._progress is None
 
-            window.deleteLater()
+def test_ensure_attached_noop_when_window_is_none(make, no_win_extras):
+    tb = make(ElaTaskbarProgress, None)
+    tb._ensure_attached()
+    assert tb._attached is False
 
-    def test_initial_attached_is_false(self):
-        """Test initial _attached is False."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
 
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
+def test_on_window_handle_created_noop_without_window_handle(tb):
+    tb._button = MagicMock()
+    tb._attached = False
 
-            assert tb._attached is False
+    tb._on_window_handle_created()
 
-            window.deleteLater()
+    assert tb._attached is False  # no handle, no attachment
 
-    def test_value_property_returns_zero_when_no_progress(self):
-        """Test value property returns 0 when _progress is None."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
 
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
+def test_ensure_attached_without_handle_starts_polling(make, window):
+    """回归：QWidget 在 Qt5 没有 windowHandleChanged 信号。
 
-            assert tb.value == 0
+    窗口 show() 之前调 setter 不能抛 AttributeError，改用轮询重试挂接。
+    """
+    with patch("pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton", MagicMock()):
+        tb = make(ElaTaskbarProgress, window)
+        tb.setValue(5)  # 旧实现在这里抛 AttributeError
 
-            window.deleteLater()
+        assert tb._attached is False
+        assert tb._attach_timer is not None
+        assert tb._attach_timer.isActive() is True
 
-    def test_minimum_property_returns_zero_when_no_progress(self):
-        """Test minimum property returns 0 when _progress is None."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
+        tb.deleteLater()
 
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
 
-            assert tb.minimum == 0
+def test_on_window_handle_created_attaches_and_stops_polling(make, window):
+    with patch("pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton", MagicMock()):
+        tb = make(ElaTaskbarProgress, window)
+        tb.setValue(5)
+        fake_handle = MagicMock()
+        window.windowHandle = lambda: fake_handle
 
-            window.deleteLater()
+        tb._on_window_handle_created()
 
-    def test_maximum_property_returns_zero_when_no_progress(self):
-        """Test maximum property returns 0 when _progress is None."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
+        assert tb._attached is True
+        tb._button.setWindow.assert_called_once_with(fake_handle)
+        assert tb._attach_timer.isActive() is False
 
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
-
-            assert tb.maximum == 0
-
-            window.deleteLater()
-
-    def test_isPaused_returns_false_when_no_progress(self):
-        """Test isPaused returns False when _progress is None."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
-
-            assert tb.isPaused is False
-
-            window.deleteLater()
-
-    def test_isVisible_returns_false_when_no_progress(self):
-        """Test isVisible returns False when _progress is None."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
-
-            assert tb.isVisible is False
-
-            window.deleteLater()
-
-    def test_isStopped_returns_false_when_no_progress(self):
-        """Test isStopped returns False when _progress is None."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
-
-            assert tb.isStopped is False
-
-            window.deleteLater()
-
-    def test_setRange_is_noop_when_no_win_extras(self):
-        """Test setRange is no-op when WinExtras not available."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
-
-            tb.setRange(0, 100)
-
-            window.deleteLater()
-
-    def test_ensure_attached_noop_when_window_is_none(self):
-        """Test _ensure_attached is no-op when window is None."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-
-            tb = ElaTaskbarProgress(None)
-            tb._ensure_attached()
-            assert tb._attached is False
-
-    def test_setValue_is_noop_when_no_win_extras(self):
-        """Test setValue is no-op when WinExtras not available."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
-
-            tb.setValue(50)
-
-            window.deleteLater()
-
-    def test_show_is_noop_when_no_win_extras(self):
-        """Test show is no-op when WinExtras not available."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
-
-            tb.show()
-
-            window.deleteLater()
-
-    def test_hide_is_noop_when_no_progress(self):
-        """Test hide is no-op when _progress is None."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
-
-            tb.hide()
-
-            window.deleteLater()
-
-    def test_pause_is_noop_when_no_win_extras(self):
-        """Test pause is no-op when WinExtras not available."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
-
-            tb.pause()
-
-            window.deleteLater()
-
-    def test_resume_is_noop_when_no_win_extras(self):
-        """Test resume is no-op when WinExtras not available."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
-
-            tb.resume()
-
-            window.deleteLater()
-
-    def test_stop_is_noop_when_no_win_extras(self):
-        """Test stop is no-op when WinExtras not available."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
-
-            tb.stop()
-
-            window.deleteLater()
-
-    def test_reset_is_noop_when_no_progress(self):
-        """Test reset is no-op when _progress is None."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
-
-            tb.reset()
-
-            window.deleteLater()
-
-    def test_has_on_window_handle_created_method(self):
-        """Test _on_window_handle_created method exists."""
-        from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-        assert hasattr(ElaTaskbarProgress, '_on_window_handle_created')
-
-    def test_on_window_handle_created_noop_without_window_handle(self):
-        """Test _on_window_handle_created does not crash without handle."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', None):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
-            tb._button = MagicMock()
-            tb._attached = False
-
-            tb._on_window_handle_created()
-
-            assert tb._attached is False  # no handle, no attachment
-
-            window.deleteLater()
-
-    def test_ensure_attached_without_handle_starts_polling(self):
-        """Regression: QWidget has no windowHandleChanged signal in Qt5.
-
-        Calling a setter before the window is shown must not raise
-        AttributeError; attachment is retried by polling instead.
-        """
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', MagicMock()):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
-
-            tb.setValue(5)  # old implementation raised AttributeError here
-
-            assert tb._attached is False
-            assert tb._attach_timer is not None
-            assert tb._attach_timer.isActive() is True
-
-            tb.deleteLater()
-            window.deleteLater()
-
-    def test_on_window_handle_created_attaches_and_stops_polling(self):
-        """Test polling slot attaches once the window handle becomes available."""
-        with patch('pyqt5_ela_pro.taskbar_progress.QWinTaskbarButton', MagicMock()):
-            from pyqt5_ela_pro.taskbar_progress import ElaTaskbarProgress
-
-            window = QWidget()
-            tb = ElaTaskbarProgress(window)
-            tb.setValue(5)
-            fake_handle = MagicMock()
-            window.windowHandle = lambda: fake_handle
-
-            tb._on_window_handle_created()
-
-            assert tb._attached is True
-            tb._button.setWindow.assert_called_once_with(fake_handle)
-            assert tb._attach_timer.isActive() is False
-
-            tb.deleteLater()
-            window.deleteLater()
+        tb.deleteLater()

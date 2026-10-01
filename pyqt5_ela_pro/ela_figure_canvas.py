@@ -103,7 +103,7 @@ if _FigureCanvas is not None:
 
         # ── Public API ────────────────────────────────────
 
-        def set_style(self, rcparams: dict) -> None:
+        def setStyle(self, rcparams: dict) -> None:
             """应用额外的 matplotlib rcParams 样式参数。
 
             :param rcparams: matplotlib rcParams 字典

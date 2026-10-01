@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import math
 
-from PyQt5.QtCore import QPointF, QRectF, QSizeF, Qt, QTimer
+from PyQt5.QtCore import QPointF, QRectF, QSizeF, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import (
     QColor,
     QFont,
@@ -52,9 +52,8 @@ PULSE_MS = 320
 
 
 def _transparent(widget: QWidget) -> None:
-    """让控件背景真正透明。"""
+    """让控件背景真正透明（不铺底、也不走 QSS 的 styled background）。"""
     widget.setAutoFillBackground(False)
-    widget.setStyleSheet("background: transparent;")
 
 
 def _resolve_color(value, fallback_key: str) -> QColor:
@@ -124,6 +123,9 @@ class ElaNodeWidget(QFrame):
     ``begin_gesture_proxy()`` / ``end_gesture_proxy()`` / ``refresh_theme()``。
     """
 
+    #: 新引脚热区建成时发出，参数为控件列表（画布据此补装事件过滤器）
+    pinsSynced = pyqtSignal(object)
+
     def __init__(self, node: ElaBlueprintNode, parent=None, owner: str = None):
         super().__init__(parent)
         self.node = node
@@ -155,7 +157,9 @@ class ElaNodeWidget(QFrame):
         # 引脚热区（键 = (方向, 引脚 id)：输入 / 输出允许同名 id）
         for pin in node.inputs + node.outputs:
             self._handles[(pin.direction, pin.id)] = ElaPinHandle(self, pin)
-
+        # 节点上之后 add_input/add_output 时补建热区：此前热区只在构造时拍快照，
+        # 新引脚没有 ElaPinHandle —— 既无悬停光标/提示，也拖不出连线。
+        node.changed.connect(self.sync_pins)
         # 自定义体 / 缺省 properties 展示（按 owner 解析注册表，画布传入）
         spec = ElaNodeRegistry.instance().spec(node.type_name, owner=self._owner)
         if spec is not None and spec.body_builder is not None:
@@ -315,6 +319,35 @@ class ElaNodeWidget(QFrame):
         return self._handles.get((ElaPinDirection.Input, pin_id)) or self._handles.get(
             (ElaPinDirection.Output, pin_id)
         )
+
+    def sync_pins(self) -> list:
+        """按 ``node.inputs + node.outputs`` 校准引脚热区，返回新建的热区列表。
+
+        节点在构造之后 ``add_input`` / ``add_output`` 时，新引脚此前没有对应的
+        ``ElaPinHandle``（构造时的快照不含它），画布既拿不到热区也无法从它拖出
+        连线。画布据返回列表补装事件过滤器。
+        """
+        wanted = {
+            (pin.direction, pin.id): pin for pin in self.node.inputs + self.node.outputs
+        }
+        created = []
+        for key, pin in wanted.items():
+            if key not in self._handles:
+                handle = ElaPinHandle(self, pin)
+                self._handles[key] = handle
+                created.append(handle)
+        for key in [k for k in self._handles if k not in wanted]:
+            stale = self._handles.pop(key)
+            try:
+                stale.hide()
+                stale.deleteLater()
+            except RuntimeError:  # C++ 对象已销毁
+                pass
+        if created or len(self._handles) != len(wanted):
+            self.updateGeometry()
+        if created:
+            self.pinsSynced.emit(created)
+        return created
 
     # ------------------------------------------------------------------
     # 视图放置（由画布调用）

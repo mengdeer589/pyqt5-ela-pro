@@ -27,12 +27,16 @@ from typing import Optional
 
 from PyQt5.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal, QEvent
 from PyQt5.QtGui import QColor, QPainter, QPen, QPaintEvent, QMouseEvent, QFont
-from PyQt5.QtWidgets import QDialog, QWidget, QVBoxLayout, QHBoxLayout
+from PyQt5.QtWidgets import QApplication, QDialog, QWidget, QVBoxLayout, QHBoxLayout
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
 from ._internal import _ThemeAwareMixin
 from .widget_base import ElaThemeWidget
+
+
+#: 弹框与锚点组件之间的间距（像素）
+_CONFIRM_DIALOG_GAP = 5
 
 
 class _ElaConfirmButton(ElaThemeWidget):
@@ -261,14 +265,43 @@ class ElaConfirmDialog(_ThemeAwareMixin, QDialog):
             QTimer.singleShot(0, self._positionDialog)
 
     def _positionDialog(self) -> None:
-        parent = self.parent()
-        if not parent:
+        """把弹框摆到锚点组件附近，并收敛进锚点所在屏幕的工作区。
+
+        ``"bottom"`` 放在锚点下方、``"top"`` 放在上方；一侧放不下翻到另一侧，
+        最后水平 / 垂直夹回工作区（与 :meth:`ElaToolTip.showAt` 同一套规则）。
+        锚点贴着窗口 / 屏幕边缘时（例如聊天输入区）才不会弹出到屏幕外。
+
+        回归：原先只算「锚点底边 + 5」不做兜底，锚点撑满窗口（整块聊天组件 /
+        最大化窗口）时 ``y`` 直接落到屏幕外，弹框整块不可见。
+        """
+        anchor = self.parent()
+        if anchor is None:
             return
-        if self._position == "top":
-            pg = parent.mapToGlobal(QPoint(0, -self.height() - 5))
+        try:
+            anchor_rect = QRect(anchor.mapToGlobal(QPoint(0, 0)), anchor.size())
+        except (RuntimeError, AttributeError):
+            return
+
+        gap = _CONFIRM_DIALOG_GAP
+        above = self._position == "top"
+        x = anchor_rect.left() - 10
+        if above:
+            y = anchor_rect.top() - self.height() - gap
         else:
-            pg = parent.mapToGlobal(QPoint(0, parent.height() + 5))
-        self.move(pg.x() - 10, pg.y())
+            y = anchor_rect.bottom() + gap + 1
+
+        screen = QApplication.screenAt(anchor_rect.center())
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is not None:
+            area = screen.availableGeometry()
+            if above and y < area.top():
+                y = anchor_rect.bottom() + gap + 1
+            elif not above and y + self.height() - 1 > area.bottom():
+                y = anchor_rect.top() - self.height() - gap
+            x = max(area.left(), min(x, area.right() - self.width() + 1))
+            y = max(area.top(), min(y, area.bottom() - self.height() + 1))
+        self.move(int(x), int(y))
 
     def _onConfirm(self) -> None:
         self.confirmed.emit()

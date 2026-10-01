@@ -78,6 +78,20 @@ from .parquet_table import ElaParquetTable
 
 from .splash_screen import ElaSplashScreen
 
+from .terminal_view import (
+    AnsiColor,
+    AnsiParser,
+    ElaTerminalView,
+    TerminalLine,
+    TerminalSpan,
+    TerminalStyle,
+    defaultTerminalTheme,
+    registerTerminalTheme,
+    setDefaultTerminalTheme,
+    terminalThemes,
+    unregisterTerminalTheme,
+)
+
 from .animation import ElaAnimatedMixin
 
 from .taskbar_progress import ElaTaskbarProgress
@@ -86,7 +100,14 @@ from .office_viewer import ElaWordViewer, ElaExcelViewer, ElaPowerPointViewer
 
 from .ela_long_press_button import ElaLongPressButton
 
-from .ela_markdown_viewer import ElaMarkdownViewer
+from .ela_markdown_viewer import (
+    ElaMarkdownViewer,
+    defaultMarkdownTheme,
+    markdownThemes,
+    registerMarkdownTheme,
+    setDefaultMarkdownTheme,
+    unregisterMarkdownTheme,
+)
 
 from .ela_tag_line_edit import ElaTagLineEdit
 
@@ -105,6 +126,8 @@ from .ela_chip import ElaChip
 from .ela_dropdown_button import ElaDropDownButton
 
 from .ela_figure_canvas import ElaFigureCanvas
+
+from .ela_ghost_box import ElaGhostBox
 
 from .ela_group_box import ElaGroupBox
 
@@ -135,6 +158,60 @@ from .ela_toast import ElaToast
 from .ela_upload_area import ElaUploadArea
 
 from .charts import ElaChartWidget
+
+from .chat import (
+    AttachmentStrip,
+    ContextToolGroupCard,
+    ElaChatAsyncWorker,
+    ElaChatAttachment,
+    ElaChatAvatarSource,
+    ElaChatBubble,
+    ElaChatInput,
+    ElaChatInputDock,
+    ElaChatMessage,
+    ElaChatMockBackend,
+    ElaChatMockChunk,
+    ElaChatMockUsage,
+    ElaChatPart,
+    ElaChatPartKind,
+    ElaChatQueueDock,
+    ElaChatReasoningStyle,
+    ElaChatRole,
+    ElaChatSessionInfo,
+    ElaChatStats,
+    ElaChatStatus,
+    ElaChatStatusBar,
+    ElaChatStreamBinder,
+    ElaChatSuggestion,
+    ElaChatToolBar,
+    ElaChatToolButton,
+    ElaChatToolCall,
+    ElaChatToolStatus,
+    ElaChatTurnSummary,
+    ElaChatView,
+    ElaChatWidget,
+    ErrorCard,
+    MessageActions,
+    MessageHeader,
+    MessageMeta,
+    ReasoningBlock,
+    StatsBadge,
+    SuggestionPopup,
+    ThinkingRow,
+    ToolCallCard,
+    ToolGroupPanel,
+)
+
+from .menu_item import ElaMenuItem
+
+from .ela_tray_icon import ElaTrayIcon
+
+from .selection_assistant import (
+    ElaClipboardCapture,
+    ElaMouseMonitor,
+    ElaSelectionAssistant,
+    ElaSelectionPopup,
+)
 
 from .ela_tag_box import ElaTagBox
 
@@ -205,7 +282,36 @@ __all__ = [
     "ElaBrowserEmbedder",
     "ElaButton",
     "ElaChartWidget",
+    "ElaChatAsyncWorker",
+    "ElaChatAttachment",
+    "ElaChatAvatarSource",
+    "ElaChatBubble",
+    "ElaChatInput",
+    "ElaChatInputDock",
+    "ElaChatMessage",
+    "ElaChatMockBackend",
+    "ElaChatMockChunk",
+    "ElaChatMockUsage",
+    "ElaChatPart",
+    "ElaChatPartKind",
+    "ElaChatQueueDock",
+    "ElaChatReasoningStyle",
+    "ElaChatRole",
+    "ElaChatSessionInfo",
+    "ElaChatStats",
+    "ElaChatStatus",
+    "ElaChatStatusBar",
+    "ElaChatStreamBinder",
+    "ElaChatSuggestion",
+    "ElaChatToolBar",
+    "ElaChatToolButton",
+    "ElaChatToolCall",
+    "ElaChatToolStatus",
+    "ElaChatTurnSummary",
+    "ElaChatView",
+    "ElaChatWidget",
     "ElaChip",
+    "ElaClipboardCapture",
     "ElaConfirmDialog",
     "ElaDashboardGauge",
     "ElaDataTable",
@@ -220,11 +326,19 @@ __all__ = [
     "ElaExcelViewer",
     "ElaExecutionController",
     "ElaFigureCanvas",
+    "ElaGhostBox",
     "ElaGroupBox",
     "ElaInfoBadge",
     "ElaLongPressButton",
     "ElaMarkdownViewer",
+    "ElaMenuItem",
+    "markdownThemes",
+    "defaultMarkdownTheme",
+    "setDefaultMarkdownTheme",
+    "registerMarkdownTheme",
+    "unregisterMarkdownTheme",
     "ElaMessageDialog",
+    "ElaMouseMonitor",
     "ElaNodeContextMenu",
     "ElaNodeCreationMenu",
     "ElaNodeRegistry",
@@ -243,6 +357,8 @@ __all__ = [
     "ElaRatingControl",
     "ElaSearchBox",
     "ElaSearchMultiBox",
+    "ElaSelectionAssistant",
+    "ElaSelectionPopup",
     "ElaSplashScreen",
     "ElaSplitButton",
     "ElaSplitter",
@@ -259,7 +375,9 @@ __all__ = [
     "ElaTagSearchMultiBox",
     "ElaTaskbarProgress",
     "ElaTempWire",
+    "ElaTerminalView",
     "ElaThemeWidget",
+    "ElaTrayIcon",
     "ElaTimeline",
     "ElaToast",
     "ElaToolTip",
@@ -267,6 +385,18 @@ __all__ = [
     "ElaUploadArea",
     "ElaWindowEmbedder",
     "ElaWordViewer",
+    "ContextToolGroupCard",
+    "ToolGroupPanel",
+    "ToolCallCard",
+    "MessageHeader",
+    "MessageActions",
+    "MessageMeta",
+    "ReasoningBlock",
+    "ThinkingRow",
+    "StatsBadge",
+    "SuggestionPopup",
+    "AttachmentStrip",
+    "ErrorCard",
     "PIN_COLORS",
     "bezier_path",
     "format_elapsed",
@@ -275,5 +405,16 @@ __all__ = [
     "register_node_type",
     "register_pin_type",
     "types_compatible",
+    # ── 终端组件 ──
+    "AnsiColor",
+    "AnsiParser",
+    "TerminalLine",
+    "TerminalSpan",
+    "TerminalStyle",
+    "defaultTerminalTheme",
+    "registerTerminalTheme",
+    "setDefaultTerminalTheme",
+    "terminalThemes",
+    "unregisterTerminalTheme",
     "__version__",
 ]

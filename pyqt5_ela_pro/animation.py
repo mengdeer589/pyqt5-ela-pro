@@ -13,6 +13,7 @@ from typing import Callable, Optional
 
 from PyQt5.QtCore import QPropertyAnimation, QPoint
 from PyQt5.QtWidgets import QWidget
+from PyQt5 import sip
 
 from ._internal import catch_error, safe_call
 
@@ -49,14 +50,15 @@ def fade_in(widget: QWidget, duration: int = 1000) -> None:
             del _animation_registry[widget]
 
     animation.finished.connect(_cleanup)
-    widget.destroyed.connect(
-        lambda: (
-            _cleanup()
-            if widget in _animation_registry
-            and _animation_registry.get(widget) is animation
-            else None
-        )
-    )
+    # 故意**不**连 widget.destroyed：
+    #   1) destroyed 在 C++ 对象析构之后才发出，此时 lambda 里任何
+    #      ``widget in _animation_registry`` / ``_animation_registry[widget]``
+    #      都要对已失效的 PyQt 包装器取哈希 —— 全量测试下实测 6/6 必崩
+    #      （0xC0000005 访问冲突，栈就落在本模块的 lambda）。
+    #   2) lambda 捕获 widget 会形成 widget -> destroyed 信号 -> lambda -> widget
+    #      的引用环，包装器永远不被回收。
+    # 条目清理由 WeakKeyDictionary 自身负责（包装器回收时自动移除），
+    # 目标控件析构时 Qt 也会自动停止作用于它的 QPropertyAnimation。
     _animation_registry[widget] = animation
     animation.start()
 
@@ -92,14 +94,9 @@ def fade_out(
             safe_call(on_finished)
 
     animation.finished.connect(_on_finished)
-    widget.destroyed.connect(
-        lambda: (
-            _on_finished()
-            if widget in _animation_registry
-            and _animation_registry.get(widget) is animation
-            else None
-        )
-    )
+    # 同 fade_in： destroyed 在 C++ 析构后才发出，此时对已失效的控件包装器做
+    # 字典键运算会触发 0xC0000005 访问冲突；且 lambda 捕获 widget 会造成引用环。
+    # 目标析构时 Qt 会自动停止 QPropertyAnimation，无需在此清理。
     _animation_registry[widget] = animation
     animation.start()
 
@@ -121,8 +118,14 @@ def shake_window(
     """
     if hasattr(widget, "_shake_animation"):
         existing = widget._shake_animation
-        if existing and existing.state() == QPropertyAnimation.State.Running:
-            return
+        # 上一次抖动用的动画带 DeleteWhenStopped，C++ 可能已被删除；
+        # 对已删除对象取 state() 会抛 RuntimeError（进而 0xC0000409）。
+        try:
+            if existing is not None and not sip.isdeleted(existing):
+                if existing.state() == QPropertyAnimation.State.Running:
+                    return
+        except RuntimeError:
+            pass
 
     animation = QPropertyAnimation(widget, b"pos", widget)
     widget._shake_animation = animation

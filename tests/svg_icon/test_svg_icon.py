@@ -18,14 +18,18 @@ class TestSvgFunctions:
 
     def test_svg_to_icon_returns_qicon(self):
         """Test svg_to_icon returns QIcon instance."""
-        svg_data = '<svg xmlns="http://www.w3.org/2000/svg"><rect fill="#FF0000"/></svg>'
+        svg_data = (
+            '<svg xmlns="http://www.w3.org/2000/svg"><rect fill="#FF0000"/></svg>'
+        )
         icon = svg_to_icon(svg_data, size=30)
 
         assert isinstance(icon, QIcon)
 
     def test_svg_to_pixmap_returns_qpixmap(self):
         """Test svg_to_pixmap returns QPixmap instance."""
-        svg_data = '<svg xmlns="http://www.w3.org/2000/svg"><rect fill="#FF0000"/></svg>'
+        svg_data = (
+            '<svg xmlns="http://www.w3.org/2000/svg"><rect fill="#FF0000"/></svg>'
+        )
         pixmap = svg_to_pixmap(svg_data, size=30)
 
         assert isinstance(pixmap, QPixmap)

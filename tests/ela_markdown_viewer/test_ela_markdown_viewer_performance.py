@@ -6,10 +6,11 @@ cache governance.
 
 from __future__ import annotations
 
+import pytest
 from PyQt5.QtTest import QTest
 
-from pyqt5_ela_pro import math_lite
 from pyqt5_ela_pro import ela_markdown_viewer as viewer_module
+from pyqt5_ela_pro import math_lite
 from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
 
 
@@ -122,8 +123,6 @@ class TestCacheGovernance:
         v.deleteLater()
 
     def test_highlight_cache_cap(self):
-        import pytest
-
         pytest.importorskip("pygments")
         v = ElaMarkdownViewer()
         v.setHighlightCacheSize(1)
@@ -146,8 +145,6 @@ class TestCacheGovernance:
             math_lite.set_cache_capacity(old_cap)
 
     def test_zero_capacity_disables_highlight_cache(self):
-        import pytest
-
         pytest.importorskip("pygments")
         v = ElaMarkdownViewer()
         v.setHighlightCacheSize(0)

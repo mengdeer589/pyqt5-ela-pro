@@ -27,7 +27,6 @@ from PyQt5.QtGui import (
     QPixmap,
 )
 from PyQt5.QtWidgets import (
-    QApplication,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -433,6 +432,7 @@ class MarkdownPage(ExamplePage):
         min_height: int,
         line_numbers: bool = False,
         collapse_lines: int = 0,
+        mermaid_prewarm: bool = False,
     ):
         """创建演示查看器（统一外链确认、基准路径与渲染开关）。"""
         viewer = ElaMarkdownViewer(parent=self)
@@ -443,6 +443,8 @@ class MarkdownPage(ExamplePage):
             viewer.setLineNumbersEnabled(True)
         if collapse_lines:
             viewer.setCodeBlockCollapseLines(collapse_lines)
+        if mermaid_prewarm:
+            viewer.setMermaidPrewarm(True)
         viewer.setMarkdown(source)
         return viewer
 
@@ -534,10 +536,11 @@ class MarkdownPage(ExamplePage):
         self._addInfoText(
             "flowchart / sequenceDiagram 等图类型由 mermaidx 异步渲染为图片，"
             "主题随亮/暗模式切换；未安装可选依赖时回退为代码卡片；"
-            "点击图片可复制 Mermaid 源码。",
+            "点击图片可复制 Mermaid 源码。本页开启了引擎预热"
+            "（setMermaidPrewarm），并按视口距离优先渲染可见的图。",
             main_layout,
         )
-        viewer = self._createDemoViewer(_MARKDOWN_MERMAID, 520)
+        viewer = self._createDemoViewer(_MARKDOWN_MERMAID, 520, mermaid_prewarm=True)
         main_layout.addWidget(viewer)
         status = self._createDemoStatus("最近操作：—（点击图可复制 Mermaid 源码）")
         viewer.mermaidCopied.connect(
@@ -566,6 +569,7 @@ class MarkdownPage(ExamplePage):
         viewer.setOpenExternalLinks(False)
         viewer.setBaseUrl(_ensure_demo_image())
         viewer.setCodeBlockCollapseLines(12)
+        viewer.setMermaidPrewarm(True)
         viewer.setPlaceholderText("输入问题后回车，或点击「重新播放」体验流式输出…")
         main_layout.addWidget(viewer)
 
@@ -678,10 +682,8 @@ class MarkdownPage(ExamplePage):
         zoom_out = ElaButton("缩小", variant="outlined", parent=self)
         zoom_in = ElaButton("放大", variant="outlined", parent=self)
         zoom_reset = ElaButton("重置", variant="outlined", parent=self)
-        copy_all = ElaButton("复制全文", variant="outlined", parent=self)
         for button in (zoom_out, zoom_in, zoom_reset):
             button.setFixedWidth(72)
-        copy_all.setFixedWidth(88)
 
         def sync_zoom_label():
             zoom_label.setText(f"{viewer.zoomFactor() * 100:.0f}%")
@@ -691,27 +693,20 @@ class MarkdownPage(ExamplePage):
         zoom_reset.clicked.connect(
             lambda: (viewer.setZoomFactor(1.0), sync_zoom_label())
         )
-
-        def copy_full_text():
-            QApplication.clipboard().setText(viewer.toPlainText())
-            copy_all.setText("已复制 ✓")
-            QTimer.singleShot(1200, lambda: copy_all.setText("复制全文"))
-
-        copy_all.clicked.connect(copy_full_text)
-
-        export_pdf = ElaButton("导出 PDF", variant="outlined", parent=self)
-        export_pdf.setFixedWidth(88)
-
-        def export_to_pdf():
-            path = os.path.join(tempfile.gettempdir(), "ela_markdown_export.pdf")
-            if viewer.exportPdf(path):
-                export_pdf.setText("已导出 ✓")
-                export_pdf.setToolTip(path)
-            else:
-                export_pdf.setText("导出失败")
-            QTimer.singleShot(1200, lambda: export_pdf.setText("导出 PDF"))
-
-        export_pdf.clicked.connect(export_to_pdf)
+        # 原先这里还有「复制全文」和「导出 PDF」两个按钮，**已删除**。
+        # 它们靠 ``QTimer.singleShot(1200, lambda: btn.setText(...))`` 把按钮
+        # 文案改回去 —— **没给 context 对象**，于是那个定时器是「无主定时器」：
+        # 页面销毁后它照样在 T+1200ms 触发，去摸已释放的按钮包装器 →
+        # ``RuntimeError`` 穿过 C++ 边界 → 进程 0xC0000409 **静默终止**
+        # （无 traceback）。
+        #
+        # 症状极难定位：这一页构造慢（要建好几个 markdown viewer），只有当
+        # 「点按钮 + 1200ms」晚于「页面销毁」时才炸，于是表现为**同一份脚本
+        # 偶发崩在不同位置**（实测崩在「截图已存好、准备退出」那一刻）。
+        # PyQt5 的 ``singleShot(ms, ctx, callable)`` 重载**也不能靠**：实测传了
+        # context 照样崩（定时器与 receiver 的连接没有随 wrapper 销毁断开）。
+        # 以后要加「点一下改文案、过会儿改回来」的按钮，定时器必须是 ctx 的
+        # **子对象**（``QTimer(ctx)``），或回调里 ``sip.isdeleted()`` 自查。
 
         search_row = QHBoxLayout()
         search_row.addWidget(search)
@@ -727,8 +722,6 @@ class MarkdownPage(ExamplePage):
         zoom_row.addWidget(zoom_label)
         zoom_row.addWidget(zoom_in)
         zoom_row.addWidget(zoom_reset)
-        zoom_row.addWidget(copy_all)
-        zoom_row.addWidget(export_pdf)
         zoom_row.addStretch()
         main_layout.addLayout(zoom_row)
 

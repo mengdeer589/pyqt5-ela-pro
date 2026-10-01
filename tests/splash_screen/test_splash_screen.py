@@ -2,103 +2,77 @@
 
 from __future__ import annotations
 
+import pytest
 from PyQt5.QtGui import QPixmap
 
+from pyqt5_ela_pro.splash_screen import ElaSplashScreen
 
-class TestElaSplashScreen:
-    def test_import_and_instantiate(self, qapp):
-        from pyqt5_ela_pro.splash_screen import ElaSplashScreen
-        splash = ElaSplashScreen()
-        assert splash is not None
-        splash.deleteLater()
 
-    def test_default_values(self, qapp):
-        from pyqt5_ela_pro.splash_screen import ElaSplashScreen
-        splash = ElaSplashScreen()
-        assert splash.borderRadius() == 12
-        assert splash.minimum() == 0
-        assert splash.maximum() == 100
-        assert splash.value() == 0
-        splash.deleteLater()
+@pytest.fixture
+def splash(make):
+    """受 ``qt_cleanup`` 统一回收，测试体内不再写 ``deleteLater()``。"""
+    return make(ElaSplashScreen)
 
-    def test_set_title(self, qapp):
-        from pyqt5_ela_pro.splash_screen import ElaSplashScreen
-        splash = ElaSplashScreen()
-        splash.setTitle("Test App")
-        splash.deleteLater()
 
-    def test_set_subtitle(self, qapp):
-        from pyqt5_ela_pro.splash_screen import ElaSplashScreen
-        splash = ElaSplashScreen()
-        splash.setSubTitle("Version 1.0")
-        splash.deleteLater()
+def test_import_and_instantiate(splash):
+    assert isinstance(splash, ElaSplashScreen)
 
-    def test_set_status_text(self, qapp):
-        from pyqt5_ela_pro.splash_screen import ElaSplashScreen
-        splash = ElaSplashScreen()
-        splash.setStatusText("正在加载...")
-        splash.deleteLater()
 
-    def test_set_value(self, qapp):
-        from pyqt5_ela_pro.splash_screen import ElaSplashScreen
-        splash = ElaSplashScreen()
-        splash.setValue(50)
-        assert splash.value() == 50
-        splash.deleteLater()
+def test_default_values(splash):
+    assert splash.borderRadius() == 12
+    assert splash.minimum() == 0
+    assert splash.maximum() == 100
+    assert splash.value() == 0
 
-    def test_set_minimum(self, qapp):
-        from pyqt5_ela_pro.splash_screen import ElaSplashScreen
-        splash = ElaSplashScreen()
-        splash.setMinimum(0)
-        assert splash.minimum() == 0
-        splash.deleteLater()
 
-    def test_set_maximum(self, qapp):
-        from pyqt5_ela_pro.splash_screen import ElaSplashScreen
-        splash = ElaSplashScreen()
-        splash.setMaximum(200)
-        assert splash.maximum() == 200
-        splash.deleteLater()
+# 数值型 setter/getter 形状一致，参数化掉四条一模一样的用例
+@pytest.mark.parametrize(
+    ("setter", "getter", "value"),
+    [
+        (ElaSplashScreen.setValue, ElaSplashScreen.value, 50),
+        (ElaSplashScreen.setMinimum, ElaSplashScreen.minimum, 10),
+        (ElaSplashScreen.setMaximum, ElaSplashScreen.maximum, 200),
+        (ElaSplashScreen.setBorderRadius, ElaSplashScreen.borderRadius, 24),
+    ],
+)
+def test_numeric_setter_roundtrip(splash, setter, getter, value):
+    setter(splash, value)
+    assert getter(splash) == value
 
-    def test_set_border_radius(self, qapp):
-        from pyqt5_ela_pro.splash_screen import ElaSplashScreen
-        splash = ElaSplashScreen()
-        splash.setBorderRadius(24)
-        assert splash.borderRadius() == 24
-        splash.deleteLater()
 
-    def test_set_logo(self, qapp):
-        from pyqt5_ela_pro.splash_screen import ElaSplashScreen
-        splash = ElaSplashScreen()
-        splash.setLogo(QPixmap())
-        splash.deleteLater()
+# 开关型同理：两个方向都断言，不依赖默认值（默认值另有 test_default_values 守着）
+@pytest.mark.parametrize(
+    ("setter", "getter"),
+    [
+        (ElaSplashScreen.setShowProgressBar, ElaSplashScreen.isShowProgressBar),
+        (ElaSplashScreen.setShowProgressRing, ElaSplashScreen.isShowProgressRing),
+        (ElaSplashScreen.setClosable, ElaSplashScreen.isClosable),
+    ],
+)
+def test_flag_toggles_both_directions(splash, setter, getter):
+    setter(splash, False)
+    assert getter(splash) is False
+    setter(splash, True)
+    assert getter(splash) is True
 
-    def test_toggle_progress_bar(self, qapp):
-        from pyqt5_ela_pro.splash_screen import ElaSplashScreen
-        splash = ElaSplashScreen()
-        splash.setShowProgressBar(False)
-        assert splash.isShowProgressBar() is False
-        splash.setShowProgressBar(True)
-        assert splash.isShowProgressBar() is True
-        splash.deleteLater()
 
-    def test_toggle_progress_ring(self, qapp):
-        from pyqt5_ela_pro.splash_screen import ElaSplashScreen
-        splash = ElaSplashScreen()
-        splash.setShowProgressRing(False)
-        assert splash.isShowProgressRing() is False
-        splash.setShowProgressRing(True)
-        assert splash.isShowProgressRing() is True
-        splash.deleteLater()
+# 这四个只有写没有读（源码里没有对应的 getter），能测的只有「调用不抛」。
+# 参数里传工厂而不是 QPixmap 实例：parametrize 在 collection 期求值，
+# 那时 QApplication 还没建，构造 QPixmap 会直接把进程带崩。
+@pytest.mark.parametrize(
+    ("setter", "make_arg"),
+    [
+        (ElaSplashScreen.setTitle, lambda: "Test App"),
+        (ElaSplashScreen.setSubTitle, lambda: "Version 1.0"),
+        (ElaSplashScreen.setStatusText, lambda: "正在加载..."),
+        (ElaSplashScreen.setLogo, QPixmap),
+    ],
+    ids=["title", "subtitle", "status", "logo"],
+)
+def test_write_only_setters_do_not_raise(splash, setter, make_arg):
+    setter(splash, make_arg())
 
-    def test_toggle_closable(self, qapp):
-        from pyqt5_ela_pro.splash_screen import ElaSplashScreen
-        splash = ElaSplashScreen()
-        splash.setClosable(True)
-        assert splash.isClosable() is True
-        splash.deleteLater()
 
-    def test_delete_later_cleans_up(self, qapp):
-        from pyqt5_ela_pro.splash_screen import ElaSplashScreen
-        splash = ElaSplashScreen()
-        splash.deleteLater()
+def test_delete_later_cleans_up(splash):
+    """显式销毁路径仍要能用（与 make() 的统一回收互不干扰）。"""
+    splash.deleteLater()

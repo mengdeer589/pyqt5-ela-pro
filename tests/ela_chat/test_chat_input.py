@@ -1,0 +1,555 @@
+"""ElaChatInput 输入区测试：提交、快捷键、生成态、附件与工具栏。"""
+
+from __future__ import annotations
+
+import os
+
+from PyQt5.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
+from PyQt5.QtGui import QColor, QDragEnterEvent, QDropEvent, QFocusEvent, QImage
+from PyQt5.QtTest import QTest
+from PyQt5.QtWidgets import QApplication, QFrame
+from PyQt5ElaWidgetTools import ElaIconType
+
+from pyqt5_ela_pro.chat import ElaChatInput, ElaChatToolBar
+from pyqt5_ela_pro.chat._theme import accent_color, card_border_color
+
+
+class TestSubmit:
+    def test_button_submit(self, qapp):
+        widget = ElaChatInput()
+        submitted = []
+        widget.submitted.connect(submitted.append)
+        widget.setText("  你好  ")
+        widget._button.click()
+        assert submitted == ["你好"]
+        assert widget.text() == ""
+        widget.deleteLater()
+
+    def test_empty_ignored(self, qapp):
+        widget = ElaChatInput()
+        submitted = []
+        widget.submitted.connect(submitted.append)
+        assert widget.submit() is False
+        widget.setText("   ")
+        assert widget.submit() is False
+        assert submitted == []
+        widget.deleteLater()
+
+    def test_enter_sends_shift_enter_newline(self, qapp):
+        widget = ElaChatInput()
+        widget.show()
+        submitted = []
+        widget.submitted.connect(submitted.append)
+        edit = widget.textEdit()
+        edit.setFocus()
+        QTest.keyClicks(edit, "hi")
+        QTest.keyClick(edit, Qt.Key.Key_Return)
+        assert submitted == ["hi"]
+
+        QTest.keyClicks(edit, "line1")
+        QTest.keyClick(edit, Qt.Key.Key_Return, Qt.KeyboardModifier.ShiftModifier)
+        QTest.keyClicks(edit, "line2")
+        assert submitted == ["hi"]
+        assert "\n" in widget.text()
+        widget.deleteLater()
+
+    def test_send_on_enter_disabled(self, qapp):
+        widget = ElaChatInput()
+        widget.show()
+        widget.setSendOnEnter(False)
+        submitted = []
+        widget.submitted.connect(submitted.append)
+        edit = widget.textEdit()
+        edit.setFocus()
+        QTest.keyClicks(edit, "x")
+        QTest.keyClick(edit, Qt.Key.Key_Return)
+        assert submitted == []
+        assert widget.sendOnEnter() is False
+        widget.deleteLater()
+
+
+class TestGenerating:
+    def test_button_and_enter_switch(self, qapp):
+        widget = ElaChatInput()
+        widget.show()
+        stops = []
+        submitted = []
+        widget.stopRequested.connect(lambda: stops.append(1))
+        widget.submitted.connect(submitted.append)
+
+        widget.setGenerating(True)
+        assert widget.isGenerating()
+        # 草稿为空 → 停止（图标按钮，用 tooltip 判断状态）
+        assert widget._button.toolTip() == "停止"
+        assert widget._button.color() == "danger"
+
+        widget._button.click()
+        assert stops == [1]
+
+        # 有草稿 → 发送（对齐 opencode：流式中可提交排队）
+        edit = widget.textEdit()
+        edit.setFocus()
+        QTest.keyClicks(edit, "next")
+        qapp.processEvents()
+        assert widget._button.toolTip() == "发送"
+        assert widget._button.color() == "primary"
+        QTest.keyClick(edit, Qt.Key.Key_Return)
+        assert submitted == ["next"]
+
+        widget.setGenerating(False)
+        assert widget._button.toolTip() == "发送"
+        widget.deleteLater()
+
+    def test_submit_queue_toggle_while_generating(self, qapp):
+        widget = ElaChatInput()
+        widget.setText("x")
+        widget.setGenerating(True)
+        # 默认允许排队提交
+        assert widget.queueEnabled() is True
+        assert widget.submit() is True
+
+        widget.setText("y")
+        widget.setQueueEnabled(False)
+        assert widget.submit() is False
+        widget.deleteLater()
+
+
+class TestHeight:
+    def test_grows_and_clamps(self, qapp):
+        widget = ElaChatInput()
+        widget.setMinLines(1)
+        widget.setMaxLines(4)
+        widget.show()
+        qapp.processEvents()
+        base = widget.textEdit().height()
+
+        widget.setText("\n".join(f"行 {i}" for i in range(3)))
+        qapp.processEvents()
+        grown = widget.textEdit().height()
+        assert grown > base
+
+        widget.setText("\n".join(f"行 {i}" for i in range(30)))
+        qapp.processEvents()
+        clamped = widget.textEdit().height()
+        assert clamped == max(grown, clamped)
+        line = widget._line_height()
+        assert clamped <= line * 4 + 6
+        assert widget.maxLines() == 4
+        widget.deleteLater()
+
+    def test_default_min_lines(self, qapp):
+        widget = ElaChatInput()
+        widget.show()
+        qapp.processEvents()
+        line = widget._line_height()
+        assert widget.minLines() == 3
+        assert widget.maxLines() == 8
+        assert widget.textEdit().height() >= line * 3
+
+        widget.setMinLines(5)
+        qapp.processEvents()
+        assert widget.textEdit().height() >= line * 5
+        # min 不得超过 max
+        widget.setMaxLines(2)
+        assert widget.maxLines() == 5
+        widget.deleteLater()
+
+
+class TestTexts:
+    def test_custom_button_texts(self, qapp):
+        widget = ElaChatInput()
+        widget.setSendText("发送消息")
+        assert widget.sendText() == "发送消息"
+        assert widget._button.toolTip() == "发送消息"
+        widget.setStopText("中止")
+        widget.setGenerating(True)
+        assert widget._button.toolTip() == "中止"
+        widget.deleteLater()
+
+    def test_placeholder_roundtrip(self, qapp):
+        widget = ElaChatInput()
+        widget.setPlaceholderText("说点什么")
+        assert widget.placeholderText() == "说点什么"
+        widget.deleteLater()
+
+
+class TestLayers:
+    def test_layers_order(self, qapp):
+        widget = ElaChatInput()
+        layout = widget.layout()
+        # 0 补全浮层 / 1 输入卡片（附件条 / 编辑框 / 工具栏都在卡片内）
+        assert layout.itemAt(0).widget() is widget.popup()
+        assert layout.itemAt(1).widget() is widget.inputSurface()
+        surface_layout = widget.inputSurface().layout()
+        assert surface_layout.itemAt(0).widget() is widget.attachmentStrip()
+        assert surface_layout.itemAt(1).widget() is widget.textEdit()
+        assert surface_layout.itemAt(2).widget() is widget.toolBar()
+        widget.deleteLater()
+
+    def test_toolbar_type(self, qapp):
+        widget = ElaChatInput()
+        assert isinstance(widget.toolBar(), ElaChatToolBar)
+        widget.deleteLater()
+
+    def test_edit_is_borderless(self, qapp):
+        """编辑框不再自绘边框（原生 CE_ShapedFrame 被代理 style 拦掉）。"""
+        widget = ElaChatInput()
+        assert widget.textEdit().frameWidth() == 0
+        assert widget.textEdit().frameShape() == QFrame.Shape.NoFrame
+        widget.deleteLater()
+
+    def test_layers_inside_card(self, qapp):
+        """附件条 / 编辑框 / 工具栏的可视父级都是输入卡片。"""
+        widget = ElaChatInput()
+        surface = widget.inputSurface()
+        assert widget.attachmentStrip().parentWidget() is surface
+        assert widget.textEdit().parentWidget() is surface
+        assert widget.toolBar().parentWidget() is surface
+        widget.deleteLater()
+
+    def test_card_focus_accent(self, qapp):
+        """聚焦时卡片边框换强调色（跟随 Ela 主题令牌）。"""
+
+        widget = ElaChatInput()
+        widget.show()
+        qapp.processEvents()
+        surface = widget.inputSurface()
+        mode = surface._theme_mode
+        # show 后焦点可能自动落到编辑框，先显式送出 FocusOut 归零
+        QApplication.sendEvent(
+            widget.textEdit(), QFocusEvent(QFocusEvent.Type.FocusOut)
+        )
+        assert surface.focused() is False
+        assert surface._border.name() == card_border_color(mode).name()
+
+        QApplication.sendEvent(widget.textEdit(), QFocusEvent(QFocusEvent.Type.FocusIn))
+        assert surface.focused() is True
+        assert surface._border.name() == accent_color(mode).name()
+
+        QApplication.sendEvent(
+            widget.textEdit(), QFocusEvent(QFocusEvent.Type.FocusOut)
+        )
+        assert surface.focused() is False
+        assert surface._border.name() == card_border_color(mode).name()
+        widget.deleteLater()
+
+    def test_send_button_disabled_when_empty(self, qapp):
+        """opencode 同款：空草稿置灰，有草稿 / 「停止」态恢复可用。"""
+        widget = ElaChatInput()
+        assert widget._button.isEnabled() is False
+
+        widget.setText("你好")
+        assert widget._button.isEnabled() is True
+
+        widget.setText("")
+        assert widget._button.isEnabled() is False
+
+        # 生成中且草稿为空 → 按钮是「停止」，保持可用
+        widget.setGenerating(True)
+        assert widget._button.isEnabled() is True
+        widget.setGenerating(False)
+        widget.deleteLater()
+
+
+class TestToolBarExtension:
+    def test_custom_tool_button(self, qapp):
+        widget = ElaChatInput()
+        clicks = []
+        button = widget.toolBar().addButton(
+            icon=ElaIconType.IconName.Bolt,
+            tooltip="自定义工具",
+            key="custom",
+            callback=lambda: clicks.append(1),
+        )
+        button.click()
+        assert clicks == [1]
+        # 内置按钮顺序：新建话题 → 上传 → 清空上下文，宿主自定义接在其后
+        assert widget.toolBar().keys() == [
+            "new_topic",
+            "upload",
+            "clear",
+            "widget-1",
+            "custom",
+        ]
+        widget.deleteLater()
+
+    def test_upload_button_and_picker(self, qapp, tmp_path):
+        widget = ElaChatInput()
+        assert widget.uploadButton() is widget.toolBar().toolButton("upload")
+        file_path = tmp_path / "说明.txt"
+        file_path.write_text("hello", encoding="utf-8")
+        requests = []
+        widget.uploadRequested.connect(lambda: requests.append(1))
+        widget.setFilePicker(lambda: [str(file_path)])
+        widget.uploadButton().click()
+        assert requests == [1]
+        attachments = widget.attachments()
+        assert len(attachments) == 1
+        assert attachments[0].name == "说明.txt"
+        assert attachments[0].size == 5
+        widget.deleteLater()
+
+    def test_upload_visibility(self, qapp):
+        widget = ElaChatInput()
+        widget.show()
+        qapp.processEvents()
+        assert widget.uploadVisible()
+        widget.setUploadVisible(False)
+        assert not widget.uploadVisible()
+        widget.deleteLater()
+
+    def test_toolbar_has_no_menu_or_shell_controls(self, qapp):
+        """工具栏只剩「上传 / 清空上下文 / 新建话题」+ 宿主自定义：
+
+        `+` 菜单与 Shell 开关已彻底移除。
+        """
+        widget = ElaChatInput()
+        widget.show()
+        qapp.processEvents()
+        assert widget.uploadVisible()
+        assert widget.clearVisible()
+        assert widget.newTopicVisible()
+        toolbar = widget.toolBar()
+        assert toolbar.toolButton("add_menu") is None
+        assert toolbar.toolButton("shell") is None
+        for removed in (
+            "menuButton",
+            "menu",
+            "addMenuItem",
+            "setMenuVisible",
+            "menuVisible",
+            "setShellVisible",
+            "shellVisible",
+            "shellToggle",
+            "setMode",
+            "mode",
+        ):
+            assert not hasattr(widget, removed), removed
+        widget.deleteLater()
+
+    def test_bang_is_plain_text_now(self, qapp):
+        """``!`` 不再是 Shell 模式前缀，就是普通字符。"""
+        widget = ElaChatInput()
+        widget.show()
+        qapp.processEvents()
+        widget.textEdit().setFocus()
+        QTest.keyClicks(widget.textEdit(), "!")
+        qapp.processEvents()
+        assert widget.text() == "!"
+        widget.deleteLater()
+
+    def test_clear_button_emits_request_only(self, qapp):
+        """输入区只发 ``clearRequested``，**不自己清空**（清空是 widget 职责）。"""
+        widget = ElaChatInput()
+        widget.show()
+        qapp.processEvents()
+        assert widget.clearButton() is widget.toolBar().toolButton("clear")
+        requested = []
+        widget.clearRequested.connect(lambda: requested.append(1))
+        widget.clearButton().click()
+        qapp.processEvents()
+        assert requested == [1]
+        # 输入区自身不碰消息（它也没有消息）
+        widget.setText("草稿仍在")
+        widget.deleteLater()
+
+    def test_new_topic_button_emits_signal(self, qapp):
+        """「新建话题」按钮只发 ``newTopicRequested``，话题 / 会话由宿主创建。"""
+        widget = ElaChatInput()
+        widget.show()
+        qapp.processEvents()
+        assert widget.newTopicButton() is widget.toolBar().toolButton("new_topic")
+        assert widget.newTopicVisible() is True
+        requested = []
+        widget.newTopicRequested.connect(lambda: requested.append(1))
+
+        widget.newTopicButton().click()
+        qapp.processEvents()
+
+        assert requested == [1]
+        # 组件不做任何事：草稿与附件都留着，等宿主决定新话题怎么开
+        widget.setText("草稿仍在")
+        assert widget.text() == "草稿仍在"
+        widget.setNewTopicVisible(False)
+        assert widget.newTopicVisible() is False
+        widget.deleteLater()
+
+
+class TestAttachments:
+    def test_add_and_remove(self, qapp, tmp_path):
+        widget = ElaChatInput()
+        first = tmp_path / "a.txt"
+        second = tmp_path / "b.txt"
+        first.write_text("a", encoding="utf-8")
+        second.write_text("b", encoding="utf-8")
+        changes = []
+        widget.attachmentsChanged.connect(lambda items: changes.append(len(items)))
+
+        added = widget.addAttachments([str(first), str(second)])
+        assert len(added) == 2
+        assert widget.attachmentCount() == 2
+        assert widget.attachments()[0].path == str(first)
+
+        widget.removeAttachment(0)
+        assert widget.attachmentCount() == 1
+        assert widget.attachments()[0].name == "b.txt"
+
+        widget.clearAttachments()
+        assert widget.attachmentCount() == 0
+        assert changes == [2, 1, 0]
+        widget.deleteLater()
+
+    def test_set_attachments_dicts(self, qapp):
+        widget = ElaChatInput()
+        widget.setAttachments(
+            [{"name": "报告.pdf", "path": "C:/tmp/报告.pdf", "size": 2048}]
+        )
+        attachment = widget.attachments()[0]
+        assert attachment.name == "报告.pdf"
+        assert attachment.displaySize == "2.0 KB"
+        widget.deleteLater()
+
+    def test_strip_signal(self, qapp):
+        widget = ElaChatInput()
+        clicked = []
+        removed = []
+        widget.attachmentStrip().attachmentClicked.connect(clicked.append)
+        widget.attachmentStrip().attachmentRemoved.connect(removed.append)
+        widget.addAttachment("x.txt", "C:/tmp/x.txt", 3)
+        widget.attachmentStrip().removeAttachment(0)
+        assert removed == ["C:/tmp/x.txt"]
+        assert widget.attachmentCount() == 0
+        widget.deleteLater()
+
+    def test_attachment_paths(self, qapp, tmp_path):
+        widget = ElaChatInput()
+        first = tmp_path / "a.txt"
+        second = tmp_path / "b.txt"
+        first.write_text("a", encoding="utf-8")
+        second.write_text("b", encoding="utf-8")
+        widget.addAttachments([str(first), str(second)])
+        assert widget.attachmentPaths() == [str(first), str(second)]
+
+        # 无路径附件（剪贴板图片等）不进入路径列表，但仍保留在快照中
+        widget.addAttachment("粘贴的图片.png")
+        assert len(widget.attachments()) == 3
+        assert widget.attachmentPaths() == [str(first), str(second)]
+        widget.deleteLater()
+
+
+class TestSubmitWithAttachments:
+    def test_submitted_full(self, qapp, tmp_path):
+        widget = ElaChatInput()
+        file_path = tmp_path / "a.txt"
+        file_path.write_text("a", encoding="utf-8")
+        widget.addAttachments([str(file_path)])
+        widget.setText("  带附件  ")
+        received = []
+        widget.submittedFull.connect(
+            lambda text, items: received.append((text, len(items)))
+        )
+        plain = []
+        widget.submitted.connect(plain.append)
+        assert widget.submit() is True
+        assert plain == ["带附件"]
+        assert received == [("带附件", 1)]
+        assert widget.attachmentCount() == 0
+        assert widget.text() == ""
+        widget.deleteLater()
+
+
+class TestDragAndDrop:
+    def _drop(self, widget, paths):
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(path) for path in paths])
+        event = QDropEvent(
+            QPointF(10, 10),
+            Qt.DropAction.CopyAction,
+            mime,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        # offscreen 下 QApplication.sendEvent 的拖放路由不可靠，直接投递
+        widget.dropEvent(event)
+        return event
+
+    def _drop_mime(self, widget, mime):
+        event = QDropEvent(
+            QPointF(10, 10),
+            Qt.DropAction.CopyAction,
+            mime,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        widget.dropEvent(event)
+        return event
+
+    def test_drop_files_adds_attachments(self, qapp, tmp_path):
+        widget = ElaChatInput()
+        file_path = tmp_path / "拖入.txt"
+        file_path.write_text("x", encoding="utf-8")
+        dropped = []
+        widget.filesAdded.connect(dropped.append)
+        event = self._drop(widget, [str(file_path)])
+        assert event.isAccepted()
+        assert dropped and os.path.normpath(dropped[0][0]) == os.path.normpath(
+            str(file_path)
+        )
+        assert widget.attachmentCount() == 1
+        assert widget.attachments()[0].name == "拖入.txt"
+        widget.deleteLater()
+
+    def test_drop_ignores_non_files(self, qapp, tmp_path):
+        widget = ElaChatInput()
+        event = self._drop(widget, [str(tmp_path / "不存在.txt")])
+        assert not event.isAccepted()
+        assert widget.attachmentCount() == 0
+        widget.deleteLater()
+
+    def test_drop_image_adds_attachment(self, qapp):
+        """拖进来的图片（浏览器里拖图，mime 只有图片没有文件 URL）也进附件。"""
+        widget = ElaChatInput()
+        image = QImage(24, 24, QImage.Format.Format_ARGB32)
+        image.fill(QColor("#123456"))
+        mime = QMimeData()
+        mime.setImageData(image)
+        pasted = []
+        widget.imagePasted.connect(pasted.append)
+
+        event = self._drop_mime(widget, mime)
+
+        assert event.isAccepted()
+        assert widget.attachmentCount() == 1
+        assert widget.attachments()[0].isImage
+        assert len(pasted) == 1
+        widget.deleteLater()
+
+    def test_drag_enter_accepts_files_and_images_only(self, qapp, tmp_path):
+        widget = ElaChatInput()
+        file_path = tmp_path / "接受.txt"
+        file_path.write_text("x", encoding="utf-8")
+
+        def enter(mime):
+            event = QDragEnterEvent(
+                QPoint(5, 5),
+                Qt.DropAction.CopyAction,
+                mime,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+            widget.dragEnterEvent(event)
+            return event.isAccepted()
+
+        file_mime = QMimeData()
+        file_mime.setUrls([QUrl.fromLocalFile(str(file_path))])
+        image_mime = QMimeData()
+        image = QImage(8, 8, QImage.Format.Format_ARGB32)
+        image.fill(QColor("#ffffff"))
+        image_mime.setImageData(image)
+        text_mime = QMimeData()
+        text_mime.setText("只是文字")
+
+        assert enter(file_mime) is True
+        assert enter(image_mime) is True
+        assert enter(text_mime) is False  # 文字拖进编辑框走 Qt 原生，卡片不收
+        widget.deleteLater()

@@ -8,6 +8,7 @@ SVG 图标转换模块。
 from __future__ import annotations
 
 import os
+import warnings
 from functools import lru_cache
 from typing import Optional
 
@@ -156,6 +157,16 @@ class ElaSvgIconLoader:
     def append(self, name: str, data: str) -> None:
         """手动添加一个图标"""
         self._icons[name] = data
+
+    def hasIcon(self, name: str) -> bool:
+        """图标包中是否存在该图标名。
+
+        绘制路径（``paintEvent``）必须先问一句：图标名拼错、或图标包缺失
+        （``svg_icon_loader`` 会吞掉 ``FileNotFoundError``，此时 ``_icons`` 为空）时，
+        降级为「只画文字」而不是让 ``getSvgData`` 的 ``KeyError`` 抛进 Qt 回调
+        ——那会造成 0xC0000409 静默进程终止。
+        """
+        return name in self._icons
 
     def getSvgData(self, name: str, color: Optional[str] = None) -> str:
         """获取 SVG 数据（已替换颜色）"""
@@ -327,7 +338,12 @@ class _ElaSvgButtonBase(_ThemeAwareMixin, QPushButton):
         content_height = self.height() - 2 * shadow_border
         text_y = shadow_border
 
-        if self._iconName:
+        # 图标名可能拼错，或图标包未随包分发（_icons 为空）；此时降级为纯文字，
+        # 不能让 getIcon 的 KeyError 抛进 paintEvent（会 0xC0000409 静默 abort）。
+        draw_icon = bool(self._iconName) and self._svg_icon_loader.hasIcon(
+            self._iconName
+        )
+        if draw_icon:
             total_content_width = icon_size.width() + spacing + text_width
             start_x = (
                 shadow_border
@@ -495,8 +511,15 @@ def svg_icon_loader() -> ElaSvgIconLoader:
         _svg_icon_loader = ElaSvgIconLoader.getInstance()
         try:
             _svg_icon_loader.loadFromPackage("fluent_ui_icon_regular.icons")
-        except FileNotFoundError:
-            pass
+        except FileNotFoundError as exc:
+            # 不再静默：图标包缺失时所有图标都画不出来，用户会以为是图标名写错。
+            # 警告而非抛出，控件仍可降级为纯文字（见 _ElaSvgButtonBase.paintEvent）。
+            warnings.warn(
+                "fluent_ui_icon_regular.icons 图标包未找到，SVG 图标将全部不可用："
+                f"{exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
     return _svg_icon_loader
 
 

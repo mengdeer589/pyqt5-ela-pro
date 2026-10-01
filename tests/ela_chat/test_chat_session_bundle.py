@@ -1,0 +1,254 @@
+"""会话 bundle 测试：ElaChatSessionInfo 序列化 + exportSession / importSession。"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from pyqt5_ela_pro.chat import (
+    ElaChatReasoningStyle,
+    SESSION_SCHEMA_VERSION,
+    ElaChatAttachment,
+    ElaChatRole,
+    ElaChatSessionInfo,
+    ElaChatStats,
+    ElaChatView,
+    jsonDumps,
+    jsonLoads,
+)
+
+
+def _build_view(qapp) -> ElaChatView:
+    """搭一份含用户 / 助手（思考 + 正文 + 工具 + 用量 + 附件 + 错误）的历史。"""
+    view = ElaChatView()
+    view.addMessage(ElaChatRole.User, "帮我分析目录")
+    messageId = view.addMessage(ElaChatRole.Assistant, "")
+    view.beginReasoning(messageId)
+    view.appendReasoning(messageId, "先看目录结构。")
+    view.endReasoning(messageId, 500.0)
+    view.beginText(messageId)
+    view.appendText(messageId, "目录里有 README 与 pyproject。")
+    view.endText(messageId)
+    callId = view.addToolCall(messageId, "read", '{"path": "README.md"}')
+    view.setToolCallResult(messageId, callId, "内容", ok=True)
+    view.setStepStats(messageId, ElaChatStats(total_tokens=123))
+    view.setMessageAttachments(
+        messageId, [ElaChatAttachment(name="a.txt", path="C:/tmp/a.txt", size=3)]
+    )
+    view.setMessageDuration(messageId, 1500.0)
+    view.endMessage(messageId)
+
+    failedId = view.addMessage(ElaChatRole.Assistant, "这条出错了")
+    view.setMessageError(failedId, "接口超时")
+    return view
+
+
+class TestSessionInfoPersistence:
+    def test_round_trip(self, qapp):
+        info = ElaChatSessionInfo(
+            id="s1",
+            title="快速排序",
+            created_at=123.5,
+            message_count=3,
+            work_dir="D:/workspace",
+        )
+        data = info.toDict()
+        assert data == {
+            "id": "s1",
+            "title": "快速排序",
+            "created_at": 123.5,
+            "message_count": 3,
+            "work_dir": "D:/workspace",
+        }
+        assert ElaChatSessionInfo.fromDict(data) == info
+
+    def test_from_dict_tolerant(self, qapp):
+        info = ElaChatSessionInfo.fromDict(
+            {
+                "id": 7,
+                "message_count": "2",
+                "unknown": 1,
+                "active": True,  # 旧版本字段：直接忽略，不做迁移
+            }
+        )
+        assert info.id == "7"
+        assert info.title == "新话题"
+        assert info.message_count == 2
+        assert not hasattr(info, "active")
+        assert ElaChatSessionInfo.fromDict(None) == ElaChatSessionInfo(id="")
+        assert ElaChatSessionInfo.fromDict("x") == ElaChatSessionInfo(id="")
+
+
+class TestExportSession:
+    def test_structure_and_options(self, qapp):
+        view = _build_view(qapp)
+        view.setReasoningStyle("inline")
+        view.setStatsMode("steps")
+        view.setToolGrouping(False)
+        view.setAvatarVisible(False)
+        view.setUserBubbleMaxWidth(0.5)
+        view.setContentMaxWidth(600)
+
+        bundle = view.exportSession(
+            session=ElaChatSessionInfo(id="s1", title="历史", message_count=99),
+            extra={"model": "deepseek-v4"},
+        )
+
+        assert bundle["schema"] == SESSION_SCHEMA_VERSION
+        assert bundle["session"]["id"] == "s1"
+        assert bundle["session"]["title"] == "历史"
+        assert bundle["session"]["message_count"] == view.count()  # 按实际重算
+        assert bundle["extra"] == {"model": "deepseek-v4"}
+        assert bundle["view"] == {
+            "reasoning_style": "inline",
+            "stats_mode": "steps",
+            "tool_grouping": False,
+            "avatar_visible": False,
+            "user_bubble_ratio": 0.5,
+            "content_max_width": 600,
+        }
+        assert len(bundle["messages"]) == view.count()
+        assert [row["id"] for row in bundle["messages"]] == [
+            message.id for message in view.messages()
+        ]
+        view.deleteLater()
+
+    def test_default_session_and_extra(self, qapp):
+        view = ElaChatView()
+        bundle = view.exportSession()
+        assert bundle["session"]["id"] == ""
+        assert bundle["session"]["message_count"] == 0
+        assert bundle["messages"] == []
+        assert bundle["extra"] is None
+
+        with pytest.raises(TypeError):
+            view.exportSession(extra=["x"])
+        with pytest.raises(TypeError):
+            view.exportSession(session=123)
+        view.deleteLater()
+
+
+class TestImportSession:
+    def test_bundle_is_json_serializable(self, qapp):
+
+        source = _build_view(qapp)
+        bundle = source.exportSession(
+            session=ElaChatSessionInfo(id="s1", title="历史"),
+            extra={"model": "deepseek-v4", "nested": {"n": 1}},
+        )
+        # 库内编解码：装了 orjson 走 orjson，否则标准库（输出同为紧凑 UTF-8）
+        text = jsonDumps(bundle)
+        again = jsonLoads(text)
+        # 与标准库互通：宿主换后端落库的历史仍可读
+        assert json.loads(text) == again
+
+        target = ElaChatView()
+        assert target.importSession(again) == source.count()
+        assert [m.toDict() for m in target.messages()] == bundle["messages"]
+        source.deleteLater()
+        target.deleteLater()
+
+    def test_replace_restores_ids_and_options(self, qapp):
+        source = _build_view(qapp)
+        source.setReasoningStyle(ElaChatReasoningStyle.Inline)
+        source.setStatsMode("none")
+        source.setToolGrouping(False)
+        source.setAvatarVisible(False)
+        source.setUserBubbleMaxWidth(0.5)
+        source.setContentMaxWidth(600)
+        bundle = source.exportSession(session=ElaChatSessionInfo(id="s1"))
+        rows = bundle["messages"]
+
+        target = ElaChatView()
+        count = target.importSession(bundle)
+        assert count == len(rows)
+        # id 与分段 id 原样保留、内容逐字段一致
+        assert [message.id for message in target.messages()] == [
+            row["id"] for row in rows
+        ]
+        assert [message.toDict() for message in target.messages()] == rows
+        # 外观选项一并恢复
+        assert target.reasoningStyle() == ElaChatReasoningStyle.Inline
+        assert target.statsMode() == "none"
+        assert target.toolGrouping() is False
+        assert target.avatarVisible() is False
+        assert target.userBubbleMaxWidth() == 0.5
+        assert target.contentMaxWidth() == 600
+        # 再次导出：消息与外观可完整往返
+        again = target.exportSession()
+        assert again["messages"] == rows
+        assert again["view"] == bundle["view"]
+        source.deleteLater()
+        target.deleteLater()
+
+    def test_append_when_clear_false(self, qapp):
+        source = _build_view(qapp)
+        bundle = source.exportSession()
+
+        target = ElaChatView()
+        existing = target.addMessage(ElaChatRole.User, "已有消息")
+        count = target.importSession(bundle, clear=False)
+        assert count == source.count()
+        assert target.count() == 1 + count
+        ids = [message.id for message in target.messages()]
+        assert ids[0] == existing
+        assert len(set(ids)) == len(ids)  # 追加时全部重新分配，不撞号
+        assert target.messages()[-1].error == "接口超时"
+        source.deleteLater()
+        target.deleteLater()
+
+    def test_invalid_bundle_raises(self, qapp):
+        view = ElaChatView()
+        with pytest.raises(ValueError):
+            view.importSession(None)
+        with pytest.raises(ValueError):
+            view.importSession("nope")
+        with pytest.raises(ValueError):
+            view.importSession({"messages": "x"})
+        view.deleteLater()
+
+    def test_skips_bad_rows_and_missing_sections(self, qapp):
+        view = ElaChatView()
+        bundle = {
+            "messages": [None, 123, {"id": 1, "role": "user", "text": "有效"}],
+        }
+        assert view.importSession(bundle) == 1
+        assert view.message(1).text == "有效"
+        # 缺 view / session 段不报错，也不改当前外观
+        view.setStatsMode("steps")
+        view.importSession({"messages": []})
+        assert view.statsMode() == "steps"
+        view.deleteLater()
+
+
+class TestRestorePreserveIds:
+    def test_conflict_raises_without_partial_write(self, qapp):
+        view = ElaChatView()
+        view.addMessage(ElaChatRole.User, "已有", messageId=5)
+        with pytest.raises(ValueError):
+            view.restoreMessages(
+                [{"id": 5, "role": "user", "text": "撞号"}], preserveIds=True
+            )
+        assert view.count() == 1
+        assert view.message(5).text == "已有"
+        view.deleteLater()
+
+    def test_duplicate_ids_in_batch_raise(self, qapp):
+        view = ElaChatView()
+        row = {"id": 7, "role": "user", "text": "重复"}
+        with pytest.raises(ValueError):
+            view.restoreMessages([row, dict(row)], preserveIds=True)
+        assert view.count() == 0
+        view.deleteLater()
+
+    def test_preserve_ids_after_clear(self, qapp):
+        source = _build_view(qapp)
+        rows = source.exportSession()["messages"]
+        view = ElaChatView()
+        view.addMessage(ElaChatRole.User, "将被清空")
+        view.clear()
+        restored = view.restoreMessages(rows, preserveIds=True)
+        assert restored == [row["id"] for row in rows]
+        source.deleteLater()
+        view.deleteLater()

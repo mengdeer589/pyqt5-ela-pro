@@ -54,6 +54,14 @@ class ElaDrawerPanel(QWidget):
         self._position = position
         self.update()
 
+    def setCornerRadius(self, radius: int) -> None:
+        """设置面板圆角半径。
+
+        :param radius: 圆角半径（像素）
+        """
+        self._corner_radius = int(radius)
+        self.update()
+
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
@@ -258,7 +266,12 @@ class ElaDrawer(ElaThemeWidget):
         :param radius: 圆角半径（像素）
         :returns: 自身（支持链式调用）
         """
-        self._corner_radius = radius
+        self._corner_radius = int(radius)
+        # 必须下发给真正绘制圆角的子面板：paintEvent 读的是
+        # ``_drawer_widget._corner_radius``，只改抽屉自身的字段没有任何效果。
+        panel = getattr(self, "_drawer_widget", None)
+        if panel is not None:
+            panel.setCornerRadius(self._corner_radius)
         return self
 
     def setCloseOnDimClicked(self, on: bool) -> "ElaDrawer":

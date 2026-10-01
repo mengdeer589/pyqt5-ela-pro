@@ -1,131 +1,77 @@
-"""Tests for ela_tag_multi_box module: ElaTagMultiBox."""
+"""``ElaTagMultiBox`` 测试：初值 / 动画 / 展开属性 / 标题 / 弹层辅助函数。"""
 
 from __future__ import annotations
 
+import pytest
 from PyQt5.QtCore import QPropertyAnimation
 
+from pyqt5_ela_pro.ela_tag_combo_base import _get_target_mark_width, _pre_init_popup
 from pyqt5_ela_pro.ela_tag_multi_box import ElaTagMultiBox
 
 
-class TestElaTagMultiBox:
-    """Test cases for ElaTagMultiBox class."""
+@pytest.fixture
+def box(make):
+    """默认构造的 tag multi box（空标题）。"""
+    return make(ElaTagMultiBox)
 
-    def test_initialization_with_title(self):
-        """Test tag multi box initializes with title."""
-        box = ElaTagMultiBox(title="语言")
 
-        assert box._title_text == "语言"
+class TestElaTagMultiBoxInit:
+    @pytest.mark.parametrize(
+        ("attr", "expected"),
+        [
+            ("_title_text", ""),
+            ("_expand_mark_width", 0.0),
+            ("_title_font_size", 13),
+        ],
+        ids=["title", "mark-width", "title-font-size"],
+    )
+    def test_initialization_with_defaults(self, box, attr, expected):
+        assert getattr(box, attr) == expected
 
-        box.deleteLater()
+    def test_initialization_with_title(self, make):
+        assert make(ElaTagMultiBox, title="语言")._title_text == "语言"
 
-    def test_initialization_with_defaults(self):
-        """Test tag multi box initializes with empty title."""
-        box = ElaTagMultiBox()
-
-        assert box._title_text == ""
-
-        box.deleteLater()
-
-    def test_fixed_height_is_38(self):
-        """Test tag multi box has fixed height of 38."""
-        box = ElaTagMultiBox()
-
+    def test_fixed_height_is_38(self, box):
         assert box.height() == 38
 
-        box.deleteLater()
-
-    def test_has_mark_animation(self):
-        """Test tag multi box has mark animation."""
-        box = ElaTagMultiBox()
-
-        assert hasattr(box, '_mark_animation')
-        assert isinstance(box._mark_animation, QPropertyAnimation)
-
-        box.deleteLater()
-
-    def test_mark_animation_duration_is_300ms(self):
-        """Test mark animation duration is 300ms."""
-        box = ElaTagMultiBox()
-
-        assert box._mark_animation.duration() == 300
-
-        box.deleteLater()
-
-    def test_expand_mark_width_property(self):
-        """Test expandMarkWidth property getter and setter."""
-        box = ElaTagMultiBox()
-
-        box.expandMarkWidth = 50.0
-        assert box.expandMarkWidth == 50.0
-
-        box.deleteLater()
-
-    def test_expand_icon_rotate_property(self):
-        """Test expandIconRotate property getter and setter."""
-        box = ElaTagMultiBox()
-
-        box.expandIconRotate = -180.0
-        assert box.expandIconRotate == -180.0
-
-        box.deleteLater()
-
-    def test_set_title(self):
-        """Test setTitle updates title text."""
-        box = ElaTagMultiBox()
-        box.setTitle("新标题")
-
-        assert box._title_text == "新标题"
-
-        box.deleteLater()
-
-    def test_title_returns_current_title(self):
-        """Test title returns current title text."""
-        box = ElaTagMultiBox(title="测试")
-
-        assert box.title() == "测试"
-
-        box.deleteLater()
-
-    def test_max_visible_items_is_10(self):
-        """Test max visible items is set to 10."""
-        box = ElaTagMultiBox()
-
+    def test_max_visible_items_is_10(self, box):
         assert box.maxVisibleItems() == 10
 
-        box.deleteLater()
 
-    def test_get_target_mark_width_empty(self):
-        """Test _get_target_mark_width helper returns 0 when no items."""
-        from pyqt5_ela_pro.ela_tag_combo_base import _get_target_mark_width
+class TestElaTagMultiBoxAnimations:
+    def test_has_mark_animation(self, box):
+        assert hasattr(box, "_mark_animation")
+        assert isinstance(box._mark_animation, QPropertyAnimation)
 
-        box = ElaTagMultiBox()
+    def test_mark_animation_duration_is_300ms(self, box):
+        assert box._mark_animation.duration() == 300
 
-        width = _get_target_mark_width(box)
 
-        assert width == 0.0
+class TestElaTagMultiBoxExpandProperties:
+    @pytest.mark.parametrize(
+        ("prop", "value"),
+        [("expandMarkWidth", 50.0), ("expandIconRotate", -180.0)],
+        ids=["mark-width", "icon-rotate"],
+    )
+    def test_expand_property_roundtrip(self, box, prop, value):
+        setattr(box, prop, value)
+        assert getattr(box, prop) == value
 
-        box.deleteLater()
 
-    def test_pre_init_popup_runs_safely(self):
-        """Test _pre_init_popup helper runs without error."""
-        from pyqt5_ela_pro.ela_tag_combo_base import _pre_init_popup
+class TestElaTagMultiBoxTitle:
+    def test_set_title(self, box):
+        box.setTitle("新标题")
+        assert box._title_text == "新标题"
 
-        box = ElaTagMultiBox()
+    def test_title_returns_current_title(self, make):
+        assert make(ElaTagMultiBox, title="测试").title() == "测试"
+
+
+class TestElaTagMultiBoxHelpers:
+    def test_get_target_mark_width_empty(self, box):
+        """没有选项时标记宽度应为 0。"""
+        assert _get_target_mark_width(box) == 0.0
+
+    def test_pre_init_popup_runs_safely(self, box):
+        """_pre_init_popup 必须在未创建弹层时也不报错。"""
         _pre_init_popup(box)
-        box.deleteLater()
-
-    def test_initial_expand_mark_width_is_zero(self):
-        """Test initial expand mark width is 0."""
-        box = ElaTagMultiBox()
-
-        assert box._expand_mark_width == 0.0
-
-        box.deleteLater()
-
-    def test_title_font_size_default_is_13(self):
-        """Test default title font size is 13."""
-        box = ElaTagMultiBox()
-
-        assert box._title_font_size == 13
-
-        box.deleteLater()

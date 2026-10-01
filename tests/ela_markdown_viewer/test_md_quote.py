@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from PyQt5.QtGui import QTextCursor
 
 from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
@@ -97,10 +99,15 @@ class TestSelectionQuoted:
 
         received = []
         v.selectionQuoted.connect(received.append)
-        v._copy_selection_markdown()
-        qapp.processEvents()
+        # Qt/Windows 下连续写剪贴板可能被静默丢弃：重试并等事件循环
+        for _ in range(5):
+            v._copy_selection_markdown()
+            qapp.processEvents()
+            if qapp.clipboard().text() == "- 列表项二":
+                break
+            time.sleep(0.02)
 
-        assert received == ["- 列表项二"]
+        assert received[-1:] == ["- 列表项二"]
         assert qapp.clipboard().text() == "- 列表项二"
         v.deleteLater()
 

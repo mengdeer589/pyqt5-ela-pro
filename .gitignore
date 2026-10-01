@@ -30,3 +30,10 @@ PyQt-Fluent-Widgets/
 /bin_5_15_2_x64_MSVC/
 *.whl
 chart_export.png
+# llm_test/ 暂不入库：agents/config.py 里有硬编码的 sk- key，等轮换后再放开这条规则
+/llm_test/
+/Fluent-Qt/
+/PyElaWidgetTools/
+# 与本项目无关的 skill 安装产物
+/.agents/
+/skills-lock.json

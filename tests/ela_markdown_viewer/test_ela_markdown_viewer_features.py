@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import pytest
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QTextTable
 from PyQt5.QtTest import QTest
 
 from pyqt5_ela_pro import ela_markdown_viewer as viewer_module
 from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
+from pyqt5_ela_pro.example.markdown_page import (
+    _MARKDOWN_ALL,
+    _MARKDOWN_ANSWER,
+    MarkdownPage,
+)
 
 
 def _fragments(viewer: ElaMarkdownViewer) -> list:
@@ -24,8 +31,6 @@ def _fragments(viewer: ElaMarkdownViewer) -> list:
 
 
 def _tables(viewer: ElaMarkdownViewer) -> list:
-    from PyQt5.QtGui import QTextTable
-
     result = []
     stack = [viewer.document().rootFrame()]
     while stack:
@@ -82,8 +87,6 @@ class TestElaMarkdownViewerTaskList:
 
 class TestElaMarkdownViewerHighlight:
     def test_python_code_highlighted(self):
-        import pytest
-
         pytest.importorskip("pygments")
         v = ElaMarkdownViewer()
         v.setMarkdown("```python\ndef foo(x):\n    return x + 1\n```")
@@ -154,10 +157,10 @@ class TestElaMarkdownViewerMath:
 
     def test_unsupported_formula_falls_back_to_source(self):
         v = ElaMarkdownViewer()
-        v.setMarkdown("$\\left(a+b$ 与 $x^2$")
+        v.setMarkdown("$x^{$ 与 $x^2$")
 
-        # \left 缺少 \right 属于结构性错误：保留源码文本；x^2 支持：图片
-        assert "\\left" in v.document().toPlainText()
+        # 未闭合分组属于结构性错误：保留源码文本；x^2 支持：图片
+        assert "x^{" in v.document().toPlainText()
         images = [f for f in _fragments(v) if f.charFormat().isImageFormat()]
         assert len(images) == 1
         v.deleteLater()
@@ -318,8 +321,6 @@ class TestElaMarkdownViewerStreaming:
 
 class TestExampleSamples:
     def test_example_samples_render(self):
-        from pyqt5_ela_pro.example.markdown_page import _MARKDOWN_ALL
-
         v = ElaMarkdownViewer()
         v.setMermaidEnabled(False)
         v.setMarkdown(_MARKDOWN_ALL)
@@ -337,8 +338,6 @@ class TestExampleSamples:
         v.deleteLater()
 
     def test_example_all_sample_covers_features(self):
-        from pyqt5_ela_pro.example.markdown_page import _MARKDOWN_ALL
-
         v = ElaMarkdownViewer()
         v.setMermaidEnabled(False)
         v.setLineNumbersEnabled(True)
@@ -359,8 +358,6 @@ class TestExampleSamples:
         v.deleteLater()
 
     def test_example_stream_sample_parity(self):
-        from pyqt5_ela_pro.example.markdown_page import _MARKDOWN_ALL
-
         reference = ElaMarkdownViewer()
         reference.setMermaidEnabled(False)
         reference.setCodeBlockCollapseLines(12)
@@ -378,21 +375,11 @@ class TestExampleSamples:
         reference.deleteLater()
 
     def test_example_stream_uses_same_sample(self):
-        from pyqt5_ela_pro.example.markdown_page import (
-            MarkdownPage,
-            _MARKDOWN_ALL,
-        )
-
         payload = MarkdownPage._build_stream_chunks(_MARKDOWN_ALL)
         assert "".join(payload) == _MARKDOWN_ALL
         assert len(payload) > 50
 
     def test_example_chat_answer_streams_with_prefix(self):
-        from pyqt5_ela_pro.example.markdown_page import (
-            MarkdownPage,
-            _MARKDOWN_ANSWER,
-        )
-
         chunks = MarkdownPage._build_stream_chunks(_MARKDOWN_ANSWER)
         assert "".join(chunks) == _MARKDOWN_ANSWER
 

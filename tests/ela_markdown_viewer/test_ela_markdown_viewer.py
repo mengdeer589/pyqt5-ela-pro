@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QColor, QFont, QTextLength, QTextTable
+from PyQt5ElaWidgetTools import ElaScrollBar, ElaThemeType, eTheme
 
-from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
+from pyqt5_ela_pro import ela_markdown_viewer as viewer_module
+from pyqt5_ela_pro.ela_markdown_viewer import _INLINE_CODE_MARK, ElaMarkdownViewer
 
 
 def _fragments(viewer: ElaMarkdownViewer) -> list:
@@ -23,7 +25,6 @@ def _fragments(viewer: ElaMarkdownViewer) -> list:
 
 def _tables(viewer: ElaMarkdownViewer) -> list:
     """收集文档中的全部表格。"""
-    from PyQt5.QtGui import QTextTable
 
     result = []
     stack = [viewer.document().rootFrame()]
@@ -62,7 +63,12 @@ class TestElaMarkdownViewerInit:
         assert v._border_radius == 0
         assert v._text_browser is not None
         assert v._text_browser.isReadOnly() is True
-        assert v._text_browser.openExternalLinks() is True
+        # Qt 层必须为 False：openExternalLinks 为真时 QTextBrowser 会先 openUrl()
+        # 再 return，anchorClicked 永不发出，内部锚点（任务复选框 / 折叠 / 目录跳转）
+        # 全部失效。外部链接改由 _on_anchor_clicked 自行打开。
+        assert v._text_browser.openExternalLinks() is False
+        # 对外语义不变：外部链接仍默认交给系统浏览器
+        assert v.openExternalLinks() is True
         v.deleteLater()
 
     def test_initially_no_markdown(self):
@@ -101,7 +107,7 @@ class TestElaMarkdownViewerBorderRadius:
 class TestElaMarkdownViewerTheme:
     def test_on_theme_changed_applies_style(self):
         v = ElaMarkdownViewer()
-        from PyQt5ElaWidgetTools import ElaThemeType
+
         v._onThemeChanged(ElaThemeType.ThemeMode.Dark)
         assert v._theme_mode == ElaThemeType.ThemeMode.Dark
         v.deleteLater()
@@ -144,7 +150,6 @@ class TestElaMarkdownViewerContent:
         v.deleteLater()
 
     def test_horizontal_scrollbar_is_ela(self):
-        from PyQt5ElaWidgetTools import ElaScrollBar
 
         v = ElaMarkdownViewer()
         assert isinstance(v.textBrowser().horizontalScrollBar(), ElaScrollBar)
@@ -166,7 +171,6 @@ class TestElaMarkdownViewerCodeStyle:
         assert cell_format.leftPadding() == 14
         assert tables[0].format().topMargin() == 8
         assert tables[0].format().bottomMargin() == 8
-        from PyQt5.QtGui import QTextLength
 
         width = tables[0].format().width()
         assert width.type() == QTextLength.Type.PercentageLength
@@ -178,6 +182,7 @@ class TestElaMarkdownViewerCodeStyle:
         v.deleteLater()
 
     def test_inline_code_styled_and_content_preserved(self):
+
         v = ElaMarkdownViewer()
         v.setMarkdown("a `inl<x>()` b")
 
@@ -187,7 +192,9 @@ class TestElaMarkdownViewerCodeStyle:
         fmt = frags[0].charFormat()
         assert fmt.fontFamilies()[0] == v.codeFontFamily()
         assert fmt.fontFixedPitch() is True
-        assert fmt.background().style() != Qt.BrushStyle.NoBrush
+        # Typora 风格：底色/圆角由自绘提供，字符格式只带标记属性
+        assert fmt.property(_INLINE_CODE_MARK) is True
+        assert fmt.background().style() == Qt.BrushStyle.NoBrush
         v.deleteLater()
 
     def test_fenced_code_content_escaped(self):
@@ -208,16 +215,15 @@ class TestElaMarkdownViewerCodeStyle:
         v.deleteLater()
 
     def test_inline_code_same_text_as_fenced_code_still_styled(self):
+
         v = ElaMarkdownViewer()
         v.setMarkdown("```\nfoo\n```\n\ninline `foo` here")
 
         frags = [f for f in _fragments(v) if f.text() == "foo"]
         assert len(frags) == 2
-        # 第二个 foo 是行内代码，必须被定位上色（等宽 + 固定间距）
+        # 第二个 foo 是行内代码，必须被定位标记（等宽 + 固定间距 + 自绘标记）
         assert frags[1].charFormat().fontFixedPitch() is True
-        assert (
-            frags[1].charFormat().background().style() != Qt.BrushStyle.NoBrush
-        )
+        assert frags[1].charFormat().property(_INLINE_CODE_MARK) is True
         v.deleteLater()
 
 
@@ -226,7 +232,6 @@ class TestElaMarkdownViewerThemeColors:
         return next(f for f in _fragments(viewer) if f.text() == text)
 
     def test_plain_text_color_follows_theme(self):
-        from PyQt5ElaWidgetTools import ElaThemeType, eTheme
 
         v = ElaMarkdownViewer()
         v.setMarkdown("plain text")
@@ -241,13 +246,13 @@ class TestElaMarkdownViewerThemeColors:
         v.deleteLater()
 
     def test_link_color_follows_theme(self):
-        from PyQt5ElaWidgetTools import ElaThemeType, eTheme
 
         v = ElaMarkdownViewer()
         v.setMarkdown("[link](https://example.com)")
 
-        expected = eTheme.getThemeColor(
-            v._theme_mode, ElaThemeType.ThemeColor.PrimaryNormal
+        theme = viewer_module._MD_THEMES["opencode"]
+        expected = QColor(
+            theme["dark" if v._is_dark_theme else "light"]["semantic"]["link"]
         )
         assert (
             self._find(v, "link").charFormat().foreground().color().name()
@@ -256,7 +261,6 @@ class TestElaMarkdownViewerThemeColors:
         v.deleteLater()
 
     def test_theme_switch_recolors_existing_content(self):
-        from PyQt5ElaWidgetTools import ElaThemeType, eTheme
 
         v = ElaMarkdownViewer()
         v.setMarkdown("[link](https://example.com)\n\n```\ncode()\n```")
@@ -264,8 +268,8 @@ class TestElaMarkdownViewerThemeColors:
 
         v._onThemeChanged(ElaThemeType.ThemeMode.Dark)
 
-        expected_link = eTheme.getThemeColor(
-            ElaThemeType.ThemeMode.Dark, ElaThemeType.ThemeColor.PrimaryNormal
+        expected_link = QColor(
+            viewer_module._MD_THEMES["opencode"]["dark"]["semantic"]["link"]
         )
         expected_code_bg = v._code_bg
         assert light_code_bg != expected_code_bg.name()
@@ -282,7 +286,7 @@ class TestElaMarkdownViewerThemeColors:
 class TestElaMarkdownViewerTableStyle:
     MD = "| A | B |\n|:--|--:|\n| 1 | 2 |"
 
-    def test_default_grid_removed_and_padded(self):
+    def test_grid_and_padded(self):
         v = ElaMarkdownViewer()
         v.setMarkdown(self.MD)
 
@@ -292,16 +296,19 @@ class TestElaMarkdownViewerTableStyle:
         assert fmt.borderCollapse() is True
         assert fmt.cellSpacing() == 0
 
+        # Typora（github.css）：全网格 1px + 单元格 6px 13px 内边距
         cell = table.cellAt(1, 0).format().toTableCellFormat()
-        assert cell.topPadding() == 7
-        assert cell.bottomPadding() == 7
-        assert cell.leftPadding() == 12
-        assert cell.rightPadding() == 12
+        assert cell.topPadding() == 6
+        assert cell.bottomPadding() == 6
+        assert cell.leftPadding() == 13
+        assert cell.rightPadding() == 13
+        assert cell.topBorder() == 1.0
         assert cell.bottomBorder() == 1.0
+        assert cell.leftBorder() == 1.0
+        assert cell.rightBorder() == 1.0
         v.deleteLater()
 
     def test_header_row_styled(self):
-        from PyQt5.QtGui import QFont
 
         v = ElaMarkdownViewer()
         v.setMarkdown(self.MD)
@@ -310,12 +317,11 @@ class TestElaMarkdownViewerTableStyle:
         header = table.cellAt(0, 0).format()
         body = table.cellAt(1, 0).format()
         assert header.background().color().alphaF() > 0
-        assert int(header.fontWeight()) == int(QFont.Weight.DemiBold)
+        assert int(header.fontWeight()) == int(QFont.Weight.Bold)
         assert body.background().style() == Qt.BrushStyle.NoBrush
         v.deleteLater()
 
     def test_table_colors_adapt_to_theme(self):
-        from PyQt5ElaWidgetTools import ElaThemeType
 
         v = ElaMarkdownViewer()
         v.setMarkdown(self.MD)
@@ -383,8 +389,8 @@ class TestElaMarkdownViewerBlockSpacing:
         before = v.document().findBlock(table.firstPosition() - 1)
         after = v.document().findBlock(table.lastPosition() + 1)
         # 间距加在表格外的相邻块上，避免把表头首格文字顶下来
-        assert before.blockFormat().bottomMargin() == 7
-        assert after.blockFormat().topMargin() == 7
+        assert before.blockFormat().bottomMargin() == 12
+        assert after.blockFormat().topMargin() == 12
         header = table.cellAt(0, 0).firstCursorPosition().block()
-        assert header.blockFormat().topMargin() != 7
+        assert header.blockFormat().topMargin() != 12
         v.deleteLater()

@@ -2,15 +2,15 @@
 坐标系与轴模型。
 
 - ``Coord``：坐标系协议基类，子类实现
-  ``layout(rect)`` / ``map_point(x, y)`` / ``paint_axes(p)`` /
-  ``paint_tooltip_marker(p, pos)``；可选 ``set_series(series_opts)``、
-  ``invert_x(pos)``（tooltip axis 触发用）。
+  ``layout(rect)`` / ``mapPoint(x, y)`` / ``paintAxes(p)`` /
+  ``paintTooltipMarker(p, pos)``；可选 ``setSeries(series_opts)``、
+  ``invertX(pos)``（tooltip axis 触发用）。
 - ``AxisModel``：category / value 轴模型，支持 name、min/max、nice ticks。
 - ``GridCoord``：直角坐标（grid 边距 + x/y 轴 + 刻度网格线）。
 - ``PolarCoord``：极坐标（radiusAxis/angleAxis，多边形/圆形网格）。
 - ``SingleAxisCoord``：横向单轴。
 - ``CalendarCoord``：GitHub 式 周(列)×星期(行) 年历网格。
-- ``nice_ticks(vmin, vmax, segments=5)``：数值轴 nice ticks 工具函数。
+- ``niceTicks(vmin, vmax, segments=5)``：数值轴 nice ticks 工具函数。
 
 构造约定：``Coord`` 子类签名为 ``(chart, option)``，``option`` 为完整
 图表 option 字典，各坐标系自取所需键（如 ``grid`` / ``xAxis`` …）。
@@ -31,11 +31,24 @@ from PyQt5.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QP
 from ._tokens import FONT_FAMILIES, T
 from ._utils import to_float as _utils_to_float
 from . import _downsample as _ds
+from . import data as _cdata
+
+#: 数据对象身份 → 数值范围的缓存（见 ``GridCoord._extent``）。
+#:
+#: **必须同时持有数据对象的强引用**（缓存值是 ``(数据对象, 范围)``）：只用
+#: ``id`` 做键时，对象被回收后 id 会被下一个对象复用，于是把别的数据的范围
+#: 当成自己的 —— 表现为换数据后轴范围莫名其妙。命中时额外用 ``is`` 复核，
+#: 强引用使这一复核恒成立，代价只是一次指针比较。
+_EXTENT_CACHE: dict = {}
+
+#: 缓存条目上限。超限整表清空（不做 LRU）：范围计算是纯函数，重建代价小，
+#: 而 LRU 的 bookkeeping 在每次缩放的热路径上不划算。
+_EXTENT_CACHE_LIMIT = 64
 
 __all__ = [
-    "nice_ticks",
-    "format_value",
-    "chart_font",
+    "niceTicks",
+    "formatValue",
+    "chartFont",
     "Coord",
     "AxisModel",
     "GridCoord",
@@ -50,7 +63,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-def chart_font(px: int = None, weight: int = None) -> QFont:
+def chartFont(px: int = None, weight: int = None) -> QFont:
     """构造图表用字体（FONT_FAMILIES 字族；px 默认 font.xs）。"""
     font = QFont()
     font.setFamilies(list(FONT_FAMILIES))
@@ -61,7 +74,7 @@ def chart_font(px: int = None, weight: int = None) -> QFont:
     return font
 
 
-def format_value(v) -> str:
+def formatValue(v) -> str:
     """数值标签格式化：整数不带小数点，其余保留至多两位小数。"""
     if v is None:
         return ""
@@ -76,7 +89,7 @@ def format_value(v) -> str:
     return str(v)
 
 
-def nice_ticks(vmin: float, vmax: float, segments: int = 5):
+def niceTicks(vmin: float, vmax: float, segments: int = 5):
     """数值轴 nice ticks。
 
     :param vmin: 数据最小值
@@ -99,6 +112,11 @@ def nice_ticks(vmin: float, vmax: float, segments: int = 5):
             vmax += pad
     segments = max(1, int(segments))
     span = vmax - vmin
+    # 端点有限不代表差值有限：±1e308 的差会溢出成 inf，随后 log10(inf)=inf、
+    # math.floor(inf) 抛 OverflowError（曾使 data:[1e308,-1e308] 直接崩掉 setOption）。
+    if not math.isfinite(span) or span <= 0.0:
+        vmin, vmax = 0.0, 1.0
+        span = 1.0
     step0 = span / segments
     mag = 10 ** math.floor(math.log10(step0)) if step0 > 0 else 1.0
     step = mag
@@ -106,8 +124,15 @@ def nice_ticks(vmin: float, vmax: float, segments: int = 5):
         if m * mag >= step0 - 1e-12:
             step = m * mag
             break
-    nice_min = math.floor(vmin / step) * step
-    nice_max = math.ceil(vmax / step) * step
+    # 端点 / step 仍可能溢出（step 极小时），先夹到有限范围再取整
+    lo_q = vmin / step
+    hi_q = vmax / step
+    if not math.isfinite(lo_q):
+        lo_q = -1e15
+    if not math.isfinite(hi_q):
+        hi_q = 1e15
+    nice_min = math.floor(lo_q) * step
+    nice_max = math.ceil(hi_q) * step
     if nice_min == nice_max:
         nice_max = nice_min + step
     # 用整数计数避免浮点累积误差
@@ -127,14 +152,16 @@ def nice_ticks(vmin: float, vmax: float, segments: int = 5):
 class Coord:
     """坐标系协议基类。
 
-    子类必须实现 ``layout`` / ``map_point`` / ``paint_axes`` /
-    ``paint_tooltip_marker``。可选：
-    ``set_series(series_opts)`` 接收原始系列 option 列表用于范围统计；
-    ``invert_x(pos)`` 由像素反推主轴数据值（tooltip axis 触发用）。
+    子类必须实现 ``layout`` / ``mapPoint`` / ``paintAxes`` /
+    ``paintTooltipMarker``。可选：
+    ``setSeries(series_opts)`` 接收原始系列 option 列表用于范围统计；
+    ``invertX(pos)`` 由像素反推主轴数据值（tooltip axis 触发用）；
+    ``invertPoint(pos)`` 像素 → 数据（``convertFromPixel``）；
+    ``containPoint(pos)`` 像素是否落在坐标系内（``containPixel``）。
     """
 
     #: 坐标系种类名（"grid" / "polar" / "singleAxis" / "calendar"），
-    #: 供 ElaChartWidget.coord_for 按 series.coordinateSystem 匹配。
+    #: 供 ElaChartWidget.coordFor 按 series.coordinateSystem 匹配。
     kind = ""
 
     def __init__(self, chart=None, option: dict = None):
@@ -147,25 +174,35 @@ class Coord:
         """按可用矩形完成几何布局。"""
         self.rect = QRectF(rect)
 
-    def map_point(self, x, y=None) -> QPointF:
+    def mapPoint(self, x, y=None) -> QPointF:
         """数据 → 像素。polar 为 (angle, radius)；calendar/single 单参。"""
         raise NotImplementedError
 
-    def paint_axes(self, p: QPainter) -> None:
+    def paintAxes(self, p: QPainter) -> None:
         """绘制轴线 / 刻度 / 网格 / 标签（主题感知，T() 实时取色）。"""
         raise NotImplementedError
 
-    def paint_tooltip_marker(self, p: QPainter, pos: QPointF) -> None:
-        """绘制十字线 / 指示线。"""
+    def paintTooltipMarker(
+        self, p: QPainter, pos: QPointF, kind: str = "cross"
+    ) -> None:
+        """绘制指示线（``kind``：line / shadow / cross / none）。"""
         raise NotImplementedError
 
     # -- 可选 ------------------------------------------------------------
-    def set_series(self, series_opts: list) -> None:
+    def setSeries(self, series_opts: list) -> None:
         """接收原始系列 option 列表（布局前调用，用于数值范围统计）。"""
 
-    def invert_x(self, pos: QPointF):
+    def invertX(self, pos: QPointF):
         """像素 → 主轴数据值（默认不支持，返回 None）。"""
         return None
+
+    def invertPoint(self, pos: QPointF):
+        """像素 → 数据值（``convertFromPixel``；默认不支持，返回 None）。"""
+        return None
+
+    def containPoint(self, pos: QPointF) -> bool:
+        """像素是否落在坐标系内（``containPixel``；默认按可用矩形判定）。"""
+        return bool(self.rect.contains(QPointF(pos)))
 
 
 # ---------------------------------------------------------------------------
@@ -192,8 +229,11 @@ def _iter_data_values(data):
 class AxisModel:
     """坐标轴模型：category（list[str]）或 value（自动 nice ticks）。
 
-    :param opt: option 中 ``xAxis`` / ``yAxis`` / ``radiusAxis`` 等子字典，
-        支持 ``type`` / ``data`` / ``name`` / ``min`` / ``max``
+    ECharts 轴键：``type`` / ``data`` / ``name`` / ``min`` / ``max`` /
+    ``boundaryGap`` / ``inverse`` / ``scale`` / ``nameLocation`` / ``nameGap`` /
+    ``interval`` / ``minInterval`` / ``maxInterval`` / ``splitNumber`` /
+    ``axisLabel`` / ``axisTick`` / ``axisLine`` / ``splitLine`` / ``splitArea``。
+
     :param default_type: opt 未给 ``type`` 时的兜底
     """
 
@@ -208,21 +248,41 @@ class AxisModel:
         self._all_categories = list(self.categories)
         self.min = opt.get("min")
         self.max = opt.get("max")
-        # value 轴：布局前由 set_extent 填充
+        self.inverse = bool(opt.get("inverse", False))
+        #: category 轴点位：True（默认）落在 band 中心，False 落在边界
+        self.boundary_gap = self._parse_boundary_gap(opt.get("boundaryGap"))
+        #: value 轴是否允许不包含 0 基线（ECharts ``scale``）
+        self.scale = bool(opt.get("scale", False))
+        self.name_location = str(opt.get("nameLocation") or "end")
+        try:
+            self.name_gap = float(opt.get("nameGap", 8))
+        except (TypeError, ValueError):
+            self.name_gap = 8.0
+        # value 轴：布局前由 setExtent 填充
         self.vmin = 0.0
         self.vmax = 1.0
         self._ticks = [0.0, 1.0]
 
+    @staticmethod
+    def _parse_boundary_gap(raw) -> bool:
+        """``boundaryGap`` 解析：bool / ``[lo, hi]``（数组视为开启）。"""
+        if raw is None:
+            return True
+        if isinstance(raw, (list, tuple)):
+            return True
+        return bool(raw)
+
     # -- 范围 ------------------------------------------------------------
-    def set_extent(
+    def setExtent(
         self,
         data_min: float = None,
         data_max: float = None,
         segments: int = 5,
     ) -> None:
-        """按数据范围计算 value 轴 nice ticks（min/max 可覆盖端点）。
+        """按数据范围计算 value 轴 nice ticks（min/max/scale 可覆盖端点）。
 
-        非法 min/max（空字符串 / 非数值 / NaN 等输入）降级为未设置。
+        非法 min/max（空字符串 / 非数值 / NaN 等输入）降级为未设置；
+        ``minInterval`` / ``maxInterval`` 约束刻度步长。
         """
         if self.type != "value":
             return
@@ -232,20 +292,51 @@ class AxisModel:
         hi = _to_float(hi, 1.0)
         user_lo = _opt_bound(self.min)
         user_hi = _opt_bound(self.max)
-        # 数据全为正时基线取 0、全为负时顶取 0，更符合常规图表观感
-        if user_lo is None and lo > 0:
+        # 数据全为正时基线取 0、全为负时顶取 0（``scale`` 可关闭该行为）
+        if user_lo is None and lo > 0 and not self.scale:
             lo = 0.0
-        if user_hi is None and hi < 0:
+        if user_hi is None and hi < 0 and not self.scale:
             hi = 0.0
         if user_lo is not None:
             lo = user_lo
         if user_hi is not None:
             hi = user_hi
-        self.vmin, self.vmax, self._ticks = nice_ticks(lo, hi, segments)
+        try:
+            segments = max(1, int(self.opt.get("splitNumber", segments)))
+        except (TypeError, ValueError):
+            pass
+        self.vmin, self.vmax, self._ticks = niceTicks(lo, hi, segments)
+        self._apply_interval_constraints()
         if user_lo is not None:
             self.vmin = user_lo
         if user_hi is not None:
             self.vmax = user_hi
+
+    def _apply_interval_constraints(self) -> None:
+        """``minInterval`` / ``maxInterval`` 约束 value 轴刻度步长。"""
+        min_iv = _opt_bound(self.opt.get("minInterval"))
+        max_iv = _opt_bound(self.opt.get("maxInterval"))
+        if min_iv is None and max_iv is None:
+            return
+        ticks = self._ticks
+        step = ticks[1] - ticks[0] if len(ticks) > 1 else None
+        if not step or step <= 0:
+            return
+        new_step = step
+        if min_iv is not None and min_iv > 0 and step < min_iv:
+            new_step = min_iv
+        elif max_iv is not None and max_iv > 0 and step > max_iv:
+            new_step = max_iv
+        if abs(new_step - step) < 1e-12:
+            return
+        start = math.floor(self.vmin / new_step) * new_step
+        end = math.ceil(self.vmax / new_step) * new_step
+        count = int(round((end - start) / new_step))
+        self.vmin, self.vmax = start, end
+        self._ticks = [
+            0.0 if abs(start + i * new_step) < new_step * 1e-9 else start + i * new_step
+            for i in range(count + 1)
+        ]
 
     def ticks(self) -> list:
         """刻度列表：category 返回类别字符串，value 返回数值列表。"""
@@ -254,19 +345,21 @@ class AxisModel:
         return list(self._ticks)
 
     # -- 映射（一维：start→end 像素区间） ----------------------------------
-    def local_index(self, value) -> int:
+    def localIndex(self, value) -> int:
         """category 轴数据值 → 窗口内下标（dataZoom 窗口外返回越界下标）。"""
         if self.type != "category":
             return value
         if isinstance(value, (int, float)) and not isinstance(value, bool):
-            return int(value) - self.window_offset()
-        return self.category_index(value)
+            return int(value) - self.windowOffset()
+        return self.categoryIndex(value)
 
     def map(self, value, start: float, end: float, *, local: bool = False) -> float:
         """数据值 → [start, end] 区间内的像素坐标。
 
         category 轴不 clamp：窗口外类别返回越界坐标，由各系列的
         clipRect 裁剪。``local=True`` 表示 value 已是窗口内下标。
+        ``boundaryGap=false`` 时类别落在边界而非 band 中心；
+        ``inverse`` 反转方向。
         """
         if self.type == "category":
             if (
@@ -276,22 +369,32 @@ class AxisModel:
             ):
                 idx = int(value)
             else:
-                idx = self.local_index(value)
+                idx = self.localIndex(value)
             n = max(1, len(self.categories))
-            band = (end - start) / n
-            return start + band * (idx + 0.5)
+            if self.boundary_gap or n <= 1:
+                frac = (idx + 0.5) / n
+            else:
+                frac = idx / (n - 1)
+            if self.inverse:
+                frac = 1.0 - frac
+            return start + (end - start) * frac
         v = _to_float(value, self.vmin)
         span = self.vmax - self.vmin
         frac = 0.0 if span == 0 else (v - self.vmin) / span
+        if self.inverse:
+            frac = 1.0 - frac
         return start + (end - start) * frac
 
-    def band_width(self, start: float, end: float) -> float:
+    def bandWidth(self, start: float, end: float) -> float:
         """category 轴单个 band 的像素宽度（value 轴返回 0）。"""
         if self.type != "category" or not self.categories:
             return 0.0
-        return abs(end - start) / len(self.categories)
+        n = len(self.categories)
+        if not self.boundary_gap and n > 1:
+            return abs(end - start) / (n - 1)
+        return abs(end - start) / n
 
-    def category_index(self, value) -> int:
+    def categoryIndex(self, value) -> int:
         """类别值（名字或序号）→ 下标（不 clamp）。"""
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return int(value)
@@ -303,7 +406,7 @@ class AxisModel:
             return all_cats.index(s)  # 窗外类别：全量下标（越界）
         return 0
 
-    def window_offset(self) -> int:
+    def windowOffset(self) -> int:
         """dataZoom 类别窗口在全量类别中的起始下标（无窗口时 0）。"""
         all_cats = getattr(self, "_all_categories", None) or []
         if self.categories and all_cats:
@@ -318,15 +421,110 @@ class AxisModel:
         if end == start:
             return 0
         frac = (px - start) / (end - start)
+        if self.inverse:
+            frac = 1.0 - frac
         if self.type == "category":
             n = max(1, len(self.categories))
-            return min(max(int(frac * n), 0), n - 1)
+            if not self.boundary_gap and n > 1:
+                idx = int(round(frac * (n - 1)))
+            else:
+                idx = int(frac * n)
+            return min(max(idx, 0), n - 1)
         return self.vmin + frac * (self.vmax - self.vmin)
 
     # -- 外观 ------------------------------------------------------------
-    def label_font(self) -> QFont:
-        """axisLabel 字体（font.xs）。"""
-        return chart_font(T("font.xs"))
+    def axisLabelOption(self) -> dict:
+        opt = self.opt.get("axisLabel")
+        return opt if isinstance(opt, dict) else {}
+
+    def axisTickOption(self) -> dict:
+        opt = self.opt.get("axisTick")
+        return opt if isinstance(opt, dict) else {}
+
+    def axisLineOption(self) -> dict:
+        opt = self.opt.get("axisLine")
+        return opt if isinstance(opt, dict) else {}
+
+    def splitLineOption(self) -> dict:
+        opt = self.opt.get("splitLine")
+        return opt if isinstance(opt, dict) else {}
+
+    def splitAreaOption(self) -> dict:
+        opt = self.opt.get("splitArea")
+        return opt if isinstance(opt, dict) else {}
+
+    def labelFont(self) -> QFont:
+        """axisLabel 字体（``axisLabel.fontSize`` → font.xs）。"""
+        label = self.axisLabelOption()
+        try:
+            size = float(label.get("fontSize", T("font.xs")))
+        except (TypeError, ValueError):
+            size = float(T("font.xs"))
+        try:
+            weight = int(label.get("fontWeight", 400))
+        except (TypeError, ValueError):
+            weight = 400
+        return chartFont(size, weight)
+
+    def labelShownAt(self, index: int, value=None) -> bool:
+        """``axisLabel.interval``：0 全部显示；N 每 N+1 显示一个；callable 判定。"""
+        label = self.axisLabelOption()
+        if label.get("show", True) is False:
+            return False
+        interval = label.get("interval", "auto")
+        if callable(interval):
+            try:
+                return bool(interval(index, value))
+            except Exception:
+                return True
+        if isinstance(interval, bool):
+            return True
+        if isinstance(interval, (int, float)):
+            step = int(interval) + 1
+            return step <= 1 or index % step == 0
+        return True
+
+    def formatTickLabel(self, value) -> str:
+        """``axisLabel.formatter``（字符串模板 ``{value}`` 或 callable）→ 文本。
+
+        value 轴 formatter 收到数值（整数值按 JS 习惯转 int）；
+        category 轴收到类别字符串。
+        """
+        label = self.axisLabelOption()
+        formatter = label.get("formatter")
+        if self.type != "category":
+            raw = (
+                int(value) if isinstance(value, float) and value.is_integer() else value
+            )
+        else:
+            raw = str(value)
+        text = formatValue(raw)
+        if callable(formatter):
+            try:
+                out = formatter(raw, 0)
+            except TypeError:
+                try:
+                    out = formatter(raw)
+                except Exception:
+                    return text
+            except Exception:
+                return text
+            return str(out) if out is not None else text
+        if isinstance(formatter, str):
+            try:
+                return formatter.format_map({"value": text})
+            except Exception:
+                return text
+        return text
+
+    def labelColor(self) -> QColor:
+        """axisLabel 文本色（``axisLabel.color`` → 次级文本色）。"""
+        raw = self.axisLabelOption().get("color")
+        if isinstance(raw, str) and raw:
+            color = QColor(raw)
+            if color.isValid():
+                return color
+        return QColor(T("color.text.secondary"))
 
 
 def _to_float(v, default=0.0) -> float:
@@ -379,13 +577,41 @@ def _margin_px(spec, total):
     return total * v / 100.0 if is_pct else v
 
 
-class GridCoord(Coord):
-    """直角坐标系：grid 边距 + x/y 轴 + 刻度网格线。
+#: lineStyle.type → Qt 画笔样式
+_PEN_STYLES = {
+    "solid": Qt.PenStyle.SolidLine,
+    "dashed": Qt.PenStyle.DashLine,
+    "dash": Qt.PenStyle.DashLine,
+    "dotted": Qt.PenStyle.DotLine,
+    "dot": Qt.PenStyle.DotLine,
+}
 
-    option 键：``grid`` {left,right,top,bottom}（默认 48/24/40/36）、
-    ``xAxis`` / ``yAxis``。边距支持数值 px 或百分比字符串（如 ``"10%"``）。
-    ``map_point(x, y)``：x 为类别名/下标或数值，y 为数值。
-    ``invert_x(pos)`` 供 tooltip axis 触发。
+
+def _line_pen(opt: dict, default_color, default_width=1.0) -> QPen:
+    """解析 ``{lineStyle: {color, width, type}}`` → QPen。"""
+    style = opt.get("lineStyle")
+    style = style if isinstance(style, dict) else {}
+    color = QColor(style.get("color") or default_color)
+    try:
+        width = max(0.5, float(style.get("width", default_width)))
+    except (TypeError, ValueError):
+        width = float(default_width)
+    pen = QPen(color, width)
+    pen.setStyle(
+        _PEN_STYLES.get(
+            str(style.get("type") or "solid").lower(), Qt.PenStyle.SolidLine
+        )
+    )
+    return pen
+
+
+class GridCoord(Coord):
+    """直角坐标系：grid 边距 + x/y 轴 + 网格 / 区域 / 刻度 / 标签。
+
+    option 键：``grid``（left/right/top/bottom 默认 48/24/40/36、``show``、
+    ``containLabel``、``borderColor`` / ``borderWidth`` / ``backgroundColor``）、
+    ``xAxis`` / ``yAxis``（见 AxisModel）。边距支持数值 px 或 ``"N%"``。
+    ``mapPoint(x, y)``：x 为类别名/下标或数值，y 为数值。
     """
 
     kind = "grid"
@@ -404,34 +630,85 @@ class GridCoord(Coord):
         self._m_bottom = _parse_margin(grid.get("bottom"), 36)
         self.m_left = self.m_right = self.m_top = self.m_bottom = 0.0
         self.plot = QRectF()  # 绘图区（扣除边距）
+        self.grid_show = bool(grid.get("show", False))
+        self.grid_border_color = grid.get("borderColor")
+        self.grid_bg = grid.get("backgroundColor")
+        try:
+            self.grid_border_width = max(0.0, float(grid.get("borderWidth", 0)))
+        except (TypeError, ValueError):
+            self.grid_border_width = 0.0
+        self.contain_label = bool(grid.get("containLabel", False))
 
     # -- 数据范围 ---------------------------------------------------------
+    def _extent(self, data):
+        """带缓存的数值范围（``(x_min, x_max, y_min, y_max)`` 或 None）。
+
+        缓存是**缩放 / 平移流畅度的关键**：``setSeries`` 在每次重建
+        （缩放、平移、数据更新、图例切换都会触发）时都重算全量范围，
+        百万点逐点扫描要 400 ms 以上。范围只取决于数据本身，与窗口无关，
+        因此按「数据对象身份 + 长度」缓存后，缩放时这一步接近零成本。
+
+        缓存值同时**持有数据对象的强引用**（见 ``_EXTENT_CACHE`` 的说明），
+        否则对象被回收后 ``id`` 会被复用，把别的数据的范围当成自己的。
+        """
+        if data is None:
+            return None
+        if _cdata.isBufferLike(data) or _ds.np is not None:
+            try:
+                key = (id(data), len(data))
+            except TypeError:
+                return self._numpy_extent(data)
+            hit = _EXTENT_CACHE.get(key)
+            if hit is not None and hit[0] is data:
+                return hit[1]
+            ext = self._numpy_extent(data)
+            if len(_EXTENT_CACHE) >= _EXTENT_CACHE_LIMIT:
+                _EXTENT_CACHE.clear()
+            _EXTENT_CACHE[key] = (data, ext)
+            return ext
+        return self._numpy_extent(data)
+
     def _numpy_extent(self, data):
         """numpy 快速路径：返回 (x_min, x_max, y_min, y_max) 或 None。
 
         纯数值列表：x 按下标语义（0 .. n-1）；[x, y] 列表：取两列；
         含字典 / None / 混合形式返回 None（调用方回退 Python 循环）。
+
+        走 ``nanmin`` / ``nanmax``：**必须**如此。``charts.data`` 把 list 里的
+        ``None`` 写成 NaN 存进缓冲区（间隙语义），用 ``min``/``max`` 会让
+        整个轴范围变成 NaN。
         """
-        if not data or _ds.np is None:
+        if data is None or _ds.np is None:
+            return None
+        try:
+            n = len(data)
+        except TypeError:
+            return None
+        if n == 0:
             return None
         try:
             arr = _ds.np.asarray(data, dtype=_ds.np.float64)
         except (TypeError, ValueError):
             return None
-        if arr.ndim == 1 and arr.size:
-            ymin, ymax = float(arr.min()), float(arr.max())
+        np_ = _ds.np
+        if arr.ndim == 1:
+            if not arr.size or not np_.isfinite(arr).any():
+                return None
+            ymin, ymax = float(np_.nanmin(arr)), float(np_.nanmax(arr))
             return 0.0, float(arr.size - 1), ymin, ymax
         if arr.ndim == 2 and arr.shape[1] >= 2 and arr.shape[0]:
             xcol, ycol = arr[:, 0], arr[:, 1]
+            if not (np_.isfinite(ycol).any() and np_.isfinite(xcol).any()):
+                return None
             return (
-                float(xcol.min()),
-                float(xcol.max()),
-                float(ycol.min()),
-                float(ycol.max()),
+                float(np_.nanmin(xcol)),
+                float(np_.nanmax(xcol)),
+                float(np_.nanmin(ycol)),
+                float(np_.nanmax(ycol)),
             )
         return None
 
-    def set_series(self, series_opts: list) -> None:
+    def setSeries(self, series_opts: list) -> None:
         ys = []
         xs = []
         for s in series_opts or []:
@@ -439,8 +716,10 @@ class GridCoord(Coord):
                 continue
             if s.get("coordinateSystem") not in (None, "cartesian2d", "grid"):
                 continue
-            data = s.get("data") or []
-            ext = self._numpy_extent(data)
+            data = s.get("data")
+            if data is None:
+                data = []
+            ext = self._extent(data)
             if ext is not None:
                 x0, x1, y0, y1 = ext
                 ys.extend((y0, y1))
@@ -459,14 +738,14 @@ class GridCoord(Coord):
                         # 纯数值数据：x 取下标（index 语义），保证 value-x 轴范围正确
                         xs.append(float(i))
         if ys:
-            self.y_axis.set_extent(min(ys), max(ys))
+            self.y_axis.setExtent(min(ys), max(ys))
         else:
-            self.y_axis.set_extent(0.0, 1.0)
+            self.y_axis.setExtent(0.0, 1.0)
         if self.x_axis.type == "value":
             if xs:
-                self.x_axis.set_extent(min(xs), max(xs))
+                self.x_axis.setExtent(min(xs), max(xs))
             else:
-                self.x_axis.set_extent(0.0, 1.0)
+                self.x_axis.setExtent(0.0, 1.0)
 
     # -- 协议 -------------------------------------------------------------
     def layout(self, rect: QRectF) -> None:
@@ -476,6 +755,8 @@ class GridCoord(Coord):
         self.m_right = _margin_px(self._m_right, rect.width())
         self.m_top = _margin_px(self._m_top, rect.height())
         self.m_bottom = _margin_px(self._m_bottom, rect.height())
+        if self.contain_label:
+            self._apply_contain_label(rect)
         self.plot = QRectF(
             rect.left() + self.m_left,
             rect.top() + self.m_top,
@@ -483,30 +764,146 @@ class GridCoord(Coord):
             max(10.0, rect.height() - self.m_top - self.m_bottom),
         )
 
-    def map_point(self, x, y=None) -> QPointF:
+    def _apply_contain_label(self, rect: QRectF) -> None:
+        """``grid.containLabel``：边距按轴标签实际尺寸扩到够放。"""
+        font = self.y_axis.labelFont()
+        fm = QFontMetricsF(font)
+        if self.y_axis.axisLabelOption().get("show", True) is not False:
+            width = 0.0
+            for tv in self.y_axis.ticks():
+                width = max(
+                    width, fm.horizontalAdvance(self.y_axis.formatTickLabel(tv))
+                )
+            self.m_left = max(self.m_left, width + 12)
+        if self.x_axis.axisLabelOption().get("show", True) is not False:
+            self.m_bottom = max(self.m_bottom, fm.height() + 12)
+
+    def mapPoint(self, x, y=None) -> QPointF:
         px = self.x_axis.map(x, self.plot.left(), self.plot.right())
         py = self.y_axis.map(_to_float(y), self.plot.bottom(), self.plot.top())
         return QPointF(px, py)
 
-    def invert_x(self, pos: QPointF):
+    def invertX(self, pos: QPointF):
         return self.x_axis.invert(pos.x(), self.plot.left(), self.plot.right())
 
-    def paint_axes(self, p: QPainter) -> None:
-        p.save()
-        font = self.x_axis.label_font()
+    def invertPoint(self, pos: QPointF):
+        """像素 → ``[x, y]``（category 轴返回窗口内下标）。"""
+        return [
+            self.x_axis.invert(pos.x(), self.plot.left(), self.plot.right()),
+            self.y_axis.invert(pos.y(), self.plot.bottom(), self.plot.top()),
+        ]
+
+    def containPoint(self, pos: QPointF) -> bool:
+        return self.plot.contains(QPointF(pos))
+
+    # -- 绘制 -------------------------------------------------------------
+    def _axis_positions(self, axis: AxisModel, horizontal: bool):
+        """轴刻度位置列表 ``[(px, py, label, index)]``（category 用本地下标映射）。"""
+        out = []
+        if axis.type == "category":
+            for i, label in enumerate(axis.categories):
+                if horizontal:
+                    py = axis.map(i, self.plot.bottom(), self.plot.top(), local=True)
+                    out.append((self.plot.left(), py, str(label), i))
+                else:
+                    px = axis.map(i, self.plot.left(), self.plot.right(), local=True)
+                    out.append((px, self.plot.bottom(), str(label), i))
+        else:
+            for tv in axis.ticks():
+                if horizontal:
+                    py = axis.map(tv, self.plot.bottom(), self.plot.top())
+                    out.append((self.plot.left(), py, axis.formatTickLabel(tv), tv))
+                else:
+                    px = axis.map(tv, self.plot.left(), self.plot.right())
+                    out.append((px, self.plot.bottom(), axis.formatTickLabel(tv), tv))
+        return out
+
+    def _paint_split_area(self, p: QPainter) -> None:
+        for axis, horizontal in ((self.y_axis, True), (self.x_axis, False)):
+            opt = axis.splitAreaOption()
+            if not bool(opt.get("show", False)):
+                continue
+            area = opt.get("areaStyle")
+            colors = (area or {}).get("color") if isinstance(area, dict) else None
+            if not isinstance(colors, list) or not colors:
+                colors = [T("color.bg.muted")]
+            positions = self._axis_positions(axis, horizontal)
+            spans = []
+            for i, (px, py, _label, _idx) in enumerate(positions):
+                spans.append(py if horizontal else px)
+            for i in range(len(spans) - 1):
+                lo, hi = sorted((spans[i], spans[i + 1]))
+                color = QColor(colors[i % len(colors)])
+                if not color.isValid():
+                    continue
+                if horizontal:
+                    rect = QRectF(self.plot.left(), lo, self.plot.width(), hi - lo)
+                else:
+                    rect = QRectF(lo, self.plot.top(), hi - lo, self.plot.height())
+                p.fillRect(rect, color)
+
+    def _paint_split_lines(self, p: QPainter) -> None:
+        for axis, horizontal in ((self.y_axis, True), (self.x_axis, False)):
+            opt = axis.splitLineOption()
+            # ECharts 默认：value 轴显示网格线，category 轴不显示
+            default_show = axis.type == "value"
+            if not bool(opt.get("show", default_show)):
+                continue
+            p.setPen(_line_pen(opt, T("color.border")))
+            for px, py, _label, _idx in self._axis_positions(axis, horizontal):
+                if horizontal:
+                    p.drawLine(
+                        QPointF(self.plot.left(), py), QPointF(self.plot.right(), py)
+                    )
+                else:
+                    p.drawLine(
+                        QPointF(px, self.plot.top()), QPointF(px, self.plot.bottom())
+                    )
+
+    def _paint_axis_lines(self, p: QPainter) -> None:
+        for axis, points in (
+            (self.x_axis, (self.plot.bottomLeft(), self.plot.bottomRight())),
+            (self.y_axis, (self.plot.bottomLeft(), self.plot.topLeft())),
+        ):
+            opt = axis.axisLineOption()
+            if not bool(opt.get("show", True)):
+                continue
+            p.setPen(_line_pen(opt, T("color.border.strong")))
+            p.drawLine(points[0], points[1])
+
+    def _paint_ticks(self, p: QPainter) -> None:
+        for axis, horizontal in ((self.y_axis, True), (self.x_axis, False)):
+            opt = axis.axisTickOption()
+            if not bool(opt.get("show", True)):
+                continue
+            inside = bool(opt.get("inside", False))
+            try:
+                length = max(1.0, float(opt.get("length", 5)))
+            except (TypeError, ValueError):
+                length = 5.0
+            p.setPen(_line_pen(opt, T("color.border.strong")))
+            for px, py, _label, _idx in self._axis_positions(axis, horizontal):
+                if horizontal:
+                    x = self.plot.left()
+                    p.drawLine(
+                        QPointF(x, py), QPointF(x + (length if inside else -length), py)
+                    )
+                else:
+                    y = self.plot.bottom()
+                    p.drawLine(
+                        QPointF(px, y), QPointF(px, y - (length if inside else -length))
+                    )
+
+    def _paint_axis_labels(self, p: QPainter) -> None:
+        # y 轴标签（右对齐到轴线左侧）
+        font = self.y_axis.labelFont()
         p.setFont(font)
         fm = QFontMetricsF(font)
-        c_grid = QColor(T("color.border"))
-        c_axis = QColor(T("color.border.strong"))
-        c_text = QColor(T("color.text.secondary"))
-        c_name = QColor(T("color.text.tertiary"))
-
-        # y 轴：水平网格线 + 刻度标签
-        for tv in self.y_axis.ticks():
-            py = self.y_axis.map(tv, self.plot.bottom(), self.plot.top())
-            p.setPen(QPen(c_grid, 1))
-            p.drawLine(QPointF(self.plot.left(), py), QPointF(self.plot.right(), py))
-            p.setPen(c_text)
+        color = self.y_axis.labelColor()
+        for px, py, label, idx in self._axis_positions(self.y_axis, True):
+            if not self.y_axis.labelShownAt(idx, label):
+                continue
+            p.setPen(color)
             p.drawText(
                 QRectF(
                     self.rect.left(),
@@ -515,75 +912,143 @@ class GridCoord(Coord):
                     fm.height(),
                 ),
                 Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                format_value(tv),
+                label,
             )
-        # x 轴：类别标签 / 数值刻度 + 纵向网格线
-        if self.x_axis.type == "category":
-            for i, cat in enumerate(self.x_axis.categories):
-                px = self.x_axis.map(i, self.plot.left(), self.plot.right(), local=True)
-                p.setPen(QPen(c_grid, 1))
-                p.drawLine(
-                    QPointF(px, self.plot.top()), QPointF(px, self.plot.bottom())
-                )
-                p.setPen(c_text)
+        # x 轴标签（居中于刻度，可按 axisLabel.rotate 旋转）
+        font = self.x_axis.labelFont()
+        p.setFont(font)
+        fm = QFontMetricsF(font)
+        color = self.x_axis.labelColor()
+        try:
+            rotate = float(self.x_axis.axisLabelOption().get("rotate", 0) or 0)
+        except (TypeError, ValueError):
+            rotate = 0.0
+        for px, py, label, idx in self._axis_positions(self.x_axis, False):
+            if not self.x_axis.labelShownAt(idx, label):
+                continue
+            p.setPen(color)
+            if abs(rotate) < 1e-6:
                 p.drawText(
-                    QRectF(px - 40, self.plot.bottom() + 4, 80, fm.height()),
+                    QRectF(px - 40, self.plot.bottom() + 5, 80, fm.height()),
                     Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                    str(cat),
+                    label,
                 )
-        else:
-            for tv in self.x_axis.ticks():
-                px = self.x_axis.map(tv, self.plot.left(), self.plot.right())
-                p.setPen(QPen(c_grid, 1))
-                p.drawLine(
-                    QPointF(px, self.plot.top()), QPointF(px, self.plot.bottom())
-                )
-                p.setPen(c_text)
+            else:
+                p.save()
+                p.translate(px, self.plot.bottom() + 5 + fm.height() / 2)
+                p.rotate(rotate)
                 p.drawText(
-                    QRectF(px - 40, self.plot.bottom() + 4, 80, fm.height()),
-                    Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                    format_value(tv),
+                    QRectF(-60, -fm.height() / 2, 120, fm.height()),
+                    Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+                    label,
                 )
-        # 轴线（下 / 左）
-        p.setPen(QPen(c_axis, 1))
-        p.drawLine(self.plot.bottomLeft(), self.plot.bottomRight())
-        p.drawLine(self.plot.bottomLeft(), self.plot.topLeft())
-        # 轴名称
+                p.restore()
+
+    def _paint_axis_names(self, p: QPainter) -> None:
+        c_name = QColor(T("color.text.tertiary"))
         if self.x_axis.name:
             p.setPen(c_name)
-            p.drawText(
-                QRectF(
-                    self.plot.right() - 80,
-                    self.plot.bottom() + 4 + fm.height(),
-                    80,
-                    fm.height(),
-                ),
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop,
-                self.x_axis.name,
-            )
+            fm = QFontMetricsF(self.x_axis.labelFont())
+            base_y = self.plot.bottom() + self.x_axis.name_gap
+            if self.x_axis.name_location == "start":
+                p.drawText(
+                    QRectF(self.plot.left() - 40, base_y, 80, fm.height()),
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
+                    self.x_axis.name,
+                )
+            elif self.x_axis.name_location == "middle":
+                p.drawText(
+                    QRectF(self.plot.center().x() - 60, base_y, 120, fm.height()),
+                    Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                    self.x_axis.name,
+                )
+            else:  # end（默认）
+                p.drawText(
+                    QRectF(self.plot.right() - 80, base_y, 80, fm.height()),
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop,
+                    self.x_axis.name,
+                )
         if self.y_axis.name:
             p.setPen(c_name)
-            p.drawText(
-                QRectF(
-                    self.rect.left(),
-                    self.plot.top() - fm.height() - 4,
-                    120,
-                    fm.height(),
-                ),
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom,
-                self.y_axis.name,
+            fm = QFontMetricsF(self.y_axis.labelFont())
+            if self.y_axis.name_location == "start":
+                y = self.plot.bottom() - fm.height()
+                x = self.plot.left() + 4
+                p.drawText(
+                    QRectF(x, y, 120, fm.height()),
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom,
+                    self.y_axis.name,
+                )
+            elif self.y_axis.name_location == "middle":
+                p.drawText(
+                    QRectF(
+                        self.rect.left(),
+                        self.plot.center().y() - fm.height() / 2,
+                        120,
+                        fm.height(),
+                    ),
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                    self.y_axis.name,
+                )
+            else:  # end（默认，轴顶）
+                p.drawText(
+                    QRectF(
+                        self.rect.left(),
+                        self.plot.top() - fm.height() - 4,
+                        120,
+                        fm.height(),
+                    ),
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom,
+                    self.y_axis.name,
+                )
+
+    def paintAxes(self, p: QPainter) -> None:
+        p.save()
+        # grid 背景 / 边框
+        if self.grid_bg:
+            p.fillRect(self.plot, QColor(self.grid_bg))
+        if self.grid_show and self.grid_border_width > 0:
+            p.setPen(
+                QPen(
+                    QColor(self.grid_border_color or T("color.border")),
+                    self.grid_border_width,
+                )
             )
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRect(self.plot)
+        self._paint_split_area(p)
+        self._paint_split_lines(p)
+        self._paint_axis_lines(p)
+        self._paint_ticks(p)
+        self._paint_axis_labels(p)
+        self._paint_axis_names(p)
         p.restore()
 
-    def paint_tooltip_marker(self, p: QPainter, pos: QPointF) -> None:
+    def paintTooltipMarker(
+        self, p: QPainter, pos: QPointF, kind: str = "cross"
+    ) -> None:
+        if kind == "none":
+            return
         p.save()
         pen = QPen(QColor(T("color.border.strong")), 1)
         pen.setStyle(Qt.PenStyle.DashLine)
         p.setPen(pen)
         x = min(max(pos.x(), self.plot.left()), self.plot.right())
         y = min(max(pos.y(), self.plot.top()), self.plot.bottom())
-        p.drawLine(QPointF(x, self.plot.top()), QPointF(x, self.plot.bottom()))
-        p.drawLine(QPointF(self.plot.left(), y), QPointF(self.plot.right(), y))
+        if kind == "shadow":
+            band = self.x_axis.bandWidth(self.plot.left(), self.plot.right())
+            width = band if band > 1.0 else 8.0
+            shadow = QColor(T("color.bg.muted"))
+            shadow.setAlpha(90)
+            p.fillRect(
+                QRectF(x - width / 2, self.plot.top(), width, self.plot.height()),
+                shadow,
+            )
+        elif kind == "line":
+            p.drawLine(QPointF(x, self.plot.top()), QPointF(x, self.plot.bottom()))
+        else:  # cross（默认）
+            p.drawLine(QPointF(x, self.plot.top()), QPointF(x, self.plot.bottom()))
+            p.drawLine(QPointF(self.plot.left(), y), QPointF(self.plot.right(), y))
         p.restore()
 
 
@@ -621,8 +1086,9 @@ def _datum_x(item):
 class PolarCoord(Coord):
     """极坐标系：radiusAxis（value）+ angleAxis（category/value）。
 
-    option 键：``polar`` {"shape": "polygon"|"circle"}、``radiusAxis``、
-    ``angleAxis``。``map_point(angle, radius)``：angle 为类别名/下标或数值，
+    option 键：``polar`` {``radius``（数值 / ``"N%"`` / ``[inner, outer]``，
+    默认 ``"80%"``）、``center``（``["50%", "50%"]``）、``radiusAxis``、
+    ``angleAxis``。``mapPoint(angle, radius)``：angle 为类别名/下标或数值，
     radius 为数值；角度自正上方起顺时针。
     """
 
@@ -631,15 +1097,21 @@ class PolarCoord(Coord):
     def __init__(self, chart=None, option: dict = None):
         super().__init__(chart, option)
         polar = dict(self.option.get("polar") or {})
-        self.shape = str(polar.get("shape") or "polygon")
         aopt = dict(self.option.get("angleAxis") or {})
         a_default = "category" if aopt.get("data") else "value"
         self.angle_axis = AxisModel(aopt, a_default)
         self.radius_axis = AxisModel(dict(self.option.get("radiusAxis") or {}), "value")
+        self._radius_opt = polar.get("radius", "80%")
+        center = polar.get("center")
+        self._center_opt = (
+            list(center)
+            if isinstance(center, (list, tuple)) and len(center) >= 2
+            else ["50%", "50%"]
+        )
         self.center = QPointF()
         self.radius = 1.0
 
-    def set_series(self, series_opts: list) -> None:
+    def setSeries(self, series_opts: list) -> None:
         rs = []
         for s in series_opts or []:
             if not isinstance(s, dict) or s.get("coordinateSystem") != "polar":
@@ -649,27 +1121,52 @@ class PolarCoord(Coord):
                 if r is not None:
                     rs.append(r)
         if rs:
-            self.radius_axis.set_extent(0.0, max(rs))
+            self.radius_axis.setExtent(0.0, max(rs))
         else:
-            self.radius_axis.set_extent(0.0, 1.0)
+            self.radius_axis.setExtent(0.0, 1.0)
         if self.angle_axis.type == "value":
-            self.angle_axis.set_extent(0.0, 360.0, segments=4)
+            self.angle_axis.setExtent(0.0, 360.0, segments=4)
+
+    @staticmethod
+    def _extent_px(value, avail: float, default_frac: float) -> float:
+        """极坐标 radius / center 分量：数值 px、``"N%"`` 或非法 → 默认比例。"""
+        if value is None:
+            return avail * default_frac
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+        text = str(value).strip()
+        if text.endswith("%"):
+            try:
+                return avail * float(text[:-1]) / 100.0
+            except ValueError:
+                return avail * default_frac
+        try:
+            return float(text)
+        except ValueError:
+            return avail * default_frac
 
     def layout(self, rect: QRectF) -> None:
         super().layout(rect)
-        margin = 28.0  # 外圈类别标签预留
-        self.center = rect.center()
-        self.radius = max(10.0, min(rect.width(), rect.height()) / 2 - margin)
+        cx = self._extent_px(self._center_opt[0], rect.width(), 0.5)
+        cy = self._extent_px(self._center_opt[1], rect.height(), 0.5)
+        self.center = QPointF(rect.left() + cx, rect.top() + cy)
+        radius_opt = self._radius_opt
+        if isinstance(radius_opt, (list, tuple)):
+            radius_opt = radius_opt[-1] if radius_opt else "80%"
+        self.radius = max(
+            10.0,
+            self._extent_px(radius_opt, min(rect.width(), rect.height()) / 2, 0.8),
+        )
 
     def _angle_frac(self, angle) -> float:
         ax = self.angle_axis
         if ax.type == "category":
             n = max(1, len(ax.categories))
-            return (ax.category_index(angle) % n) / n
+            return (ax.categoryIndex(angle) % n) / n
         span = ax.vmax - ax.vmin
         return 0.0 if span == 0 else (_to_float(angle) - ax.vmin) / span
 
-    def map_point(self, x, y=None) -> QPointF:
+    def mapPoint(self, x, y=None) -> QPointF:
         """(angle, radius) → 像素。angle 类别/数值；radius 数值。"""
         frac = self._angle_frac(x)
         theta = -math.pi / 2 + frac * 2 * math.pi  # 正上方起顺时针
@@ -681,35 +1178,40 @@ class PolarCoord(Coord):
             self.center.x() + r * math.cos(theta), self.center.y() + r * math.sin(theta)
         )
 
+    def invertPoint(self, pos: QPointF):
+        """像素 → ``[angle, radius]``（category 角轴返回下标）。"""
+        dx = pos.x() - self.center.x()
+        dy = pos.y() - self.center.y()
+        r = math.hypot(dx, dy)
+        r_span = self.radius_axis.vmax - self.radius_axis.vmin
+        r_frac = (r / self.radius) if self.radius else 0.0
+        radius_val = self.radius_axis.vmin + min(max(r_frac, 0.0), 1.0) * r_span
+        frac = ((math.atan2(dy, dx) + math.pi / 2) % (2 * math.pi)) / (2 * math.pi)
+        if self.angle_axis.type == "category":
+            n = max(1, len(self.angle_axis.categories))
+            angle = min(int(frac * n), n - 1)
+        else:
+            span = self.angle_axis.vmax - self.angle_axis.vmin
+            angle = self.angle_axis.vmin + frac * span
+        return [angle, radius_val]
+
+    def containPoint(self, pos: QPointF) -> bool:
+        return (
+            math.hypot(pos.x() - self.center.x(), pos.y() - self.center.y())
+            <= self.radius + 1e-6
+        )
+
     def _ring_path(self, frac: float) -> QPainterPath:
         r = self.radius * frac
         path = QPainterPath()
-        if (
-            self.shape == "circle"
-            or self.angle_axis.type != "category"
-            or not self.angle_axis.categories
-        ):
-            path.addEllipse(self.center, r, r)
-            return path
-        n = len(self.angle_axis.categories)
-        for i in range(n):
-            theta = -math.pi / 2 + i / n * 2 * math.pi
-            pt = QPointF(
-                self.center.x() + r * math.cos(theta),
-                self.center.y() + r * math.sin(theta),
-            )
-            if i == 0:
-                path.moveTo(pt)
-            else:
-                path.lineTo(pt)
-        path.closeSubpath()
+        path.addEllipse(self.center, r, r)
         return path
 
-    def paint_axes(self, p: QPainter) -> None:
+    def paintAxes(self, p: QPainter) -> None:
         p.save()
         c_grid = QColor(T("color.border"))
         c_text = QColor(T("color.text.secondary"))
-        font = self.radius_axis.label_font()
+        font = self.radius_axis.labelFont()
         p.setFont(font)
         fm = QFontMetricsF(font)
         ticks = self.radius_axis.ticks()
@@ -750,20 +1252,25 @@ class PolarCoord(Coord):
                     fm.height(),
                 ),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                format_value(tv),
+                formatValue(tv),
             )
         p.restore()
 
-    def paint_tooltip_marker(self, p: QPainter, pos: QPointF) -> None:
+    def paintTooltipMarker(
+        self, p: QPainter, pos: QPointF, kind: str = "cross"
+    ) -> None:
+        if kind == "none":
+            return
         p.save()
         pen = QPen(QColor(T("color.border.strong")), 1)
         pen.setStyle(Qt.PenStyle.DashLine)
         p.setPen(pen)
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawLine(self.center, pos)
-        r = math.hypot(pos.x() - self.center.x(), pos.y() - self.center.y())
-        if r > 1:
-            p.drawEllipse(self.center, r, r)
+        if kind == "cross":
+            r = math.hypot(pos.x() - self.center.x(), pos.y() - self.center.y())
+            if r > 1:
+                p.drawEllipse(self.center, r, r)
         p.restore()
 
 
@@ -777,7 +1284,7 @@ class SingleAxisCoord(Coord):
 
     option 键：``singleAxis`` {left,right,top,bottom,type,min,max,name}
     （left/right 默认 40；top/bottom 不给时取可用区垂直居中）。
-    ``map_point(value)`` 单参调用，返回轴线上像素点。
+    ``mapPoint(value)`` 单参调用，返回轴线上像素点。
     """
 
     kind = "singleAxis"
@@ -795,16 +1302,16 @@ class SingleAxisCoord(Coord):
         self.line_y = 0.0
         self.plot = QRectF()
 
-    def set_series(self, series_opts: list) -> None:
+    def setSeries(self, series_opts: list) -> None:
         vs = []
         for s in series_opts or []:
             if not isinstance(s, dict) or s.get("coordinateSystem") != "singleAxis":
                 continue
             vs.extend(_iter_data_values(s.get("data")))
         if vs:
-            self.axis.set_extent(min(vs), max(vs))
+            self.axis.setExtent(min(vs), max(vs))
         else:
-            self.axis.set_extent(0.0, 1.0)
+            self.axis.setExtent(0.0, 1.0)
 
     def layout(self, rect: QRectF) -> None:
         super().layout(rect)
@@ -823,19 +1330,32 @@ class SingleAxisCoord(Coord):
         self.line_y = y
         self.plot = QRectF(left, y, max(10.0, right - left), 0.0)
 
-    def map_point(self, x, y=None) -> QPointF:
+    def mapPoint(self, x, y=None) -> QPointF:
         px = self.axis.map(x, self.plot.left(), self.plot.right())
         return QPointF(px, self.line_y)
 
-    def invert_x(self, pos: QPointF):
+    def invertX(self, pos: QPointF):
         return self.axis.invert(pos.x(), self.plot.left(), self.plot.right())
 
-    def paint_axes(self, p: QPainter) -> None:
+    def invertPoint(self, pos: QPointF):
+        """像素 → 轴数值（单轴返回标量）。"""
+        return self.axis.invert(pos.x(), self.plot.left(), self.plot.right())
+
+    def containPoint(self, pos: QPointF) -> bool:
+        rect = QRectF(
+            self.plot.left(),
+            self.line_y - 12.0,
+            max(1.0, self.plot.width()),
+            24.0,
+        )
+        return rect.contains(QPointF(pos))
+
+    def paintAxes(self, p: QPainter) -> None:
         p.save()
         c_axis = QColor(T("color.border.strong"))
         c_grid = QColor(T("color.border"))
         c_text = QColor(T("color.text.secondary"))
-        font = self.axis.label_font()
+        font = self.axis.labelFont()
         p.setFont(font)
         fm = QFontMetricsF(font)
         p.setPen(QPen(c_axis, 1))
@@ -851,7 +1371,7 @@ class SingleAxisCoord(Coord):
             p.drawText(
                 QRectF(px - 40, self.line_y + 6, 80, fm.height()),
                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                format_value(tv),
+                formatValue(tv),
             )
         if self.axis.name:
             p.setPen(QColor(T("color.text.tertiary")))
@@ -867,7 +1387,11 @@ class SingleAxisCoord(Coord):
             )
         p.restore()
 
-    def paint_tooltip_marker(self, p: QPainter, pos: QPointF) -> None:
+    def paintTooltipMarker(
+        self, p: QPainter, pos: QPointF, kind: str = "cross"
+    ) -> None:
+        if kind == "none":
+            return
         p.save()
         pen = QPen(QColor(T("color.border.strong")), 1)
         pen.setStyle(Qt.PenStyle.DashLine)
@@ -881,7 +1405,6 @@ class SingleAxisCoord(Coord):
 # 日历坐标系
 # ---------------------------------------------------------------------------
 
-_WEEKDAY_LABELS = {0: "周一", 2: "周三", 4: "周五"}  # 行下标 -> 标签
 _MONTH_LABELS = [
     "1月",
     "2月",
@@ -899,13 +1422,17 @@ _MONTH_LABELS = [
 
 
 class CalendarCoord(Coord):
-    """日历坐标系：GitHub 式 周(列)×星期(行) 年历网格。
+    """日历坐标系：GitHub 式 周×星期 网格（ECharts ``calendar``）。
 
-    option 键：``calendar`` {"year": int, "cellSize": px 或 "auto",
-    "range": ["YYYY-MM-DD", "YYYY-MM-DD"]（可选，默认全年；支持跨年 range，
-    月份标签逐月遍历）}。行 = 星期（0=周一 … 6=周日），列 = 周序。
-    ``map_point(date)`` 单参：日期（"YYYY-MM-DD" / datetime.date / (y,m,d)）
-    → 单元格中心；``cell_rect(date)`` → 单元格矩形；``date_at(pos)`` 反查。
+    option 键：``calendar``：``range``（``2026`` / ``"2026"`` /
+    ``["2026-01-01", "2026-12-31"]``，缺省当前年）、``orient``
+    （``"horizontal"`` 默认 / ``"vertical"``）、``cellSize``（px 或 ``"auto"``）、
+    ``dayLabel`` {show, firstDay（0=周日 … 6=周六，或 "sunday"/"monday"）}、
+    ``monthLabel`` {show}、``yearLabel`` {show}、``splitLine``
+    {show, lineStyle}、``itemStyle`` {color, borderColor, borderWidth}。
+
+    行 / 列 = 星期与周序（orient 决定转置）；``mapPoint(date)`` 单参 →
+    单元格中心；``cellRect(date)``；``dateAt(pos)`` 反查。
     """
 
     kind = "calendar"
@@ -914,24 +1441,83 @@ class CalendarCoord(Coord):
         super().__init__(chart, option)
         cal = dict(self.option.get("calendar") or {})
         self.cal_opt = cal
-        # 非法 year（如 "abc"）降级为当前年份，不崩溃
-        try:
-            self.year = int(cal.get("year") or date.today().year)
-        except (TypeError, ValueError):
-            self.year = date.today().year
+        self.start, self.end = self._resolve_range(cal.get("range"))
+        self.year = self.start.year
+        self._vertical = str(cal.get("orient") or "horizontal") == "vertical"
+        day_label = cal.get("dayLabel")
+        self._day_label = day_label if isinstance(day_label, dict) else {}
+        month_label = cal.get("monthLabel")
+        self._month_label = month_label if isinstance(month_label, dict) else {}
+        year_label = cal.get("yearLabel")
+        self._year_label = year_label if isinstance(year_label, dict) else {}
+        split = cal.get("splitLine")
+        self._split_line = split if isinstance(split, dict) else {}
+        item_style = cal.get("itemStyle")
+        self._item_style = item_style if isinstance(item_style, dict) else {}
         self.cell_size_opt = cal.get("cellSize", 14)
-        rng = cal.get("range")
-        if isinstance(rng, (list, tuple)) and len(rng) >= 2:
-            self.start = self._parse_date(rng[0]) or date(self.year, 1, 1)
-            self.end = self._parse_date(rng[1]) or date(self.year, 12, 31)
-        else:
-            self.start = date(self.year, 1, 1)
-            self.end = date(self.year, 12, 31)
-        if self.end < self.start:
-            self.start, self.end = self.end, self.start
+        self._row_offset = self._parse_first_day(self._day_label.get("firstDay"))
+        self.show_week_labels = bool(self._day_label.get("show", True))
+        self.show_month_labels = bool(self._month_label.get("show", True))
+        self.show_year_label = bool(self._year_label.get("show", True))
         self._cell = 14.0
-        self._origin = QPointF()  # 第一列（周）左上角
+        self._origin = QPointF()  # 网格左上角（orient 转置后）
         self._weeks = 1
+
+    # -- 选项 -------------------------------------------------------------
+    @staticmethod
+    def _parse_first_day(value) -> int:
+        """``dayLabel.firstDay`` → 行号偏移（周日=6，周一=0）。默认周日在上。"""
+        text = str(value).strip().lower() if value is not None else ""
+        if text in ("monday", "mon", "1"):
+            return 0
+        if text in ("", "0", "sunday", "sun"):
+            return 6  # 0 = 周日（默认）
+        try:
+            first = int(value) % 7
+        except (TypeError, ValueError):
+            return 6
+        return (first - 1) % 7
+
+    @classmethod
+    def _resolve_range(cls, rng):
+        """``calendar.range`` → ``(start, end)``。
+
+        支持年份（``2026`` / ``"2026"``）、单日期、``[start, end]`` 或
+        ``["2026"]``；非法 / 缺省回退当前年。
+        """
+        today = date.today()
+        year = today.year
+        if rng is None:
+            return date(year, 1, 1), date(year, 12, 31)
+        if isinstance(rng, (int, float)) and not isinstance(rng, bool):
+            year = int(rng)
+            return date(year, 1, 1), date(year, 12, 31)
+        if isinstance(rng, str):
+            text = rng.strip()
+            if len(text) == 4 and text.isdigit():
+                year = int(text)
+                return date(year, 1, 1), date(year, 12, 31)
+            parsed = cls._parse_date(text)
+            if parsed is not None:
+                return parsed, parsed
+            return date(year, 1, 1), date(year, 12, 31)
+        if isinstance(rng, (list, tuple)):
+            items = list(rng)
+            if len(items) == 1:
+                items.append(None)
+            start = cls._parse_date(items[0])
+            end = cls._parse_date(items[1]) if len(items) > 1 else None
+            if start is None and isinstance(items[0], (int, float)):
+                year = int(items[0])
+                return date(year, 1, 1), date(year, 12, 31)
+            if start is None:
+                start = date(year, 1, 1)
+            if end is None:
+                end = date(start.year, 12, 31)
+            if end < start:
+                start, end = end, start
+            return start, end
+        return date(year, 1, 1), date(year, 12, 31)
 
     # -- 日期工具 ---------------------------------------------------------
     @staticmethod
@@ -952,11 +1538,18 @@ class CalendarCoord(Coord):
                 return None
         return None
 
-    def _first_monday(self) -> date:
-        return self.start - timedelta(days=self.start.weekday())
+    def _first_column_start(self) -> date:
+        """首格对应的日期（按 ``dayLabel.firstDay`` 对齐）。"""
+        return self.start - timedelta(
+            days=(self.start.weekday() - self._row_offset) % 7
+        )
+
+    def _row_of(self, day: date) -> int:
+        """日期 → 星期行号（0 = 首行，按 firstDay）。"""
+        return (day.weekday() - self._row_offset) % 7
 
     def _month_dates(self) -> list:
-        """start→end 逐月 1 日列表（跨年 range 正确，不依赖 self.year）。"""
+        """start→end 逐月 1 日列表（跨年 range 正确）。"""
         out = []
         d = date(self.start.year, self.start.month, 1)
         while d <= self.end:
@@ -967,33 +1560,42 @@ class CalendarCoord(Coord):
                 d = date(d.year, d.month + 1, 1)
         return out
 
+    def _grid_xy(self, week_index: int, weekday_row: int):
+        """(周序, 星期行) → 网格 (列, 行)（``orient`` 转置）。"""
+        if self._vertical:
+            return weekday_row, week_index
+        return week_index, weekday_row
+
     # -- 协议 -------------------------------------------------------------
     def layout(self, rect: QRectF) -> None:
         super().layout(rect)
-        label_top = 16.0  # 月份标签高度
-        label_left = 28.0  # 星期标签宽度
-        first = self._first_monday()
+        label_top = 16.0  # 月份 / 星期标签带
+        label_left = 28.0  # 星期 / 月份标签带
+        if self._vertical:
+            label_top = 18.0
+            label_left = 36.0
+        first = self._first_column_start()
         self._weeks = max(1, (self.end - first).days // 7 + 1)
+        cols = 7 if self._vertical else self._weeks
+        rows = self._weeks if self._vertical else 7
         avail_w = max(20.0, rect.width() - label_left - 4)
         avail_h = max(20.0, rect.height() - label_top - 4)
         if str(self.cell_size_opt).lower() == "auto":
-            self._cell = max(3.0, min(avail_w / self._weeks, avail_h / 7.0))
+            self._cell = max(3.0, min(avail_w / cols, avail_h / rows))
         else:
             self._cell = max(3.0, _to_float(self.cell_size_opt, 14.0))
-        # 水平居中
-        grid_w = self._cell * self._weeks
+        grid_w = self._cell * cols
         ox = rect.left() + label_left + max(0.0, (avail_w - grid_w) / 2)
         self._origin = QPointF(ox, rect.top() + label_top)
 
-    def cell_rect(self, day) -> QRectF:
+    def cellRect(self, day) -> QRectF:
         """日期 → 单元格矩形（无法解析 / 范围外返回空矩形）。"""
         d = self._parse_date(day)
         if d is None or d < self.start or d > self.end:
             return QRectF()
-        first = self._first_monday()
-        delta = (d - first).days
-        col = delta // 7
-        row = d.weekday()
+        first = self._first_column_start()
+        week_index = (d - first).days // 7
+        col, row = self._grid_xy(week_index, self._row_of(d))
         return QRectF(
             self._origin.x() + col * self._cell,
             self._origin.y() + row * self._cell,
@@ -1001,78 +1603,161 @@ class CalendarCoord(Coord):
             self._cell,
         )
 
-    def map_point(self, x, y=None) -> QPointF:
+    def mapPoint(self, x, y=None) -> QPointF:
         """日期 → 单元格中心。"""
-        r = self.cell_rect(x)
+        r = self.cellRect(x)
         if r.isNull():
             return QPointF(self._origin)
         return r.center()
 
-    def cell_size(self) -> float:
+    def invertPoint(self, pos: QPointF):
+        """像素 → ``[ISO 日期]``（网格外返回 None）。"""
+        d = self.dateAt(pos)
+        if d is None:
+            return None
+        return [d.isoformat()]
+
+    def containPoint(self, pos: QPointF) -> bool:
+        return self.dateAt(pos) is not None
+
+    def cellSize(self) -> float:
         """当前单元格边长（px）。"""
         return self._cell
 
     def weeks(self) -> int:
-        """总列数（周数）。"""
+        """总列数 / 行数（周数）。"""
         return self._weeks
 
-    def paint_axes(self, p: QPainter) -> None:
+    def iterDates(self):
+        """遍历范围内全部日期（含无数据日）。"""
+        d = self.start
+        while d <= self.end:
+            yield d
+            d += timedelta(days=1)
+
+    def _weekday_label_rows(self) -> dict:
+        """星期标签序号 → 标签（GitHub 只标 周一/周三/周五）。"""
+        return {row: label for row, label in ((0, "周一"), (2, "周三"), (4, "周五"))}
+
+    def itemStyle(self) -> dict:
+        """``calendar.itemStyle``（空日底色 / 边框由 heatmap 系列读取）。"""
+        return self._item_style
+
+    def paintAxes(self, p: QPainter) -> None:
         p.save()
         c_text = QColor(T("color.text.tertiary"))
-        font = chart_font(T("font.xs"))
+        font = chartFont(T("font.xs"))
         p.setFont(font)
         fm = QFontMetricsF(font)
         p.setPen(c_text)
-        # 星期标签（Mon/Wed/Fri 三行）
-        for row, label in _WEEKDAY_LABELS.items():
-            y = self._origin.y() + row * self._cell
+        # 星期标签（周一/周三/周五；行号按 firstDay 换算）
+        if self.show_week_labels:
+            for local_row, label in self._weekday_label_rows().items():
+                row = (local_row - self._row_offset) % 7
+                if self._vertical:
+                    x = self._origin.x() + row * self._cell
+                    p.drawText(
+                        QRectF(x, self.rect.top(), self._cell, 14),
+                        Qt.AlignmentFlag.AlignCenter,
+                        label,
+                    )
+                else:
+                    y = self._origin.y() + row * self._cell
+                    p.drawText(
+                        QRectF(
+                            self.rect.left(),
+                            y,
+                            max(8.0, self._origin.x() - self.rect.left() - 4),
+                            self._cell,
+                        ),
+                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                        label,
+                    )
+        # 月份标签：每月 1 日所在格（去重；跨年逐月遍历）
+        if self.show_month_labels:
+            first = self._first_column_start()
+            last_idx = -1
+            for d in self._month_dates():
+                anchor = d if d >= self.start else self.start
+                week_index = (anchor - first).days // 7
+                if week_index == last_idx:
+                    continue
+                last_idx = week_index
+                if self._vertical:
+                    y = self._origin.y() + week_index * self._cell
+                    p.drawText(
+                        QRectF(
+                            self.rect.left(),
+                            y,
+                            max(8.0, self._origin.x() - self.rect.left() - 4),
+                            self._cell,
+                        ),
+                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                        _MONTH_LABELS[d.month - 1],
+                    )
+                else:
+                    x = self._origin.x() + week_index * self._cell
+                    p.drawText(
+                        QRectF(x, self.rect.top(), 40, fm.height()),
+                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                        _MONTH_LABELS[d.month - 1],
+                    )
+        # 年份标签
+        if self.show_year_label and str(self.start.year) == str(self.end.year):
             p.drawText(
-                QRectF(
-                    self.rect.left(),
-                    y,
-                    max(8.0, self._origin.x() - self.rect.left() - 4),
-                    self._cell,
-                ),
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                label,
-            )
-        # 月份标签：每月 1 日所在列（去重；跨年逐月遍历）
-        first = self._first_monday()
-        last_col = -1
-        for d in self._month_dates():
-            anchor = d if d >= self.start else self.start
-            col = (anchor - first).days // 7
-            if col == last_col:
-                continue
-            last_col = col
-            x = self._origin.x() + col * self._cell
-            p.drawText(
-                QRectF(x, self.rect.top(), 40, fm.height()),
+                QRectF(self.rect.left(), self.rect.top(), 60, fm.height()),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                _MONTH_LABELS[d.month - 1],
+                str(self.start.year),
             )
+        # splitLine：单元格网格线
+        if bool(self._split_line.get("show", False)):
+            p.setPen(_line_pen(self._split_line, T("color.border")))
+            grid_w = self._cell * (7 if self._vertical else self._weeks)
+            grid_h = self._cell * (self._weeks if self._vertical else 7)
+            cols = 7 if self._vertical else self._weeks
+            rows = self._weeks if self._vertical else 7
+            for c in range(cols + 1):
+                x = self._origin.x() + c * self._cell
+                p.drawLine(
+                    QPointF(x, self._origin.y()), QPointF(x, self._origin.y() + grid_h)
+                )
+            for r in range(rows + 1):
+                y = self._origin.y() + r * self._cell
+                p.drawLine(
+                    QPointF(self._origin.x(), y), QPointF(self._origin.x() + grid_w, y)
+                )
         p.restore()
 
-    def paint_tooltip_marker(self, p: QPainter, pos: QPointF) -> None:
+    def paintTooltipMarker(
+        self, p: QPainter, pos: QPointF, kind: str = "cross"
+    ) -> None:
+        if kind == "none":
+            return
         p.save()
-        d = self.date_at(pos)
+        d = self.dateAt(pos)
         if d is not None:
-            r = self.cell_rect(d)
+            r = self.cellRect(d)
             pen = QPen(QColor(T("color.primary")), 1.4)
             p.setPen(pen)
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawRect(r.adjusted(0.5, 0.5, -0.5, -0.5))
         p.restore()
 
-    def date_at(self, pos: QPointF):
+    def dateAt(self, pos: QPointF):
         """像素 → 日期（网格外返回 None）。"""
         if self._cell <= 0:
             return None
         col = int((pos.x() - self._origin.x()) // self._cell)
         row = int((pos.y() - self._origin.y()) // self._cell)
-        if col < 0 or col >= self._weeks or row < 0 or row > 6:
+        cols = 7 if self._vertical else self._weeks
+        rows = self._weeks if self._vertical else 7
+        if col < 0 or col >= cols or row < 0 or row >= rows:
             return None
-        d = self._first_monday() + timedelta(days=col * 7 + row)
+        if self._vertical:
+            weekday, week_index = col, row
+        else:
+            week_index, weekday = col, row
+        d = self._first_column_start() + timedelta(days=week_index * 7 + weekday)
         if d < self.start or d > self.end:
             return None
         return d

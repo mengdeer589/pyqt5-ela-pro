@@ -35,7 +35,36 @@ from PyQt5ElaWidgetTools import (
     ElaPushButton,
 )
 
+from ._styles import paintRoundedCard
 from .widget_base import ElaThemeWidget
+
+
+class _TipCard(QWidget):
+    """提示浮层卡片底（圆角 + 1px 描边）—— 禁 QSS 后自绘，颜色随主题刷新。"""
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._background = QColor()
+        self._border = QColor()
+        self._radius = 8.0
+
+    def setCardColors(  # noqa: N802 (Qt 命名)
+        self, background: QColor, border: Optional[QColor] = None
+    ) -> None:
+        """设置卡片底色与描边色（``None`` 描边表示不画边）。"""
+        self._background = QColor(background)
+        self._border = QColor(border) if border is not None else QColor(0, 0, 0, 0)
+        self.update()
+
+    def paintEvent(self, _event) -> None:  # noqa: N802 (Qt 命名)
+        painter = QPainter(self)
+        paintRoundedCard(
+            painter,
+            self.rect(),
+            background=self._background,
+            border=self._border,
+            radius=self._radius,
+        )
 
 
 class ElaSpotlight(ElaThemeWidget):
@@ -80,7 +109,7 @@ class ElaSpotlight(ElaThemeWidget):
         self.setVisible(False)
 
         # Tip widget with title, content, buttons
-        self._tip_widget = QWidget(self)
+        self._tip_widget = _TipCard(self)
         self._tip_widget.setVisible(False)
 
         self._tip_title = ElaText(self._tip_widget)
@@ -279,15 +308,11 @@ class ElaSpotlight(ElaThemeWidget):
 
         self._tip_widget.move(tx, ty)
 
-        bg = eTheme.getThemeColor(
-            self._theme_mode, ElaThemeType.ThemeColor.DialogBase
-        ).name()
+        bg = eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.DialogBase)
         border = eTheme.getThemeColor(
             self._theme_mode, ElaThemeType.ThemeColor.PopupBorder
-        ).name()
-        self._tip_widget.setStyleSheet(
-            f"background-color: {bg}; border-radius: 8px; border: 1px solid {border};"
         )
+        self._tip_widget.setCardColors(bg, border)
 
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self._theme_mode = mode

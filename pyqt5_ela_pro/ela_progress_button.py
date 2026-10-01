@@ -80,7 +80,9 @@ class ElaProgressButton(_ThemeAwareMixin, ElaPushButton):
         self._border_radius = radius
         self.update()
 
-    def set_ela_icon(self, icon_name: ElaIconType.IconName, icon_size: int = 16) -> None:
+    def set_ela_icon(
+        self, icon_name: ElaIconType.IconName, icon_size: int = 16
+    ) -> None:
         """设置图标。
 
         :param icon_name: 图标名称

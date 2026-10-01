@@ -1,70 +1,63 @@
+"""``ElaPasswordEdit`` 测试：初值 / 明文切换 / 眼睛图标 / 主题解绑。"""
+
 from __future__ import annotations
 
+import pytest
 from PyQt5.QtWidgets import QLineEdit
 
 from pyqt5_ela_pro.ela_password_edit import ElaPasswordEdit
 
 
+@pytest.fixture
+def pwd(make):
+    return make(ElaPasswordEdit)
+
+
 class TestElaPasswordEditInit:
-    def test_initialization_with_defaults(self):
-        pwd = ElaPasswordEdit()
+    def test_initialization_with_defaults(self, pwd):
         assert pwd._is_password_visible is False
         assert pwd.echoMode() == QLineEdit.EchoMode.Password
-        pwd.deleteLater()
 
-    def test_has_toggle_action(self):
-        pwd = ElaPasswordEdit()
+    def test_has_toggle_action(self, pwd):
         assert pwd._toggle_action is not None
-        pwd.deleteLater()
 
 
 class TestElaPasswordEditVisibility:
-    def test_is_password_visible_default(self):
-        pwd = ElaPasswordEdit()
+    def test_is_password_visible_default(self, pwd):
         assert pwd.is_password_visible() is False
-        pwd.deleteLater()
 
-    def test_set_is_password_visible_true(self):
-        pwd = ElaPasswordEdit()
-        pwd.set_is_password_visible(True)
-        assert pwd.is_password_visible() is True
-        assert pwd.echoMode() == QLineEdit.EchoMode.Normal
-        pwd.deleteLater()
+    @pytest.mark.parametrize(
+        ("pre_visible", "visible", "echo_mode"),
+        [
+            (False, True, QLineEdit.EchoMode.Normal),
+            (True, False, QLineEdit.EchoMode.Password),
+        ],
+        ids=["show", "hide-again"],
+    )
+    def test_set_is_password_visible(self, pwd, pre_visible, visible, echo_mode):
+        pwd.set_is_password_visible(pre_visible)
+        pwd.set_is_password_visible(visible)
+        assert pwd.is_password_visible() is visible
+        assert pwd.echoMode() == echo_mode
 
-    def test_set_is_password_visible_false(self):
-        pwd = ElaPasswordEdit()
-        pwd.set_is_password_visible(True)
-        pwd.set_is_password_visible(False)
-        assert pwd.is_password_visible() is False
-        assert pwd.echoMode() == QLineEdit.EchoMode.Password
-        pwd.deleteLater()
-
-    def test_toggle_visibility(self):
-        pwd = ElaPasswordEdit()
+    def test_toggle_visibility(self, pwd):
         pwd._on_toggle_visibility()
         assert pwd.is_password_visible() is True
         pwd._on_toggle_visibility()
         assert pwd.is_password_visible() is False
-        pwd.deleteLater()
 
 
 class TestElaPasswordEditIcon:
-    def test_eye_icon_initially_eye(self):
-        pwd = ElaPasswordEdit()
-        icon = pwd._toggle_action.icon()
-        assert icon is not None
-        pwd.deleteLater()
+    def test_eye_icon_initially_eye(self, pwd):
+        assert pwd._toggle_action.icon() is not None
 
-    def test_eye_icon_changes_on_toggle(self):
-        pwd = ElaPasswordEdit()
+    def test_eye_icon_changes_on_toggle(self, pwd):
         icon_before = pwd._toggle_action.icon()
         pwd.set_is_password_visible(True)
         icon_after = pwd._toggle_action.icon()
         assert icon_before != icon_after
-        pwd.deleteLater()
 
 
 class TestElaPasswordEditDeleteLater:
-    def test_delete_later_disconnects_theme(self):
-        pwd = ElaPasswordEdit()
+    def test_delete_later_disconnects_theme(self, pwd):
         pwd.deleteLater()

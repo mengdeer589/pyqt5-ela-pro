@@ -1,7 +1,7 @@
 """Tests for ElaMarkdownViewer media interactions and exports (P3/P4).
 
 Covers: math CJK font fallback, formula / Mermaid click copy, image
-save-as, PDF export parameters, printing and ``toHtml(embed_images=True)``.
+save-as, PDF export parameters, printing and ``toHtml(embedImages=True)``.
 """
 
 from __future__ import annotations
@@ -9,11 +9,12 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from _qthelpers import wait_until as _wait
 from PyQt5.QtGui import QImage, QTextCursor
 from PyQt5.QtPrintSupport import QPrinter
 
-from pyqt5_ela_pro import math_lite
 from pyqt5_ela_pro import ela_markdown_viewer as viewer_module
+from pyqt5_ela_pro import math_lite
 from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
 
 
@@ -165,7 +166,7 @@ class TestExportPdf:
         v = ElaMarkdownViewer()
         v.setMarkdown(self.SOURCE)
         path = tmp_path / "letter.pdf"
-        assert v.exportPdf(str(path), page_size="Letter", margins_mm=(10, 20, 10, 20))
+        assert v.exportPdf(str(path), pageSize="Letter", marginsMm=(10, 20, 10, 20))
         assert path.stat().st_size > 0
         v.deleteLater()
 
@@ -173,7 +174,7 @@ class TestExportPdf:
         v = ElaMarkdownViewer()
         v.setMarkdown(self.SOURCE)
         path = tmp_path / "fallback.pdf"
-        assert v.exportPdf(str(path), page_size="NOT-A-PAGE")
+        assert v.exportPdf(str(path), pageSize="NOT-A-PAGE")
         assert path.stat().st_size > 0
         v.deleteLater()
 
@@ -200,7 +201,7 @@ class TestHtmlEmbedImages:
     def test_math_embedded_as_data_uri(self, qapp, tmp_path):
         v = ElaMarkdownViewer()
         v.setMarkdown(r"公式 $x^2$")
-        html = v.toHtml(embed_images=True)
+        html = v.toHtml(embedImages=True)
         assert "elamath://" not in html
         assert "data:image/png;base64," in html
         v.deleteLater()
@@ -210,7 +211,7 @@ class TestHtmlEmbedImages:
         QImage(5, 5, QImage.Format.Format_ARGB32).save(str(path))
         v = ElaMarkdownViewer()
         v.setMarkdown("![图](%s)" % str(path).replace("\\", "/"))
-        html = v.toHtml(embed_images=True)
+        html = v.toHtml(embedImages=True)
         assert "data:image/png;base64," in html
         assert "pic.png" not in html
         v.deleteLater()
@@ -220,16 +221,3 @@ class TestHtmlEmbedImages:
         v.setMarkdown(r"公式 $x^2$")
         assert "elamath://" in v.toHtml()
         v.deleteLater()
-
-
-def _wait(qapp, predicate, timeout: float = 3.0) -> bool:
-    from PyQt5.QtTest import QTest
-
-    elapsed = 0.0
-    while elapsed < timeout * 1000:
-        qapp.processEvents()
-        if predicate():
-            return True
-        QTest.qWait(20)
-        elapsed += 20
-    return bool(predicate())

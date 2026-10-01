@@ -6,20 +6,11 @@ import pytest
 
 from pyqt5_ela_pro.blueprint import (
     PIN_COLORS,
-    ElaNodeRegistry,
     ElaNodeSpec,
     pin_color,
     register_node_type,
     register_pin_type,
 )
-
-
-@pytest.fixture(autouse=True)
-def clean_registry():
-    """每个测试独立注册表（单例内部字典直接重置，避免跨测试污染）。"""
-    reg = ElaNodeRegistry.instance()
-    reg._specs = {}
-    yield reg
 
 
 def _spec(name="test_node", category="测试", inputs=(), outputs=(), description=""):

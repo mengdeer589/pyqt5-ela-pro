@@ -5,12 +5,13 @@ Covers: long code collapse/expand, line numbers, custom token palette.
 
 from __future__ import annotations
 
+import pytest
 from PyQt5.QtCore import QUrl
 from PyQt5.QtTest import QTest
 
 from pyqt5_ela_pro.ela_markdown_viewer import (
+    _MD_THEMES,
     ElaMarkdownViewer,
-    _TOKEN_PALETTE_LIGHT,
 )
 
 LONG_CODE = "\n".join(f"line{i} = {i}" for i in range(1, 11))
@@ -154,8 +155,6 @@ class TestLineNumbers:
 
 class TestTokenPalette:
     def test_custom_keyword_color(self):
-        import pytest
-
         pytest.importorskip("pygments")
         v = ElaMarkdownViewer()
         v.setCodeTokenColors({"keyword": "#123456"})
@@ -174,7 +173,11 @@ class TestTokenPalette:
         v = ElaMarkdownViewer()
         v.setCodeTokenColors({"keyword": "#123456"})
         v.setCodeTokenColors(None)
-        assert v.codeTokenColors()["keyword"] == _TOKEN_PALETTE_LIGHT["keyword"]
+        variant = "dark" if v._is_dark_theme else "light"
+        assert (
+            v.codeTokenColors()["keyword"]
+            == _MD_THEMES["opencode"][variant]["syntax"]["keyword"]
+        )
         v.deleteLater()
 
     def test_unknown_keys_ignored(self):

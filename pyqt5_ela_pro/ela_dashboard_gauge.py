@@ -406,9 +406,7 @@ class ElaDashboardGauge(ElaThemeWidget):
 
         # ── Track arc ──
         track_pen = QPen(
-            eTheme.getThemeColor(
-                self._theme_mode, ElaThemeType.ThemeColor.BasicChute
-            ),
+            eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicChute),
             aw,
         )
         track_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -455,9 +453,7 @@ class ElaDashboardGauge(ElaThemeWidget):
             painter.drawLine(QPointF(x1, y1), QPointF(x2, y2))
 
             if is_major:
-                tick_val = (
-                    self._minimum + (self._maximum - self._minimum) * tick_pct
-                )
+                tick_val = self._minimum + (self._maximum - self._minimum) * tick_pct
                 label = f"{tick_val:.{self._decimals}f}"
                 lr = self._decimals * 3 if self._decimals > 0 else 0
                 painter.setFont(tick_font)
@@ -489,15 +485,11 @@ class ElaDashboardGauge(ElaThemeWidget):
         painter.drawPath(needle_path)
 
         painter.setBrush(
-            eTheme.getThemeColor(
-                self._theme_mode, ElaThemeType.ThemeColor.BasicText
-            )
+            eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.BasicText)
         )
         painter.drawEllipse(QPointF(0, 0), 6, 6)
         painter.setBrush(
-            eTheme.getThemeColor(
-                self._theme_mode, ElaThemeType.ThemeColor.WindowBase
-            )
+            eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.WindowBase)
         )
         painter.drawEllipse(QPointF(0, 0), 3, 3)
         painter.restore()

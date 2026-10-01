@@ -20,22 +20,31 @@ from ._internal import _ThemeAwareMixin
 class ElaTagLineEdit(_ThemeAwareMixin, ElaLineEdit):
     """具名输入框。
 
-    带有标题标签的输入框，标题显示在输入框左侧。
+    带有标题标签的输入框，标题显示在输入框**左侧**（占位式内边距，
+    不是 ``placeholderText`` —— 输入后标题仍然留着）。
     支持主题适配，包含空闲、聚焦、错误三种状态。
 
-    :param title: 标题文字
     :param parent: 父控件
+    :param title: 标题文字（默认空串 —— 没设标题的输入框不该在框里喊 "Untitled"）
+
+    **参数顺序跟全库一致：``parent`` 在前。** 曾经写成
+    ``(title="Untitled", parent=None)`` —— 全库唯一的例外，后果是
+    ``ElaTagLineEdit(self)`` 会把父控件当成标题传给
+    ``QFontMetrics.horizontalAdvance()`` 抛 ``TypeError``；而
+    ``ElaTagLineEdit("用户名")`` 更糟：**不报错**，造出一个没有父控件的
+    顶层窗口（控件会在桌面上飘着，析构时机也不对）。
 
     Example::
 
-        edit = ElaTagLineEdit(title="用户名", parent=parent)
+        edit = ElaTagLineEdit(parent=parent, title="用户名")
         edit.setText("admin")
+        edit.notifyInvalidInput()   # 错误态；clearError() 撤销
     """
 
     def __init__(
         self,
-        title: str = "Untitled",
         parent: Optional[QWidget] = None,
+        title: str = "",
     ) -> None:
         super().__init__(parent)
 

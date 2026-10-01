@@ -28,7 +28,9 @@ class ApplicationComponentsPage(ExamplePage):
         self._demoNavigationBar(main_layout)
 
     def _demoAppBar(self, parent_layout):
-        parent_layout.addLayout(self._createHeaderRow("01. ElaAppBar - 应用栏", self._demoAppBar))
+        parent_layout.addLayout(
+            self._createHeaderRow("01. ElaAppBar - 应用栏", self._demoAppBar)
+        )
         self._addInfoText("应用栏组件", parent_layout)
         app_bar = ElaAppBar(self)
         app_bar.setFixedHeight(50)
@@ -36,7 +38,9 @@ class ApplicationComponentsPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _demoStatusBar(self, parent_layout):
-        parent_layout.addLayout(self._createHeaderRow("02. ElaStatusBar - 状态栏", self._demoStatusBar))
+        parent_layout.addLayout(
+            self._createHeaderRow("02. ElaStatusBar - 状态栏", self._demoStatusBar)
+        )
         self._addInfoText("状态栏组件", parent_layout)
         status_bar = ElaStatusBar(self)
         parent_layout.addWidget(status_bar)
@@ -44,7 +48,10 @@ class ApplicationComponentsPage(ExamplePage):
 
     def _demoNavigationBar(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("03. PyQt5ElaWidgetTools - ElaNavigationBar 导航栏", self._demoNavigationBar)
+            self._createHeaderRow(
+                "03. PyQt5ElaWidgetTools - ElaNavigationBar 导航栏",
+                self._demoNavigationBar,
+            )
         )
         self._addInfoText(
             "独立的导航栏组件，支持用户信息卡片、导航节点、展开/折叠模式",
@@ -69,9 +76,7 @@ class ApplicationComponentsPage(ExamplePage):
         info.setTextPixelSize(16)
         content_layout.addWidget(info)
 
-        nav.navigationNodeClicked.connect(
-            lambda key: info.setText(f"已选择: {key}")
-        )
+        nav.navigationNodeClicked.connect(lambda key: info.setText(f"已选择: {key}"))
 
         layout.addWidget(nav)
         layout.addWidget(content, 1)

@@ -1,323 +1,267 @@
+"""``ElaPagination`` 测试：初值 / 页码夹取 / 可见页计算 / 跳转框 / hover。"""
+
 from __future__ import annotations
 
+import pytest
+from PyQt5.QtCore import QEvent, Qt
+from PyQt5.QtGui import QMouseEvent
+from PyQt5ElaWidgetTools import ElaThemeType
 
 from pyqt5_ela_pro.ela_pagination import ElaPagination
 
 
+@pytest.fixture
+def p(make):
+    return make(ElaPagination)
+
+
 class TestElaPaginationInit:
-    def test_initialization_with_defaults(self):
-        p = ElaPagination()
-        assert p._current_page == 1
-        assert p._total_pages == 1
-        assert p._button_size == 28
-        assert p._pager_count == 11
-        assert p._jumper_visible is False
-        assert p._hover_index == -1
-        p.deleteLater()
+    @pytest.mark.parametrize(
+        ("attr", "expected"),
+        [
+            ("_current_page", 1),
+            ("_total_pages", 1),
+            ("_button_size", 28),
+            ("_pager_count", 11),
+            ("_jumper_visible", False),
+            ("_hover_index", -1),
+        ],
+    )
+    def test_initialization_with_defaults(self, p, attr, expected):
+        assert getattr(p, attr) == expected
 
-    def test_has_current_page_changed_signal(self):
-        p = ElaPagination()
-        assert hasattr(p, "currentPageChanged")
+    def test_has_current_page_changed_signal(self, p):
         assert callable(p.currentPageChanged)
-        p.deleteLater()
-
-    def test_hover_index_initially_negative_one(self):
-        p = ElaPagination()
-        assert p._hover_index == -1
-        p.deleteLater()
 
 
 class TestElaPaginationCurrentPage:
-    def test_current_page_default(self):
-        p = ElaPagination()
+    def test_current_page_default(self, p):
         assert p.currentPage() == 1
-        p.deleteLater()
 
-    def test_set_current_page(self):
-        p = ElaPagination()
+    def test_set_current_page(self, p):
         p.setTotalPages(5)
         p.setCurrentPage(3)
         assert p.currentPage() == 3
-        p.deleteLater()
 
-    def test_set_current_page_clamps_to_min(self):
-        p = ElaPagination()
+    @pytest.mark.parametrize(
+        "requested", [0, 10, -1], ids=["below-min", "above-max", "negative"]
+    )
+    def test_set_current_page_clamps(self, p, requested):
+        """越界一律夹回 1（``setTotalPages`` 之后 current 尚未被修正）。"""
         p.setTotalPages(5)
-        p.setCurrentPage(0)
+        p.setCurrentPage(requested)
         assert p.currentPage() == 1
-        p.deleteLater()
 
-    def test_set_current_page_clamps_to_max(self):
-        p = ElaPagination()
-        p.setTotalPages(5)
-        p.setCurrentPage(10)
-        assert p.currentPage() == 1
-        p.deleteLater()
-
-    def test_set_current_page_negative(self):
-        p = ElaPagination()
-        p.setTotalPages(5)
-        p.setCurrentPage(-1)
-        assert p.currentPage() == 1
-        p.deleteLater()
-
-    def test_set_current_page_emits_signal(self):
-        p = ElaPagination()
+    def test_set_current_page_emits_signal(self, p):
         p.setTotalPages(5)
         received = []
-        p.currentPageChanged.connect(lambda v: received.append(v))
+        p.currentPageChanged.connect(received.append)
         p.setCurrentPage(3)
         assert 3 in received
-        p.deleteLater()
 
-    def test_set_current_page_same_value_no_emit(self):
-        p = ElaPagination()
+    def test_set_current_page_same_value_no_emit(self, p):
         p.setTotalPages(5)
         p.setCurrentPage(1)
         received = []
-        p.currentPageChanged.connect(lambda v: received.append(v))
+        p.currentPageChanged.connect(received.append)
         p.setCurrentPage(1)
-        assert len(received) == 0
-        p.deleteLater()
+        assert received == []
 
 
 class TestElaPaginationTotalPages:
-    def test_total_pages_default(self):
-        p = ElaPagination()
+    def test_total_pages_default(self, p):
         assert p.totalPages() == 1
-        p.deleteLater()
 
-    def test_set_total_pages(self):
-        p = ElaPagination()
+    def test_set_total_pages(self, p):
         p.setTotalPages(20)
         assert p.totalPages() == 20
-        p.deleteLater()
 
-    def test_set_total_pages_clamps_to_min_1(self):
-        p = ElaPagination()
-        p.setTotalPages(0)
+    @pytest.mark.parametrize("total", [0, -5], ids=["zero", "negative"])
+    def test_set_total_pages_clamps_to_min_1(self, p, total):
+        p.setTotalPages(total)
         assert p.totalPages() == 1
-        p.deleteLater()
 
-    def test_set_total_pages_negative(self):
-        p = ElaPagination()
-        p.setTotalPages(-5)
-        assert p.totalPages() == 1
-        p.deleteLater()
-
-    def test_set_total_pages_corrects_current_page(self):
-        p = ElaPagination()
+    def test_set_total_pages_corrects_current_page(self, p):
         p.setTotalPages(3)
         p.setCurrentPage(3)
         p.setTotalPages(1)
         assert p.currentPage() == 1
-        p.deleteLater()
 
 
-class TestElaPaginationButtonSize:
-    def test_button_size_default(self):
-        p = ElaPagination()
-        assert p.buttonSize() == 28
-        p.deleteLater()
+class TestElaPaginationAppearance:
+    @pytest.mark.parametrize(
+        ("setter", "getter", "value"),
+        [
+            (ElaPagination.setButtonSize, ElaPagination.buttonSize, 36),
+            (ElaPagination.setPagerCount, ElaPagination.pagerCount, 7),
+        ],
+    )
+    def test_setter_roundtrip(self, p, setter, getter, value):
+        setter(p, value)
+        assert getter(p) == value
 
-    def test_set_button_size(self):
-        p = ElaPagination()
-        p.setButtonSize(36)
-        assert p.buttonSize() == 36
-        p.deleteLater()
+    @pytest.mark.parametrize(
+        ("getter", "expected"),
+        [
+            (ElaPagination.buttonSize, 28),
+            (ElaPagination.pagerCount, 11),
+            (ElaPagination.isJumperVisible, False),
+        ],
+    )
+    def test_getter_default(self, p, getter, expected):
+        assert getter(p) == expected
 
-    def test_set_button_size_updates_height(self):
-        p = ElaPagination()
+    def test_set_button_size_updates_height(self, p):
         p.setButtonSize(36)
         assert p.height() >= 36
-        p.deleteLater()
 
-
-class TestElaPaginationPagerCount:
-    def test_pager_count_default(self):
-        p = ElaPagination()
-        assert p.pagerCount() == 11
-        p.deleteLater()
-
-    def test_set_pager_count(self):
-        p = ElaPagination()
-        p.setPagerCount(7)
-        assert p.pagerCount() == 7
-        p.deleteLater()
-
-
-class TestElaPaginationJumper:
-    def test_jumper_visible_default(self):
-        p = ElaPagination()
-        assert p.isJumperVisible() is False
-        p.deleteLater()
-
-    def test_set_jumper_visible(self):
-        p = ElaPagination()
-        p.setJumperVisible(True)
-        assert p.isJumperVisible() is True
-        p.deleteLater()
-
-    def test_jumper_edit_hidden_by_default(self):
-        p = ElaPagination()
+    def test_jumper_edit_hidden_by_default(self, p):
         assert p._jumper_edit.isVisible() is False
-        p.deleteLater()
 
-    def test_jumper_edit_visible_after_set(self):
-        p = ElaPagination()
+    def test_jumper_edit_visible_after_set(self, p):
         p.setJumperVisible(True)
         assert p._jumper_edit.isHidden() is False
-        p.deleteLater()
 
 
 class TestElaPaginationPageLabel:
-    def test_page_label_exists(self):
-        p = ElaPagination()
+    def test_page_label_exists(self, p):
         assert hasattr(p, "_page_label")
-        p.deleteLater()
 
-    def test_page_label_hidden_by_default(self):
-        p = ElaPagination()
+    def test_page_label_hidden_by_default(self, p):
         assert p._page_label.isVisible() is False
-        p.deleteLater()
 
-    def test_page_label_visible_with_jumper(self):
-        p = ElaPagination()
+    def test_page_label_visible_with_jumper(self, p):
         p.setJumperVisible(True)
         assert p._page_label.isHidden() is False
-        p.deleteLater()
 
-    def test_page_label_text_format(self):
-        p = ElaPagination()
+    def test_page_label_text_format(self, p):
         p.setTotalPages(50)
         p.setJumperVisible(True)
         assert "1" in p._page_label.text()
         assert "50" in p._page_label.text()
-        p.deleteLater()
 
-    def test_page_label_updates_on_set_current(self):
-        p = ElaPagination()
+    def test_page_label_updates_on_set_current(self, p):
         p.setTotalPages(50)
         p.setJumperVisible(True)
         p.setCurrentPage(25)
         assert "25" in p._page_label.text()
         assert "50" in p._page_label.text()
-        p.deleteLater()
 
 
 class TestElaPaginationVisiblePages:
-    def test_get_visible_pages_single_page(self):
-        p = ElaPagination()
-        p.setTotalPages(1)
-        pages = p._getVisiblePages()
-        assert pages == [1]
-        p.deleteLater()
+    @pytest.mark.parametrize(
+        ("total", "expected"),
+        [(1, [1]), (5, [1, 2, 3, 4, 5])],
+        ids=["single", "few"],
+    )
+    def test_visible_pages_without_ellipsis(self, p, total, expected):
+        p.setTotalPages(total)
+        assert p._getVisiblePages() == expected
 
-    def test_get_visible_pages_few_pages(self):
-        p = ElaPagination()
-        p.setTotalPages(5)
-        pages = p._getVisiblePages()
-        assert pages == [1, 2, 3, 4, 5]
-        p.deleteLater()
-
-    def test_get_visible_pages_first_page_many(self):
-        p = ElaPagination()
+    @pytest.mark.parametrize(
+        ("current", "left_gap", "right_gap"),
+        [
+            (1, None, -1),  # 首页：只有右侧省略号
+            (50, -3, None),  # 末页：只有左侧省略号
+            (25, -3, -1),  # 中间：两侧都有
+        ],
+        ids=["first", "last", "middle"],
+    )
+    def test_visible_pages_with_ellipsis(self, p, current, left_gap, right_gap):
         p.setTotalPages(50)
         p.setPagerCount(11)
-        p.setCurrentPage(1)
-        pages = p._getVisiblePages()
-        assert 1 in pages
-        assert -1 in pages  # right ellipsis
-        assert 50 in pages
-        p.deleteLater()
+        p.setCurrentPage(current)
 
-    def test_get_visible_pages_last_page_many(self):
-        p = ElaPagination()
-        p.setTotalPages(50)
-        p.setPagerCount(11)
-        p.setCurrentPage(50)
         pages = p._getVisiblePages()
-        assert 1 in pages
-        assert -3 in pages  # left ellipsis
-        assert 50 in pages
-        p.deleteLater()
 
-    def test_get_visible_pages_middle_page_many(self):
-        p = ElaPagination()
-        p.setTotalPages(50)
-        p.setPagerCount(11)
-        p.setCurrentPage(25)
-        pages = p._getVisiblePages()
         assert 1 in pages
-        assert -3 in pages
-        assert 25 in pages
-        assert -1 in pages
         assert 50 in pages
-        p.deleteLater()
+        assert current in pages
+        if left_gap is not None:
+            assert left_gap in pages
+        else:
+            assert -3 not in pages
+        if right_gap is not None:
+            assert right_gap in pages
+        else:
+            assert -1 not in pages
 
 
 class TestElaPaginationButtonRects:
-    def test_get_button_rects_returns_list(self):
-        p = ElaPagination()
+    @pytest.fixture
+    def rects(self, p):
         p.setTotalPages(5)
-        rects = p._getButtonRects()
+        return p._getButtonRects()
+
+    def test_returns_pairs(self, rects):
         assert len(rects) > 0
         assert all(len(item) == 2 for item in rects)
-        p.deleteLater()
 
-    def test_first_rect_is_prev_button(self):
-        p = ElaPagination()
-        p.setTotalPages(5)
-        rects = p._getButtonRects()
+    def test_first_rect_is_prev_button(self, rects):
         assert rects[0][1] == 0  # prev button
-        p.deleteLater()
 
-    def test_last_rect_is_next_button(self):
-        p = ElaPagination()
-        p.setTotalPages(5)
-        rects = p._getButtonRects()
+    def test_last_rect_is_next_button(self, rects):
         assert rects[-1][1] == -2  # next button
-        p.deleteLater()
 
 
 class TestElaPaginationJumperEntered:
-    def test_on_jumper_entered_valid(self):
-        p = ElaPagination()
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [("5", 5), ("abc", 1), ("999", 1)],
+        ids=["valid", "not-a-number", "out-of-range"],
+    )
+    def test_on_jumper_entered(self, p, text, expected):
         p.setTotalPages(10)
-        p._jumper_edit.setText("5")
-        received = []
-        p.currentPageChanged.connect(lambda v: received.append(v))
+        p._jumper_edit.setText(text)
         p._onJumperEntered()
-        assert p.currentPage() == 5
-        p.deleteLater()
-
-    def test_on_jumper_entered_invalid(self):
-        p = ElaPagination()
-        p.setTotalPages(10)
-        p._jumper_edit.setText("abc")
-        p._onJumperEntered()
-        assert p.currentPage() == 1
-        p.deleteLater()
-
-    def test_on_jumper_entered_out_of_range(self):
-        p = ElaPagination()
-        p.setTotalPages(10)
-        p._jumper_edit.setText("999")
-        p._onJumperEntered()
-        assert p.currentPage() == 1
-        p.deleteLater()
+        assert p.currentPage() == expected
 
 
 class TestElaPaginationTheme:
-    def test_on_theme_changed_updates_mode(self):
-        p = ElaPagination()
-        from PyQt5ElaWidgetTools import ElaThemeType
+    def test_on_theme_changed_updates_mode(self, p):
         p._onThemeChanged(ElaThemeType.ThemeMode.Dark)
         assert p._theme_mode == ElaThemeType.ThemeMode.Dark
-        p.deleteLater()
 
 
 class TestElaPaginationDeleteLater:
-    def test_delete_later_cleans_up(self):
-        p = ElaPagination()
+    def test_delete_later_cleans_up(self, p):
         p.deleteLater()
+
+
+class TestElaPaginationHoverReset:
+    """指针移出后必须清掉 hover 高亮（此前没有 leaveEvent）。"""
+
+    @staticmethod
+    def _mouse(qapp, widget, event_type, pos, glob):
+        qapp.sendEvent(
+            widget,
+            QMouseEvent(
+                event_type,
+                pos,
+                glob,
+                Qt.MouseButton.NoButton,
+                Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier,
+            ),
+        )
+
+    def test_leave_event_clears_hover_index(self, make, qapp):
+        p = make(ElaPagination)
+        p.setTotalPages(10)
+        p.resize(420, 40)
+        p.show()
+        qapp.processEvents()
+
+        pos = p._getButtonRects()[2][0].center()
+        glob = p.mapToGlobal(pos)
+
+        self._mouse(qapp, p, QEvent.Type.MouseMove, pos, glob)
+        assert p._hover_index == 2
+
+        self._mouse(qapp, p, QEvent.Type.Leave, pos, glob)
+        assert p._hover_index == -1, "Leave 之后 hover 高亮必须复位"
+
+        p.close()
+
+    def test_class_defines_leave_event(self):
+        assert "leaveEvent" in vars(ElaPagination)

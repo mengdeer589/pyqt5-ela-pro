@@ -190,6 +190,13 @@ class ElaWindowEmbedder(QWidget):
             widget.exstyle = window_info["exstyle"]
             widget.wrect = window_info["wrect"]
 
+            # 先快照原样式：失败回滚时要靠它把外部窗口恢复原状
+            try:
+                orig_style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
+                orig_exstyle = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+            except Exception:  # noqa: BLE001
+                orig_style = orig_exstyle = None
+
             win32gui.SetParent(hwnd, int(self.winId()))
 
             # ── 修复 IME 输入法无法激活的问题 ──
@@ -226,7 +233,54 @@ class ElaWindowEmbedder(QWidget):
 
         except Exception as e:
             logger.warning(f"嵌入窗口失败: {e}")
+            # 回滚：SetParent 之后的任何一步失败都不能留下孤儿 HWND。
+            # 此时 _embeddedInfo 还没赋值，release() 会在开头直接 return，
+            # 于是外部窗口会一直挂在 Qt 父窗口上（父窗口销毁时连带销毁别人的
+            # 窗口），_attached_tid 也永远 detach 不掉。
+            self._rollbackPartialEmbed(hwnd, orig_style, orig_exstyle)
             return False
+
+    def _rollbackPartialEmbed(
+        self, hwnd: int, orig_style: Optional[int], orig_exstyle: Optional[int]
+    ) -> None:
+        """``SetParent`` 之后失败的补偿：还原父子关系、窗口样式与线程输入绑定。"""
+        if self._attached_tid:
+            try:
+                current_tid = win32api.GetCurrentThreadId()
+                if self._attached_tid != current_tid:
+                    win32gui.AttachThreadInput(self._attached_tid, current_tid, False)
+            except Exception:  # noqa: BLE001 - 补偿路径不允许再抛
+                pass
+            self._attached_tid = 0
+        try:
+            win32gui.SetParent(hwnd, 0)
+            if orig_style is not None:
+                win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, orig_style)
+            if orig_exstyle is not None:
+                win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, orig_exstyle)
+        except Exception:  # noqa: BLE001
+            pass
+        self._embeddedInfo = None
+        self._embeddedWidget = None
+        self._isEmbedded = False
+
+    def _native_client_size(self) -> tuple[int, int]:
+        """外部窗口应使用的**原生**客户区尺寸。
+
+        ``SetParent`` 后外部窗口的父级是本控件的 HWND，其坐标系是 Win32 原生
+        坐标；高 DPI 缩放（``AA_EnableHighDpiScaling``）下 ``self.width()`` /
+        ``self.height()`` 是逻辑值，直接拿去 ``SetWindowPos`` 会让嵌入窗口小一圈。
+        取父窗口客户区即可自动适配（100% 缩放下与控件尺寸一致）。
+        """
+        try:
+            rect = win32gui.GetClientRect(int(self.winId()))
+            width = int(rect[2] - rect[0])
+            height = int(rect[3] - rect[1])
+            if width > 0 and height > 0:
+                return width, height
+        except Exception:  # noqa
+            pass
+        return self.width(), self.height()
 
     def _showEmbeddedWindow(self) -> None:
         """显示已嵌入的窗口"""
@@ -234,14 +288,15 @@ class ElaWindowEmbedder(QWidget):
             hwnd = self._embeddedInfo.get("hwnd")
             if hwnd:
                 try:
+                    width, height = self._native_client_size()
                     win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
                     win32gui.SetWindowPos(
                         hwnd,
                         0,
                         0,
                         0,
-                        self.width(),
-                        self.height(),
+                        width,
+                        height,
                         win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE,
                     )
                 except Exception as e:
@@ -469,13 +524,15 @@ class ElaWindowEmbedder(QWidget):
         self._embeddedWidget.setGeometry(0, 0, width, height)
         hwnd = self._embeddedInfo.get("hwnd")
         if hwnd:
+            # Qt 容器用逻辑尺寸，外部窗口用原生客户区尺寸（高 DPI 下不一致）
+            native_width, native_height = self._native_client_size()
             win32gui.SetWindowPos(
                 hwnd,
                 0,
                 0,
                 0,
-                width,
-                height,
+                native_width,
+                native_height,
                 win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE,
             )
 

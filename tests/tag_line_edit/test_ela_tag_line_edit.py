@@ -11,10 +11,14 @@ class TestElaTagLineEdit:
     """Test cases for ElaTagLineEdit class."""
 
     def test_initialization_with_defaults(self):
-        """Test tag line edit initializes with default title."""
+        """默认标题是**空串**，不是 "Untitled"。
+
+        没设标题的输入框在框里喊 "Untitled" 是噪音；宿主忘了 ``setTitle()``
+        时就该什么都不画。
+        """
         edit = ElaTagLineEdit()
 
-        assert edit._title_text == "Untitled"
+        assert edit._title_text == ""
         assert edit._is_error is False
 
         edit.deleteLater()

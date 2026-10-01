@@ -1,7 +1,7 @@
 """Tests for ElaMarkdownViewer P3 code block enhancements.
 
-Covers: language label header, floating copy buttons (hover, copy,
-feedback, resync on re-render).
+Covers: code card without language header (Typora style), floating copy
+buttons (hover, copy, feedback, resync on re-render).
 """
 
 from __future__ import annotations
@@ -11,7 +11,10 @@ from PyQt5.QtGui import QMouseEvent, QTextTable
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
-from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
+from pyqt5_ela_pro.ela_markdown_viewer import (
+    _CODE_LANG_PROPERTY,
+    ElaMarkdownViewer,
+)
 
 
 def _tables(viewer: ElaMarkdownViewer) -> list:
@@ -31,24 +34,24 @@ def _code_tables(viewer: ElaMarkdownViewer) -> list:
     return [t for t in _tables(viewer) if viewer._is_code_table(t)]
 
 
-class TestLanguageHeader:
-    def test_header_row_present_for_language(self):
+class TestCodeCard:
+    def test_single_row_with_language_property(self):
         v = ElaMarkdownViewer()
         v.setMarkdown("```python\ndef foo():\n    return 1\n```")
 
         tables = _code_tables(v)
         assert len(tables) == 1
         table = tables[0]
-        assert table.rows() == 2
-        assert table.cellAt(0, 0).firstCursorPosition().block().text() == "python"
-        code_cell = table.cellAt(1, 0)
+        # Typora 风格：语言不占头栏，存表格式供复制按钮 tooltip 使用
+        assert table.rows() == 1
+        assert table.format().property(_CODE_LANG_PROPERTY) == "python"
+        code_cell = table.cellAt(0, 0)
         cursor = code_cell.firstCursorPosition()
         cursor.setPosition(
             code_cell.lastCursorPosition().position(),
             cursor.MoveMode.KeepAnchor,
         )
         assert "def foo():" in cursor.selection().toPlainText()
-        assert table.cellAt(0, 0).format().background().color() == v._code_header_bg
         v.deleteLater()
 
     def test_no_language_single_row(self):
@@ -58,6 +61,7 @@ class TestLanguageHeader:
         tables = _code_tables(v)
         assert len(tables) == 1
         assert tables[0].rows() == 1
+        assert tables[0].format().property(_CODE_LANG_PROPERTY) == ""
         v.deleteLater()
 
     def test_code_table_text_strips_header(self):
@@ -66,6 +70,20 @@ class TestLanguageHeader:
 
         table = _code_tables(v)[0]
         assert v._code_table_text(table) == "x = 1\ny = 2"
+        v.deleteLater()
+
+    def test_copy_button_tooltip_has_language(self, qapp):
+        v = ElaMarkdownViewer()
+        v.resize(420, 320)
+        v.setMarkdown("```python\nx = 1\n```")
+        v.show()
+        qapp.processEvents()
+        for _ in range(20):
+            QTest.qWait(10)
+            if v._code_buttons:
+                break
+        assert v._code_buttons
+        assert "python" in v._code_buttons[0].toolTip()
         v.deleteLater()
 
 

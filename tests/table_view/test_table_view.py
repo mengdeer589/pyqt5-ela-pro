@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from PyQt5.QtGui import QColor
+from PyQt5.QtWidgets import QApplication
 
 from pyqt5_ela_pro.table_view import (
-    ElaRowColorDelegate,
-    _LoadThread,
     TABLE_MIN_SECTION_SIZE,
     TABLE_ROW_MIN_HEIGHT,
+    TABLE_THREAD_QUIT_TIMEOUT,
+    ElaDataTable,
+    ElaRowColorDelegate,
+    _LoadThread,
 )
 
 
@@ -103,18 +106,18 @@ class TestElaDataTable:
 
     def test_loading_thread_timeout_constant(self):
         """Test TABLE_THREAD_QUIT_TIMEOUT is defined."""
-        from pyqt5_ela_pro.table_view import TABLE_THREAD_QUIT_TIMEOUT
+
         assert TABLE_THREAD_QUIT_TIMEOUT == 1000
 
     def test_delete_later_disconnects_section_clicked(self):
         """Test deleteLater disconnects sectionClicked signal without error."""
-        from pyqt5_ela_pro.table_view import ElaDataTable
+
         table = ElaDataTable()
         table.deleteLater()  # should not raise TypeError when disconnecting
 
     def test_set_column_widths_by_header_name(self):
         """Test string header keys resolve to columns."""
-        from pyqt5_ela_pro.table_view import ElaDataTable
+
         table = ElaDataTable()
         table.setTableData([["A", "B"], [1, 2], [3, 4]])
 
@@ -125,8 +128,6 @@ class TestElaDataTable:
 
     def test_apply_column_widths_with_header_name_on_show(self):
         """Regression: tableViewShow must not pass str keys to setColumnWidth."""
-        from PyQt5.QtWidgets import QApplication
-        from pyqt5_ela_pro.table_view import ElaDataTable
 
         table = ElaDataTable()
         table.setTableData([["A", "B"], [1, 2], [3, 4]])
@@ -142,7 +143,7 @@ class TestElaDataTable:
 
     def test_resolve_column_unknown_name_returns_none(self):
         """Test _resolve_column returns None for unmatched header name."""
-        from pyqt5_ela_pro.table_view import ElaDataTable
+
         table = ElaDataTable()
         table.setTableData([["A", "B"], [1, 2]])
 

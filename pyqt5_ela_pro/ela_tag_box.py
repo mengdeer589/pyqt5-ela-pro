@@ -15,7 +15,8 @@ from PyQt5.QtWidgets import QWidget
 from PyQt5ElaWidgetTools import ElaComboBox
 
 from .ela_tag_combo_base import (
-    _TagBoxThemeMixin, _TagBoxAnimMixin,
+    _TagBoxThemeMixin,
+    _TagBoxAnimMixin,
     _paint_tag_single,
 )
 from ._internal import _adjust_combobox_popup

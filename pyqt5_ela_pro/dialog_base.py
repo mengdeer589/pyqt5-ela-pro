@@ -28,8 +28,10 @@ class ElaDialogBase(ElaContentDialog):
     :type title: str
     :param middleText: 中间按钮文本，为 ``None`` 时隐藏中间按钮。
     :type middleText: str, optional
-    :param parent: 父级 widget（必须提供）。
+    :param parent: 父级 widget（**必填**）。底层 ``ElaContentDialog`` 需要它来创建遮罩控件，
+        传 ``None`` 会让进程崩溃，因此这里会抛 :class:`ValueError`。
     :type parent: QWidget
+    :raises ValueError: ``parent`` 为 ``None`` 时抛出（否则进程会静默 abort）
 
     Example::
 
@@ -45,7 +47,16 @@ class ElaDialogBase(ElaContentDialog):
         middleText: str | None = None,
         parent: Optional[QWidget] = None,
     ) -> None:
-        super().__init__(parent)  # type: ignore[arg-type]
+        # ElaContentDialog 的 C++ 构造函数无条件解引用 parent（ElaContentDialog.cpp:
+        # `d->_maskWidget->setFixedSize(parent->size())`），传 None 会空指针解引用，
+        # 在 Qt 之外触发 0xC0000409 静默 abort（无 traceback）。这里提前拦下并给出可读报错。
+        if parent is None:
+            raise ValueError(
+                "ElaDialogBase 需要 parent：底层 ElaContentDialog 用 parent 尺寸创建遮罩控件，"
+                "parent=None 会导致进程崩溃。请传入宿主窗口，例如 "
+                "ElaDialogBase(parent=self.window())。"
+            )
+        super().__init__(parent)
         self._titleWidget: Optional[ElaText] = None
         self._paramWidget: Optional[QWidget] = None
         self._paramLay: Optional[QVBoxLayout] = None

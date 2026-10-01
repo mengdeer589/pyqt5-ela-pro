@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QRect, Qt
 
-from pyqt5_ela_pro.notify_popup import ElaNotifyPopup, ElaNotifyManager
+from pyqt5_ela_pro.notify_popup import ElaNotifyManager, ElaNotifyPopup
 
 
 class TestElaNotifyPopup:
@@ -114,3 +114,45 @@ class TestElaNotifyManager:
         assert popup not in manager._popups
 
         popup.deleteLater()
+
+
+class TestNotifyPopupScreenOrigin:
+    """availableGeometry() 带原点，定位必须叠加 x()/y()（多显示器场景）。"""
+
+    def _positions_for(self, geometry):
+
+        popup = ElaNotifyPopup()
+        popup.resize(300, 80)
+        popup._get_screen_geometry = lambda: QRect(*geometry)
+        popup._update_positions()
+        start = (popup._start_pos.x(), popup._start_pos.y())
+        end = (popup._end_pos.x(), popup._end_pos.y())
+        popup.deleteLater()
+        return start, end
+
+    def test_primary_screen_at_origin(self, qapp):
+        start, end = self._positions_for((0, 0, 1920, 1080))
+        assert start == (1920 - 300 - 5, 1080)
+        assert end[0] == start[0]
+
+    def test_secondary_monitor_right(self, qapp):
+        start, _ = self._positions_for((1920, 0, 1920, 1080))
+        assert start[0] == 1920 + 1920 - 300 - 5
+
+    def test_secondary_monitor_left_negative_origin(self, qapp):
+        start, _ = self._positions_for((-1920, 0, 1920, 1080))
+        assert start[0] == -1920 + 1920 - 300 - 5
+        assert start[0] == -305
+
+    def test_secondary_monitor_above_negative_origin(self, qapp):
+        start, end = self._positions_for((0, -1080, 1920, 1080))
+        assert start[1] == -1080 + 1080
+        assert end[1] >= -1080, (
+            "\u7ed3\u675f\u4f4d\u7f6e\u4e0d\u80fd\u8dd1\u5230\u76ee\u6807\u5c4f\u5e55\u4e0a\u8fb9\u754c\u4e4b\u5916"
+        )
+
+    def test_end_position_never_above_screen_top(self, qapp):
+        # 屏幕高度不足以容下弹窗时，结束位置必须被夹在屏幕内。
+        for geom in ((0, -1080, 1920, 108), (0, 0, 1920, 40), (0, 0, 1920, 80)):
+            _, end = self._positions_for(geom)
+            assert end[1] >= geom[1], f"geom={geom} end_y={end[1]}"

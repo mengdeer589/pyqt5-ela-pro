@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QWidget
+from PyQt5ElaWidgetTools import ElaThemeType
 
 from pyqt5_ela_pro.ela_toast import ElaToast, _ToastType
 
@@ -94,7 +95,7 @@ class TestElaToastAnimation:
 class TestElaToastTheme:
     def test_on_theme_changed_updates_mode(self):
         toast = ElaToast(_ToastType.Info, "测试", 2000)
-        from PyQt5ElaWidgetTools import ElaThemeType
+
         toast._onThemeChanged(ElaThemeType.ThemeMode.Dark)
         assert toast._theme_mode == ElaThemeType.ThemeMode.Dark
         toast.close()

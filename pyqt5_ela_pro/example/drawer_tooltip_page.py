@@ -1,33 +1,32 @@
 """
-[pyqt5_ela_pro] 抽屉与提示组件页面
+[pyqt5_ela_pro] 弹窗与提示页面
 
-合并了以下来源的组件:
-- pyqt5_ela_pro: 抽屉、提示组件
+工具提示 / 状态提示 / 通知气泡 / 各类对话框。
+
+抽屉类（``ElaDrawerArea`` / ``ElaDrawer`` / 侧边抽屉）已挪到「容器与
+布局」—— 它们是**容器**（装内容、可折叠），不是提示。
 """
-import traceback
 
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QWidget
-from PyQt5.QtGui import QFont
+import traceback
+from PyQt5.QtGui import QColor
+from PyQt5.QtWidgets import QHBoxLayout, QLabel
 from PyQt5ElaWidgetTools import (
-    ElaText, ElaPushButton, ElaIconType, ElaToggleSwitch, ElaDialog,
+    ElaColorDialog,
+    ElaContentDialog,
+    ElaDialog,
+    ElaPushButton,
+    ElaText,
 )
 from pyqt5_ela_pro import (
-    ElaToast,
-    ElaMessageDialog,
     ElaConfirmDialog,
-    show_notify,
-)
-from pyqt5_ela_pro import (
-    ElaDrawer,
-    ElaDrawerArea,
-    ElaDrawerPosition,
-    ElaThemeWidget,
-    ElaButton,
+    ElaMessageDialog,
+    ElaStateToolTip,
+    ElaToast,
     ElaToolTip,
     ElaToolTipPosition,
-    set_tooltip,
     remove_tooltip,
-    ElaStateToolTip,
+    set_tooltip,
+    show_notify,
 )
 from .base_page import ExamplePage
 
@@ -35,17 +34,19 @@ from .base_page import ExamplePage
 class DrawerTooltipPage(ExamplePage):
     """抽屉与提示组件页面"""
 
-    PAGE_TITLE = "抽屉与提示"
+    PAGE_TITLE = "弹窗与提示"
 
     def __init__(self, parent=None):
         self._drawers = {}
         self._stateTooltip = None
         self._tooltip_demo_btn = None
+        self._color_swatch = None
+        # 属性必须在 super().__init__() 之前就位：基类构造里会调 _addDemoContent
+        self._current_color = QColor("#3B82F6")
+        self._recent_colors = []
         super().__init__(parent)
 
     def _addDemoContent(self, main_layout):
-        self._demoElaDrawerArea(main_layout)
-        self._demoDrawer(main_layout)
         self._demoTooltip(main_layout)
         self._demoTooltipDirect(main_layout)
         self._demoStateTooltip(main_layout)
@@ -54,114 +55,18 @@ class DrawerTooltipPage(ExamplePage):
         self._demoMessageDialog(main_layout)
         self._demoConfirmDialog(main_layout)
         self._demoElaDialog(main_layout)
-
-    def _demoElaDrawerArea(self, parent_layout):
-        parent_layout.addLayout(
-            self._createHeaderRow("00. PyQt5ElaWidgetTools - ElaDrawerArea 折叠面板", self._demoElaDrawerArea)
-        )
-        self._addInfoText("可折叠面板，点击开关或点击头部展开/收起内容区域", parent_layout)
-
-        drawer = ElaDrawerArea(self)
-        header = QWidget(self)
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-
-        icon = ElaText(self)
-        icon.setTextPixelSize(15)
-        icon.setElaIcon(ElaIconType.IconName.MessageArrowDown)
-        icon.setFixedSize(25, 25)
-        header_layout.addWidget(icon)
-
-        header_text = ElaText("ElaDrawerArea", self)
-        header_text.setTextPixelSize(15)
-        header_layout.addWidget(header_text)
-        header_layout.addStretch()
-
-        switch_text = ElaText("关", self)
-        switch_text.setTextPixelSize(15)
-        switch_btn = ElaToggleSwitch(self)
-
-        def _on_toggle(toggled: bool):
-            # setIsToggled 同步开关时原生会回发 toggled，状态一致时跳过避免回声
-            if toggled == drawer.getIsExpand():
-                return
-            switch_text.setText("开" if toggled else "关")
-            drawer.expand() if toggled else drawer.collapse()
-
-        switch_btn.toggled.connect(_on_toggle)
-        drawer.expandStateChanged.connect(switch_btn.setIsToggled)
-
-        header_layout.addWidget(switch_text)
-        header_layout.addWidget(switch_btn)
-        drawer.setDrawerHeader(header)
-
-        for i, label in enumerate(["测试窗口1", "测试窗口2", "测试窗口3"], 1):
-            w = QWidget(self)
-            w.setFixedHeight(75)
-            wl = QHBoxLayout(w)
-            wl.addSpacing(60)
-            cb = ElaText(label, self)
-            cb.setTextPixelSize(14)
-            wl.addWidget(cb)
-            wl.addStretch()
-            drawer.addDrawer(w)
-
-        parent_layout.addWidget(drawer)
-        parent_layout.addSpacing(20)
-
-    def _demoDrawer(self, parent_layout):
-        parent_layout.addWidget(self._createSectionHeader("=== ela_ext - 抽屉组件 ==="))
-        self._demoSiSideDrawer(parent_layout)
+        self._demoContentDialog(main_layout)
+        self._demoColorDialog(main_layout)
 
     def _demoTooltip(self, parent_layout):
         parent_layout.addWidget(self._createSectionHeader("=== ela_ext - 提示组件 ==="))
         self._demoToolTip(parent_layout)
 
-    def _demoSiSideDrawer(self, parent_layout):
-        parent_layout.addLayout(
-            self._createHeaderRow("01. ela_ext - ElaDrawer 四方向抽屉", self._demoSiSideDrawer)
-        )
-        self._addInfoText("SiliconUI 风格抽屉，支持上下左右四个方向滑入", parent_layout)
-        default_font_family = QFont().defaultFamily()
-        for name, pos, size in [
-            ("左侧抽屉", ElaDrawerPosition.Left, 300),
-            ("右侧抽屉", ElaDrawerPosition.Right, 380),
-            ("顶部抽屉", ElaDrawerPosition.Top, 200),
-            ("底部抽屉", ElaDrawerPosition.Bottom, 200),
-        ]:
-            drawer = ElaDrawer(position=pos, drawer_size=size, parent=self)
-            content = ElaThemeWidget()
-            content_layout = QVBoxLayout(content)
-            content_layout.setContentsMargins(16, 16, 16, 16)
-            content_layout.setSpacing(12)
-            title = ElaText(name, content)
-            title.setTextPixelSize(18)
-            title.setFont(QFont(default_font_family, 18, QFont.Bold))
-            content_layout.addWidget(title)
-            desc = ElaText(f"这是一个{name}，可以放置设置项、表单等内容。", content)
-            desc.setTextPixelSize(14)
-            content_layout.addWidget(desc)
-            content_layout.addStretch()
-            close_btn = ElaButton("关闭抽屉", variant="solid", color="primary", parent=content)
-            close_btn.setFixedWidth(120)
-            close_btn.clicked.connect(drawer.closeDrawer)
-            content_layout.addWidget(close_btn)
-            drawer.setContentWidget(content)
-            self._drawers[name] = drawer
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(15)
-        for name, drawer in self._drawers.items():
-            btn = ElaPushButton(name, self)
-            btn.setFixedWidth(100)
-            btn.clicked.connect(drawer.showDrawer)
-            btn_layout.addWidget(btn)
-        btn_layout.addStretch()
-        parent_layout.addLayout(btn_layout)
-        parent_layout.addSpacing(20)
-
     def _demoToolTip(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("02. ela_ext - ElaToolTip 工具提示", self._demoToolTip)
+            self._createHeaderRow(
+                "02. ela_ext - ElaToolTip 工具提示", self._demoToolTip
+            )
         )
         self._addInfoText("鼠标悬停在按钮上查看提示", parent_layout)
         btn_layout = QHBoxLayout()
@@ -186,7 +91,10 @@ class DrawerTooltipPage(ExamplePage):
 
     def _demoTooltipDirect(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("03. ela_ext - remove_tooltip 与 ElaToolTip 直接使用", self._demoTooltipDirect)
+            self._createHeaderRow(
+                "03. ela_ext - remove_tooltip 与 ElaToolTip 直接使用",
+                self._demoTooltipDirect,
+            )
         )
         self._addInfoText("左侧按钮有 tooltip，点击右侧按钮移除/恢复", parent_layout)
         btn_layout = QHBoxLayout()
@@ -225,9 +133,7 @@ class DrawerTooltipPage(ExamplePage):
                 except RuntimeError:
                     pass
             self._direct_tip = ElaToolTip("手动定位的提示框", self.window())
-            self._direct_tip.showAt(
-                show_tip_btn, position=ElaToolTipPosition.TopRight
-            )
+            self._direct_tip.showAt(show_tip_btn, position=ElaToolTipPosition.TopRight)
 
         def _close_tooltip_direct():
             if self._direct_tip is not None:
@@ -248,7 +154,9 @@ class DrawerTooltipPage(ExamplePage):
 
     def _demoStateTooltip(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("04. ela_ext - ElaStateToolTip 状态提示", self._demoStateTooltip)
+            self._createHeaderRow(
+                "04. ela_ext - ElaStateToolTip 状态提示", self._demoStateTooltip
+            )
         )
         self._addInfoText("显示加载状态、成功/失败状态的提示", parent_layout)
         btn_layout = QHBoxLayout()
@@ -313,15 +221,16 @@ class DrawerTooltipPage(ExamplePage):
             self._createHeaderRow("05. ela_ext - ElaToast 通知提示", self._demoToast)
         )
         self._addInfoText(
-            "非模态通知，支持成功/信息/警告/错误四种类型，自动淡入→停留→淡出", parent_layout
+            "非模态通知，支持成功/信息/警告/错误四种类型，自动淡入→停留→淡出",
+            parent_layout,
         )
         row = QHBoxLayout()
         row.setSpacing(15)
         for text, slot in [
-            ("成功", lambda: ElaToast.success("操作成功完成！",parent=self)),
-            ("信息", lambda: ElaToast.info("这是一条信息提示",parent=self)),
-            ("警告", lambda: ElaToast.warning("请注意，磁盘空间不足",parent=self)),
-            ("错误", lambda: ElaToast.error("发生错误，请重试",parent=self)),
+            ("成功", lambda: ElaToast.success("操作成功完成！", parent=self)),
+            ("信息", lambda: ElaToast.info("这是一条信息提示", parent=self)),
+            ("警告", lambda: ElaToast.warning("请注意，磁盘空间不足", parent=self)),
+            ("错误", lambda: ElaToast.error("发生错误，请重试", parent=self)),
         ]:
             btn = ElaPushButton(text, self)
             btn.setFixedWidth(80)
@@ -333,7 +242,9 @@ class DrawerTooltipPage(ExamplePage):
 
     def _demoNotifyPopup(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("06. ela_ext - ElaNotifyPopup 通知弹窗", self._demoNotifyPopup)
+            self._createHeaderRow(
+                "06. ela_ext - ElaNotifyPopup 通知弹窗", self._demoNotifyPopup
+            )
         )
         self._addInfoText(
             "右下角通知弹窗，从屏幕边缘滑入，支持自动关闭和鼠标悬停保持",
@@ -358,7 +269,9 @@ class DrawerTooltipPage(ExamplePage):
 
     def _demoMessageDialog(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("07. ela_ext - ElaMessageDialog 消息对话框", self._demoMessageDialog)
+            self._createHeaderRow(
+                "07. ela_ext - ElaMessageDialog 消息对话框", self._demoMessageDialog
+            )
         )
         self._addInfoText(
             "简化的消息对话框接口，使用 ElaText 组件渲染内容", parent_layout
@@ -389,7 +302,9 @@ class DrawerTooltipPage(ExamplePage):
 
     def _demoConfirmDialog(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("08. ela_ext - ElaConfirmDialog 确认对话框", self._demoConfirmDialog)
+            self._createHeaderRow(
+                "08. ela_ext - ElaConfirmDialog 确认对话框", self._demoConfirmDialog
+            )
         )
         self._addInfoText(
             "全 QPainter 自绘的确认对话框，支持 bottom（下方）和 top（上方）弹出位置",
@@ -399,7 +314,9 @@ class DrawerTooltipPage(ExamplePage):
         btn_layout.setSpacing(15)
         btn_bottom = ElaPushButton("下方弹出", self)
         btn_bottom.setFixedWidth(100)
-        btn_bottom.clicked.connect(lambda: self._onShowConfirmDialog(btn_bottom, "bottom"))
+        btn_bottom.clicked.connect(
+            lambda: self._onShowConfirmDialog(btn_bottom, "bottom")
+        )
         btn_layout.addWidget(btn_bottom)
         btn_top = ElaPushButton("上方弹出", self)
         btn_top.setFixedWidth(100)
@@ -410,7 +327,9 @@ class DrawerTooltipPage(ExamplePage):
         parent_layout.addSpacing(20)
 
     def _onShowConfirmDialog(self, btn, position="bottom"):
-        result = ElaConfirmDialog.show(btn, "提示", f"确定要执行此操作吗？（{position}）", position=position)
+        result = ElaConfirmDialog.show(
+            btn, "提示", f"确定要执行此操作吗？（{position}）", position=position
+        )
         if result:
             print("用户点击了确认")
         else:
@@ -418,7 +337,9 @@ class DrawerTooltipPage(ExamplePage):
 
     def _demoElaDialog(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("09. PyQt5ElaWidgetTools - ElaDialog 对话框", self._demoElaDialog)
+            self._createHeaderRow(
+                "09. PyQt5ElaWidgetTools - ElaDialog 对话框", self._demoElaDialog
+            )
         )
         self._addInfoText(
             "Ela 主题对话框，支持窗口按钮控制、默认关闭设置、固定大小模式",
@@ -444,3 +365,115 @@ class DrawerTooltipPage(ExamplePage):
         btn_layout.addStretch()
         parent_layout.addLayout(btn_layout)
         parent_layout.addSpacing(20)
+
+    def _demoContentDialog(self, main_layout):
+        main_layout.addLayout(
+            self._createHeaderRow(
+                "10. PyQt5ElaWidgetTools - ElaContentDialog 内容对话框",
+                self._demoContentDialog,
+            )
+        )
+        self._addInfoText(
+            "ElaMessageDialog 的基类：内容区 + 左/中/右三个槽位按钮 + 信号。"
+            "注意 ElaConfirmDialog 并不继承它（直接继承 QDialog），"
+            "所以想自己拼一个带标题栏的对话框要用它",
+            main_layout,
+        )
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+
+        basic_btn = ElaPushButton("打开基础内容对话框", self)
+        basic_btn.setFixedWidth(160)
+
+        def _on_open_basic():
+            dlg = ElaContentDialog(self)
+            dlg.setWindowTitle("内容对话框")
+            dlg.setCentralWidget(QLabel("这里是 setCentralWidget 放进去的内容", self))
+            dlg.leftButtonClicked.connect(lambda: (print("左键"), dlg.accept()))
+            dlg.rightButtonClicked.connect(lambda: (print("右键"), dlg.accept()))
+            dlg.exec()
+
+        basic_btn.clicked.connect(_on_open_basic)
+        btn_layout.addWidget(basic_btn)
+
+        three_btn = ElaPushButton("打开三按钮版", self)
+        three_btn.setFixedWidth(160)
+
+        def _on_open_three():
+            dlg = ElaContentDialog(self)
+            dlg.setWindowTitle("三个按钮槽位")
+            dlg.setCentralWidget(QLabel("左键 / 中键 / 右键三个槽位", self))
+            dlg.setLeftButtonText("左")
+            dlg.setMiddleButtonText("中")
+            dlg.setRightButtonText("右")
+            dlg.leftButtonClicked.connect(lambda: (print("左"), dlg.accept()))
+            dlg.middleButtonClicked.connect(lambda: (print("中"), dlg.accept()))
+            dlg.rightButtonClicked.connect(lambda: (print("右"), dlg.accept()))
+            dlg.exec()
+
+        three_btn.clicked.connect(_on_open_three)
+        btn_layout.addWidget(three_btn)
+        btn_layout.addStretch()
+        main_layout.addLayout(btn_layout)
+        main_layout.addSpacing(20)
+
+    def _demoColorDialog(self, main_layout):
+        main_layout.addLayout(
+            self._createHeaderRow(
+                "11. PyQt5ElaWidgetTools - ElaColorDialog 颜色对话框",
+                self._demoColorDialog,
+            )
+        )
+        self._addInfoText(
+            "颜色选择面板：取色板 + 自定义色 + getCustomColorList() 取最近使用；"
+            "选中即发 colorSelected",
+            main_layout,
+        )
+        self._color_swatch = ElaText("当前色：#3B82F6", self)
+        self._color_swatch.setTextPixelSize(14)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+        pick_btn = ElaPushButton("打开取色器", self)
+        pick_btn.setFixedWidth(140)
+        pick_btn.clicked.connect(self._onOpenColorDialog)
+        btn_layout.addWidget(pick_btn)
+
+        preset = ElaPushButton("不打开，直接设当前色", self)
+        preset.setFixedWidth(180)
+        preset.clicked.connect(self._onPresetColor)
+        btn_layout.addWidget(preset)
+
+        recent = ElaPushButton("打印最近使用色", self)
+        recent.setFixedWidth(160)
+        recent.clicked.connect(self._onPrintRecentColors)
+        btn_layout.addWidget(recent)
+
+        btn_layout.addStretch()
+        main_layout.addLayout(btn_layout)
+        main_layout.addWidget(self._color_swatch)
+        main_layout.addSpacing(20)
+
+    # -- ElaColorDialog 回调 ------------------------------------------------
+
+    def _onOpenColorDialog(self):
+        dlg = ElaColorDialog(self)
+        dlg.setWindowTitle("选择颜色")
+        dlg.setCurrentColor(self._current_color)
+        dlg.colorSelected.connect(self._onColorSelected)
+        dlg.exec()
+        self._recent_colors = dlg.getCustomColorList()
+
+    def _onColorSelected(self, color):
+        # colorSelected 给的是 ElaColorDialog 内部维护的 QColor
+        self._current_color = color
+        self._color_swatch.setText(f"当前色：{color.name()}")
+
+    def _onPresetColor(self):
+        """不开面板，直接改「当前色」—— 适合宿主自己有主题色面板的场景。"""
+        self._onColorSelected(QColor("#10B981"))
+
+    def _onPrintRecentColors(self):
+        dlg = ElaColorDialog(self)
+        names = [c.name() for c in dlg.getCustomColorList()]
+        print("最近使用色：", names or "（空——得先自己选过色才有）")

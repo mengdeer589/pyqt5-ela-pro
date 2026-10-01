@@ -9,6 +9,7 @@ Office 文档预览组件。
 
 from __future__ import annotations
 
+import traceback
 from typing import Optional
 
 from PyQt5.QAxContainer import QAxWidget
@@ -108,8 +109,6 @@ class ElaOfficeViewerMixin:
             self._axWidget.close()
             self._axWidget.clear()
         except Exception:  # noqa
-            import traceback
-
             traceback.print_exc()
         self._loaded = False
 

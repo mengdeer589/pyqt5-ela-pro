@@ -244,7 +244,7 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         fm = self.fontMetrics()
         width = fm.horizontalAdvance(self.text())
         if self._icon_name is not None:
-            width += self._icon_size + 6
+            width += self._icon_size + (6 if self.text() else 0)
         width += 2 * self._padding_h
         return QSize(max(64, width), self._size_height)
 
@@ -404,25 +404,30 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
                 spacing = 6
                 icon_sz = QSize(self._icon_size, self._icon_size)
                 fm = painter.fontMetrics()
-                tw = fm.horizontalAdvance(btn_text)
-                total_w = icon_sz.width() + spacing + tw
-                sx = (w - total_w) // 2
+                tw = fm.horizontalAdvance(btn_text) if btn_text else 0
+                if tw:
+                    total_w = icon_sz.width() + spacing + tw
+                    sx = (w - total_w) // 2
+                else:
+                    # 纯图标按钮：只居中图标本身（含 spacing 会向左偏）
+                    sx = (w - icon_sz.width()) // 2
                 iy = (h - icon_sz.height()) // 2
                 ir = QRect(sx, iy, icon_sz.width(), icon_sz.height())
                 icon = ElaIcon.getInstance().getElaIcon(icon_name, text_color)
                 painter.drawPixmap(ir, icon.pixmap(icon_sz))
-                tr = QRect(ir.right() + spacing, 0, tw, h)
-                painter.drawText(
-                    tr,
-                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                    btn_text,
-                )
-                if variant == "link" and hovered and not disabled:
-                    underline_y = ir.center().y() + fm.ascent() // 2 + 2
-                    painter.setPen(QPen(text_color, 1))
-                    painter.drawLine(
-                        tr.left(), underline_y, tr.left() + tw, underline_y
+                if tw:
+                    tr = QRect(ir.right() + spacing, 0, tw, h)
+                    painter.drawText(
+                        tr,
+                        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                        btn_text,
                     )
+                    if variant == "link" and hovered and not disabled:
+                        underline_y = ir.center().y() + fm.ascent() // 2 + 2
+                        painter.setPen(QPen(text_color, 1))
+                        painter.drawLine(
+                            tr.left(), underline_y, tr.left() + tw, underline_y
+                        )
             else:
                 painter.drawText(
                     QRect(0, 0, w, h),

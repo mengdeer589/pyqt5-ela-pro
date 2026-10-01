@@ -8,24 +8,16 @@ sendEvent 目标明确且与 eventFilter 分发链等价。
 from __future__ import annotations
 
 import pytest
-
 from PyQt5.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt5.QtGui import QMouseEvent
+from PyQt5.QtGui import QMouseEvent, QWheelEvent
 from PyQt5.QtWidgets import QApplication
 
 from pyqt5_ela_pro.blueprint import (
     ElaBlueprintCanvas,
-    ElaNodeRegistry,
+    ElaBlueprintNode,
+    ElaNodeCreationMenu,
     register_node_type,
 )
-
-
-@pytest.fixture(autouse=True)
-def clean_registry():
-    reg = ElaNodeRegistry.instance()
-    reg._specs = {}
-    yield reg
-    reg._specs = {}
 
 
 @pytest.fixture
@@ -71,8 +63,6 @@ class TestCreation:
         assert node.pos == QPointF(60, 120)
 
     def test_add_node_uses_existing(self, canvas):
-        from pyqt5_ela_pro.blueprint import ElaBlueprintNode
-
         node = ElaBlueprintNode("start", "自定义")
         node.add_output("out", "输出", "exec")
         canvas.add_node(node, QPointF(10, 10))
@@ -160,8 +150,6 @@ class TestInteraction:
         assert edge.from_node == n1.id and edge.to_node == n2.id
 
     def test_wire_drag_incompatible_type_no_edge(self, canvas):
-        from pyqt5_ela_pro.blueprint import ElaNodeCreationMenu
-
         register_node_type(
             "img_src", "图像源", "输入", outputs=[{"id": "img", "data_type": "image"}]
         )
@@ -240,8 +228,6 @@ class TestInteraction:
 
     def test_wheel_zoom_around_cursor(self, canvas):
         canvas._viewport.setFocus()
-        from PyQt5.QtGui import QWheelEvent
-
         canvas._zoom_settle.stop()
 
         def wheel(pos, delta):

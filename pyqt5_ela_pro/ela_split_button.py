@@ -7,12 +7,13 @@
 用法::
 
     from pyqt5_ela_pro import ElaSplitButton
+    from PyQt5ElaWidgetTools import ElaMenu
 
     btn = ElaSplitButton(text="保存", icon=ElaIconType.IconName.FloppyDisk, parent=self)
     btn.clicked.connect(lambda: print("保存"))
 
-    menu = QMenu(btn)
-    menu.addAction("另存为")
+    menu = ElaMenu(btn)                       # Ela 风格菜单（别用裸 QMenu）
+    menu.addElaIconAction(ElaIconType.IconName.FloppyDisk, "另存为")
     btn.setMenu(menu)
 """
 

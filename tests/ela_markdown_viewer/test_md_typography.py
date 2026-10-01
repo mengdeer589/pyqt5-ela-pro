@@ -54,18 +54,58 @@ class TestTypography:
         assert block.blockFormat().lineHeight() == 160.0
         v.deleteLater()
 
-    def test_quote_has_background_and_muted_text(self):
+    def test_heading_uses_semantic_color(self):
+        """标题使用语义标题色（opencode TUI 调色板）。"""
+        v = ElaMarkdownViewer()
+        v.setMarkdown("## 标题")
+
+        cursor = QTextCursor(_blocks(v)[0])
+        cursor.movePosition(
+            QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor
+        )
+        color = cursor.charFormat().foreground().color()
+        assert color.name() == v._md_heading_color.name()
+        v.deleteLater()
+
+    def test_paragraph_bottom_margin(self):
+        """普通段落有下边距（Typora 0.8em ≈ 12px 段落节奏）。"""
+        v = ElaMarkdownViewer()
+        v.setMarkdown("正文段落")
+
+        assert _blocks(v)[0].blockFormat().bottomMargin() == 12.0
+        v.deleteLater()
+
+    def test_table_full_grid(self):
+        """Typora 表格：单元格四边 1px 全网格 + 表头底色。"""
+        v = ElaMarkdownViewer()
+        v.setMarkdown("| a | b |\n| --- | --- |\n| 1 | 2 |")
+
+        table = [t for t in v._iter_tables(v.document()) if not v._is_code_table(t)][0]
+        header = table.cellAt(0, 0).format().toTableCellFormat()
+        body = table.cellAt(1, 0).format().toTableCellFormat()
+        for cell in (header, body):
+            assert cell.topBorder() == 1.0
+            assert cell.bottomBorder() == 1.0
+            assert cell.leftBorder() == 1.0
+            assert cell.rightBorder() == 1.0
+        assert header.background().style() != 0
+        v.deleteLater()
+
+    def test_quote_rail_and_italic_text(self):
+        """opencode TUI 引用块：无底色、左侧竖线（自绘）、斜体引用色。"""
         v = ElaMarkdownViewer()
         v.setMarkdown("> 引用内容")
 
         quote = _blocks(v)[0]
-        assert quote.blockFormat().background().style() != 0
+        assert quote.blockFormat().background().style() == 0
+        assert quote.blockFormat().leftMargin() >= 20.0
         cursor = QTextCursor(quote)
         cursor.movePosition(
             QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor
         )
         color = cursor.charFormat().foreground().color()
-        assert color.name() == v._muted_color.name()
+        assert color.name() == v._md_quote_color.name()
+        assert cursor.charFormat().fontItalic()
         v.deleteLater()
 
     def test_table_after_quote_keeps_header_single_block(self):

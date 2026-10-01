@@ -40,7 +40,7 @@ class T_IconModel(QAbstractListModel):
                 try:
                     iconEnum = getattr(ElaIconType, key)
                     return QVariant([key, chr(iconEnum)])
-                except:
+                except Exception:
                     return QVariant()
             else:
                 if index.row() >= len(self._searchKeyList):
@@ -49,7 +49,7 @@ class T_IconModel(QAbstractListModel):
                 try:
                     iconEnum = getattr(ElaIconType, iconName)
                     return QVariant([iconName, chr(iconEnum)])
-                except:
+                except Exception:
                     return QVariant()
         return QVariant()
 

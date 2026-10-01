@@ -1,20 +1,24 @@
 """
 图表引擎核心：ElaChartWidget 与系列/组件协议。
 
-对外契约：
+对外契约（ECharts 实例 API 对齐）：
 
-- ``ElaChartWidget``：``set_option`` 全量设置 / ``update_option`` 合并更新
-  并动画过渡 / resizeEvent 自动重排 / 主题感知重绘（eTheme 实时取色）。
+- ``ElaChartWidget``：``setOption(option, notMerge, lazyUpdate)``（默认合并）/
+  ``getOption`` / ``resize`` / ``dispatchAction`` / ``on``&``off`` /
+  ``convertToPixel``&``convertFromPixel``&``containPixel`` /
+  ``showLoading``&``hideLoading`` / ``getDataURL`` /
+  ``appendData({seriesIndex, data})`` / ``clear`` / ``dispose``&``isDisposed``；
+  resizeEvent 自动重排；主题感知重绘（eTheme 实时取色）。
 - 注册表：``SERIES_REGISTRY`` / ``COMPONENT_REGISTRY`` +
-  ``register_series(type_name, cls)`` / ``register_component(name, cls)``，
+  ``registerSeries(type_name, cls)`` / ``registerComponent(name, cls)``，
   后注册覆盖先注册（同名键直接替换）。
 - 协议基类：``SeriesRenderer``（系列）、``Coord``（坐标，见 axes.py）。
 - ``ChartAnimation``：0→1 进度动画（QVariantAnimation，缓出），渲染器经
   ``anim_t`` 插值。
 - 组件：``Title`` / ``Legend`` / ``Tooltip``。
-- ``default_palette()``：默认调色板（主题感知）。
+- ``defaultPalette()``：默认调色板（主题感知）。
 
-ECharts 风格 ``set_option`` API 移植自 InstructionX_UIKit.charts.core
+ECharts 风格 ``setOption`` API 移植自 InstructionX_UIKit.charts.core
 （PySide6 → PyQt5；主题令牌经 charts._tokens 适配到 eTheme / ElaThemeType，
 原库无 LICENSE，保留出处）。
 """
@@ -22,21 +26,41 @@ ECharts 风格 ``set_option`` API 移植自 InstructionX_UIKit.charts.core
 from __future__ import annotations
 
 import copy
+import time
+from collections import defaultdict
+from typing import Optional
 
+from PyQt5 import sip
 from PyQt5.QtCore import (
     QAbstractAnimation,
+    QBuffer,
+    QEasingCurve,
+    QIODevice,
     QObject,
     QPointF,
     QRectF,
     Qt,
+    QTimer,
     QVariantAnimation,
+    pyqtSignal,
 )
-from PyQt5.QtGui import QColor, QFontMetricsF, QPainter, QPen, QPolygonF
-from PyQt5.QtWidgets import QWidget
+from PyQt5.QtGui import (
+    QColor,
+    QFontMetricsF,
+    QGuiApplication,
+    QImage,
+    QPainter,
+    QPen,
+    QPolygonF,
+)
+from PyQt5.QtWidgets import QFileDialog, QWidget
 from PyQt5ElaWidgetTools import eTheme
 
 from .._internal import disconnect_theme_signal
-from ._tokens import ANIM_EASING, T, palette_for_mode
+from . import data as _cdata
+from .data import ElaNumericBuffer
+from ._tokens import ANIM_DURATION, ANIM_EASING, T, palette_for_mode
+from ._utils import to_float as _to_float
 from ._utils import warn_once
 from .axes import (
     CalendarCoord,
@@ -44,20 +68,20 @@ from .axes import (
     GridCoord,
     PolarCoord,
     SingleAxisCoord,
-    chart_font,
-    format_value,
-    nice_ticks,
+    chartFont,
+    formatValue,
+    niceTicks,
 )
 
 __all__ = [
     "SERIES_REGISTRY",
     "COMPONENT_REGISTRY",
-    "register_series",
-    "register_component",
-    "default_palette",
-    "nice_ticks",
-    "format_value",
-    "parse_data_point",
+    "registerSeries",
+    "registerComponent",
+    "defaultPalette",
+    "niceTicks",
+    "formatValue",
+    "parseDataPoint",
     "SeriesRenderer",
     "Coord",
     "ChartAnimation",
@@ -79,26 +103,48 @@ SERIES_REGISTRY: dict = {}
 COMPONENT_REGISTRY: dict = {}
 
 
-def register_series(type_name: str, cls) -> None:
-    """注册系列渲染器：``type_name``（如 "bar"）→ SeriesRenderer 子类。"""
+def registerSeries(type_name: str, cls) -> None:
+    """注册系列渲染器：``type_name``（如 "bar"）→ SeriesRenderer 子类。
+
+    同名重复注册（换类）会覆盖并记录一次 stderr 告警，便于排查冲突。
+    """
     if not type_name:
-        raise ValueError("register_series: type_name 不能为空")
-    SERIES_REGISTRY[str(type_name)] = cls
+        raise ValueError("registerSeries: type_name 不能为空")
+    key = str(type_name)
+    previous = SERIES_REGISTRY.get(key)
+    if previous is not None and previous is not cls:
+        warn_once(
+            f"series-replace:{key}",
+            f"系列 {key!r} 已注册（{getattr(previous, '__name__', previous)}），"
+            f"现被覆盖为 {getattr(cls, '__name__', cls)}",
+        )
+    SERIES_REGISTRY[key] = cls
 
 
-def register_component(name: str, cls) -> None:
-    """注册图表组件：``name``（如 "markLine"）→ 组件类。"""
+def registerComponent(name: str, cls) -> None:
+    """注册图表组件：``name``（如 "markLine"）→ 组件类。
+
+    同名重复注册（换类）会覆盖并记录一次 stderr 告警，便于排查冲突。
+    """
     if not name:
-        raise ValueError("register_component: name 不能为空")
-    COMPONENT_REGISTRY[str(name)] = cls
+        raise ValueError("registerComponent: name 不能为空")
+    key = str(name)
+    previous = COMPONENT_REGISTRY.get(key)
+    if previous is not None and previous is not cls:
+        warn_once(
+            f"component-replace:{key}",
+            f"组件 {key!r} 已注册（{getattr(previous, '__name__', previous)}），"
+            f"现被覆盖为 {getattr(cls, '__name__', cls)}",
+        )
+    COMPONENT_REGISTRY[key] = cls
 
 
-def default_palette() -> list:
+def defaultPalette() -> list:
     """默认调色板（主题感知：随 eTheme 模式取色，重绘即生效）。"""
     return palette_for_mode(eTheme.getThemeMode())
 
 
-def parse_data_point(item, index: int = 0):
+def parseDataPoint(item, index: int = 0):
     """解析系列数据项 → ``(x, y)``。
 
     支持：``number``（x=index）、``[x, y]``、``{"value": ...}``；
@@ -149,14 +195,373 @@ def _needs_grid_coord(series_opts) -> bool:
     return False
 
 
+def _opt_float(value, default: float) -> float:
+    """把 option 里的取值安全转成 float，失败回退 ``default``。
+
+    ``fontSize`` 之类由调用方提供的值可能是 ``None``、``"14px"``、``"large"`` 等；
+    裸 ``float()`` 会在 ``Title.height()`` / ``Legend._font()`` 里抛
+    ``TypeError`` / ``ValueError``，而这两处由 ``resizeEvent`` / ``paintEvent``
+    无保护地调用 —— 异常穿透 Qt 回调边界会让进程 0xC0000409 静默终止。
+    与 ``axes.AxisModel.labelFont`` 的既有防御保持一致。
+    """
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    if result != result or result in (float("inf"), float("-inf")):
+        return float(default)
+    return result
+
+
+def _hold_value(v):
+    """合并 / 存入 option 时的取值策略：**大数组按引用，其余深拷贝**。
+
+    ``copy.deepcopy`` 对百万级 float list 是纯浪费（本机 100 万点约
+    60~95 ms），而这些数组图表从不在内部修改它们。``ElaNumericBuffer`` /
+    ndarray 一律按引用持有，其余走原有深拷贝路径。
+
+    注意：按引用持有意味着**调用方在 setOption 之后不得原地修改该数组**
+    （与 InstructionX 的口径一致，见 ``charts.data`` 模块 docstring）。
+    """
+    if _cdata.isBufferLike(v):
+        return v
+    return copy.deepcopy(v)
+
+
 def _deep_merge(dst: dict, src: dict) -> dict:
     """递归合并 src 到 dst（dict 深合并，list / 标量整体替换），返回 dst。"""
     for k, v in (src or {}).items():
         if isinstance(v, dict) and isinstance(dst.get(k), dict):
             _deep_merge(dst[k], v)
         else:
-            dst[k] = copy.deepcopy(v)
+            dst[k] = _hold_value(v)
     return dst
+
+
+#: setOption 合并时按 ECharts 组件数组「逐项合并」的顶层键
+_MERGE_ARRAY_KEYS = frozenset({"series", "dataZoom", "graphic"})
+
+#: animationEasing 名称 → QEasingCurve.Type（不认识的名称回退 OutCubic）
+_ANIM_EASINGS = {
+    "linear": QEasingCurve.Type.Linear,
+    "quadraticin": QEasingCurve.Type.InQuad,
+    "quadraticout": QEasingCurve.Type.OutQuad,
+    "quadraticinout": QEasingCurve.Type.InOutQuad,
+    "cubicin": QEasingCurve.Type.InCubic,
+    "cubicout": QEasingCurve.Type.OutCubic,
+    "cubicinout": QEasingCurve.Type.InOutCubic,
+    "quarticin": QEasingCurve.Type.InQuart,
+    "quarticout": QEasingCurve.Type.OutQuart,
+    "quarticinout": QEasingCurve.Type.InOutQuart,
+    "sinusoidalin": QEasingCurve.Type.InSine,
+    "sinusoidalout": QEasingCurve.Type.OutSine,
+    "sinusoidalinout": QEasingCurve.Type.InOutSine,
+    "exponentialin": QEasingCurve.Type.InExpo,
+    "exponentialout": QEasingCurve.Type.OutExpo,
+    "exponentialinout": QEasingCurve.Type.InOutExpo,
+    "circularin": QEasingCurve.Type.InCirc,
+    "circularout": QEasingCurve.Type.OutCirc,
+    "circularinout": QEasingCurve.Type.InOutCirc,
+    "elasticin": QEasingCurve.Type.InElastic,
+    "elasticout": QEasingCurve.Type.OutElastic,
+    "elasticinout": QEasingCurve.Type.InOutElastic,
+    "backin": QEasingCurve.Type.InBack,
+    "backout": QEasingCurve.Type.OutBack,
+    "backinout": QEasingCurve.Type.InOutBack,
+    "bouncein": QEasingCurve.Type.InBounce,
+    "bounceout": QEasingCurve.Type.OutBounce,
+    "bounceinout": QEasingCurve.Type.InOutBounce,
+}
+
+
+def _easing_from_name(name, default=QEasingCurve.Type.OutCubic):
+    """解析 ECharts ``animationEasing`` 名称 → QEasingCurve.Type。"""
+    if name is None:
+        return default
+    return _ANIM_EASINGS.get(str(name).strip().lower(), default)
+
+
+def _anchor_px(value, total: float, default: float) -> float:
+    """解析 left/top/right/bottom 锚点：数值 px 或 ``"N%"``（非法 → default）。"""
+    if value is None:
+        return default
+    if isinstance(value, str):
+        s = value.strip()
+        if s.endswith("%"):
+            try:
+                return float(s[:-1]) * float(total) / 100.0
+            except ValueError:
+                return default
+        if not s or s.lower() in (
+            "auto",
+            "left",
+            "top",
+            "right",
+            "bottom",
+            "center",
+            "middle",
+        ):
+            return default
+        try:
+            return float(s)
+        except ValueError:
+            return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _match_option_index(new_item, old_list: list, index: int) -> int:
+    """组件 / 系列数组项匹配（ECharts 语义）：``id`` → ``name`` → 序号。
+
+    返回旧列表下标；未匹配返回 -1。
+    """
+    if isinstance(new_item, dict):
+        new_id = new_item.get("id")
+        if new_id is not None:
+            for i, old in enumerate(old_list):
+                if isinstance(old, dict) and old.get("id") == new_id:
+                    return i
+        new_name = new_item.get("name")
+        if new_name:
+            for i, old in enumerate(old_list):
+                if isinstance(old, dict) and old.get("name") == new_name:
+                    return i
+    return index if 0 <= index < len(old_list) else -1
+
+
+def _merge_option_array(old_list: list, new_list: list) -> list:
+    """ECharts 风格组件数组合并（``series`` / ``dataZoom`` / ``graphic``）。
+
+    新项按 ``id`` → ``name`` → 序号匹配旧项并深合并；未匹配的新项追加；
+    旧列表中未被匹配的项保留（ECharts ``setOption`` 合并语义：合并模式下
+    传空数组不会删除旧项，需 ``notMerge=True`` 或 ``clear()``）。
+    标量数组无法逐项合并时整体替换。
+    """
+    old_list = list(old_list or [])
+    new_list = list(new_list or [])
+    if any(not isinstance(item, dict) for item in new_list):
+        # 标量数组无法逐项合并 → 整体替换。逐项按引用持有（``_hold_value``），
+        # 不用 ``normalizeOptionData``：那个函数只认 ``series`` 键，而本函数
+        # 同时服务 dataZoom / graphic。
+        return [_hold_value(i) for i in new_list]
+    result = [_hold_value(i) for i in old_list]
+    used = set()
+    for i, new_item in enumerate(new_list):
+        idx = _match_option_index(new_item, old_list, i)
+        if idx >= 0 and idx not in used:
+            merged = _hold_value(old_list[idx])
+            _deep_merge(merged, new_item)
+            result[idx] = _normalize_series_entry(merged)
+            used.add(idx)
+        else:
+            result.append(_copy_series_entry(new_item))
+    return result
+
+
+def _now() -> float:
+    """单调秒（``benchmark`` 计时用）。
+
+    用 ``time.monotonic`` 而非 ``time.time``：后者受系统时钟调整影响，
+    一次基准测试跨越 NTP 校正就会算出负耗时。
+    """
+    return time.monotonic()
+
+
+def _elapsed_ms(t0: float) -> float:
+    return (time.monotonic() - t0) * 1000.0
+
+
+def _int_attr(obj, name: str) -> int:
+    """安全取整型属性；缺失 / 非法一律 0（诊断接口不因缺字段而抛异常）。"""
+    try:
+        return int(getattr(obj, name, 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+#: 各系列渲染器存放「几何图元」的属性名（取最大长度者）。
+#: 折线存 ``_points``、bar 存 ``_bars``、scatter 存 ``_dots``、pie 存
+#: ``_sectors`` …… 早期实现只读折线的属性名，导致 bar / scatter 的规模恒为
+#: 0（实测 8 系列里两条读数为 0）。这里列出各渲染器实际使用的名字。
+_SERIES_GEOM_ATTRS = (
+    "_points",
+    "_bars",
+    "_dots",
+    "_sectors",
+    "_nodes",
+    "_items",
+    "_rows",
+    "_wedges",
+    "_rings",
+)
+
+
+def _series_type_name(r) -> str:
+    """系列类型名（取 option 的 ``type``，回退到类名去后缀）。"""
+    t = (
+        getattr(r, "opt", {}).get("type")
+        if isinstance(getattr(r, "opt", None), dict)
+        else None
+    )
+    if t:
+        return str(t)
+    return type(r).__name__.replace("SeriesRenderer", "")
+
+
+def _series_data_len(r) -> int:
+    """系列数据量。
+
+    优先用折线的 ``_data_len``（它已是最终生效的数据长度，stack 叠加后也
+    正确）；其余系列回退到 ``data()`` 的长度 —— 几何属性只反映**绘制**
+    规模（采样后），不能当数据量用。
+    """
+    n = _int_attr(r, "_data_len")
+    if n:
+        return n
+    data = r.data() if hasattr(r, "data") else []
+    try:
+        return len(data)
+    except TypeError:
+        return 0
+
+
+def _series_geom_len(r) -> int:
+    """系列实际绘制的几何元素数（折线点 / 柱 / 散点…… 各不相同）。"""
+    best = 0
+    for name in _SERIES_GEOM_ATTRS:
+        try:
+            v = getattr(r, name, None)
+            best = max(best, len(v) if v is not None else 0)
+        except TypeError:
+            continue
+    return best
+
+
+def _animation_enabled(cur_option: dict, new_option: dict) -> bool:
+    """本次 setOption 是否可能用到过渡动画数据（旧数据快照）。
+
+    与 ``_start_animation`` 的判定保持一致：任一侧的 ``animation`` 不是
+    显式 ``False`` 就认为可能要用。宁可多算一次快照，也不能出现「该播动画
+    却拿不到旧数据」的空插值。
+    """
+    for opt in (cur_option, new_option):
+        if isinstance(opt, dict) and opt.get("animation", True) is False:
+            return False
+    return True
+
+
+def _snapshot_series_data(r):
+    """取系列旧数据用于插值：大数组按引用，其余物化成 list。
+
+    快照的用途只是「上一帧画过什么」，插值时按下标读；缓冲区按引用持有
+    不会读到错位数据（``_rebuild`` 之后 ``prev_data`` 即被弃用）。
+    """
+    d = r.data()
+    if _cdata.isBufferLike(d):
+        return d
+    return list(d)
+
+
+def _normalize_series_entry(entry):
+    """把 series 项**直接**的 ``data`` 大数值数组包成紧凑存储（就地）。
+
+    只认 series 项自己的 ``data``，不碰 ``xAxis.data`` 等其它按 list 语义
+    读取的键（包装会破坏它们）；也不递归 —— ``markPoint.data`` /
+    ``graphic[].data`` 等嵌套数据形态各异，交给既有渲染路径。
+
+    ``toBuffer`` 只接受「扁平数值序列」，遇到 dict / ``[x, y]`` 对 /
+    heatmap 的 ``[x, y, v]`` 一律返回 ``None``，故本函数对结构型数据是
+    无操作，语义零变化。
+    """
+    if not isinstance(entry, dict):
+        return entry
+    buf = _cdata.toBuffer(entry.get("data"))
+    if buf is not None:
+        entry["data"] = buf
+    return entry
+
+
+def _copy_option_shallow_arrays(option: dict) -> dict:
+    """``notMerge`` 全量替换用的拷贝：**大数组按引用，其余深拷贝**。
+
+    与 ``copy.deepcopy`` 的唯一区别就是数组不再逐元素复制，语义上仍然保证
+    ``self._option`` 与调用方传入的 dict 不共享可变结构（只有只读的大数组
+    共享 —— 见 ``_hold_value`` 的说明）。
+    """
+    if not isinstance(option, dict):
+        return {}
+    out = {}
+    for k, v in option.items():
+        if k == "series" and isinstance(v, list):
+            out[k] = [_copy_series_entry(s) for s in v]
+        else:
+            out[k] = _hold_value(v)
+    return out
+
+
+def _copy_series_entry(s):
+    """单个 series 项的拷贝：大 ``data`` 按引用，其余深拷贝。"""
+    if not isinstance(s, dict):
+        return _hold_value(s)
+    return _normalize_series_entry({k: _hold_value(v) for k, v in s.items()})
+
+
+def _copy_any(v):
+    """递归拷贝：大数组按引用，其余深拷贝（供 getOption 使用）。"""
+    if _cdata.isBufferLike(v):
+        return v
+    if isinstance(v, dict):
+        return {k: _copy_any(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_copy_any(x) for x in v]
+    return copy.deepcopy(v)
+
+
+def _unwrap_option(option):
+    """把 option 树中的紧凑存储还原为普通 list（``getOption`` 对外出口）。"""
+    if isinstance(option, dict):
+        return {k: _unwrap_option(v) for k, v in option.items()}
+    if isinstance(option, list):
+        return [_unwrap_option(v) for v in option]
+    return _cdata.unwrapData(option)
+
+
+def _merge_option(dst: dict, src: dict) -> dict:
+    """ECharts 风格 option 合并：dict 深合并 / 组件数组逐项合并 / 其余整体替换。"""
+    for k, v in (src or {}).items():
+        if (
+            k in _MERGE_ARRAY_KEYS
+            and isinstance(v, list)
+            and isinstance(dst.get(k), list)
+        ):
+            dst[k] = _merge_option_array(dst[k], v)
+        elif k == "series" and isinstance(v, list):
+            # series 首次出现（dst 侧还不是 list）：逐项拷贝并包装大数组。
+            # 少了这一支，默认的合并模式会把整个 series 深拷贝一遍 ——
+            # 而首次注入的那份数据正是最该零拷贝的。
+            dst[k] = [_copy_series_entry(s) for s in v]
+        elif isinstance(v, dict) and isinstance(dst.get(k), dict):
+            _merge_option(dst[k], v)
+        else:
+            dst[k] = _hold_value(v)
+    return dst
+
+
+def formatLabelTemplate(template: str, params: dict) -> Optional[str]:
+    """ECharts 风格 ``{a}/{b}/{c}/{d}`` 标签模板（缺失键 → 空串；失败 None）。
+
+    浮点值按 ``formatValue`` 规则渲染（``100.0`` → ``"100"``），与数值标签一致。
+    """
+    try:
+        safe = {
+            key: formatValue(value) if isinstance(value, float) else value
+            for key, value in params.items()
+        }
+        return template.format_map(defaultdict(str, safe))
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -167,14 +572,14 @@ def _deep_merge(dst: dict, src: dict) -> dict:
 class SeriesRenderer:
     """系列渲染器协议基类。
 
-    子类实现 ``layout(rect)`` / ``paint(p, anim_t)`` / ``hit_test(pos)``。
-    坐标映射经 ``self.chart.coord_for(self.opt)`` 取得 Coord 后
-    ``coord.map_point(x, y)``。
+    子类实现 ``layout(rect)`` / ``paint(p, anim_t)`` / ``hitTest(pos)``。
+    坐标映射经 ``self.chart.coordFor(self.opt)`` 取得 Coord 后
+    ``coord.mapPoint(x, y)``。
 
     可选扩展：
-    - ``value_at_index(index)`` → dict（{"name","value","series","color"}），
+    - ``valueAtIndex(index)`` → dict（{"name","value","series","color"}），
       供 tooltip axis 触发取数；
-    - ``self.prev_data``：update_option 前的旧 data 列表（core 自动注入），
+    - ``self.prev_data``：上次 option 前的旧 data 列表（core 自动注入），
       用于旧→新插值动画。
     """
 
@@ -182,10 +587,14 @@ class SeriesRenderer:
         self.chart = chart
         self.opt = dict(opt or {})
         self.name = str(self.opt.get("name") or "")
-        #: 系列显隐（legend 点击切换；默认显示）
-        self.visible = bool(self.opt.get("selected", True))
-        #: update_option 前的旧数据（core 注入，用于动画插值）
+        #: ECharts ``series.id``（setOption 合并时的身份匹配键）
+        self.id = str(self.opt.get("id") or "")
+        #: 系列显隐（legend 点击切换；初始状态由 widget 按 legend.selected 注入）
+        self.visible = True
+        #: 上次 option 的旧数据（core 注入，用于动画插值）
         self.prev_data = None
+        #: itemStyle 均匀性缓存 (key, {} | None)，见 ``uniformItemStyle``
+        self._uniform_style_cache = None
 
     # -- 协议 ------------------------------------------------------------
     def layout(self, rect: QRectF) -> None:
@@ -195,21 +604,338 @@ class SeriesRenderer:
         """绘制。anim_t ∈ [0,1]，入场 / 更新动画进度。"""
         raise NotImplementedError
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         """命中检测 → {"name","value","series",...} 或 None。"""
         return None
 
     # -- 辅助 ------------------------------------------------------------
+    @property
+    def silent(self) -> bool:
+        """ECharts ``series.silent``：True 时不响应鼠标命中（tooltip / click）。"""
+        return bool(self.opt.get("silent", False))
+
+    def animProgress(self, t: float) -> float:
+        """系列动画进度：``series.animation=false`` 时直接呈现终态。"""
+        if self.opt.get("animation", True) is False:
+            return 1.0
+        return t
+
     def data(self) -> list:
-        """系列原始 data 列表（None 容灾）。"""
+        """系列原始 data 列表（None 容灾）。
+
+        接受两种承载：``list``（默认）与 ``ElaNumericBuffer``（大数组零拷贝
+        摄入的产物，见 ``charts.data``）。**不能只认 list** ——``setOption``
+        会把大数值数组包成缓冲区，只认 list 会让整条曲线静默消失。
+
+        返回值对外语义与 list 一致（``Sequence``：可 ``len`` / 下标 / 迭代 /
+        与 list 比较），既有的 40 余处只读调用点无需改动。内部热路径
+        （``layout`` / 采样 / 范围统计）请用 :meth:`dataView`，它不做任何
+        list 化。
+        """
         d = self.opt.get("data")
-        return d if isinstance(d, list) else []
+        if isinstance(d, list) or _cdata.isBufferLike(d):
+            return d
+        return []
+
+    def dataView(self):
+        """系列数据的**只读视图**（内部热路径专用，不做任何拷贝）。
+
+        与 :meth:`data` 判据相同但语义更明确：返回的就是 ``opt["data]``
+        本身，不做任何 list 化。内部热路径（``layout`` / 采样 / 范围统计）
+        统一走这里。
+        """
+        d = self.opt.get("data")
+        if isinstance(d, list) or _cdata.isBufferLike(d):
+            return d
+        return []
 
     def color(self) -> QColor:
-        """系列主色（option color 覆盖 → 全局调色板）。"""
-        return self.chart.color_for_series(self)
+        """系列主色（``itemStyle.color`` 覆盖 → option color → 全局调色板）。"""
+        raw = self.itemStyle().get("color")
+        if isinstance(raw, str) and raw:
+            color = QColor(raw)
+            if color.isValid():
+                return color
+        return self.chart.colorForSeries(self)
 
-    def value_at_index(self, index: int):
+    # -- itemStyle / label / emphasis（ECharts 通用键） --------------------
+    def itemStyle(self) -> dict:
+        """系列级 ``itemStyle``（非 dict 时返回空 dict）。"""
+        style = self.opt.get("itemStyle")
+        return style if isinstance(style, dict) else {}
+
+    @staticmethod
+    def itemStyleOf(item) -> dict:
+        """数据项级 ``itemStyle``（``{"value": ..., "itemStyle": {...}}``）。"""
+        if isinstance(item, dict):
+            style = item.get("itemStyle")
+            if isinstance(style, dict):
+                return style
+        return {}
+
+    def uniformItemStyle(self):
+        """数据项级 ``itemStyle`` 的**快路径**结果。
+
+        返回 ``{}`` 表示「全部数据项都没有自己的 itemStyle」——此时
+        ``itemColor`` / ``itemOpacity`` / ``itemBorder`` / ``_bar_radius``
+        对任意 index 都返回系列级取值，无需按下标查数据。
+
+        为什么需要：bar / scatter 的绘制路径**逐图元**调这些方法
+        「为每个图元调选样式」，而每次都要 ``self.data()`` 取长度 +
+        下标 + ``itemStyleOf``。cProfile 下 ``data()`` 是前五大 tottime 项。
+
+        返回 ``None`` 表示数据里存在 itemStyle，调用方须走按下标查找。
+
+        **必须能发现任意位置的 per-item style**：抽样会漏检（500 项里
+        只有第 10 项带 itemStyle，抽样 32 点很可能抽不到），漏检后那根柱子
+        会用系列级颜色 —— 用户明确配了颜色却没生效，且无任何报错。
+
+        代价控制：全量扫描只在「本 series 存在 dict 型数据项」时进行，而
+        dict 数据项本身就不该是百万级（那是折线/柱的数值场景）。纯数值
+        序列走 O(1) 快路径（``_UNIFORM_PROBE`` 只探前若干项即可确认），
+        dict 序列才付 O(n) 一次，且结果被 ``_uniform_style_cache`` 缓存，
+        每次绘制不重复扫描。
+        """
+        data = self.opt.get("data")
+        try:
+            n = len(data)
+        except TypeError:
+            n = 0
+        key = (id(self.opt), id(data), n)
+        hit = self._uniform_style_cache
+        if hit is not None and hit[0] == key:
+            return hit[1]
+        result = {}
+        if n:
+            # 阶段一：确认是否存在 dict 型数据项（探前若干项即可，纯数值
+            # 序列的前若干项必然是数字）
+            probe = min(n, 32)
+            has_dict_item = any(isinstance(data[i], dict) for i in range(probe))
+            if has_dict_item or n <= probe:
+                # 阶段二：全量扫描找 itemStyle
+                for i in range(n):
+                    item = data[i]
+                    if isinstance(item, dict) and isinstance(
+                        item.get("itemStyle"), dict
+                    ):
+                        result = None
+                        break
+        self._uniform_style_cache = (key, result)
+        return result
+
+    def _itemStyleFor(self, index):
+        """取某下标的项级 ``itemStyle``（走 ``uniformItemStyle`` 快路径）。"""
+        uniform = self.uniformItemStyle()
+        if uniform is not None:
+            return uniform
+        item = None
+        data = self.data()
+        if isinstance(index, int) and 0 <= index < len(data):
+            item = data[index]
+        return self.itemStyleOf(item)
+
+    def uniformItemStyleResolved(self) -> dict:
+        """一次性解析「全系列统一」的外观，供绘制循环**循环外**取用。
+
+        返回 ``{"color": QColor|None, "opacity": float, "borderColor": ...,
+        "borderWidth": float, "borderRadius": float|None}``。仅当
+        ``uniformItemStyle()`` 判定为均匀时可用（否则返回 ``None``）。
+
+        用途：bar / scatter 逐图元绘制时，若每根柱子都调
+        ``itemColor`` / ``itemOpacity`` / ``itemBorder`` / ``_bar_radius``，
+        素材多时就是每图元 4 次方法调用。绘制循环外解析一次，
+        循环内只做数组取值即可。
+        """
+        if self.uniformItemStyle() is None:
+            return None
+        style = self.itemStyle()
+        raw_color = style.get("color")
+        color = None
+        if isinstance(raw_color, str) and raw_color:
+            c = QColor(raw_color)
+            if c.isValid():
+                color = c
+        raw_border = style.get("borderColor")
+        border = None
+        if isinstance(raw_border, str) and raw_border:
+            c = QColor(raw_border)
+            if c.isValid():
+                border = c
+        try:
+            opacity = max(0.0, min(1.0, float(style.get("opacity", 1.0))))
+        except (TypeError, ValueError):
+            opacity = 1.0
+        try:
+            border_width = max(0.0, float(style.get("borderWidth", 0)))
+        except (TypeError, ValueError):
+            border_width = 0.0
+        raw_radius = style.get("borderRadius")
+        radius = None
+        if raw_radius is not None:
+            if isinstance(raw_radius, (list, tuple)):
+                raw_radius = max((_to_float(v, 0.0) for v in raw_radius), default=0.0)
+            radius = max(0.0, _to_float(raw_radius, 0.0))
+        return {
+            "color": color,
+            "opacity": opacity,
+            "borderColor": border,
+            "borderWidth": border_width,
+            "borderRadius": radius,
+        }
+
+    def itemColor(self, index=None, default=None) -> QColor:
+        """数据项颜色：项 ``itemStyle.color`` → 系列 ``itemStyle.color``
+        → ``default`` → 全局调色板。"""
+        raw = self._itemStyleFor(index).get("color") or self.itemStyle().get("color")
+        if isinstance(raw, str) and raw:
+            color = QColor(raw)
+            if color.isValid():
+                return color
+        if default is not None:
+            return QColor(default)
+        return self.color()
+
+    def itemOpacity(self, index=None) -> float:
+        """数据项透明度：项 ``itemStyle.opacity`` → 系列 ``itemStyle.opacity``（默认 1）。"""
+        raw = self._itemStyleFor(index).get("opacity")
+        if raw is None:
+            raw = self.itemStyle().get("opacity")
+        try:
+            return max(0.0, min(1.0, float(raw)))
+        except (TypeError, ValueError):
+            return 1.0
+
+    def itemBorder(self, index=None):
+        """数据项描边 → ``(QColor | None, width)``（未配置颜色返回 None）。"""
+        style = self._itemStyleFor(index)
+        series_style = self.itemStyle()
+        raw = style.get("borderColor") or series_style.get("borderColor")
+        width = style.get("borderWidth", series_style.get("borderWidth", 0))
+        color = None
+        if isinstance(raw, str) and raw:
+            candidate = QColor(raw)
+            if candidate.isValid():
+                color = candidate
+        try:
+            width = max(0.0, float(width))
+        except (TypeError, ValueError):
+            width = 0.0
+        return color, width
+
+    # -- emphasis / blur 状态（ECharts 通用键） ---------------------------
+    def emphasisOption(self) -> dict:
+        """系列级 ``emphasis``（非 dict 时返回空 dict）。"""
+        opt = self.opt.get("emphasis")
+        return opt if isinstance(opt, dict) else {}
+
+    def emphasisItemStyle(self, index=None) -> dict:
+        """hover 高亮样式：系列 ``emphasis.itemStyle`` → 项 ``emphasis.itemStyle``。"""
+        style = dict(self.emphasisOption().get("itemStyle") or {})
+        item = None
+        data = self.data()
+        if isinstance(index, int) and 0 <= index < len(data):
+            item = data[index]
+        if isinstance(item, dict):
+            item_emphasis = item.get("emphasis")
+            if isinstance(item_emphasis, dict) and isinstance(
+                item_emphasis.get("itemStyle"), dict
+            ):
+                style.update(item_emphasis["itemStyle"])
+        return style
+
+    def blurOption(self) -> dict:
+        """系列级 ``blur``（非 dict 时返回空 dict）。"""
+        opt = self.opt.get("blur")
+        return opt if isinstance(opt, dict) else {}
+
+    def blurItemStyle(self) -> dict:
+        """非高亮项的淡化样式（``blur.itemStyle``）。"""
+        style = self.blurOption().get("itemStyle")
+        return style if isinstance(style, dict) else {}
+
+    def emphasisColor(self, index=None):
+        """hover 高亮色（``emphasis.itemStyle.color``）；未配置返回 None。"""
+        raw = self.emphasisItemStyle(index).get("color")
+        if isinstance(raw, str) and raw:
+            color = QColor(raw)
+            if color.isValid():
+                return color
+        return None
+
+    def emphasisOpacity(self, index=None):
+        """hover 高亮透明度（``emphasis.itemStyle.opacity``）；未配置 None。"""
+        raw = self.emphasisItemStyle(index).get("opacity")
+        if raw is None:
+            return None
+        try:
+            return max(0.0, min(1.0, float(raw)))
+        except (TypeError, ValueError):
+            return None
+
+    def blurOpacity(self):
+        """非高亮项透明度（``blur.itemStyle.opacity``）；未配置 None。"""
+        raw = self.blurItemStyle().get("opacity")
+        if raw is None:
+            return None
+        try:
+            return max(0.0, min(1.0, float(raw)))
+        except (TypeError, ValueError):
+            return None
+
+    def labelOption(self) -> dict:
+        """系列级 ``label``（非 dict 时返回空 dict）。"""
+        label = self.opt.get("label")
+        return label if isinstance(label, dict) else {}
+
+    def labelShown(self) -> bool:
+        """是否显示数据标签（``label.show``）。"""
+        return bool(self.labelOption().get("show", False))
+
+    def labelColor(self) -> QColor:
+        """标签颜色（``label.color`` → 次级文本色）。"""
+        raw = self.labelOption().get("color")
+        if isinstance(raw, str) and raw:
+            color = QColor(raw)
+            if color.isValid():
+                return color
+        return QColor(T("color.text.secondary"))
+
+    def labelFontSize(self) -> float:
+        """标签字号（``label.fontSize`` → font.xs）。"""
+        try:
+            return max(6.0, float(self.labelOption().get("fontSize", T("font.xs"))))
+        except (TypeError, ValueError):
+            return float(T("font.xs"))
+
+    def labelText(self, index, value, name=None) -> str:
+        """按 ``label.formatter`` 生成标签文本（缺省显示数值）。
+
+        formatter 支持 callable(params) 或 ``{a}/{b}/{c}/{d}/{value}/{name}``
+        模板（``{d}`` 需调用方在 params 中提供）。
+        """
+        formatter = self.labelOption().get("formatter")
+        params = {
+            "a": self.name,
+            "b": name if name is not None else self.name,
+            "c": value,
+            "value": value,
+            "name": name if name is not None else self.name,
+            "series": self.name,
+            "dataIndex": index,
+        }
+        if callable(formatter):
+            try:
+                text = formatter(params)
+                return str(text) if text is not None else formatValue(value)
+            except Exception:
+                return formatValue(value)
+        if isinstance(formatter, str):
+            text = formatLabelTemplate(formatter, params)
+            if text is not None:
+                return text
+        return formatValue(value)
+
+    def valueAtIndex(self, index: int):
         """tooltip axis 触发：返回 {"name","value","series","color"} 或 None。"""
         return None
 
@@ -217,10 +943,10 @@ class SeriesRenderer:
         """tooltip 局部下标 → 全量数据下标（dataZoom category 窗口偏移换算）。"""
         if not isinstance(index, int):
             return index
-        coord = self.chart.coord_for(self.opt)
+        coord = self.chart.coordFor(self.opt)
         axis = getattr(coord, "x_axis", None)
         if axis is not None and getattr(axis, "type", "") == "category":
-            return index + axis.window_offset()
+            return index + axis.windowOffset()
         return index
 
 
@@ -230,20 +956,25 @@ class SeriesRenderer:
 
 
 class ChartAnimation(QObject):
-    """0→1 进度动画（QVariantAnimation，320ms 缓出）。
+    """0→1 进度动画（QVariantAnimation，缓出）。
 
     渲染器在 ``paint(p, anim_t)`` 中经 ``anim_t`` 插值。
-    ``set_progress(v)`` 支持无事件循环环境（测试）手动推进。
+    ``setProgress(v)`` 支持无事件循环环境（测试）手动推进。
+    ``finished`` 在进度到达 1.0（动画播完或手动置满）后发射一次。
     """
+
+    #: 一次入场 / 过渡动画播放完毕（ECharts ``finished`` 事件源）
+    finished = pyqtSignal()
 
     def __init__(self, on_update=None, parent: QObject = None):
         super().__init__(parent)
         self._t = 0.0
         self._on_update = on_update
+        self._finished_pending = False
         self._anim = QVariantAnimation(self)
         self._anim.setStartValue(0.0)
         self._anim.setEndValue(1.0)
-        self._anim.setDuration(320)
+        self._anim.setDuration(ANIM_DURATION)
         self._anim.setEasingCurve(ANIM_EASING)
         self._anim.valueChanged.connect(self._on_value)
 
@@ -253,17 +984,36 @@ class ChartAnimation(QObject):
         return self._t
 
     def start(self) -> None:
-        """从头播放（set_option / update_option 时调用）。"""
+        """从头播放（setOption / 过渡动画时调用）。"""
         self._anim.stop()
+        self._finished_pending = True
         self._anim.start()
 
     def stop(self) -> None:
         self._anim.stop()
 
-    def is_running(self) -> bool:
+    def complete(self) -> None:
+        """直接置满进度并发射 ``finished``（``animation=false`` 路径）。"""
+        self._anim.stop()
+        self._finished_pending = True
+        self._apply(1.0)
+
+    def setDuration(self, duration: int) -> None:
+        """设置动画时长（ms，ECharts ``animationDuration``）。"""
+        try:
+            self._anim.setDuration(max(0, int(duration)))
+        except (TypeError, ValueError):
+            pass
+
+    def setEasing(self, easing) -> None:
+        """设置缓动曲线（QEasingCurve.Type）。"""
+        if easing is not None:
+            self._anim.setEasingCurve(easing)
+
+    def isRunning(self) -> bool:
         return self._anim.state() == QAbstractAnimation.State.Running
 
-    def set_progress(self, v: float) -> None:
+    def setProgress(self, v: float) -> None:
         """手动设置进度并触发重绘回调（测试 / 无动画路径用）。"""
         self._apply(max(0.0, min(1.0, float(v))))
 
@@ -274,6 +1024,9 @@ class ChartAnimation(QObject):
         self._t = v
         if callable(self._on_update):
             self._on_update()
+        if v >= 1.0 and self._finished_pending:
+            self._finished_pending = False
+            self.finished.emit()
 
 
 # ---------------------------------------------------------------------------
@@ -282,12 +1035,20 @@ class ChartAnimation(QObject):
 
 
 class Title:
-    """标题组件：{"text": str, "subtext": str, "left": "left|center|right"}。"""
+    """标题组件（ECharts ``title``）。
+
+    option：``text`` / ``subtext`` / ``left`` / ``top`` / ``right`` / ``bottom`` /
+    ``itemGap`` / ``textStyle``（color/fontSize/fontWeight）/
+    ``subtextStyle``（color/fontSize）。
+
+    默认占画布顶部条带；指定 ``bottom``（且未指定 ``top``）时改占底部条带，
+    ``top`` / ``bottom`` / ``left`` / ``right`` 支持数值 px 或 ``"N%"``。
+    """
 
     def __init__(self, opt: dict = None):
         self.opt = dict(opt or {})
 
-    def set_option(self, opt: dict) -> None:
+    def setOption(self, opt: dict) -> None:
         self.opt = dict(opt or {})
 
     @property
@@ -298,55 +1059,102 @@ class Title:
     def subtext(self) -> str:
         return str(self.opt.get("subtext") or "")
 
+    def textStyle(self) -> dict:
+        style = self.opt.get("textStyle")
+        return style if isinstance(style, dict) else {}
+
+    def subtextStyle(self) -> dict:
+        style = self.opt.get("subtextStyle")
+        return style if isinstance(style, dict) else {}
+
+    def itemGap(self) -> float:
+        try:
+            return max(0.0, float(self.opt.get("itemGap", 2)))
+        except (TypeError, ValueError):
+            return 2.0
+
+    @property
+    def atBottom(self) -> bool:
+        """是否使用底部条带（指定 bottom 且未指定 top）。"""
+        return "bottom" in self.opt and "top" not in self.opt
+
     def height(self) -> float:
         """标题区总高（无 text 时为 0）。"""
         if not self.text:
             return 0.0
-        h = T("font.title.md") * 1.3 + 6
+        h = _opt_float(self.textStyle().get("fontSize"), T("font.title.md")) * 1.3 + 6
         if self.subtext:
-            h += T("font.sm") * 1.5 + 2
+            h += _opt_float(self.subtextStyle().get("fontSize"), T("font.sm")) * 1.5 + 2
         return h + 4
 
+    def bandRect(self, width: float, height: float) -> QRectF:
+        """标题条带（画布坐标）；无标题返回空矩形。"""
+        h = self.height()
+        if h <= 0:
+            return QRectF()
+        w = max(0.0, float(width))
+        if self.atBottom:
+            offset = _anchor_px(self.opt.get("bottom"), float(height), 0.0)
+            return QRectF(0, float(height) - offset - h, w, h)
+        offset = _anchor_px(self.opt.get("top"), float(height), 0.0)
+        return QRectF(0, offset, w, h)
+
     def paint(self, p: QPainter, rect: QRectF) -> None:
-        """在顶部条带内绘制（rect 为标题区）。"""
+        """在标题条带 rect 内绘制。"""
         if not self.text or rect.height() <= 0:
             return
         p.save()
-        align = str(self.opt.get("left") or "left")
-        title_font = chart_font(T("font.title.md"), T("font.weight.semibold"))
-        sub_font = chart_font(T("font.sm"))
+        style = self.textStyle()
+        sub_style = self.subtextStyle()
+        title_font = chartFont(
+            _opt_float(style.get("fontSize"), T("font.title.md")),
+            style.get("fontWeight", T("font.weight.semibold")),
+        )
+        sub_font = chartFont(
+            _opt_float(sub_style.get("fontSize"), T("font.sm")),
+            sub_style.get("fontWeight", 400),
+        )
         fm_t = QFontMetricsF(title_font)
         fm_s = QFontMetricsF(sub_font)
         text_w = fm_t.horizontalAdvance(self.text)
         sub_w = fm_s.horizontalAdvance(self.subtext) if self.subtext else 0.0
         w = max(text_w, sub_w)
-        if align == "center":
-            x = rect.center().x() - w / 2
-        elif align == "right":
-            x = rect.right() - w - 8
-        else:  # "left"（含数值 px 简化处理）
-            try:
-                x = rect.left() + float(align)
-            except (TypeError, ValueError):
-                x = rect.left() + 8
+        x = self._anchor_x(rect, w)
+        gap = self.itemGap()
         y = rect.top() + 2
         p.setFont(title_font)
-        p.setPen(QColor(T("color.text.primary")))
+        p.setPen(QColor(style.get("color") or T("color.text.primary")))
         p.drawText(
             QRectF(x, y, text_w + 4, fm_t.height()),
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             self.text,
         )
         if self.subtext:
-            y += fm_t.height() + 2
+            y += fm_t.height() + gap
             p.setFont(sub_font)
-            p.setPen(QColor(T("color.text.secondary")))
+            p.setPen(QColor(sub_style.get("color") or T("color.text.secondary")))
             p.drawText(
                 QRectF(x, y, sub_w + 4, fm_s.height()),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 self.subtext,
             )
         p.restore()
+
+    def _anchor_x(self, rect: QRectF, text_w: float) -> float:
+        """水平锚点：``left`` / ``right``（数值 px、"N%" 或 center/right 对齐）。"""
+        left = self.opt.get("left")
+        right = self.opt.get("right")
+        if left is not None:
+            if str(left).strip().lower() == "center":
+                return rect.center().x() - text_w / 2
+            if str(left).strip().lower() == "right":
+                return rect.right() - text_w - 8
+            return rect.left() + _anchor_px(left, rect.width(), 8.0)
+        if right is not None:
+            if str(right).strip().lower() == "center":
+                return rect.center().x() - text_w / 2
+            return rect.right() - _anchor_px(right, rect.width(), 8.0) - text_w
+        return rect.left() + 8.0
 
 
 # ---------------------------------------------------------------------------
@@ -355,26 +1163,30 @@ class Title:
 
 
 class Legend:
-    """图例组件：横/纵排布、点击切换系列显隐、主题感知。
+    """图例组件（ECharts ``legend``）。
 
-    option：{"show": True, "orient": "horizontal|vertical",
-    "top|bottom|left|right": ...}。条目由 ElaChartWidget 按系列名注入
-    （``set_items([(name, color), ...])``，color 仅为兜底值）——绘制时色块
-    经 chart 实时取系列当前色，主题切换后无需重建即生效。
+    option：``show`` / ``orient`` / ``top|bottom|left|right`` / ``data``
+    （条目白名单与排序）/ ``selected``（{name: bool} 初始显隐）/ ``itemWidth`` /
+    ``itemHeight`` / ``itemGap`` / ``textStyle`` / ``selectedMode``
+    （``"multiple"`` 默认 / ``"single"``）。条目由 ElaChartWidget 按系列名
+    注入（``setItems([(name, color), ...])``，color 仅为兜底值）——绘制时
+    色块经 chart 实时取系列当前色，主题切换后无需重建即生效。
+    ``type: "scroll"`` 未实现滚动分页，按 plain 降级（首次告警）。
     """
 
-    #: 条目点击回调：chart 注入 ``legend.on_toggle = chart.set_series_visible``
+    #: 条目点击回调：chart 注入 ``legend.on_toggle = chart._legendSelectToggle``
     on_toggle = None
 
     def __init__(self, chart: "ElaChartWidget", opt: dict = None):
         self.chart = chart
         self.opt = {"show": True, "orient": "horizontal"}
-        self.set_option(opt)
-        self._items = []  # [(name, QColor)]
+        self.setOption(opt)
+        self._items = []  # [(name, QColor)]（已按 legend.data 过滤排序）
+        self._all_items = []  # [(name, QColor)]（未过滤）
         self._item_rects = []  # [QRectF] 与 _items 对齐
         self.rect = QRectF()
 
-    def set_option(self, opt: dict) -> None:
+    def setOption(self, opt: dict) -> None:
         if isinstance(opt, dict):
             merged = {"show": True, "orient": "horizontal"}
             merged.update(opt)
@@ -382,13 +1194,51 @@ class Legend:
         else:
             self.opt = {"show": True, "orient": "horizontal"}
 
-    def set_items(self, items: list) -> None:
-        self._items = [(str(n), c) for n, c in (items or []) if str(n)]
+    def setItems(self, items: list) -> None:
+        self._all_items = [(str(n), c) for n, c in (items or []) if str(n)]
+        data = self.opt.get("data")
+        if isinstance(data, list) and data:
+            wanted = [str(n) for n in data]
+            by_name = dict(self._all_items)
+            self._items = [(n, by_name[n]) for n in wanted if n in by_name]
+        else:
+            self._items = list(self._all_items)
+
+    # -- option 取值 -------------------------------------------------------
+    def itemWidth(self) -> float:
+        try:
+            return max(2.0, float(self.opt.get("itemWidth", 9)))
+        except (TypeError, ValueError):
+            return 9.0
+
+    def itemHeight(self) -> float:
+        try:
+            return max(2.0, float(self.opt.get("itemHeight", 9)))
+        except (TypeError, ValueError):
+            return 9.0
+
+    def itemGap(self) -> float:
+        try:
+            return max(2.0, float(self.opt.get("itemGap", 10)))
+        except (TypeError, ValueError):
+            return 10.0
+
+    def textStyle(self) -> dict:
+        style = self.opt.get("textStyle")
+        return style if isinstance(style, dict) else {}
+
+    def _font(self):
+        size = _opt_float(self.textStyle().get("fontSize"), T("font.xs"))
+        return chartFont(size)
+
+    def selectedMode(self) -> str:
+        mode = str(self.opt.get("selectedMode") or "multiple")
+        return "single" if mode == "single" else "multiple"
 
     def _item_color(self, name: str):
         """条目实时色：按系列名从 chart 当前渲染器取色（主题感知），
-        找不到渲染器时返回 None（调用方退回 set_items 的兜底色）。"""
-        for r in self.chart.series_renderers:
+        找不到渲染器时返回 None（调用方退回 setItems 的兜底色）。"""
+        for r in self.chart.seriesRenderers:
             if r.name == name:
                 return r.color()
         return None
@@ -404,13 +1254,14 @@ class Legend:
     # -- 布局 -------------------------------------------------------------
     def _entry(self, name: str):
         """单条目的 (宽, 高) 与字体。"""
-        font = chart_font(T("font.xs"))
+        font = self._font()
         fm = QFontMetricsF(font)
-        h = max(18.0, fm.height() + 6)
-        w = 14 + 6 + fm.horizontalAdvance(name) + 14  # 色块+间距+文字+条距
+        iw, ih = self.itemWidth(), self.itemHeight()
+        h = max(18.0, fm.height() + 6, ih + 6)
+        w = iw + 6 + fm.horizontalAdvance(name) + self.itemGap()
         return w, h
 
-    def preferred_size(self, avail_w: float, avail_h: float):
+    def preferredSize(self, avail_w: float, avail_h: float):
         """按可用空间返回 (w, h)：横向为整行高度，纵向为列宽。"""
         if not self.shown:
             return 0.0, 0.0
@@ -426,27 +1277,28 @@ class Legend:
         self._item_rects = []
         if not self.shown or rect.isNull():
             return
-        font = chart_font(T("font.xs"))
+        font = self._font()
         fm = QFontMetricsF(font)
         entry_h = max(18.0, fm.height() + 6)
         if self.orient == "horizontal":
-            total = sum(self._entry(n)[0] for n, _ in self._items) - 14
+            gap = self.itemGap()
+            total = sum(self._entry(n)[0] for n, _ in self._items) - gap
             x = rect.left() + max(0.0, (rect.width() - total) / 2)
             y = rect.top() + (rect.height() - entry_h) / 2
             for name, _ in self._items:
                 w, _ = self._entry(name)
-                self._item_rects.append(QRectF(x, y, w - 14, entry_h))
+                self._item_rects.append(QRectF(x, y, w - gap, entry_h))
                 x += w
         else:
             x = rect.left() + 4
             y = rect.top() + 4
             for name, _ in self._items:
                 w, _ = self._entry(name)
-                self._item_rects.append(QRectF(x, y, w - 14, entry_h))
+                self._item_rects.append(QRectF(x, y, w - self.itemGap(), entry_h))
                 y += entry_h + 2
 
     # -- 交互 -------------------------------------------------------------
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         """命中条目名或 None。"""
         for (name, _), r in zip(self._items, self._item_rects):
             if r.contains(pos):
@@ -455,34 +1307,36 @@ class Legend:
 
     def toggle(self, name: str) -> None:
         if callable(self.on_toggle):
-            self.on_toggle(name, not self.chart.is_series_visible(name))
+            self.on_toggle(name)
 
     # -- 绘制 -------------------------------------------------------------
     def paint(self, p: QPainter) -> None:
         if not self.shown or not self._item_rects:
             return
         p.save()
-        font = chart_font(T("font.xs"))
+        font = self._font()
         p.setFont(font)
+        style = self.textStyle()
+        iw, ih = self.itemWidth(), self.itemHeight()
         for (name, fallback), r in zip(self._items, self._item_rects):
-            enabled = self.chart.is_series_visible(name)
+            enabled = self.chart._seriesVisible(name)
             live = self._item_color(name) if enabled else None
             swatch = QColor(live) if live is not None else QColor(fallback)
             if not enabled:
                 swatch = QColor(T("color.text.disabled"))
-            text_c = (
-                QColor(T("color.text.primary"))
+            text_c = QColor(
+                style.get("color") or T("color.text.primary")
                 if enabled
-                else QColor(T("color.text.disabled"))
+                else T("color.text.disabled")
             )
             # 色块（圆角小方块）
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(swatch)
-            box = QRectF(r.left(), r.center().y() - 4.5, 9, 9)
+            box = QRectF(r.left(), r.center().y() - ih / 2, iw, ih)
             p.drawRoundedRect(box, 2, 2)
             p.setPen(text_c)
             p.drawText(
-                QRectF(box.right() + 5, r.top(), r.width() - 14, r.height()),
+                QRectF(box.right() + 6, r.top(), r.width() - iw - 6, r.height()),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 name,
             )
@@ -494,25 +1348,38 @@ class Legend:
 # ---------------------------------------------------------------------------
 
 
-class Tooltip:
-    """提示框组件：{"show": True, "trigger": "item|axis"}。
+def _default_tooltip_title(raw) -> str:
+    """ISO 日期 → 中文日期（``"2026-09-02"`` → ``"2026年9月2日"``）。"""
+    text = str(raw or "")
+    parts = text.split("-")
+    if len(parts) == 3 and all(part.isdigit() for part in parts):
+        return f"{int(parts[0])}年{int(parts[1])}月{int(parts[2])}日"
+    return text
 
-    - trigger=item：命中单个数据点（系列 hit_test）；
-    - trigger=axis：经 ``coord.invert_x`` + 系列 ``value_at_index`` 聚合，
-      十字线经 ``coord.paint_tooltip_marker`` 绘制；
-    - 浮层框自绘：圆角 + 近似阴影（多层低透明度扩散圆角矩形），跟随鼠标。
+
+class Tooltip:
+    """提示框组件（ECharts ``tooltip``）。
+
+    - ``show`` / ``trigger``（``"item"`` 默认 / ``"axis"`` / ``"none"``）；
+    - ``formatter``：callable(params) 或 ``{a}/{b}/{c}`` 模板；callable 返回
+      字符串，或 ``[标题, 内容]``（标题行无圆点，扩展约定）；
+    - ``valueFormatter``：callable(value) 或含 ``{value}`` 的模板，作用于
+      默认内容中的数值；
+    - ``axisPointer.type``：``"line"`` / ``"shadow"`` / ``"cross"`` / ``"none"``；
+    - 样式：``backgroundColor`` / ``borderColor`` / ``borderWidth`` /
+      ``textStyle``（color/fontSize）。
     """
 
     def __init__(self, chart: "ElaChartWidget", opt: dict = None):
         self.chart = chart
         self.opt = {"show": True, "trigger": "item"}
-        self.set_option(opt)
+        self.setOption(opt)
         self._active = False
         self._pos = QPointF()  # 鼠标位置（跟随）
         self._marker_pos = None  # 十字线锚点（None 用 _pos）
         self._lines = []  # [(QColor, name, value_str)]
 
-    def set_option(self, opt: dict) -> None:
+    def setOption(self, opt: dict) -> None:
         if isinstance(opt, dict):
             merged = {"show": True, "trigger": "item"}
             merged.update(opt)
@@ -520,20 +1387,119 @@ class Tooltip:
         else:
             self.opt = {"show": True, "trigger": "item"}
 
+    # -- option 取值 -------------------------------------------------------
+    def textStyle(self) -> dict:
+        style = self.opt.get("textStyle")
+        return style if isinstance(style, dict) else {}
+
+    def axisPointerType(self) -> str:
+        ap = self.opt.get("axisPointer")
+        kind = (
+            str((ap or {}).get("type") or "cross") if isinstance(ap, dict) else "cross"
+        )
+        return kind if kind in ("line", "shadow", "cross", "none") else "cross"
+
+    def formatValueText(self, value) -> str:
+        """按 ``valueFormatter`` 渲染数值（缺省走 ``formatValue``）。"""
+        formatter = self.opt.get("valueFormatter")
+        if callable(formatter):
+            try:
+                out = formatter(value)
+                if out is not None:
+                    return str(out)
+            except Exception:
+                pass
+        elif isinstance(formatter, str):
+            try:
+                return formatter.format_map(defaultdict(str, {"value": value}))
+            except Exception:
+                pass
+        return formatValue(value)
+
+    @staticmethod
+    def _safe_format(template: str, params: dict) -> Optional[str]:
+        """``{}`` 模板安全替换（缺失键 → 空串；失败返回 None）。"""
+        try:
+            return template.format_map(defaultdict(str, params))
+        except Exception:
+            return None
+
+    def buildLines(self, hit: dict, color, fallback_name: str = "") -> list:
+        """命中结果 → 浮层行 ``[(color, name, value_str), ...]``。
+
+        标题行走 ``(None, "", 标题)``（无圆点），内容行走 ``(color, "", 文本)``
+        （带系列色圆点）。
+        """
+        name = str(hit.get("name") or hit.get("series") or fallback_name)
+        series = str(hit.get("series") or fallback_name)
+        value = hit.get("value")
+        title_raw = hit.get("title")
+        text_raw = hit.get("text")
+        params = {
+            "name": name,
+            "series": series,
+            "seriesName": series,
+            "value": value,
+            "dataIndex": hit.get("dataIndex"),
+            "title": title_raw,
+            "text": text_raw,
+            "b": name,
+            "a": series,
+            "c": value,
+        }
+        title: Optional[str] = None
+        if title_raw is not None:
+            title = _default_tooltip_title(title_raw)
+        text: Optional[str] = None
+        # 数据项 tooltip.formatter 优先于系列 tooltip.formatter（ECharts 语义）
+        formatter = hit.get("tooltipFormatter")
+        if formatter is None:
+            formatter = self.opt.get("formatter")
+        formatted = None
+        if callable(formatter):
+            try:
+                formatted = formatter(params)
+            except Exception:
+                formatted = None
+        elif isinstance(formatter, str):
+            formatted = self._safe_format(formatter, params)
+        if formatted is not None:
+            parts = [
+                str(part)
+                for part in (
+                    formatted if isinstance(formatted, (list, tuple)) else [formatted]
+                )
+            ]
+            if len(parts) >= 2:
+                if title is None:
+                    title = parts[0]
+                text = parts[1]
+            elif parts:
+                text = parts[0]
+        lines = []
+        if title:
+            lines.append((None, "", title))
+        if text:
+            lines.append((color, "", text))
+        elif value is not None:
+            lines.append((color, name, self.formatValueText(value)))
+        return lines
+
     @property
     def shown(self) -> bool:
         return bool(self.opt.get("show", True))
 
     @property
     def trigger(self) -> str:
-        return "axis" if str(self.opt.get("trigger")) == "axis" else "item"
+        raw = str(self.opt.get("trigger") or "item")
+        return raw if raw in ("item", "axis", "none") else "item"
 
     @property
     def active(self) -> bool:
         return self._active and bool(self._lines)
 
     # -- 状态 -------------------------------------------------------------
-    def show_at(self, pos: QPointF, lines: list, marker_pos: QPointF = None) -> None:
+    def showAt(self, pos: QPointF, lines: list, marker_pos: QPointF = None) -> None:
         """显示浮层。lines: [(color, name, value_str), ...]。"""
         self._active = True
         self._pos = QPointF(pos)
@@ -548,14 +1514,15 @@ class Tooltip:
     def paint(self, p: QPainter) -> None:
         if not self.shown or not self.active:
             return
-        # 十字线 / 指示线
+        # 十字线 / 指示线（axisPointer.type）
         marker = self._marker_pos if self._marker_pos is not None else self._pos
-        coord = self.chart.primary_coord()
-        if coord is not None:
-            coord.paint_tooltip_marker(p, marker)
+        coord = self.chart.primaryCoord()
+        if coord is not None and self.axisPointerType() != "none":
+            coord.paintTooltipMarker(p, marker, self.axisPointerType())
 
         p.save()
-        font = chart_font(T("font.xs"))
+        style = self.textStyle()
+        font = chartFont(float(style.get("fontSize", T("font.xs"))))
         p.setFont(font)
         fm = QFontMetricsF(font)
         pad_x, pad_y, line_gap, dot = 10.0, 8.0, 3.0, 8.0
@@ -591,11 +1558,21 @@ class Tooltip:
                 radius + i / 2,
                 radius + i / 2,
             )
-        # 浮层本体（Ela 浮层色）
-        p.setBrush(QColor(T("color.bg.elevated")))
-        p.setPen(QPen(QColor(T("color.border")), 1))
+        # 浮层本体（ECharts 样式键 → 主题兜底）
+        bg = self.opt.get("backgroundColor")
+        border = self.opt.get("borderColor")
+        try:
+            border_w = max(0.0, float(self.opt.get("borderWidth", 1)))
+        except (TypeError, ValueError):
+            border_w = 1.0
+        if border_w > 0:
+            p.setPen(QPen(QColor(border or T("color.border")), border_w))
+        else:
+            p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(bg) if bg else QColor(T("color.bg.elevated")))
         p.drawRoundedRect(box, radius, radius)
         # 文本行（缩进仅对带圆点的行生效；标题行 color 为 None 不缩进）
+        text_color = QColor(style.get("color") or T("color.text.primary"))
         ty = box.top() + pad_y
         for color, label in rows:
             tx = box.left() + pad_x
@@ -604,7 +1581,7 @@ class Tooltip:
                 p.setBrush(QColor(color))
                 p.drawEllipse(QRectF(tx, ty + line_h / 2 - dot / 2, dot, dot))
                 tx += dot + 5
-            p.setPen(QColor(T("color.text.primary")))
+            p.setPen(text_color)
             p.drawText(
                 QRectF(tx, ty, box.right() - pad_x - tx, line_h),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
@@ -625,10 +1602,16 @@ class ElaChartWidget(QWidget):
     用法::
 
         chart = ElaChartWidget(parent)
-        chart.set_option({"title": {"text": "销量"},
+        chart.setOption({"title": {"text": "销量"},
                           "xAxis": {"type": "category", "data": ["一", "二"]},
                           "series": [{"type": "line", "name": "A", "data": [3, 5]}]})
-        chart.update_option({"series": [{"data": [4, 6]}]})  # 合并 + 动画过渡
+        chart.setOption({"series": [{"data": [4, 6]}]})  # ECharts 合并语义
+        chart.on("click", lambda p: print(p["seriesName"]))
+
+    ECharts 实例 API：``setOption``（默认合并）/ ``getOption`` / ``resize`` /
+    ``dispatchAction`` / ``on``&``off`` / ``convertToPixel`` /
+    ``convertFromPixel`` / ``containPixel`` / ``showLoading``&``hideLoading`` /
+    ``getDataURL`` / ``appendData`` / ``clear`` / ``dispose``&``isDisposed``。
 
     resizeEvent 自动重排；构造时连接 ``eTheme.themeModeChanged``，
     主题切换后实时换肤重绘（配色经 ``_tokens.T`` 逐帧取色）。
@@ -636,6 +1619,34 @@ class ElaChartWidget(QWidget):
     性能：``_layout_all`` 带布局缓存 + 脏标记，悬停 / 无动画重绘不再
     全量重排；动画进行中按历史行为每帧重算。
     """
+
+    #: 图例切换系列显隐：(系列名, 是否可见)
+    legendToggled = pyqtSignal(str, bool)
+    #: dataZoom 窗口变化：(start, end)，0-100 百分比
+    dataZoomChanged = pyqtSignal(float, float)
+    #: timeline 帧切换：帧下标
+    timelineChanged = pyqtSignal(int)
+    #: 数据项点击（ECharts click params）：见 ``_make_item_params``
+    itemClicked = pyqtSignal(dict)
+    #: toolbox 动作触发：动作名（saveAsImage / restore / dataZoom）
+    toolboxTriggered = pyqtSignal(str)
+    #: brush 选区变化：选中数据点列表（空列表 = 清除选区）
+    brushChanged = pyqtSignal(list)
+    #: 动画播放完毕（ECharts ``finished`` 事件）
+    finished = pyqtSignal()
+
+    #: ECharts 事件名 → 内部转发（``on``/``off`` 用）
+    _ECHARTS_EVENTS = (
+        "click",
+        "legendselectchanged",
+        "datazoom",
+        "timelinechanged",
+        "brushselected",
+        "restore",
+        "highlight",
+        "downplay",
+        "finished",
+    )
 
     def __init__(self, parent: QWidget = None):
         super().__init__(parent)
@@ -645,14 +1656,49 @@ class ElaChartWidget(QWidget):
         self._series = []  # [SeriesRenderer]
         self._coords = []  # [Coord]
         self._components = []  # [组件实例]
-        self._series_state = {}  # name -> bool（legend 显隐状态）
-        self._opt_version = 0  # option 版本号（set_option/update_option 递增）
+        self._series_state = {}  # name -> bool（legend selected 状态）
+        #: 调色板缓存 (key, list[QColor])，key = (主题模式, 自定义色板 id, 长度)
+        self._palette_cache = None
+        #: itemStyle 均匀性缓存 (key, {} | None)，见 ``uniformItemStyle``
+        self._uniform_style_cache = None
+        #: 系列层位图缓存 (key, QImage)，见 ``_paint_series_cached``
+        self._series_pixmap_cache = None
+        self._series_pixmap_key = None
+        #: 交互开关：总开关 + 逐功能开关（缺失 = 启用）
+        self._interactive = True
+        self._feature_flags: dict = {}
+        #: 当前悬停命中 (renderer, hit)：emphasis 高亮用
+        self._hover = None
+        self._opt_version = 0  # option 版本号（setOption 递增）
         self._layout_key = None  # 布局缓存键（脏标记）
+        #: 生命周期 / ECharts 事件
+        self._disposed = False
+        self._event_handlers: dict = {}
+        #: lazyUpdate 延迟重建标记
+        self._lazy_pending = False
+        #: timeline 基线快照（``options`` 帧切换用；core 内部维护）
+        self._timeline_base = None
+        #: loading 遮罩（showLoading / hideLoading）
+        self._loading = False
+        self._loading_opts: dict = {}
+        self._spinner_angle = 0
+        self._spinner_timer = QTimer(self)
+        self._spinner_timer.setInterval(40)
+        self._spinner_timer.timeout.connect(self._tick_spinner)
         self.title = Title()
         self.legend = Legend(self)
         self.tooltip = Tooltip(self)
-        self.legend.on_toggle = self.set_series_visible
+        self.legend.on_toggle = self._legendSelectToggle
         self.anim = ChartAnimation(self.update, self)
+        self.anim.finished.connect(self._on_animation_finished)
+        self._chartEvent.connect(self._dispatch_chart_event)
+        # 信号 → ECharts 事件转发
+        self.legendToggled.connect(self._forward_legend_toggled)
+        self.dataZoomChanged.connect(self._forward_data_zoom)
+        self.timelineChanged.connect(self._forward_timeline_changed)
+        self.itemClicked.connect(self._forward_click)
+        self.brushChanged.connect(self._forward_brush_selected)
+        self.toolboxTriggered.connect(self._forward_toolbox)
         # 主题连接：接收者为本控件（Qt 以接收者销毁自动断连）；另在
         # destroyed 时显式 disconnect（保守双保险，防单例信号强引用滞留）
         self._theme_connected = True
@@ -671,51 +1717,1175 @@ class ElaChartWidget(QWidget):
         super().deleteLater()
 
     # ---------------------------------------------------------------- API
-    def set_option(self, option: dict) -> None:
-        """全量设置 option（dict）并播放入场动画。"""
-        self._option = copy.deepcopy(option) if isinstance(option, dict) else {}
-        self._opt_version += 1
-        self._rebuild()
-        self.anim.start()
-        self.update()
+    #: ECharts 事件名 → Qt 信号（``on``/``off`` 的转发源）
+    _chartEvent = pyqtSignal(str, dict)
 
-    def update_option(self, option: dict) -> None:
-        """合并更新 option 并播放旧→新数据插值动画。
+    def setOption(
+        self, option: dict, notMerge: bool = False, lazyUpdate: bool = False
+    ) -> "ElaChartWidget":
+        """设置 option（ECharts ``setOption(option, notMerge, lazyUpdate)``）。
 
-        合并语义：dict 深合并；**list 值（如 ``series``）整体替换**而非
-        按项合并。旧系列数据注入新渲染器的 ``prev_data`` 供 anim_t 插值：
-        **优先按 name 匹配**；名字缺省或匹配不到时**按渲染器序号回退**
-        取同位旧系列数据（序号越界才不插值）。
+        - 默认 ``notMerge=False``：**合并**——dict 深合并；``series`` /
+          ``dataZoom`` / ``graphic`` 数组按 ``id`` → ``name`` → 下标逐项合并
+          （未匹配的旧项保留、新项追加）；其余 list 整体替换。
+        - ``notMerge=True``：全量替换，并重置图例选择 / 悬浮态 / 提示框。
+        - ``lazyUpdate=True``：合并立即生效，重建 / 重绘延迟到下一事件循环
+          （合并多次调用，避免频繁重排）。
+        - 旧系列数据注入新渲染器的 ``prev_data`` 供插值（name 优先、下标回退）；
+          ``animation`` 关闭时跳过该快照（百万级物化纯浪费）。
+        - **大数值数组按引用摄入**（``series[].data`` 会被包成
+          ``ElaNumericBuffer``，见 ``charts.data``）：调用方在本次调用之后
+          不得再原地修改该数组，否则图表会跟着变。改数据请重新 ``setOption``。
+
+        :returns: self（支持链式调用）
         """
         if not isinstance(option, dict):
-            return
-        prev_list = [list(r.data()) for r in self._series]
-        # 仅非空 name 参与名字匹配：空名是缺省态，入字典会互相覆盖错配
+            option = {}
+        prev_list, prev_by_name = self._capture_prev_data(option)
+        if notMerge:
+            # 先把大数值数组包成紧凑存储再存入：否则下面的深拷贝会把百万级
+            # list 逐元素复制一遍（本机 100 万点约 60~95 ms）。
+            self._option = _copy_option_shallow_arrays(option)
+            self._series_state = {}
+            self._timeline_base = None
+            self.tooltip.hide()
+            self._hover = None
+        else:
+            _merge_option(self._option, option)
+        self._opt_version += 1
+        if lazyUpdate:
+            self._lazy_pending = True
+            QTimer.singleShot(0, self._apply_lazy_option)
+        else:
+            self._apply_option(prev_list, prev_by_name)
+        return self
+
+    def _capture_prev_data(self, new_option: dict):
+        """捕获旧系列数据供过渡动画插值；动画关闭时**完全跳过**。
+
+        ``list(r.data())`` 对百万级数据是一次完整物化（新建 N 个 Python
+        float 对象），而它的唯一用途是 ``_start_animation`` 的插值 ——
+        ``animation: False`` 时根本不读。故先判一次动画开关，省掉这次拷贝。
+
+        :returns: ``(prev_list, prev_by_name)``；跳过时两者均为 ``None``
+        """
+        if not _animation_enabled(self._option, new_option):
+            return None, None
+        prev_list = [_snapshot_series_data(r) for r in self._series]
         prev_by_name = {
             r.name: prev_list[i] for i, r in enumerate(self._series) if r.name
         }
-        _deep_merge(self._option, option)
+        return prev_list, prev_by_name
+
+    def _apply_lazy_option(self) -> None:
+        """延迟重建（lazyUpdate）；对象已销毁时安全跳过。"""
+        if self._disposed or sip.isdeleted(self) or not self._lazy_pending:
+            return
+        self._lazy_pending = False
+        prev_list, prev_by_name = self._capture_prev_data({})
+        self._apply_option(prev_list, prev_by_name)
+
+    def _capture_timeline_base(self) -> None:
+        """捕获 timeline 基线：``baseOption``（优先）或除 ``options`` 外的顶层键。"""
+        frames = self._option.get("options")
+        if not isinstance(frames, list) or not frames:
+            self._timeline_base = None
+            return
+        if self._timeline_base is None:
+            base = self._option.get("baseOption")
+            if isinstance(base, dict):
+                merged = copy.deepcopy(base)
+                extra = {
+                    k: v
+                    for k, v in self._option.items()
+                    if k not in ("baseOption", "options")
+                }
+                _deep_merge(merged, extra)
+            else:
+                merged = {
+                    k: copy.deepcopy(v)
+                    for k, v in self._option.items()
+                    if k != "options"
+                }
+            self._timeline_base = merged
+        # 合并语义下 baseOption 可能被增量修改：同步回基线快照
+        for key, value in self._option.items():
+            if key in ("options", "baseOption"):
+                continue
+            if key in ("series", "dataZoom", "graphic") and isinstance(value, list):
+                self._timeline_base[key] = copy.deepcopy(value)
+                continue
+            if isinstance(value, dict) and isinstance(
+                self._timeline_base.get(key), dict
+            ):
+                _deep_merge(self._timeline_base[key], value)
+            else:
+                self._timeline_base[key] = copy.deepcopy(value)
+
+    def _apply_timeline_frame(self) -> None:
+        """把当前帧（``_timeline_index``）合并到 timeline 基线上。
+
+        无 ``options`` 帧时为空操作；合并结果写回 ``_option``（保留
+        ``options`` / ``baseOption`` 结构键，供 getOption 与后续帧切换）。
+        """
+        frames = self._option.get("options")
+        if not isinstance(frames, list) or not frames or self._timeline_base is None:
+            return
+        timeline_opt = self._option.get("timeline")
+        idx = getattr(self, "_timeline_index", 0)
+        if isinstance(timeline_opt, dict):
+            if "currentIndex" in timeline_opt:
+                idx = timeline_opt.get("currentIndex")
+            else:
+                timeline_opt["currentIndex"] = idx
+        try:
+            idx = int(idx or 0)
+        except (TypeError, ValueError):
+            idx = 0
+        idx = max(0, min(idx, len(frames) - 1))
+        self._timeline_index = idx
+        frame = frames[idx]
+        if not isinstance(frame, dict):
+            return
+        effective = copy.deepcopy(self._timeline_base)
+        _deep_merge(effective, frame)
+        effective["options"] = copy.deepcopy(frames)
+        if isinstance(self._option.get("baseOption"), dict):
+            effective["baseOption"] = copy.deepcopy(self._option["baseOption"])
+        self._option = effective
+
+    def _refresh(self) -> None:
+        """按当前 option 重建并播放过渡动画（timeline 帧切换用）。"""
+        prev_list = [list(r.data()) for r in self._series]
+        prev_by_name = {
+            r.name: prev_list[i] for i, r in enumerate(self._series) if r.name
+        }
+        self._capture_timeline_base()
+        self._apply_timeline_frame()
         self._opt_version += 1
+        self._apply_option(prev_list, prev_by_name)
+
+    def _apply_option(self, prev_list: list, prev_by_name: dict) -> None:
+        """重建渲染器并注入旧数据（动画插值），随后播放入场 / 过渡动画。
+
+        ``prev_list`` / ``prev_by_name`` 允许为 ``None`` ——``setOption``
+        在动画关闭时会跳过旧数据快照（百万级物化纯浪费），此时不注入
+        ``prev_data``，渲染器走无插值路径。
+        """
+        self._capture_timeline_base()
+        self._apply_timeline_frame()
         self._rebuild()
-        # 旧数据注入新渲染器：name 匹配优先，匹配不到按序号回退
-        for i, r in enumerate(self._series):
-            prev = prev_by_name.get(r.name) if r.name else None
-            if prev is None and i < len(prev_list):
-                prev = prev_list[i]
-            r.prev_data = prev
-        self.anim.start()
+        if prev_list is not None or prev_by_name:
+            for i, r in enumerate(self._series):
+                prev = (prev_by_name or {}).get(r.name) if r.name else None
+                if prev is None and prev_list is not None and i < len(prev_list):
+                    prev = prev_list[i]
+                r.prev_data = prev
+        self._start_animation()
         self.update()
 
-    def option(self) -> dict:
-        """当前 option（拷贝，公共 API 契约）。"""
-        return copy.deepcopy(self._option)
+    def _start_animation(self) -> None:
+        """按 option 动画键启动入场 / 过渡动画；关闭时直接呈现终态。
+
+        ``animation`` / ``animationDuration`` / ``animationEasing``
+        （更新过渡用 ``animationDurationUpdate`` / ``animationEasingUpdate``）。
+        """
+        opt = self._option
+        enabled = opt.get("animation", True) is not False
+        has_prev = any(r.prev_data is not None for r in self._series)
+        if has_prev:
+            duration = opt.get(
+                "animationDurationUpdate", opt.get("animationDuration", ANIM_DURATION)
+            )
+            easing_name = opt.get("animationEasingUpdate", opt.get("animationEasing"))
+        else:
+            duration = opt.get("animationDuration", ANIM_DURATION)
+            easing_name = opt.get("animationEasing")
+        self.anim.setDuration(duration)
+        self.anim.setEasing(_easing_from_name(easing_name))
+        if enabled:
+            self.anim.start()
+        else:
+            self.anim.complete()
+
+    def getOption(self) -> dict:
+        """当前 option 深拷贝（ECharts ``getOption``）。
+
+        大数值数组被还原为普通 ``list``（``_unwrap_option``）—— 缓冲区是
+        内部紧凑存储，调用方观察不到它，也无需知道它存在。拷贝过程对缓冲区
+        **按引用**、最后一步才物化成新 list，因此「深拷贝」的语义仍然成立
+        （调用方改动返回值不会影响图表），但不会逐元素复制两遍百万级数据。
+        """
+        return _unwrap_option(_copy_any(self._option))
+
+    def resize(self, width=None, height=None) -> None:
+        """ECharts ``resize``：无参强制重排；兼容 QWidget ``resize(w, h)``。
+
+        ``width`` 传 dict 时按 ECharts opts 解析（``{"width":..., "height":...}``）。
+        """
+        opts = width if isinstance(width, dict) else None
+        if opts is not None:
+            width = opts.get("width")
+            height = opts.get("height")
+        if width is not None or height is not None:
+            w = int(width) if width is not None else self.width()
+            h = int(height) if height is not None else self.height()
+            super().resize(w, h)
+        self.invalidateLayout()
+        self._layout_all(force=True)
+        self.update()
+
+    def appendData(self, params: dict) -> bool:
+        """向指定系列追加数据（ECharts ``appendData({seriesIndex|seriesName, data})``）。
+
+        :param params: ``{"seriesIndex": int}`` / ``{"seriesName": str}`` /
+            ``{"seriesId": str}``（三者其一）+ ``"data"``（单点或点列表）
+        :returns: 是否找到目标系列并追加
+        """
+        if not isinstance(params, dict):
+            return False
+        data = params.get("data")
+        if data is None:
+            return False
+        series_opts = [
+            s for s in (self._option.get("series") or []) if isinstance(s, dict)
+        ]
+        if not series_opts:
+            return False
+        index = None
+        if params.get("seriesIndex") is not None:
+            try:
+                idx = int(params["seriesIndex"])
+            except (TypeError, ValueError):
+                return False
+            if 0 <= idx < len(series_opts):
+                index = idx
+        elif params.get("seriesName"):
+            name = str(params["seriesName"])
+            for i, s in enumerate(series_opts):
+                if str(s.get("name") or "") == name:
+                    index = i
+                    break
+        elif params.get("seriesId"):
+            sid = str(params["seriesId"])
+            for i, s in enumerate(series_opts):
+                if str(s.get("id") or "") == sid:
+                    index = i
+                    break
+        if index is None:
+            return False
+        target = _copy_series_entry(series_opts[index])
+        # 缓冲区不可原地 extend（只读，见 charts.data），故先物化成 list；
+        # 追加完成后 ``setOption`` 会重新包成缓冲区。
+        data_list = target.get("data")
+        if isinstance(data_list, ElaNumericBuffer):
+            data_list = data_list.toList()
+        elif not isinstance(data_list, list):
+            data_list = []
+        if isinstance(data, list):
+            data_list.extend(
+                _hold_value(data) if _cdata.isBufferLike(data) else copy.deepcopy(data)
+            )
+        else:
+            data_list.append(copy.deepcopy(data))
+        target["data"] = data_list
+        # 必须按**下标对齐**传整份 series：合并时新项按 id → name → **下标**
+        # 匹配旧项，只传 ``[target]`` 会让它落到下标 0（除非恰好有 id/name）。
+        patch = [{} for _ in range(index)] + [target]
+        self.setOption({"series": patch})
+        return True
+
+    def clear(self) -> None:
+        """清空图表（ECharts ``clear``；等价 ``setOption({}, notMerge=True)``）。"""
+        self.setOption({}, notMerge=True)
+
+    def dispatchAction(self, payload: dict) -> bool:
+        """触发 ECharts 动作（``dispatchAction``）。
+
+        支持：``legendToggleSelect`` / ``legendSelect`` / ``legendUnSelect`` /
+        ``legendAllSelect`` / ``legendInverseSelect`` / ``dataZoom`` /
+        ``restore`` / ``showTip`` / ``hideTip`` / ``highlight`` /
+        ``downplay`` / ``timelineChange`` / ``timelinePlayChange``。
+
+        :returns: 动作是否被识别并执行
+        """
+        if not isinstance(payload, dict):
+            return False
+        action = str(payload.get("type") or "")
+        if action in (
+            "legendToggleSelect",
+            "legendSelect",
+            "legendUnSelect",
+            "legendAllSelect",
+            "legendInverseSelect",
+        ):
+            return self._dispatch_legend(action, payload)
+        if action == "dataZoom":
+            return self._dispatch_data_zoom(payload)
+        if action == "restore":
+            self._restore_state()
+            return True
+        if action == "showTip":
+            return self._dispatch_show_tip(payload)
+        if action == "hideTip":
+            self.tooltip.hide()
+            self.update()
+            return True
+        if action in ("highlight", "downplay"):
+            return self._dispatch_emphasis(action, payload)
+        if action == "timelineChange":
+            comp = self._component("timeline")
+            if comp is None:
+                return False
+            try:
+                comp.goto(int(payload.get("currentIndex", 0)))
+            except (TypeError, ValueError):
+                return False
+            return True
+        if action == "timelinePlayChange":
+            comp = self._component("timeline")
+            if comp is None:
+                return False
+            want = bool(payload.get("playState", not comp.playing))
+            if want != bool(comp.playing):
+                comp.togglePlay()
+            return True
+        return False
+
+    # -- 事件（on / off）：ECharts 事件名与载荷 ---------------------------
+    def on(self, eventName: str, handler) -> "ElaChartWidget":
+        """注册 ECharts 事件处理器（``chart.on('click', fn)``）。
+
+        handler 接收一个 dict（ECharts params，含 ``type``）。异常被捕获并
+        仅告警一次，不会穿透 Qt 事件循环导致进程 abort。
+        """
+        if not callable(handler):
+            raise TypeError("on(eventName, handler): handler 必须可调用")
+        self._event_handlers.setdefault(str(eventName), []).append(handler)
+        return self
+
+    def off(self, eventName: str = None, handler=None) -> "ElaChartWidget":
+        """移除事件处理器（``off()`` 清空 / ``off(name)`` 按事件 / ``off(name, fn)`` 按函数）。"""
+        if eventName is None:
+            self._event_handlers.clear()
+            return self
+        key = str(eventName)
+        if handler is None:
+            self._event_handlers.pop(key, None)
+            return self
+        handlers = self._event_handlers.get(key)
+        if handlers:
+            try:
+                handlers.remove(handler)
+            except ValueError:
+                pass
+            if not handlers:
+                self._event_handlers.pop(key, None)
+        return self
+
+    def _emit_event(self, name: str, params: dict) -> None:
+        """发射 ECharts 事件（唯一出口；载荷异常不扩散）。"""
+        try:
+            self._chartEvent.emit(str(name), dict(params or {}))
+        except Exception as exc:
+            warn_once(f"event-emit:{name}", f"事件参数异常（{name}）：{exc!r}")
+
+    def _dispatch_chart_event(self, name: str, params: dict) -> None:
+        for handler in list(self._event_handlers.get(name, ())):
+            try:
+                handler(dict(params))
+            except Exception as exc:
+                warn_once(
+                    f"event-handler:{name}",
+                    f"事件处理器异常（{name}）：{exc!r}",
+                )
+
+    def _forward_click(self, params: dict) -> None:
+        self._emit_event("click", params)
+
+    def _forward_legend_toggled(self, name: str, visible: bool) -> None:
+        self._emit_event(
+            "legendselectchanged",
+            {
+                "type": "legendselectchanged",
+                "name": str(name),
+                "selected": dict(self._series_state),
+            },
+        )
+
+    def _forward_data_zoom(self, start: float, end: float) -> None:
+        self._emit_event(
+            "datazoom",
+            {
+                "type": "datazoom",
+                "start": float(start),
+                "end": float(end),
+                "batch": [{"start": float(start), "end": float(end)}],
+            },
+        )
+
+    def _forward_timeline_changed(self, index: int) -> None:
+        self._emit_event(
+            "timelinechanged",
+            {"type": "timelinechanged", "currentIndex": int(index)},
+        )
+
+    def _forward_brush_selected(self, items: list) -> None:
+        batch = []
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            batch.append(
+                {
+                    "seriesIndex": self._series_index(item.get("series")),
+                    "seriesName": str(item.get("series") or ""),
+                    "dataIndex": item.get("dataIndex"),
+                    "value": item.get("value"),
+                    "name": item.get("name", ""),
+                }
+            )
+        self._emit_event(
+            "brushselected",
+            {"type": "brushselected", "batch": batch, "selected": list(items or [])},
+        )
+
+    def _forward_toolbox(self, action: str) -> None:
+        if str(action) == "restore":
+            self._emit_restore_event()
+
+    def _emit_restore_event(self) -> None:
+        self._emit_event("restore", {"type": "restore"})
+
+    def _on_animation_finished(self) -> None:
+        if self._disposed:
+            return
+        try:
+            self.finished.emit()
+        except Exception:
+            pass
+        self._emit_event("finished", {"type": "finished"})
+
+    # -- dispatchAction 分派实现 ------------------------------------------
+    def _dispatch_legend(self, action: str, payload: dict) -> bool:
+        names = payload.get("name")
+        if isinstance(names, (list, tuple, set)):
+            names = [str(n) for n in names]
+        elif names is not None:
+            names = [str(names)]
+        else:
+            names = [r.name for r in self._series]
+        if not names:
+            return False
+        for name in names:
+            if action == "legendSelect":
+                self._setSeriesVisible(name, True)
+            elif action == "legendUnSelect":
+                self._setSeriesVisible(name, False)
+            elif action == "legendAllSelect":
+                self._setSeriesVisible(name, True)
+            elif action == "legendInverseSelect":
+                self._setSeriesVisible(name, not self._seriesVisible(name))
+            else:  # legendToggleSelect
+                self._legendSelectToggle(name)
+        if action != "legendToggleSelect":
+            self.legendToggled.emit(names[0], self._seriesVisible(names[0]))
+        self.update()
+        return True
+
+    def _component(self, optionKey: str):
+        """按 optionKey 取首个组件实例。"""
+        for comp in self._components:
+            if str(getattr(comp, "optionKey", "")) == optionKey:
+                return comp
+        return None
+
+    def _dispatch_data_zoom(self, payload: dict) -> bool:
+        comp = self._component("dataZoom")
+        if comp is None:
+            return False
+        apply_action = getattr(comp, "applyAction", None)
+        if not callable(apply_action):
+            return False
+        if not apply_action(payload):
+            return False
+        self.dataZoomChanged.emit(float(comp.start), float(comp.end))
+        self.update()
+        return True
+
+    def _dispatch_show_tip(self, payload: dict) -> bool:
+        renderer = self._renderer_for(payload)
+        if renderer is None:
+            return False
+        data_index = payload.get("dataIndex")
+        hit = None
+        if data_index is not None:
+            try:
+                idx = int(data_index)
+            except (TypeError, ValueError):
+                idx = None
+            if idx is not None:
+                value = renderer.valueAtIndex(idx)
+                if value is not None:
+                    hit = dict(value)
+                    hit.setdefault("dataIndex", idx)
+        x, y = payload.get("x"), payload.get("y")
+        if x is not None and y is not None:
+            pos = QPointF(float(x), float(y))
+        elif hit is not None and hit.get("pos") is not None:
+            pos = QPointF(hit["pos"])
+        else:
+            pos = QPointF(self.width() / 2, self.height() / 2)
+            coord = self.coordFor(renderer.opt)
+            if coord is not None and hit is not None:
+                try:
+                    px, py = parseDataPoint((renderer.data() or [None])[0], 0)
+                    pt = coord.mapPoint(px, py)
+                    pos = QPointF(pt)
+                except Exception:
+                    pass
+        if hit is None:
+            hit = {"name": renderer.name, "value": None}
+        self._hover = (renderer, hit)
+        self.tooltip.showAt(
+            pos, self.tooltip.buildLines(hit, renderer.color(), renderer.name)
+        )
+        self.update()
+        return True
+
+    def _dispatch_emphasis(self, action: str, payload: dict) -> bool:
+        renderer = self._renderer_for(payload)
+        if renderer is None:
+            return False
+        if action == "downplay":
+            if self._hover is not None and self._hover[0] is renderer:
+                self._hover = None
+            params = {
+                "type": "downplay",
+                "seriesIndex": self._series.index(renderer),
+                "seriesName": renderer.name,
+                "dataIndex": payload.get("dataIndex"),
+                "name": payload.get("name"),
+            }
+            self._emit_event("downplay", params)
+            self.update()
+            return True
+        data_index = payload.get("dataIndex")
+        name = payload.get("name")
+        hit = {"name": str(name or ""), "dataIndex": data_index}
+        if data_index is not None:
+            try:
+                idx = int(data_index)
+                hit["dataIndex"] = idx
+                value = renderer.valueAtIndex(idx)
+                if value:
+                    hit["value"] = value.get("value")
+                    hit.setdefault("name", str(value.get("name") or ""))
+            except (TypeError, ValueError):
+                pass
+        self._hover = (renderer, hit)
+        params = {
+            "type": "highlight",
+            "seriesIndex": self._series.index(renderer),
+            "seriesName": renderer.name,
+            "dataIndex": hit.get("dataIndex"),
+            "name": hit.get("name"),
+        }
+        self._emit_event("highlight", params)
+        self.update()
+        return True
+
+    def _restore_state(self) -> None:
+        """恢复初始状态（ECharts restore）：dataZoom / 图例选择 / 下钻 / roam。"""
+        for comp in self._components:
+            restore = getattr(comp, "restore", None)
+            if callable(restore):
+                try:
+                    restore()
+                except Exception:
+                    pass
+        for name in list(self._series_state.keys()):
+            self._setSeriesVisible(name, True)
+        for r in self._series:
+            for method in ("resetDrill", "resetPositions", "resetRoam"):
+                fn = getattr(r, method, None)
+                if callable(fn):
+                    try:
+                        fn()
+                    except Exception:
+                        pass
+        self.invalidateLayout()
+        self.update()
+        self._emit_restore_event()
+
+    def _renderer_for(self, payload: dict):
+        """按 seriesIndex / seriesName / seriesId 找可见渲染器（缺省首个）。"""
+        series_id = payload.get("seriesId")
+        if series_id is not None:
+            for r in self._series:
+                if r.id == str(series_id):
+                    return r
+        name = payload.get("seriesName")
+        if (
+            name is None
+            and payload.get("name") is not None
+            and payload.get("seriesIndex") is None
+            and payload.get("dataIndex") is None
+        ):
+            name = payload.get("name")
+        if name is not None:
+            for r in self._series:
+                if r.name == str(name):
+                    return r
+        index = payload.get("seriesIndex")
+        if index is not None:
+            try:
+                idx = int(index)
+            except (TypeError, ValueError):
+                idx = -1
+            if 0 <= idx < len(self._series):
+                return self._series[idx]
+            return None
+        return self._series[0] if self._series else None
+
+    def _series_index(self, name) -> int:
+        for i, r in enumerate(self._series):
+            if r.name == str(name):
+                return i
+        return -1
+
+    # -- convertToPixel / convertFromPixel / containPixel -----------------
+    def _resolve_finder(self, finder):
+        """解析 finder（字符串或 dict）→ Coord；无法解析返回 None。"""
+        alias = {
+            "cartesian2d": "grid",
+            "grid": "grid",
+            "polar": "polar",
+            "singleaxis": "singleAxis",
+            "singleAxis": "singleAxis",
+            "calendar": "calendar",
+        }
+        if isinstance(finder, str):
+            kind = alias.get(finder, alias.get(finder.lower(), finder))
+            for c in self._coords:
+                if c.kind == kind:
+                    return c
+            return None
+        if isinstance(finder, dict):
+            for key in ("seriesIndex", "seriesName", "seriesId"):
+                if finder.get(key) is not None:
+                    renderer = self._renderer_for(finder)
+                    return self.coordFor(renderer.opt) if renderer else None
+            for key, kind in (
+                ("gridIndex", "grid"),
+                ("xAxisIndex", "grid"),
+                ("yAxisIndex", "grid"),
+                ("polarIndex", "polar"),
+                ("angleAxisIndex", "polar"),
+                ("radiusAxisIndex", "polar"),
+                ("singleAxisIndex", "singleAxis"),
+                ("calendarIndex", "calendar"),
+            ):
+                if finder.get(key) is not None:
+                    try:
+                        if int(finder[key]) != 0:
+                            return None  # 多坐标系未实现
+                    except (TypeError, ValueError):
+                        return None
+                    for c in self._coords:
+                        if c.kind == kind:
+                            return c
+            return None
+        return None
+
+    def convertToPixel(self, finder, value):
+        """数据值 → 像素（ECharts ``convertToPixel``）。
+
+        grid / polar / calendar 返回 ``[x, y]``；singleAxis 返回标量；
+        无法解析时返回 ``None``。
+        """
+        coord = self._resolve_finder(finder)
+        if coord is None:
+            return None
+        if isinstance(value, dict):
+            if "coord" in value:
+                value = value["coord"]
+            else:
+                value = [value.get("x"), value.get("y")]
+        if not isinstance(value, (list, tuple)):
+            value = [value]
+        try:
+            if coord.kind == "singleAxis":
+                pt = coord.mapPoint(value[0])
+                return float(pt.y())
+            if coord.kind == "calendar":
+                pt = coord.mapPoint(value[0])
+            else:
+                pt = coord.mapPoint(value[0], value[1] if len(value) > 1 else None)
+            if pt is None:
+                return None
+            return [float(pt.x()), float(pt.y())]
+        except Exception:
+            return None
+
+    def convertFromPixel(self, finder, value):
+        """像素 → 数据值（ECharts ``convertFromPixel``）。
+
+        grid 返回 ``[x, y]``；polar 返回 ``[angle, radius]``；singleAxis
+        返回标量；calendar 返回 ``[ISO 日期]``。
+        """
+        coord = self._resolve_finder(finder)
+        if coord is None:
+            return None
+        if isinstance(value, QPointF):
+            pos = QPointF(value)
+        elif isinstance(value, dict):
+            pos = QPointF(float(value.get("x", 0)), float(value.get("y", 0)))
+        elif isinstance(value, (list, tuple)) and len(value) >= 2:
+            pos = QPointF(float(value[0]), float(value[1]))
+        else:
+            return None
+        invert = getattr(coord, "invertPoint", None)
+        if not callable(invert):
+            return None
+        try:
+            result = invert(pos)
+        except Exception:
+            return None
+        if result is None:
+            return None
+        if isinstance(result, (list, tuple)):
+            return list(result)
+        return result
+
+    def containPixel(self, finder, value) -> bool:
+        """像素是否落在坐标系内（ECharts ``containPixel``）。"""
+        coord = self._resolve_finder(finder)
+        if coord is None:
+            return False
+        if isinstance(value, QPointF):
+            pos = QPointF(value)
+        elif isinstance(value, dict):
+            pos = QPointF(float(value.get("x", 0)), float(value.get("y", 0)))
+        elif isinstance(value, (list, tuple)) and len(value) >= 2:
+            pos = QPointF(float(value[0]), float(value[1]))
+        else:
+            return False
+        contain = getattr(coord, "containPoint", None)
+        if not callable(contain):
+            return False
+        try:
+            return bool(contain(pos))
+        except Exception:
+            return False
+
+    # -- showLoading / hideLoading ----------------------------------------
+    def showLoading(self, type: str = "default", opts: dict = None) -> None:
+        """显示加载遮罩（ECharts ``showLoading``）。
+
+        opts：``text`` / ``color`` / ``textColor`` / ``maskColor`` /
+        ``fontSize`` / ``showSpinner`` / ``spinnerRadius`` / ``lineWidth``。
+        """
+        self._loading = True
+        self._loading_type = str(type or "default")
+        self._loading_opts = dict(opts or {})
+        if self._loading_opts.get("showSpinner", True):
+            self._spinner_timer.start()
+        self.update()
+
+    def hideLoading(self) -> None:
+        """隐藏加载遮罩（ECharts ``hideLoading``）。"""
+        self._spinner_timer.stop()
+        self._loading = False
+        self._loading_opts = {}
+        self.update()
+
+    @property
+    def isLoading(self) -> bool:
+        """当前是否显示加载遮罩（扩展查询）。"""
+        return bool(self._loading)
+
+    def _tick_spinner(self) -> None:
+        if self._disposed or sip.isdeleted(self):
+            return
+        self._spinner_angle = (self._spinner_angle + 12) % 360
+        self.update()
+
+    def _paint_loading(self, p: QPainter) -> None:
+        opts = self._loading_opts
+        mask = QColor(opts.get("maskColor") or QColor(T("color.bg.base")))
+        if not opts.get("maskColor"):
+            mask.setAlpha(204)
+        p.fillRect(self.rect(), mask)
+        font_size = float(opts.get("fontSize", T("font.sm")))
+        font = chartFont(font_size)
+        p.setFont(font)
+        text = str(opts.get("text", "加载中"))
+        fm = QFontMetricsF(font)
+        text_w = fm.horizontalAdvance(text) if text else 0.0
+        if opts.get("showSpinner", True) and self._loading_type != "none":
+            radius = max(6.0, float(opts.get("spinnerRadius", 14)))
+            line_w = max(1.0, float(opts.get("lineWidth", 3)))
+            color = QColor(opts.get("color") or T("color.primary"))
+            pen = QPen(color, line_w)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            p.setPen(pen)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            cx = self.width() / 2
+            cy = self.height() / 2 - (fm.height() / 2 if text else 0.0)
+            p.drawArc(
+                QRectF(cx - radius, cy - radius, radius * 2, radius * 2),
+                int(90 - self._spinner_angle) * 16,
+                270 * 16,
+            )
+        if text:
+            p.setPen(QColor(opts.get("textColor") or T("color.text.secondary")))
+            p.drawText(
+                QRectF(
+                    self.width() / 2 - max(120.0, text_w) / 2 - 10,
+                    self.height() / 2 + fm.height() / 2 + 2,
+                    max(120.0, text_w) + 20,
+                    fm.height() + 2,
+                ),
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                text,
+            )
+
+    # -- 导出 / 图片 -------------------------------------------------------
+    def getDataURL(self, opts: dict = None) -> str:
+        """导出为 data URL（ECharts ``getDataURL``）。
+
+        opts：``type``（``"png"`` / ``"jpeg"``）/ ``pixelRatio`` /
+        ``backgroundColor``；``excludeComponents`` 暂不支持（忽略）。
+        """
+        opts = dict(opts or {})
+        fmt = str(opts.get("type") or "png").lower()
+        fmt = "jpeg" if fmt in ("jpeg", "jpg") else "png"
+        try:
+            image = self.grab().toImage()
+        except Exception:
+            return ""
+        if image.isNull():
+            return ""
+        try:
+            ratio = float(opts.get("pixelRatio") or 1.0)
+        except (TypeError, ValueError):
+            ratio = 1.0
+        if ratio > 0 and abs(ratio - 1.0) > 1e-6:
+            image = image.scaled(
+                max(1, int(image.width() * ratio)),
+                max(1, int(image.height() * ratio)),
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        bg = opts.get("backgroundColor")
+        if bg or fmt == "jpeg":
+            canvas = QImage(image.size(), QImage.Format.Format_RGB32)
+            canvas.fill(QColor(bg) if bg else QColor(T("color.bg.base")))
+            painter = QPainter(canvas)
+            painter.drawImage(0, 0, image)
+            painter.end()
+            image = canvas
+        buf = QBuffer()
+        buf.open(QIODevice.OpenModeFlag.WriteOnly)
+        ok = image.save(buf, fmt.upper())
+        buf.close()
+        if not ok:
+            return ""
+        payload = bytes(buf.data().toBase64()).decode("ascii")
+        mime = "image/jpeg" if fmt == "jpeg" else "image/png"
+        return f"data:{mime};base64,{payload}"
+
+    def saveImage(self, path: str = None) -> str:
+        """保存当前图表为 PNG（文件版扩展；``path=None`` 弹保存对话框）。"""
+        target = path
+        if not target:
+            try:
+                if QGuiApplication.platformName() == "offscreen":
+                    return ""
+                target, _ = QFileDialog.getSaveFileName(
+                    self, "保存图表", "chart.png", "PNG 图片 (*.png)"
+                )
+            except Exception:
+                target = None
+        if not target:
+            return ""
+        try:
+            if self.grab().save(target, "PNG"):
+                return str(target)
+        except Exception:
+            pass
+        return ""
+
+    # -- 生命周期 ----------------------------------------------------------
+    def dispose(self) -> None:
+        """销毁实例（ECharts ``dispose``；停定时器 / 断主题 / deleteLater）。"""
+        if self._disposed:
+            return
+        self._disposed = True
+        try:
+            self._spinner_timer.stop()
+        except Exception:
+            pass
+        try:
+            self.anim.stop()
+        except Exception:
+            pass
+        self.tooltip.hide()
+        self._hover = None
+        self._event_handlers.clear()
+        self._disconnect_theme()
+        self.deleteLater()
+
+    def isDisposed(self) -> bool:
+        """实例是否已 dispose。"""
+        return bool(self._disposed)
+
+    def getWidth(self) -> int:
+        """图表宽度（ECharts ``getWidth``）。"""
+        return int(self.width())
+
+    def getHeight(self) -> int:
+        """图表高度（ECharts ``getHeight``）。"""
+        return int(self.height())
+
+    def getDevicePixelRatio(self) -> float:
+        """设备像素比（ECharts ``getDevicePixelRatio``）。"""
+        try:
+            return float(self.devicePixelRatioF())
+        except Exception:
+            return 1.0
+
+    def benchmark(
+        self,
+        frames: int = 8,
+        forceLayout: bool = True,
+        perSeries: bool = True,
+    ) -> dict:
+        """性能剖析：分项测量各阶段耗时（诊断用，不改变任何状态）。
+
+        **为什么需要它**：大数据量下「慢」的归因必须靠实测，不能猜。本机
+        100 万点 / 单系列实测（offscreen，1200x700）::
+
+            ingestMs  15.0    摄入（setOption 全程）
+            layoutMs  19.6    布局（坐标 + 系列几何，含采样与坐标映射）
+            paintMs  107.4    绘制（纯光栅化，画到离屏 QImage）
+            frameMs  127.0    → 远超 60 Hz 预算 16.7 ms
+
+        **关键结论：瓶颈在绘制，不在点数也不在摄入。** 采样后只画 2256 个
+        点却仍要 107 ms —— 说明成本来自「每段抗锯齿折线的光栅化」而非点数
+        规模。因此优化方向是绘制阶段（分层位图缓存 / GPU 直绘），而不是
+        继续优化采样或数据摄入。
+
+        :param frames: 重复帧数（取平均，降低单帧噪声）。默认 8。
+        :param forceLayout: 每次都强制重排（``_layout_all(force=True)``），
+            绕过布局缓存。传 ``False`` 测的是「命中缓存的稳态」——那才是
+            悬停 / 动画期的真实成本。
+        :param perSeries: 是否额外测**每条系列**的布局 / 绘制耗时。多系列
+            场景下总耗时只说明「慢」，逐系列读数才能定位到具体哪条曲线。
+        :returns: 各项耗时（毫秒）与规模信息。**所有时间单位为毫秒（ms）**。
+            ``seriesTimings`` 为逐系列读数（``perSeries=False`` 时为 ``[]``），
+            每项含 ``name`` / ``type`` / ``dataPoints`` / ``drawnPoints`` /
+            ``layoutMs`` / ``paintMs``。键集合由测试钉住。
+        """
+        frames = max(1, int(frames))
+        # 记录需复原的状态。``setOption(notMerge=True)`` 内部会重置图例
+        # 选中态（``_series_state``）并重新起动画，所以二者都要在测量
+        # **之后**按调用前的值覆盖，否则 benchmark 会顺手改掉用户的图例。
+        was_anim = self.anim.isRunning()
+        saved_state = dict(self._series_state)
+        # 悬浮提示：``notMerge`` 会 ``tooltip.hide()``。tooltip 自身持有
+        # 全部状态，直接留一个对象引用即可复原。
+        saved_tip = (
+            self.tooltip,
+            self.tooltip.active,
+            self.tooltip._pos,
+            self.tooltip._lines,
+            self.tooltip._marker_pos,
+        )
+        try:
+            # 固定到终态：动画每帧都在变，会让布局缓存永久失效，测出来的
+            # 是「动画中」而非「稳态」的成本。
+            self.anim.stop()
+            self.anim.setProgress(1.0)
+            # -- 摄入：setOption 全程（含合并 / 快照 / 重建） --
+            t0 = _now()
+            self.setOption(self._option, notMerge=True)
+            ingest_ms = _elapsed_ms(t0)
+            self.anim.stop()
+            self.anim.setProgress(1.0)
+            # ``notMerge`` 清空了图例选中态，测量前先复原 —— 否则被隐藏的
+            # 系列也会被计入布局 / 绘制耗时。
+            self._series_state = dict(saved_state)
+            for r in self._series:
+                r.visible = self._seriesVisible(r.name)
+            # -- 布局：坐标系 + 系列几何（含采样与坐标映射） --
+            t0 = _now()
+            for _ in range(frames):
+                self._layout_all(force=forceLayout)
+            layout_ms = _elapsed_ms(t0) / frames
+            # -- 绘制：坐标轴 + 系列 + 组件（不含布局） --
+            t0 = _now()
+            for _ in range(frames):
+                self._render_to_painter()
+            paint_ms = _elapsed_ms(t0) / frames
+            # -- 逐系列：定位到具体哪条曲线慢（多系列时的关键读数） --
+            series_timings = self._benchmark_series() if perSeries else []
+        finally:
+            # 复原图例选中态与悬浮提示（``notMerge`` 会清空两者）
+            self._series_state = dict(saved_state)
+            tip, was_active, pos, lines, marker = saved_tip
+            if was_active:
+                tip.showAt(pos, list(lines), marker)
+            else:
+                tip.hide()
+            # 复原动画状态：调用前在跑 → 重新起；否则保持停止。
+            if was_anim:
+                self.anim.start()
+            else:
+                self.anim.stop()
+                self.anim.setProgress(1.0)
+        return self._benchmark_reduce(ingest_ms, layout_ms, paint_ms, series_timings)
+
+    def _benchmark_series(self) -> list:
+        """逐系列测量布局 / 绘制耗时（每项跑一轮，不取平均）。
+
+        多系列场景下总耗时只回答「慢不慢」，答不出「哪条慢」。本方法把每条
+        可见系列**单独**跑一遍布局与绘制，代价是总耗时约翻倍（仅诊断时用）。
+
+        每条系列独测：关掉其余系列的可见性，避免把邻居的成本算到它头上
+        （先画的系列会受益于「后画的还没覆盖这块区域」，同测才有可比性）。
+
+        **只跑一轮**，不按 ``frames`` 取平均：逐系列读数用于横向比较「谁更
+        慢」，量级差异远大于单轮噪声；而重复取平均在 8 系列 × 20 万点下会
+        把一次 benchmark 拖到分钟级（实测 ``_render`` 单轮 122 ms）。
+
+        **``layoutMs`` 读数含「其余系列被隐藏」的重排成本**：折线系列的
+        布局会扫描全量 ``series_opts`` 重建槽位，故单测一条线时该值仍与
+        总系列数相关（实测各折线均为 ~660 ms，而总布局 635 ms）。故该值
+        只宜**横向比较同一批读数**（同轮、同条件），不可当作「这条线的
+        布局绝对成本」。``paintMs`` 无此问题（绘制确实只画可见系列）。
+        """
+        out = []
+        saved_state = dict(self._series_state)
+        # 在进入循环前**快照**目标列表：循环内会把 ``r.visible`` 置为
+        # False，而那正是循环的跳过条件 —— 直接遍历 ``self._series`` 会
+        # 在第一轮之后全部被跳过（实测 3 条系列只返回 1 条）。
+        targets = [r for r in self._series if getattr(r, "visible", True)]
+        try:
+            for target in targets:
+                # 只留目标系列可见
+                for r in self._series:
+                    r.visible = r is target
+                # 布局跑一次即可拿到几何 —— 逐系列读数要的是「这条线自身
+                # 多贵」，重复 frames 轮取平均在多系列大数据下会拖到分钟级
+                # （8 系列 × 6 帧实测 16 s），而布局幂等、单轮噪声远小于
+                # 系列间的量级差异。
+                self.invalidateLayout()
+                t0 = _now()
+                self._layout_all(force=True)
+                s_layout = _elapsed_ms(t0)
+                # 绘制同理跑一次。
+                t0 = _now()
+                self._render_to_painter()
+                s_paint = _elapsed_ms(t0)
+                out.append(
+                    {
+                        "name": str(target.name),
+                        "type": _series_type_name(target),
+                        "dataPoints": _series_data_len(target),
+                        "drawnPoints": _series_geom_len(target),
+                        "layoutMs": round(s_layout, 3),
+                        "paintMs": round(s_paint, 3),
+                    }
+                )
+        finally:
+            self._series_state = dict(saved_state)
+            for r in self._series:
+                r.visible = self._seriesVisible(r.name)
+            self.invalidateLayout()
+        # 按「每单位几何的绘制成本」降序：多系列下真正可比的指标是密度，
+        # 绝对 paintMs 会被图元数直接带偏（bar 20k 图元 515 ms vs 折线
+        # 2256 点 32 ms，看着差 16 倍，实际每图元只差 3 倍）。
+        out.sort(key=lambda d: -(d["paintMs"] / max(1, d["drawnPoints"])))
+        return out
+
+    def _render_to_painter(self) -> None:
+        """把当前内容画到离屏 QImage（走与 ``paintEvent`` 相同的绘制路径）。
+
+        不直接用 ``paintEvent``：那需要真实可见的控件，且 Qt 的合成 /
+        窗口交换等待会计入读数，把「算法成本」和「系统等待」混在一起。
+        """
+        img = QImage(
+            max(1, self.width()),
+            max(1, self.height()),
+            QImage.Format.Format_ARGB32_Premultiplied,
+        )
+        img.fill(Qt.GlobalColor.transparent)
+        p = QPainter(img)
+        try:
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+            self._paint_content(p)
+        finally:
+            p.end()
+
+    def _benchmark_reduce(self, ingest_ms, layout_ms, paint_ms, series_timings) -> dict:
+        """汇总 benchmark 结果。
+
+        返回键集合**固定**（由 ``tests/ela_chart_widget/test_chart_benchmark.py``
+        钉住）—— 诊断接口靠 key 取值，键悄悄变动会让调用方静默拿到 ``None``，
+        比没有这个接口更糟。
+
+        规模字段的口径：
+
+        - ``dataPoints``：**单个可见系列**的最大数据量（多系列时不是总和；
+          ``totalDataPoints`` 才是总和）；
+        - ``drawnPoints``：所有可见系列**实际绘制**的点数之和（已被采样
+          压缩到视口像素量级，故远小于数据量）；
+        - ``seriesTimings``：逐系列读数，按 ``paintMs`` 降序（最慢的在前），
+          用于定位具体是哪条曲线吃掉了帧时间。
+        """
+        largest = 0
+        total_data = 0
+        drawn = 0
+        visible = 0
+        series_kinds = {}
+        for r in self._series:
+            if not getattr(r, "visible", True):
+                continue
+            visible += 1
+            kind = _series_type_name(r)
+            series_kinds[kind] = series_kinds.get(kind, 0) + 1
+            n = _series_data_len(r)
+            largest = max(largest, n)
+            total_data += n
+            drawn += _series_geom_len(r)
+        return {
+            # -- 耗时（毫秒） --
+            "ingestMs": round(ingest_ms, 3),
+            "layoutMs": round(layout_ms, 3),
+            "paintMs": round(paint_ms, 3),
+            "frameMs": round(layout_ms + paint_ms, 3),
+            # -- 规模 --
+            "dataPoints": largest,
+            "totalDataPoints": total_data,
+            "drawnPoints": drawn,
+            "seriesCount": visible,
+            "seriesKinds": series_kinds,
+            "width": int(self.width()),
+            "height": int(self.height()),
+            "dpr": self.getDevicePixelRatio(),
+            "frameBudget60HzMs": round(1000.0 / 60.0, 3),
+            # -- 逐系列（按每图元绘制成本降序） --
+            "seriesTimings": series_timings,
+        }
 
     def _option_ref(self) -> dict:
         """当前 option 的内部引用（无拷贝；仅包内部热路径使用）。"""
         return self._option
 
     @property
-    def series_renderers(self) -> list:
+    def seriesRenderers(self) -> list:
         """系列渲染器列表（含隐藏系列，``r.visible`` 标记）。"""
         return list(self._series)
 
@@ -730,19 +2900,47 @@ class ElaChartWidget(QWidget):
         return list(self._components)
 
     def palette(self) -> list:
-        """当前生效调色板：option["color"] 覆盖，否则默认调色板（主题实时取）。"""
-        custom = self._option.get("color")
-        if isinstance(custom, list) and custom:
-            out = []
-            for c in custom:
-                out.append(QColor(c) if not isinstance(c, QColor) else QColor(c))
-            return out
-        return default_palette()
+        """当前生效调色板：option["color"] 覆盖，否则默认调色板（主题实时取）。
 
-    def color_for_series(self, series) -> QColor:
-        """系列主色：series opt 的 "color" → 全局调色板按序号取色。"""
+        **带缓存**：调色板只取决于「option 里的自定义色板」与「当前主题」，
+        而 bar / scatter 的绘制路径会**逐图元**取色，而调色板本身不会逐图元变。
+        未缓存时每次都新建 9 个 QColor，实测占绘制 tottime 的 16%。
+
+        **返回的 QColor 是深拷贝**：调用方（``colorForSeries`` →
+        ``itemColor`` → bar 绘制循环）会逐图元 ``setAlphaF`` 改 alpha，
+        共享实例会让第一次绘制把整个调色板改成半透明（实测：一次 hover
+        之后所有系列颜色都变淡，且新 list 也救不回来 —— 元素本身是共享的）。
+        深拷贝 9 个 QColor 仍远快于每次重建调色板。
+        """
+        custom = self._option.get("color")
+        has_custom = isinstance(custom, list) and bool(custom)
+        key = (
+            eTheme.getThemeMode(),
+            id(custom) if has_custom else 0,
+            len(custom) if has_custom else 0,
+        )
+        hit = self._palette_cache
+        if hit is not None and hit[0] == key:
+            return [QColor(c) for c in hit[1]]
+        if has_custom:
+            pal = [QColor(c) for c in custom]
+        else:
+            pal = defaultPalette()
+        self._palette_cache = (key, pal)
+        return [QColor(c) for c in pal]
+
+    def colorForSeries(self, series) -> QColor:
+        """系列主色：series opt 的 "color" → 全局调色板按序号取色。
+
+        序号取 ``_rebuild`` 时写好的 ``_series_index``，不用
+        ``list.index()`` —— 后者是 O(系列数) 扫描，而本函数在 bar /
+        scatter 的绘制路径上逐图元调用，而 ``list.index()`` 是 O(系列数)扫描
+        —— 系列数与图元数相乘，顺序遍历时效果可惊人。
+        """
         if isinstance(series, SeriesRenderer):
-            idx = self._series.index(series) if series in self._series else 0
+            idx = getattr(series, "_series_index", 0)
+            if not isinstance(idx, int):
+                idx = 0
             own = series.opt.get("color")
         else:
             idx = int(series)
@@ -752,11 +2950,11 @@ class ElaChartWidget(QWidget):
         pal = self.palette()
         return QColor(pal[idx % len(pal)])
 
-    def primary_coord(self):
+    def primaryCoord(self):
         """主坐标系（coords[0]，无则 None）。"""
         return self._coords[0] if self._coords else None
 
-    def coord_for(self, series_opt: dict = None):
+    def coordFor(self, series_opt: dict = None):
         """按 series 的 coordinateSystem 匹配坐标系（默认首个）。"""
         want = None
         if isinstance(series_opt, dict):
@@ -774,14 +2972,20 @@ class ElaChartWidget(QWidget):
             for c in self._coords:
                 if c.kind == want:
                     return c
-        return self.primary_coord()
+        return self.primaryCoord()
 
-    def set_series_visible(self, name, visible: bool = None) -> None:
-        """按名称设置系列显隐（legend 点击；visible 缺省为取反）。"""
+    # -- 图例 / 系列显隐（内部；对外走 dispatchAction / legend.selected） --
+    def _setSeriesVisible(self, name, visible: bool) -> None:
         name = str(name)
-        if visible is None:
-            visible = not self._series_state.get(name, True)
         self._series_state[name] = bool(visible)
+        # 回写 option：_rebuild 每次都会重放 legend.selected，若不同步，用户点了
+        # 图例之后一次常规的数据刷新（setOption({"series": ...}) 合并）就会把
+        # 显隐状态悄悄还原成旧值。
+        legend_opt = self._option.get("legend")
+        if isinstance(legend_opt, dict) and isinstance(
+            legend_opt.get("selected"), dict
+        ):
+            legend_opt["selected"][name] = bool(visible)
         for r in self._series:
             if r.name == name:
                 r.visible = bool(visible)
@@ -794,10 +2998,84 @@ class ElaChartWidget(QWidget):
         self._layout_key = None
         self.update()
 
-    def is_series_visible(self, name) -> bool:
+    def _seriesVisible(self, name) -> bool:
         return bool(self._series_state.get(str(name), True))
 
-    def add_component(self, comp) -> None:
+    def _legendSelectToggle(self, name: str) -> None:
+        """图例点击：切换单个系列（selectedMode=single 时互斥）。"""
+        name = str(name)
+        new_visible = not self._seriesVisible(name)
+        if new_visible and self.legend.selectedMode() == "single":
+            for r in self._series:
+                if r.name != name and self._seriesVisible(r.name):
+                    self._setSeriesVisible(r.name, False)
+        self._setSeriesVisible(name, new_visible)
+        self.legendToggled.emit(name, new_visible)
+        self.update()
+
+    # ------------------------------------------------------------ 交互开关
+    #: 可开关的交互功能（与组件 optionKey 对齐；tooltip / legend 由核心实现）
+    INTERACTION_FEATURES = (
+        "tooltip",
+        "legend",
+        "dataZoom",
+        "brush",
+        "timeline",
+        "toolbox",
+    )
+
+    def setInteractive(self, enabled: bool) -> None:
+        """交互总开关：关闭后所有鼠标交互失效（提示框 / 图例 / 缩放 / 刷选 /
+        时间轴 / 工具箱），绘制与数据不变。
+
+        :param enabled: ``False`` 变为静态图（动画与程序化 API 不受影响）
+        """
+        self._interactive = bool(enabled)
+        if not self._interactive:
+            self.tooltip.hide()
+            self._hover = None
+        self.update()
+
+    def interactiveEnabled(self) -> bool:
+        """交互总开关是否开启。"""
+        return self._interactive
+
+    def setInteractionEnabled(self, feature: str, enabled: bool) -> None:
+        """逐功能开关（与总开关取与）。
+
+        :param feature: ``"tooltip"`` / ``"legend"`` / ``"dataZoom"`` /
+            ``"brush"`` / ``"timeline"`` / ``"toolbox"``
+        :param enabled: 是否启用该功能的鼠标交互
+        """
+        key = str(feature)
+        if key not in self.INTERACTION_FEATURES:
+            raise ValueError(
+                f"未知交互功能：{feature!r}"
+                f"（可选：{', '.join(self.INTERACTION_FEATURES)}）"
+            )
+        self._feature_flags[key] = bool(enabled)
+        if not enabled and key == "tooltip":
+            self.tooltip.hide()
+            self._hover = None
+        self.update()
+
+    def isInteractionEnabled(self, feature: str) -> bool:
+        """功能是否生效（总开关关闭时恒为 ``False``；未设置默认启用）。"""
+        if not self._interactive:
+            return False
+        return bool(self._feature_flags.get(str(feature), True))
+
+    def _interactive_components(self) -> list:
+        """过滤后的组件列表（交互被关闭的组件不接收鼠标 / 滚轮事件）。"""
+        result = []
+        for comp in self._components:
+            key = str(getattr(comp, "optionKey", ""))
+            if key and not self.isInteractionEnabled(key):
+                continue
+            result.append(comp)
+        return result
+
+    def addComponent(self, comp) -> None:
         """挂接外部组件实例。"""
         self._components.append(comp)
         self.update()
@@ -807,10 +3085,18 @@ class ElaChartWidget(QWidget):
         """按当前 option 重建组件 / 坐标系 / 系列渲染器（并使布局缓存失效）。"""
         opt = self._option
         self._layout_key = None
-        self.title.set_option(opt.get("title") or {})
-        self.legend.set_option(opt.get("legend") or {})
-        self.tooltip.set_option(opt.get("tooltip") or {})
+        self.title.setOption(opt.get("title") or {})
+        self.legend.setOption(opt.get("legend") or {})
+        self.tooltip.setOption(opt.get("tooltip") or {})
         series_opts = [s for s in (opt.get("series") or []) if isinstance(s, dict)]
+
+        # 图例 selected：初始显隐状态（ECharts ``legend.selected``）
+        legend_opt = opt.get("legend")
+        if isinstance(legend_opt, dict):
+            selected = legend_opt.get("selected")
+            if isinstance(selected, dict):
+                for name, visible in selected.items():
+                    self._series_state[str(name)] = bool(visible)
 
         # 坐标系：calendar > polar > singleAxis > grid。grid 仅在
         # ①option 显式给出 xAxis/yAxis/grid，或 ②存在 coordinateSystem
@@ -839,7 +3125,7 @@ class ElaChartWidget(QWidget):
             if grid is not None:
                 self._coords.insert(0, grid)
         for c in self._coords:
-            c.set_series(series_opts)
+            c.setSeries(series_opts)
 
         # 系列渲染器
         self._series = []
@@ -861,24 +3147,24 @@ class ElaChartWidget(QWidget):
             if not r.name:
                 r.name = f"series{i}"
                 r.opt.setdefault("name", r.name)
-            r.visible = self.is_series_visible(r.name)
+            r.visible = self._seriesVisible(r.name)
             self._series.append(r)
 
-        # 组件（类属性 option_key + 构造 (chart, opt)）
+        # 组件（类属性 optionKey + 构造 (chart, opt)）
         self._components = []
         for key, cls in list(COMPONENT_REGISTRY.items()):
-            option_key = getattr(cls, "option_key", key)
-            if isinstance(opt.get(option_key), (dict, list)):
-                self._spawn_component(cls, opt[option_key], None)
+            optionKey = getattr(cls, "optionKey", key)
+            if isinstance(opt.get(optionKey), (dict, list)):
+                self._spawn_component(cls, opt[optionKey], None)
             for s in series_opts:
-                if isinstance(s.get(option_key), (dict, list)):
-                    self._spawn_component(cls, s[option_key], s)
+                if isinstance(s.get(optionKey), (dict, list)):
+                    self._spawn_component(cls, s[optionKey], s)
 
         # 图例条目
         items = []
         for i, r in enumerate(self._series):
-            items.append((r.name, self.color_for_series(r)))
-        self.legend.set_items(items)
+            items.append((r.name, self.colorForSeries(r)))
+        self.legend.setItems(items)
         self._layout_all(force=True)
 
     def _make_coord(self, cls, kind: str):
@@ -895,22 +3181,38 @@ class ElaChartWidget(QWidget):
         except Exception as exc:
             warn_once(
                 f"component-ctor:{getattr(cls, '__name__', cls)!r}",
-                f"组件构造失败（{getattr(cls, 'option_key', '')}）: {exc!r}",
+                f"组件构造失败（{getattr(cls, 'optionKey', '')}）: {exc!r}",
             )
             return
         if series_opt is not None:
             comp.series_opt = series_opt
+        # 组件事件 → 图表级信号（brush 选区 / toolbox 动作）
+        selected = getattr(comp, "selected", None)
+        if selected is not None and hasattr(selected, "connect"):
+            try:
+                selected.connect(self._onBrushSelected)
+            except Exception:
+                pass
+        if getattr(comp, "optionKey", "") == "toolbox":
+            comp.on_action = self.toolboxTriggered.emit
         self._components.append(comp)
+
+    def _onBrushSelected(self, items) -> None:
+        """brush 组件选区变化 → ``brushChanged`` 信号。"""
+        self.brushChanged.emit(list(items or []))
 
     def _content_rect(self) -> QRectF:
         """扣除标题 / 图例后的坐标系可用区。"""
         rect = QRectF(0, 0, max(1, self.width()), max(1, self.height()))
-        th = self.title.height()
-        content = QRectF(
-            rect.left(), rect.top() + th, rect.width(), max(1.0, rect.height() - th)
-        )
+        content = QRectF(rect)
+        band = self.title.bandRect(rect.width(), rect.height())
+        if not band.isNull():
+            if self.title.atBottom:
+                content.setBottom(max(content.top() + 1.0, band.top()))
+            else:
+                content.setTop(min(content.bottom() - 1.0, band.bottom()))
         if self.legend.shown:
-            lw, lh = self.legend.preferred_size(content.width(), content.height())
+            lw, lh = self.legend.preferredSize(content.width(), content.height())
             lo = self.legend.opt
             if self.legend.orient == "horizontal":
                 if "top" in lo:
@@ -933,7 +3235,7 @@ class ElaChartWidget(QWidget):
             self.legend.layout(band)
         return content
 
-    def invalidate_layout(self) -> None:
+    def invalidateLayout(self) -> None:
         """使布局缓存失效（下次绘制 / 布局时全量重排）。"""
         self._layout_key = None
 
@@ -943,28 +3245,88 @@ class ElaChartWidget(QWidget):
         dz = tuple(
             (getattr(c, "start", 0.0), getattr(c, "end", 100.0))
             for c in self._components
-            if getattr(c, "option_key", "") == "dataZoom"
+            if getattr(c, "optionKey", "") == "dataZoom"
         )
         return (self._opt_version, self.width(), self.height(), theme, dz)
 
+    #: 底部组件条带顺序（从外到内，最外层贴近画布底边）
+    _BOTTOM_BAND_ORDER = ("timeline", "dataZoom", "visualMap")
+
     def _layout_all(self, force: bool = False) -> None:
-        """全量布局：坐标系 / 系列 / 组件几何。
+        """全量布局：组件条带 / 坐标系 / 系列 / 组件几何。
+
+        组件条带：竖直 visualMap 占右侧，timeline 占最底部、dataZoom 在其上；
+        坐标系与系列避开全部条带，组件各自落在专属条带内（互不遮挡）。
 
         布局缓存：键命中直接返回；动画进行中不缓存（每帧重算）。
         """
         if force:
             self._layout_key = None
-        elif not self.anim.is_running():
+        elif not self.anim.isRunning():
             key = self._layout_cache_key()
             if key == self._layout_key:
                 return
             self._layout_key = key
         content = self._content_rect()
+        right_reserves = []  # [(component, size)]
+        bottom_reserves = []  # [(component, size)]
+        for comp in self._components:
+            right_fn = getattr(comp, "reserveRight", None)
+            if callable(right_fn):
+                try:
+                    size = float(right_fn())
+                except Exception:
+                    size = 0.0
+                if size > 0:
+                    right_reserves.append((comp, size))
+            bottom_fn = getattr(comp, "reserveBottom", None)
+            if callable(bottom_fn):
+                try:
+                    size = float(bottom_fn())
+                except Exception:
+                    size = 0.0
+                if size > 0:
+                    bottom_reserves.append((comp, size))
+        band_order = {key: index for index, key in enumerate(self._BOTTOM_BAND_ORDER)}
+        bottom_reserves.sort(
+            key=lambda item: band_order.get(getattr(item[0], "optionKey", ""), 99)
+        )
+        bottom_total = sum(size for _, size in bottom_reserves)
+        right_total = sum(size for _, size in right_reserves)
+
+        coord_content = QRectF(content)
+        if right_total > 0:
+            coord_content.setRight(
+                max(coord_content.left() + 20.0, coord_content.right() - right_total)
+            )
+        if bottom_total > 0:
+            coord_content.setBottom(
+                max(coord_content.top() + 20.0, coord_content.bottom() - bottom_total)
+            )
+
+        # 组件专属条带（bottom 自底向上；right 自右向左）
+        band_rects = {}
+        cursor = content.bottom()
+        for comp, size in bottom_reserves:
+            band_rects[id(comp)] = QRectF(
+                content.left(), cursor - size, content.width(), size
+            )
+            cursor -= size
+        cursor = content.right()
+        for comp, size in right_reserves:
+            band_rects[id(comp)] = QRectF(
+                cursor - size,
+                content.top(),
+                size,
+                max(20.0, content.height() - bottom_total),
+            )
+            cursor -= size
+
         for c in self._coords:
-            c.layout(content)
+            c.layout(coord_content)
         for r in self._series:
             try:
-                r.layout(content)
+                r.layout(coord_content)
             except Exception as exc:
                 warn_once(
                     f"series-layout:{r.__class__.__name__}",
@@ -974,7 +3336,7 @@ class ElaChartWidget(QWidget):
             layout = getattr(comp, "layout", None)
             if callable(layout):
                 try:
-                    layout(content)
+                    layout(band_rects.get(id(comp), content))
                 except Exception as exc:
                     warn_once(
                         f"component-layout:{comp.__class__.__name__}",
@@ -998,110 +3360,292 @@ class ElaChartWidget(QWidget):
         try:
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
             p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-            p.fillRect(self.rect(), QColor(T("color.bg.base")))
+            bg = self._option.get("backgroundColor")
+            p.fillRect(self.rect(), QColor(bg) if bg else QColor(T("color.bg.base")))
             self._layout_all()
-            t = self.anim.t
-            for c in self._coords:
-                try:
-                    c.paint_axes(p)
-                except Exception as exc:
-                    # 坐标绘制异常不能中断整帧：记录并跳过（否则 QPainter
-                    # 未收尾会污染绘制状态导致 Qt 崩溃）
-                    warn_once(
-                        f"coord-paint:{c.__class__.__name__}",
-                        f"坐标绘制异常（{c.__class__.__name__}）: {exc!r}",
-                    )
-            for r in self._series:
-                if not r.visible:
-                    continue
-                try:
-                    r.paint(p, t)
-                except Exception as exc:
-                    # 单系列绘制异常不影响整图，但至少可见一次
-                    warn_once(
-                        f"series-paint:{r.__class__.__name__}",
-                        f"系列绘制异常（{r.name}）: {exc!r}",
-                    )
-            for comp in self._components:
-                paint = getattr(comp, "paint", None)
-                if callable(paint):
-                    try:
-                        paint(p, t)
-                    except TypeError:
-                        try:
-                            paint(p)
-                        except Exception as exc:
-                            warn_once(
-                                f"component-paint:{comp.__class__.__name__}",
-                                f"组件绘制异常（{comp.__class__.__name__}）: {exc!r}",
-                            )
-                    except Exception as exc:
-                        warn_once(
-                            f"component-paint:{comp.__class__.__name__}",
-                            f"组件绘制异常（{comp.__class__.__name__}）: {exc!r}",
-                        )
-            try:
-                self.legend.paint(p)
-            except Exception as exc:
-                warn_once("legend-paint", f"图例绘制异常: {exc!r}")
-            title_rect = QRectF(0, 0, self.width(), self.title.height())
-            try:
-                self.title.paint(p, title_rect)
-            except Exception as exc:
-                warn_once("title-paint", f"标题绘制异常: {exc!r}")
-            try:
-                self.tooltip.paint(p)
-            except Exception as exc:
-                warn_once("tooltip-paint", f"提示框绘制异常: {exc!r}")
+            self._paint_content(p)
         finally:
             # 无论任何绘制路径抛异常，QPainter 都必须收尾，
             # 否则后续绘制状态被污染会导致 Qt 崩溃
             p.end()
 
-    # -- 鼠标：legend 点击 / tooltip 跟随 / 组件钩子 ------------------------
-    def mousePressEvent(self, event) -> None:
-        pos = event.localPos()
+    def _series_layer_key(self):
+        """系列层位图缓存键（``None`` 表示本帧不缓存）。
+
+        **只包含影响系列外观的状态**：option 版本 / 视口尺寸 / 主题 /
+        dataZoom 窗口 / 逐系列可见性 / hover 命中 / 动画进度。
+
+        悬停（``_hover``）**必须**在键里：命中项走 emphasis 高亮、未命中项
+        走 blur 淡化，两者都改逐图元外观。少了它会看到「高亮还停在上一个
+        位置」——缓存把旧外观贴回来了。
+        """
+        if self.anim.isRunning():
+            return None  # 动画每帧几何都在变，缓存无意义
+        hover = None
+        if self._hover is not None:
+            r, hit = self._hover
+            hover = (
+                id(r),
+                str(r.name),
+                hit.get("dataIndex") if isinstance(hit, dict) else None,
+            )
+        return (
+            self._opt_version,
+            self.width(),
+            self.height(),
+            round(self.getDevicePixelRatio(), 4),
+            eTheme.getThemeMode(),
+            self._series_layer_key_zoom(),
+            tuple((id(r), r.visible) for r in self._series),
+            hover,
+        )
+
+    def _series_layer_key_zoom(self):
+        """dataZoom 窗口（影响采样与坐标映射）。"""
+        return tuple(
+            (getattr(c, "start", 0.0), getattr(c, "end", 100.0))
+            for c in self._components
+            if getattr(c, "optionKey", "") == "dataZoom"
+        )
+
+    def _paint_series_cached(self, p: QPainter, t: float) -> None:
+        """绘制系列层（命中缓存则整幅位图贴回）。
+
+        为什么值得：实测 8 系列 × 20 万点（1200×700）单帧绘制中
+        **系列占 99.7%**（914 ms/3 帧 vs 坐标轴 2.9 ms/3 帧）。而悬停
+        每移动一像素就 ``update()`` 一次 —— 200 次移动实测 40.7 秒
+        （每次 203 ms），交互完全不可用。
+
+        缓存命中时只做一次 ``drawImage``，悬停 / 动画期的重绘成本从
+        「重建全部折线路径」降到「贴一张位图」。
+
+        失效条件全部在 ``_series_layer_key`` 里；坐标轴、组件、图例、
+        标题、tooltip **不缓存**（它们要么本来就便宜，要么逐帧变化）。
+        """
+        key = self._series_layer_key()
+        if key is None:
+            self._paint_series(p, t)
+            return
+        if self._series_pixmap_cache is not None and self._series_pixmap_key == key:
+            p.drawImage(0, 0, self._series_pixmap_cache)
+            return
+        w, h = max(1, self.width()), max(1, self.height())
+        dpr = self.getDevicePixelRatio()
+        img = QImage(
+            int(round(w * dpr)),
+            int(round(h * dpr)),
+            QImage.Format.Format_ARGB32_Premultiplied,
+        )
+        img.setDevicePixelRatio(dpr)
+        img.fill(Qt.GlobalColor.transparent)
+        p2 = QPainter(img)
+        try:
+            p2.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p2.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+            self._paint_series(p2, t)
+        finally:
+            p2.end()
+        self._series_pixmap_cache = img
+        self._series_pixmap_key = key
+        p.drawImage(0, 0, img)
+
+    def _paint_series(self, p: QPainter, t: float) -> None:
+        """逐系列绘制（单系列异常不影响整图，且至少可见一次）。"""
+        for r in self._series:
+            if not r.visible:
+                continue
+            try:
+                r.paint(p, r.animProgress(t))
+            except Exception as exc:
+                warn_once(
+                    f"series-paint:{r.__class__.__name__}",
+                    f"系列绘制异常（{r.name}）: {exc!r}",
+                )
+
+    def invalidateSeriesLayer(self) -> None:
+        """使系列层位图缓存失效（数据 / 主题 / 尺寸变化时调用）。"""
+        self._series_pixmap_cache = None
+        self._series_pixmap_key = None
+
+    def _paint_content(self, p: QPainter) -> None:
+        """内容绘制体（坐标轴 → 系列 → 组件 → 图例/标题/提示框/遮罩）。
+
+        从 ``paintEvent`` 抽出，使 ``benchmark`` 能画到离屏 QImage 上测
+        **纯绘制成本**（不掺入窗口合成 / 交换等待）。**绘制顺序不可调换**
+        （画家算法）。
+        """
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        t = self.anim.t
+        for c in self._coords:
+            try:
+                c.paintAxes(p)
+            except Exception as exc:
+                # 坐标绘制异常不能中断整帧：记录并跳过（否则 QPainter
+                # 未收尾会污染绘制状态导致 Qt 崩溃）
+                warn_once(
+                    f"coord-paint:{c.__class__.__name__}",
+                    f"坐标绘制异常（{c.__class__.__name__}）: {exc!r}",
+                )
+        self._paint_series_cached(p, t)
         for comp in self._components:
-            hook = getattr(comp, "on_mouse_press", None)
+            paint = getattr(comp, "paint", None)
+            if callable(paint):
+                try:
+                    paint(p, t)
+                except TypeError:
+                    try:
+                        paint(p)
+                    except Exception as exc:
+                        warn_once(
+                            f"component-paint:{comp.__class__.__name__}",
+                            f"组件绘制异常（{comp.__class__.__name__}）: {exc!r}",
+                        )
+                except Exception as exc:
+                    warn_once(
+                        f"component-paint:{comp.__class__.__name__}",
+                        f"组件绘制异常（{comp.__class__.__name__}）: {exc!r}",
+                    )
+        try:
+            self.legend.paint(p)
+        except Exception as exc:
+            warn_once("legend-paint", f"图例绘制异常: {exc!r}")
+        try:
+            self.title.paint(p, self.title.bandRect(self.width(), self.height()))
+        except Exception as exc:
+            warn_once("title-paint", f"标题绘制异常: {exc!r}")
+        try:
+            self.tooltip.paint(p)
+        except Exception as exc:
+            warn_once("tooltip-paint", f"提示框绘制异常: {exc!r}")
+        if self._loading:
+            try:
+                self._paint_loading(p)
+            except Exception as exc:
+                warn_once("loading-paint", f"加载遮罩绘制异常: {exc!r}")
+
+    # -- 鼠标：legend 点击 / tooltip 跟随 / 组件钩子 ------------------------
+    def _interactive_renderers(self) -> list:
+        """可见系列（渲染器可覆写 onMousePress/Move/Release/onWheel 获得交互）。"""
+        return [r for r in self._series if r.visible]
+
+    def mousePressEvent(self, event) -> None:
+        if self._loading:
+            return
+        pos = event.localPos()
+        for comp in self._interactive_components():
+            hook = getattr(comp, "onMousePress", None)
             if callable(hook) and hook(pos):
                 super().mousePressEvent(event)
                 return
-        if self.legend.shown:
-            name = self.legend.hit_test(pos)
+        if self._interactive:
+            for renderer in self._interactive_renderers():
+                hook = getattr(renderer, "onMousePress", None)
+                if callable(hook) and hook(pos):
+                    super().mousePressEvent(event)
+                    return
+        if self.legend.shown and self.isInteractionEnabled("legend"):
+            name = self.legend.hitTest(pos)
             if name is not None:
                 self.legend.toggle(name)
-                self.update()
+                super().mousePressEvent(event)
+                return
+        if self._interactive:
+            found = self._hitItemWithSeries(pos)
+            if found is not None:
+                renderer, hit = found
+                self.itemClicked.emit(
+                    self._make_item_params(renderer, hit, "click", event, pos)
+                )
         super().mousePressEvent(event)
 
+    def _make_item_params(
+        self, renderer, hit: dict, event_type: str, event=None, pos=None
+    ) -> dict:
+        """命中 → ECharts 事件 params（click / highlight 等共用）。"""
+        data_index = hit.get("dataIndex")
+        data = None
+        raw_data = renderer.data()
+        if isinstance(data_index, int) and 0 <= data_index < len(raw_data):
+            data = raw_data[data_index]
+        params = {
+            "type": event_type,
+            "componentType": "series",
+            "seriesType": str(renderer.opt.get("type") or ""),
+            "seriesIndex": self._series.index(renderer)
+            if renderer in self._series
+            else -1,
+            "seriesId": renderer.id,
+            "seriesName": renderer.name,
+            "name": str(hit.get("name") or ""),
+            "dataIndex": data_index,
+            "data": data,
+            "value": hit.get("value"),
+            "color": renderer.color().name(),
+        }
+        for extra in ("title", "text"):
+            if hit.get(extra) is not None:
+                params[extra] = hit[extra]
+        if hit.get("pos") is not None:
+            params["pos"] = hit["pos"]
+        if pos is not None:
+            params["offsetX"] = float(pos.x())
+            params["offsetY"] = float(pos.y())
+        if event is not None:
+            params["event"] = event
+        return params
+
     def mouseMoveEvent(self, event) -> None:
+        if self._loading:
+            return
         pos = event.localPos()
         consumed = False
-        for comp in self._components:
-            hook = getattr(comp, "on_mouse_move", None)
+        for comp in self._interactive_components():
+            hook = getattr(comp, "onMouseMove", None)
             if callable(hook) and hook(pos):
                 consumed = True
+        if not consumed and self._interactive:
+            for renderer in self._interactive_renderers():
+                hook = getattr(renderer, "onMouseMove", None)
+                if callable(hook) and hook(pos):
+                    consumed = True
+                    break
         if not consumed:
-            self._update_tooltip(pos)
+            if self.isInteractionEnabled("tooltip"):
+                self._update_tooltip(pos)
+            elif self.tooltip.active:
+                self.tooltip.hide()
+                self.update()
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
+        if self._loading:
+            return
         pos = event.localPos()
-        for comp in self._components:
-            hook = getattr(comp, "on_mouse_release", None)
+        for comp in self._interactive_components():
+            hook = getattr(comp, "onMouseRelease", None)
             if callable(hook) and hook(pos):
                 break
+        else:
+            if self._interactive:
+                for renderer in self._interactive_renderers():
+                    hook = getattr(renderer, "onMouseRelease", None)
+                    if callable(hook) and hook(pos):
+                        break
         super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event) -> None:
         """滚轮：优先交给交互组件（如 dataZoom inside）消费。
 
-        组件经 ``on_wheel(event)`` 钩子返回 True 时显式 ``event.accept()``，
+        组件经 ``onWheel(event)`` 钩子返回 True 时显式 ``event.accept()``，
         事件状态为「已消费」—— 祖先滚动区（ElaScrollArea / 页面）不会再
         同时滚动，解决「图表缩放与页面滚动同时触发」的问题；未被消费的
         滚轮按默认路径向上冒泡（图表外区域页面正常滚动）。
+        交互关闭（``setInteractive`` / ``setInteractionEnabled``）时不消费。
         """
-        for comp in self._components:
-            hook = getattr(comp, "on_wheel", None)
+        if self._loading:
+            return
+        for comp in self._interactive_components():
+            hook = getattr(comp, "onWheel", None)
             if not callable(hook):
                 continue
             try:
@@ -1113,50 +3657,103 @@ class ElaChartWidget(QWidget):
                     f"component-wheel:{comp.__class__.__name__}",
                     f"组件滚轮处理异常（{comp.__class__.__name__}）: {exc!r}",
                 )
+        if self._interactive:
+            for renderer in self._interactive_renderers():
+                hook = getattr(renderer, "onWheel", None)
+                if not callable(hook):
+                    continue
+                try:
+                    if hook(event):
+                        event.accept()
+                        return
+                except Exception as exc:
+                    warn_once(
+                        f"series-wheel:{renderer.__class__.__name__}",
+                        f"系列滚轮处理异常（{renderer.name}）: {exc!r}",
+                    )
         super().wheelEvent(event)
 
     def leaveEvent(self, event) -> None:
         self.tooltip.hide()
+        if self._hover is not None:
+            self._hover = None
         self.update()
         super().leaveEvent(event)
 
     # -- tooltip 聚合 ------------------------------------------------------
+    def textStyle(self) -> dict:
+        """全局 ``textStyle``（扩展查询；作为标签 / 轴文字的兜底样式）。"""
+        style = self._option.get("textStyle")
+        return style if isinstance(style, dict) else {}
+
+    def hitItem(self, pos: QPointF):
+        """坐标命中数据项 → ECharts click params（无命中 None）。"""
+        found = self._hitItemWithSeries(pos)
+        if not found:
+            return None
+        renderer, hit = found
+        return self._make_item_params(renderer, hit, "click", None, pos)
+
+    def hoverInfo(self):
+        """当前悬停命中 ``(渲染器, hit)``；无悬停返回 ``None``（emphasis 高亮用）。"""
+        return self._hover
+
+    def _hitItemWithSeries(self, pos: QPointF):
+        """命中查询：返回 ``(渲染器, 命中 info)``；无命中 None（silent 系列跳过）。"""
+        for r in reversed(self._series):
+            if not r.visible or r.silent:
+                continue
+            hit = None
+            try:
+                hit = r.hitTest(pos)
+            except Exception:
+                hit = None
+            if hit:
+                return r, hit
+        return None
+
     def _update_tooltip(self, pos: QPointF) -> None:
-        if not self.tooltip.shown or not self._series:
+        if not self.tooltip.shown or not self._series or self.tooltip.trigger == "none":
             if self.tooltip.active:
                 self.tooltip.hide()
+            if self._hover is not None:
+                self._hover = None
                 self.update()
             return
         if self.tooltip.trigger == "axis":
+            if self._hover is not None:
+                self._hover = None
             self._tooltip_axis(pos)
         else:
             self._tooltip_item(pos)
         self.update()
 
     def _tooltip_item(self, pos: QPointF) -> None:
-        for r in reversed(self._series):
-            if not r.visible:
-                continue
-            hit = None
-            try:
-                hit = r.hit_test(pos)
-            except Exception:
-                hit = None
-            if hit:
-                name = str(hit.get("series") or hit.get("name") or r.name)
-                value = format_value(hit.get("value"))
-                self.tooltip.show_at(pos, [(r.color(), name, value)])
-                return
+        found = self._hitItemWithSeries(pos)
+        if found is not None:
+            renderer, hit = found
+            if (
+                self._hover is None
+                or self._hover[0] is not renderer
+                or (self._hover[1].get("dataIndex") != hit.get("dataIndex"))
+            ):
+                self._hover = (renderer, hit)
+            self.tooltip.showAt(
+                pos, self.tooltip.buildLines(hit, renderer.color(), renderer.name)
+            )
+            return
+        if self._hover is not None:
+            self._hover = None
         self.tooltip.hide()
 
     def _tooltip_axis(self, pos: QPointF) -> None:
-        coord = self.primary_coord()
+        coord = self.primaryCoord()
         lines = []
         marker = None
         anchor = None
         if coord is not None:
             try:
-                anchor = coord.invert_x(pos)
+                anchor = coord.invertX(pos)
             except Exception:
                 anchor = None
         if anchor is not None:
@@ -1166,7 +3763,7 @@ class ElaChartWidget(QWidget):
                     continue
                 info = None
                 try:
-                    info = r.value_at_index(idx)
+                    info = r.valueAtIndex(idx)
                 except Exception:
                     info = None
                 if info:
@@ -1174,7 +3771,7 @@ class ElaChartWidget(QWidget):
                         (
                             r.color(),
                             str(info.get("series") or r.name),
-                            format_value(info.get("value")),
+                            formatValue(info.get("value")),
                         )
                     )
                     if marker is None and info.get("pos") is not None:
@@ -1194,7 +3791,7 @@ class ElaChartWidget(QWidget):
                 title = cats[idx]
         if title:
             lines.insert(0, (None, "", title))
-        self.tooltip.show_at(pos, lines, marker_pos=marker or pos)
+        self.tooltip.showAt(pos, lines, marker_pos=marker or pos)
 
 
 # ---------------------------------------------------------------------------
@@ -1203,21 +3800,22 @@ class ElaChartWidget(QWidget):
 
 
 class SimpleLineSeriesRenderer(SeriesRenderer):
-    """内置简易 line 渲染器（核心链路自测 / 兜底）。
+    """内置简易 line 渲染器（接口自测 / 兜底实现）。
 
-    注意：本实现刻意保持简单（直线段 + 圆点，无 smooth/areaStyle/step）。
-    series_cartesian 模块导入时会注册完整版 line 覆盖本实现 —— 注册表
-    同名后注册覆盖先注册，core 无需任何改动。
+    注意：本实现刻意保持简单（直线段 + 圆点，无 smooth/areaStyle/step），
+    **不自动注册**；包入口导入 ``series_cartesian`` 时会注册完整版 ``line``，
+    仅当需要无依赖的最小渲染器做自测时才手动
+    ``registerSeries("line", SimpleLineSeriesRenderer)``。
     """
 
     def __init__(self, chart, opt):
         super().__init__(chart, opt)
         self._points = []  # [QPointF]（当前数据）
-        self._prev_points = []  # [QPointF]（旧数据，update_option 动画用）
+        self._prev_points = []  # [QPointF]（旧数据，过渡动画用）
         self._entries = []  # [(x, y)] 解析后的数据
 
     def layout(self, rect: QRectF) -> None:
-        coord = self.chart.coord_for(self.opt)
+        coord = self.chart.coordFor(self.opt)
         self._prev_points = list(self._points)
         self._points = []
         self._entries = []
@@ -1225,7 +3823,7 @@ class SimpleLineSeriesRenderer(SeriesRenderer):
             return
         single = getattr(coord, "kind", "") == "singleAxis"
         for i, item in enumerate(self.data()):
-            x, y = parse_data_point(item, i)
+            x, y = parseDataPoint(item, i)
             self._entries.append((x, y))
             if y is None:
                 self._points.append(None)
@@ -1233,9 +3831,9 @@ class SimpleLineSeriesRenderer(SeriesRenderer):
             try:
                 if single:
                     # 单轴：数值即轴上位置（y 为解析出的数值）
-                    self._points.append(coord.map_point(y))
+                    self._points.append(coord.mapPoint(y))
                 else:
-                    self._points.append(coord.map_point(x, y))
+                    self._points.append(coord.mapPoint(x, y))
             except Exception:
                 self._points.append(None)
 
@@ -1243,17 +3841,17 @@ class SimpleLineSeriesRenderer(SeriesRenderer):
         """旧→新插值：长度一致时逐点 lerp；否则返回当前点列。"""
         cur = self._points
         prev_src = self._prev_points
-        # update_option 路径：prev_data 与当前 data 等长时按数据值重映射旧点
+        # 过渡动画路径：prev_data 与当前 data 等长时按数据值重映射旧点
         if self.prev_data is not None and len(self.prev_data) == len(self._entries):
-            coord = self.chart.coord_for(self.opt)
+            coord = self.chart.coordFor(self.opt)
             prev = []
             for i, item in enumerate(self.prev_data):
-                x, y = parse_data_point(item, i)
+                x, y = parseDataPoint(item, i)
                 if y is None or coord is None:
                     prev.append(None)
                     continue
                 try:
-                    prev.append(coord.map_point(x, y))
+                    prev.append(coord.mapPoint(x, y))
                 except Exception:
                     prev.append(None)
             prev_src = prev
@@ -1301,7 +3899,7 @@ class SimpleLineSeriesRenderer(SeriesRenderer):
             p.drawEllipse(pt, 3.0, 3.0)
         p.restore()
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         best = None
         best_d = 10.0  # 命中半径 px
         for i, pt in enumerate(self._points):
@@ -1322,7 +3920,7 @@ class SimpleLineSeriesRenderer(SeriesRenderer):
             "x": x,
         }
 
-    def value_at_index(self, index: int):
+    def valueAtIndex(self, index: int):
         idx = self._full_index(index)  # dataZoom 窗口偏移换算
         if not isinstance(idx, int) or not (0 <= idx < len(self._entries)):
             return None
@@ -1331,7 +3929,3 @@ class SimpleLineSeriesRenderer(SeriesRenderer):
             return None
         pos = self._points[idx] if idx < len(self._points) else None
         return {"name": self.name, "value": y, "series": self.name, "pos": pos}
-
-
-#: 内置兜底注册（series_cartesian 完整版 line 导入时将覆盖）
-register_series("line", SimpleLineSeriesRenderer)

@@ -29,7 +29,9 @@ class AdvancedComponentsPage(ExamplePage):
 
     def _demoWordViewer(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("01. ela_ext - ElaWordViewer Word 文档预览", self._demoWordViewer)
+            self._createHeaderRow(
+                "01. ela_ext - ElaWordViewer Word 文档预览", self._demoWordViewer
+            )
         )
         self._addInfoText(
             "通过 ActiveX 嵌入 Word 文档查看器（需安装 MS Office 或 WPS）",
@@ -51,7 +53,9 @@ class AdvancedComponentsPage(ExamplePage):
 
     def _demoExcelViewer(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("02. ela_ext - ElaExcelViewer Excel 文档预览", self._demoExcelViewer)
+            self._createHeaderRow(
+                "02. ela_ext - ElaExcelViewer Excel 文档预览", self._demoExcelViewer
+            )
         )
         self._addInfoText(
             "通过 ActiveX 嵌入 Excel 文档查看器（需安装 MS Office 或 WPS）",
@@ -73,7 +77,10 @@ class AdvancedComponentsPage(ExamplePage):
 
     def _demoPowerPointViewer(self, parent_layout):
         parent_layout.addLayout(
-            self._createHeaderRow("03. ela_ext - ElaPowerPointViewer PPT 文档预览", self._demoPowerPointViewer)
+            self._createHeaderRow(
+                "03. ela_ext - ElaPowerPointViewer PPT 文档预览",
+                self._demoPowerPointViewer,
+            )
         )
         self._addInfoText(
             "通过 ActiveX 嵌入 PowerPoint 文档查看器（需安装 MS Office 或 WPS）",
@@ -99,7 +106,9 @@ class AdvancedComponentsPage(ExamplePage):
         )
         if path:
             if not self._word_viewer.load_file(path):
-                self._addInfoText("加载失败，请确认已安装 MS Office 或 WPS", self.layout())
+                self._addInfoText(
+                    "加载失败，请确认已安装 MS Office 或 WPS", self.layout()
+                )
 
     def _onOpenExcel(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -107,7 +116,9 @@ class AdvancedComponentsPage(ExamplePage):
         )
         if path:
             if not self._excel_viewer.load_file(path):
-                self._addInfoText("加载失败，请确认已安装 MS Office 或 WPS", self.layout())
+                self._addInfoText(
+                    "加载失败，请确认已安装 MS Office 或 WPS", self.layout()
+                )
 
     def _onOpenPpt(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -115,4 +126,6 @@ class AdvancedComponentsPage(ExamplePage):
         )
         if path:
             if not self._ppt_viewer.load_file(path):
-                self._addInfoText("加载失败，请确认已安装 MS Office 或 WPS", self.layout())
+                self._addInfoText(
+                    "加载失败，请确认已安装 MS Office 或 WPS", self.layout()
+                )

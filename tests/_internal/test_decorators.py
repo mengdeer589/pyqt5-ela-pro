@@ -11,6 +11,7 @@ class TestCatchError:
 
     def test_normal_function_returns_value(self):
         """Test that normal functions work correctly."""
+
         @catch_error
         def add(a, b):
             return a + b
@@ -20,6 +21,7 @@ class TestCatchError:
 
     def test_function_with_exception_returns_none(self, capsys):
         """Test that functions raising exceptions return None."""
+
         @catch_error
         def raise_error():
             raise ValueError("test error")
@@ -33,6 +35,7 @@ class TestCatchError:
 
     def test_function_with_args_and_kwargs(self, capsys):
         """Test decorated function with various arguments."""
+
         @catch_error
         def func_with_args(a, b, c=None, d=None):
             if a == "error":
@@ -44,6 +47,7 @@ class TestCatchError:
 
     def test_catch_error_preserves_function_metadata(self):
         """Test that decorator preserves function name and docstring."""
+
         @catch_error
         def my_function():
             """My docstring."""
@@ -58,6 +62,7 @@ class TestSafeCall:
 
     def test_safe_call_with_normal_function(self):
         """Test safe_call with a normal function."""
+
         def add(a, b):
             return a + b
 
@@ -76,6 +81,7 @@ class TestSafeCall:
 
     def test_safe_call_with_function_raising_exception(self, capsys):
         """Test safe_call handles exceptions from the function."""
+
         def raise_error():
             raise RuntimeError("test")
 
@@ -87,6 +93,7 @@ class TestSafeCall:
 
     def test_safe_call_with_kwargs(self):
         """Test safe_call passes kwargs correctly."""
+
         def greet(name, prefix="Hello"):
             return f"{prefix}, {name}!"
 
@@ -104,6 +111,7 @@ class TestDisconnectThemeSignal:
 
     def test_disconnect_theme_signal_does_not_raise(self):
         """Test disconnect_theme_signal does not raise on never-connected slot."""
+
         def dummy():
             pass
 

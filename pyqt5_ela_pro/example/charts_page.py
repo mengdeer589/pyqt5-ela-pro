@@ -5,20 +5,105 @@
 21 个系列 + 交互组件演示。每个图表均带「随机数据」与「鼠标交互开关」按钮。
 """
 
+import math
 import random
+from datetime import date, timedelta
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout
 from PyQt5ElaWidgetTools import ElaText, ElaPushButton, ElaLineEdit, ElaCheckBox
 
-from pyqt5_ela_pro import ElaChartWidget
+from pyqt5_ela_pro import ElaChartWidget, ElaChip
 from .base_page import ExamplePage
 
 _WEEKS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
+#: GitHub 绿 5 档色带（visualMap.inRange.colors 示例）
+_GITHUB_GREENS = ["#ebedf0", "#9be9a8", "#40c463", "#30a14e", "#216e39"]
+
+
+def _format_tokens(value: int) -> str:
+    """Token 数值 → 中文单位（12345 → 1.2万）。"""
+    if value >= 100_000_000:
+        return f"{value / 100_000_000:.2f}亿"
+    if value >= 10_000:
+        return f"{value / 10_000:.1f}万"
+    return str(value)
+
+
+def _build_token_activity(year: int = 2026) -> list:
+    """生成全年 Token 活动数据：[(date, tokens, rounds)]（确定性伪随机）。"""
+    rows = []
+    day = date(year, 1, 1)
+    while day <= date(year, 12, 31):
+        index = day.timetuple().tm_yday
+        base = 12 + 10 * math.sin(index / 23.0) + 6 * math.sin(index / 7.0)
+        if day.weekday() >= 5:
+            base *= 0.35
+        tokens = int(max(0.0, base) * 30000)
+        if index % 13 == 0:
+            tokens = 0
+        rounds = max(1, int(base / 3))
+        rows.append((day, tokens, rounds))
+        day += timedelta(days=1)
+    return rows
+
+
+def _token_activity_series(rows: list, mode: str) -> list:
+    """活动数据 → heatmap data（每日 / 每周汇总 / 累计）。
+
+    - 绘图值用「万 tokens」为单位（视觉映射标签更紧凑），tooltip 显示完整单位；
+    - weekly：按自然周（周日为一周起点）汇总，值放在该周周日格；
+    - cumulative：前缀和（token 与轮数均累计）。
+    """
+    if mode == "weekly":
+        weekly: dict = {}
+        for day, tokens, rounds in rows:
+            key = day - timedelta(days=(day.weekday() + 1) % 7)
+            item = weekly.setdefault(key, [0, 0])
+            item[0] += tokens
+            item[1] += rounds
+        return [
+            {
+                "value": [day.isoformat(), round(tokens / 10000, 2)],
+                "tooltip": {
+                    "formatter": f"{_format_tokens(tokens)} tokens · "
+                    f"{rounds} 轮消息（本周合计）"
+                },
+            }
+            for day, (tokens, rounds) in weekly.items()
+        ]
+    if mode == "cumulative":
+        series = []
+        total_tokens = total_rounds = 0
+        for day, tokens, rounds in rows:
+            total_tokens += tokens
+            total_rounds += rounds
+            series.append(
+                {
+                    "value": [day.isoformat(), round(total_tokens / 10000, 2)],
+                    "tooltip": {
+                        "formatter": (
+                            f"{_format_tokens(total_tokens)} tokens · "
+                            f"{total_rounds} 轮消息（累计）"
+                        )
+                    },
+                }
+            )
+        return series
+    return [
+        {
+            "value": [day.isoformat(), round(tokens / 10000, 2)],
+            "tooltip": {
+                "formatter": f"{_format_tokens(tokens)} tokens · {rounds} 轮消息"
+            },
+        }
+        for day, tokens, rounds in rows
+    ]
+
 
 class ChartsPage(ExamplePage):
-    """ElaChartWidget：ECharts 风格 set_option 数据驱动图表引擎"""
+    """ElaChartWidget：ECharts 风格 setOption 数据驱动图表引擎"""
 
     PAGE_TITLE = "ElaChartWidget 图表引擎"
 
@@ -32,7 +117,9 @@ class ChartsPage(ExamplePage):
         main_layout.addSpacing(24)
         self._demoPieChart(main_layout)
         main_layout.addSpacing(24)
-        self._demoScatterAndHeatmap(main_layout)
+        self._demoScatterBubble(main_layout)
+        main_layout.addSpacing(24)
+        self._demoCalendarHeatmap(main_layout)
         main_layout.addSpacing(24)
         self._demoFinanceCharts(main_layout)
         main_layout.addSpacing(24)
@@ -50,7 +137,9 @@ class ChartsPage(ExamplePage):
         """带标题的图表容器（纵向：标题 + 图表 + 控制行）。"""
         tile = QVBoxLayout()
         tile.setSpacing(6)
-        tile.addWidget(ElaText(title, self), 0, Qt.AlignmentFlag.AlignLeft)
+        title_label = ElaText(title, self)
+        title_label.setTextPixelSize(14)
+        tile.addWidget(title_label, 0, Qt.AlignmentFlag.AlignLeft)
         tile.addWidget(chart, stretch)
         if controls:
             self._attachControls(tile, chart)
@@ -72,7 +161,7 @@ class ChartsPage(ExamplePage):
         rand_btn.setFixedWidth(90)
         rand_btn.clicked.connect(lambda: self._onRandomChart(chart))
         row.addWidget(rand_btn)
-        inter_on = bool(chart.option().get("dataZoom"))
+        inter_on = chart.interactiveEnabled()
         inter_btn = ElaPushButton("交互: 开" if inter_on else "交互: 关", self)
         inter_btn.setFixedWidth(90)
         inter_btn.clicked.connect(lambda: self._toggleInteraction(chart, inter_btn))
@@ -83,13 +172,13 @@ class ChartsPage(ExamplePage):
     # ── 随机数据 ────────────────────────────────────────────────────────
 
     def _onRandomChart(self, chart):
-        """按各系列类型随机化 data 并播放 update_option 插值动画。"""
-        opt = chart.option()
+        """按各系列类型随机化 data 并播放过渡插值动画（setOption 合并语义）。"""
+        opt = chart.getOption()
         series = opt.get("series") or []
         for s in series:
             if isinstance(s, dict):
                 self._randomizeSeries(s)
-        chart.update_option({"series": series})
+        chart.setOption({"series": series})
 
     def _randomizeSeries(self, s: dict) -> None:
         t = str(s.get("type") or "line")
@@ -183,22 +272,13 @@ class ChartsPage(ExamplePage):
     # ── 鼠标交互开关 ────────────────────────────────────────────────────
 
     def _toggleInteraction(self, chart, btn):
-        """切换鼠标交互：直角坐标图开 dataZoom（滚轮缩放 + 拖拽平移）+
-        axis tooltip；无坐标图仅 tooltip 悬停。"""
-        opt = chart.option()
+        """切换鼠标交互（提示框 / 图例 / 缩放 / 刷选 / 时间轴 / 工具箱）。
+
+        走 ``chart.setInteractive`` 总开关：数据与绘制不变，仅鼠标交互失效。
+        """
         on = btn.text().endswith("开")
-        if on:
-            opt.pop("dataZoom", None)
-            opt["tooltip"] = {"show": True, "trigger": "item"}
-            btn.setText("交互: 关")
-        else:
-            if bool(chart.coords):
-                opt["dataZoom"] = [{"type": "inside"}]
-                opt["tooltip"] = {"show": True, "trigger": "axis"}
-            else:
-                opt["tooltip"] = {"show": True, "trigger": "item"}
-            btn.setText("交互: 开")
-        chart.set_option(opt)
+        chart.setInteractive(not on)
+        btn.setText("交互: 关" if on else "交互: 开")
 
     # ── 01 折线图 ───────────────────────────────────────────────────────
 
@@ -216,7 +296,7 @@ class ChartsPage(ExamplePage):
         )
         self._lineChart = ElaChartWidget(self)
         self._lineChart.setMinimumHeight(320)
-        self._lineChart.set_option(self._buildLineOption())
+        self._lineChart.setOption(self._buildLineOption())
         self._addChartWithControls(parent_layout, self._lineChart)
 
     def _buildLineOption(self):
@@ -263,12 +343,13 @@ class ChartsPage(ExamplePage):
             )
         )
         self._addInfoText(
-            "多系列同名 stack 自动累加堆叠；数值轴范围按堆叠总和自适应；支持 barBorderRadius 圆角",
+            "多系列同名 stack 自动累加堆叠；数值轴范围按堆叠总和自适应；"
+            "支持 itemStyle.borderRadius 圆角",
             parent_layout,
         )
         self._barChart = ElaChartWidget(self)
         self._barChart.setMinimumHeight(320)
-        self._barChart.set_option(self._buildBarOption())
+        self._barChart.setOption(self._buildBarOption())
         self._addChartWithControls(parent_layout, self._barChart)
 
     def _buildBarOption(self):
@@ -283,7 +364,7 @@ class ChartsPage(ExamplePage):
                     "type": "bar",
                     "name": "直接访问",
                     "stack": "total",
-                    "barBorderRadius": 3,
+                    "itemStyle": {"borderRadius": 3},
                     "data": [320, 302, 301, 334, 390, 330, 320],
                 },
                 {
@@ -315,7 +396,7 @@ class ChartsPage(ExamplePage):
         )
         self._pieChart = ElaChartWidget(self)
         self._pieChart.setMinimumHeight(340)
-        self._pieChart.set_option(self._buildPieOption())
+        self._pieChart.setOption(self._buildPieOption())
         self._addChartWithControls(parent_layout, self._pieChart)
 
     def _buildPieOption(self):
@@ -340,33 +421,28 @@ class ChartsPage(ExamplePage):
             ],
         }
 
-    # ── 04 散点 + 热力 ──────────────────────────────────────────────────
+    # ── 04 散点（气泡） ────────────────────────────────────────────────
 
-    def _demoScatterAndHeatmap(self, parent_layout):
+    def _demoScatterBubble(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "04. ElaChartWidget 散点图 (气泡) / 热力图",
-                self._demoScatterAndHeatmap,
+                "04. ElaChartWidget 散点图（气泡）",
+                self._demoScatterBubble,
             )
         )
         self._addInfoText(
-            "scatter 数据第三维映射气泡大小；heatmap 双 category 轴矩阵填格，色带由主题主色派生",
+            "scatter 数据第三维映射气泡大小；grid 直角热力见系列能力，日历热力见下一节",
             parent_layout,
         )
         self._scatterChart = ElaChartWidget(self)
         self._scatterChart.setMinimumHeight(300)
-        self._scatterChart.set_option(self._buildScatterOption())
-
-        self._heatmapChart = ElaChartWidget(self)
-        self._heatmapChart.setMinimumHeight(300)
-        self._heatmapChart.set_option(self._buildHeatmapOption())
+        self._scatterChart.setOption(self._buildScatterOption())
 
         row = QHBoxLayout()
         row.setSpacing(12)
         row.addLayout(
             self._chartTile("气泡分布（第三维映射尺寸）", self._scatterChart), 1
         )
-        row.addLayout(self._chartTile("一周流量热力矩阵", self._heatmapChart), 1)
         parent_layout.addLayout(row)
 
     def _buildScatterOption(self):
@@ -392,27 +468,102 @@ class ChartsPage(ExamplePage):
             ],
         }
 
-    def _buildHeatmapOption(self):
-        hours = ["12a", "1a", "2a", "3a", "4a", "5a", "6a", "7a"]
-        data = []
-        for i in range(len(hours)):
-            for j, day in enumerate(_WEEKS):
-                data.append([day, i, (i * 3 + j * 5) % 24])
+    # ── 05 日历热力（Token 活动） ──────────────────────────────────────
+
+    def _demoCalendarHeatmap(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow(
+                "05. ElaChartWidget 日历热力（GitHub 风格 Token 活动）",
+                self._demoCalendarHeatmap,
+            )
+        )
+        self._addInfoText(
+            "calendar 坐标系：周(列)×星期(行) 年历网格（默认周日在上，"
+            "dayLabel.firstDay 可切换周一）；无数据日自动铺浅色底格"
+            '（calendar.itemStyle.color 可改 / "none" 关闭）；'
+            "悬停显示「日期 + 自定义文案」（数据项 tooltip.formatter）；"
+            "每日 / 每周（周汇总）/ 累计（前缀和）切换；配色默认跟随主题，可切 GitHub 绿。",
+            parent_layout,
+        )
+        self._calendar_data = _build_token_activity()
+        self._calendar_mode = "daily"
+        self._calendar_green = False
+        self._calendar_chart = ElaChartWidget(self)
+        self._calendar_chart.setMinimumHeight(240)
+        self._calendar_chart.setOption(self._buildCalendarHeatmapOption())
+
+        tile = QVBoxLayout()
+        tile.setSpacing(6)
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
+        calendar_title = ElaText("Token 活动", self)
+        calendar_title.setTextPixelSize(14)
+        title_row.addWidget(calendar_title)
+        title_row.addStretch()
+        green_box = ElaCheckBox("GitHub 绿配色", self)
+        green_box.toggled.connect(self._onCalendarPaletteToggled)
+        title_row.addWidget(green_box)
+        self._calendar_chips = {}
+        for key, label in (
+            ("daily", "每日"),
+            ("weekly", "每周"),
+            ("cumulative", "累计"),
+        ):
+            chip = ElaChip(label, self)
+            chip.setCheckable(True)
+            chip.setChecked(key == "daily")
+            chip.clicked.connect(lambda k=key: self._setCalendarMode(k))
+            self._calendar_chips[key] = chip
+            title_row.addWidget(chip)
+        tile.addLayout(title_row)
+        tile.addWidget(self._calendar_chart, 1)
+        parent_layout.addLayout(tile)
+
+    def _buildCalendarHeatmapOption(self):
+        series_data = _token_activity_series(self._calendar_data, self._calendar_mode)
+        values = [item["value"][1] for item in series_data]
+        visual_map = {"min": 0, "max": max(values) if values else 1}
+        if self._calendar_green:
+            visual_map["inRange"] = {"colors": _GITHUB_GREENS}
         return {
-            "legend": {"top": "top", "right": "right"},
             "tooltip": {"trigger": "item"},
-            "xAxis": {"type": "category", "data": _WEEKS},
-            "yAxis": {"type": "category", "data": hours},
-            "visualMap": {"min": 0, "max": 24},
-            "series": [{"type": "heatmap", "name": "流量", "data": data}],
+            "calendar": {
+                "range": 2026,
+                "cellSize": "auto",
+                "splitLine": {"show": False},
+            },
+            "visualMap": visual_map,
+            "series": [
+                {
+                    "type": "heatmap",
+                    "coordinateSystem": "calendar",
+                    "name": "Token",
+                    "itemStyle": {"borderWidth": 2, "borderRadius": 2},
+                    "data": series_data,
+                }
+            ],
         }
 
-    # ── 05 金融类图表 ───────────────────────────────────────────────────
+    def _setCalendarMode(self, mode: str):
+        self._calendar_mode = mode
+        for key, chip in self._calendar_chips.items():
+            chip.setChecked(key == mode)
+        self._calendar_chart.setOption(self._buildCalendarHeatmapOption())
+
+    def _onCalendarPaletteToggled(self, checked: bool):
+        self._calendar_green = bool(checked)
+        self._calendar_chart.setOption(
+            {
+                "visualMap": self._buildCalendarHeatmapOption()["visualMap"],
+            }
+        )
+
+    # ── 06 金融类图表 ───────────────────────────────────────────────────
 
     def _demoFinanceCharts(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "05. K线 / 箱线 / 象形柱 / 主题河", self._demoFinanceCharts
+                "06. K线 / 箱线 / 象形柱 / 主题河", self._demoFinanceCharts
             )
         )
         self._addInfoText(
@@ -422,7 +573,7 @@ class ChartsPage(ExamplePage):
         )
         self._kChart = ElaChartWidget(self)
         self._kChart.setMinimumHeight(260)
-        self._kChart.set_option(
+        self._kChart.setOption(
             {
                 "title": {"text": "K 线 · 红涨绿跌"},
                 "tooltip": {"trigger": "axis"},
@@ -450,7 +601,7 @@ class ChartsPage(ExamplePage):
         )
         self._boxChart = ElaChartWidget(self)
         self._boxChart.setMinimumHeight(260)
-        self._boxChart.set_option(
+        self._boxChart.setOption(
             {
                 "title": {"text": "箱线图"},
                 "tooltip": {"trigger": "axis"},
@@ -467,7 +618,7 @@ class ChartsPage(ExamplePage):
         )
         self._pictorialChart = ElaChartWidget(self)
         self._pictorialChart.setMinimumHeight(260)
-        self._pictorialChart.set_option(
+        self._pictorialChart.setOption(
             {
                 "title": {"text": "象形柱 · 圆形重复"},
                 "xAxis": {"type": "category", "data": ["一", "二", "三", "四"]},
@@ -486,7 +637,7 @@ class ChartsPage(ExamplePage):
         )
         self._riverChart = ElaChartWidget(self)
         self._riverChart.setMinimumHeight(260)
-        self._riverChart.set_option(
+        self._riverChart.setOption(
             {
                 "title": {"text": "主题河"},
                 "series": [
@@ -523,12 +674,12 @@ class ChartsPage(ExamplePage):
         parent_layout.addSpacing(12)
         parent_layout.addLayout(row2)
 
-    # ── 06 层级图表 ─────────────────────────────────────────────────────
+    # ── 07 层级图表 ─────────────────────────────────────────────────────
 
     def _demoHierarchyCharts(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "06. 雷达 / 仪表 / 漏斗 / 旭日 / 矩形树 / 树",
+                "07. 雷达 / 仪表 / 漏斗 / 旭日 / 矩形树 / 树",
                 self._demoHierarchyCharts,
             )
         )
@@ -539,7 +690,7 @@ class ChartsPage(ExamplePage):
         )
         self._radarChart = ElaChartWidget(self)
         self._radarChart.setMinimumHeight(270)
-        self._radarChart.set_option(
+        self._radarChart.setOption(
             {
                 "title": {"text": "能力雷达"},
                 "legend": {"top": "bottom"},
@@ -571,7 +722,7 @@ class ChartsPage(ExamplePage):
         )
         self._gaugeChart = ElaChartWidget(self)
         self._gaugeChart.setMinimumHeight(270)
-        self._gaugeChart.set_option(
+        self._gaugeChart.setOption(
             {
                 "title": {"text": "仪表盘"},
                 "series": [
@@ -596,7 +747,7 @@ class ChartsPage(ExamplePage):
         )
         self._funnelChart = ElaChartWidget(self)
         self._funnelChart.setMinimumHeight(270)
-        self._funnelChart.set_option(
+        self._funnelChart.setOption(
             {
                 "title": {"text": "漏斗"},
                 "series": [
@@ -615,7 +766,7 @@ class ChartsPage(ExamplePage):
         )
         self._sunburstChart = ElaChartWidget(self)
         self._sunburstChart.setMinimumHeight(280)
-        self._sunburstChart.set_option(
+        self._sunburstChart.setOption(
             {
                 "title": {"text": "旭日图"},
                 "series": [
@@ -651,7 +802,7 @@ class ChartsPage(ExamplePage):
         )
         self._treemapChart = ElaChartWidget(self)
         self._treemapChart.setMinimumHeight(280)
-        self._treemapChart.set_option(
+        self._treemapChart.setOption(
             {
                 "title": {"text": "矩形树图"},
                 "series": [
@@ -675,7 +826,7 @@ class ChartsPage(ExamplePage):
         )
         self._treeChart = ElaChartWidget(self)
         self._treeChart.setMinimumHeight(280)
-        self._treeChart.set_option(
+        self._treeChart.setOption(
             {
                 "title": {"text": "树图"},
                 "series": [
@@ -716,22 +867,22 @@ class ChartsPage(ExamplePage):
         parent_layout.addSpacing(12)
         parent_layout.addLayout(row2)
 
-    # ── 07 关系图表 ─────────────────────────────────────────────────────
+    # ── 08 关系图表 ─────────────────────────────────────────────────────
 
     def _demoRelationalCharts(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "07. 桑基 / 关系图 / 平行坐标 / 地图", self._demoRelationalCharts
+                "08. 桑基 / 关系图 / 平行坐标 / 地图", self._demoRelationalCharts
             )
         )
         self._addInfoText(
-            "sankey（贝塞尔流带）、graph（力导 / 圆环布局）、parallel（多维折线）、"
-            "map（区域着色，示意地图）",
+            "sankey（贝塞尔流带）、graph（力导 / 圆环布局，roam 缩放平移 + draggable 拖拽节点）、"
+            "parallel（多维折线）、map（区域着色，示意地图，roam 缩放平移）",
             parent_layout,
         )
         self._sankeyChart = ElaChartWidget(self)
         self._sankeyChart.setMinimumHeight(280)
-        self._sankeyChart.set_option(
+        self._sankeyChart.setOption(
             {
                 "title": {"text": "桑基图"},
                 "series": [
@@ -758,7 +909,7 @@ class ChartsPage(ExamplePage):
         )
         self._graphChart = ElaChartWidget(self)
         self._graphChart.setMinimumHeight(280)
-        self._graphChart.set_option(
+        self._graphChart.setOption(
             {
                 "title": {"text": "关系图 · 力导"},
                 "series": [
@@ -766,6 +917,8 @@ class ChartsPage(ExamplePage):
                         "type": "graph",
                         "name": "关系",
                         "layout": "force",
+                        "roam": True,
+                        "draggable": True,
                         "data": [
                             {"name": "核心", "symbolSize": 24},
                             {"name": "A"},
@@ -788,7 +941,7 @@ class ChartsPage(ExamplePage):
         )
         self._parallelChart = ElaChartWidget(self)
         self._parallelChart.setMinimumHeight(280)
-        self._parallelChart.set_option(
+        self._parallelChart.setOption(
             {
                 "title": {"text": "平行坐标"},
                 "parallelAxis": [
@@ -807,7 +960,7 @@ class ChartsPage(ExamplePage):
         )
         self._mapChart = ElaChartWidget(self)
         self._mapChart.setMinimumHeight(280)
-        self._mapChart.set_option(
+        self._mapChart.setOption(
             {
                 "title": {"text": "地图 · 示意区块"},
                 "series": [
@@ -815,6 +968,7 @@ class ChartsPage(ExamplePage):
                         "type": "map",
                         "name": "区域",
                         "map": "demo",
+                        "roam": True,
                         "data": [
                             {"name": "华北", "value": 120},
                             {"name": "华东", "value": 200},
@@ -837,22 +991,23 @@ class ChartsPage(ExamplePage):
         parent_layout.addSpacing(12)
         parent_layout.addLayout(row2)
 
-    # ── 08 大数据动态采样 ───────────────────────────────────────────────
+    # ── 09 大数据动态采样 ───────────────────────────────────────────────
 
     def _demoBigData(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "08. ElaChartWidget 大数据动态采样 (tsdownsample)", self._demoBigData
+                "09. ElaChartWidget 大数据动态采样 (tsdownsample)", self._demoBigData
             )
         )
         self._addInfoText(
             "数据量超过 threshold（默认 2000）时按当前绘图范围（x 轴数值窗口 × 画布像素宽度）"
-            "动态降采样，只渲染窗口内数据；symbolInterval 控制每隔多少个数据点画一个符号",
+            "动态降采样，只渲染窗口内数据；sampling 支持 ECharts 字符串"
+            "（lttb / average / min / max / minmax / sum）或 dict 精细配置",
             parent_layout,
         )
         self._bigChart = ElaChartWidget(self)
         self._bigChart.setMinimumHeight(300)
-        self._bigChart.set_option(
+        self._bigChart.setOption(
             {
                 "title": {"text": "点击下方按钮生成 30 万点数据", "left": "center"},
                 "xAxis": {"type": "value"},
@@ -880,9 +1035,7 @@ class ChartsPage(ExamplePage):
         self._curves_input.setText("1")
         symbol_btn = ElaPushButton("形状: 开", self)
         symbol_btn.setFixedWidth(90)
-        symbol_btn.clicked.connect(
-            lambda: self._onToggleSymbol(symbol_btn)
-        )
+        symbol_btn.clicked.connect(lambda: self._onToggleSymbol(symbol_btn))
         inter_btn = ElaPushButton("交互: 关", self)
         inter_btn.setFixedWidth(90)
         inter_btn.clicked.connect(
@@ -922,7 +1075,7 @@ class ChartsPage(ExamplePage):
         for s in opt["series"]:
             if isinstance(s, dict):
                 s["sampling"] = sopt
-                # 形状开关：关时隐藏数据点符号，开时按 symbolInterval 稀疏绘制
+                # 形状开关：关时隐藏数据点符号，开时大数据下稀疏绘制
                 s["showSymbol"] = self._big_symbol_on
         return opt
 
@@ -930,7 +1083,7 @@ class ChartsPage(ExamplePage):
         self._big_symbol_on = not self._big_symbol_on
         btn.setText("形状: 开" if self._big_symbol_on else "形状: 关")
         if self._big_series:
-            self._bigChart.set_option(self._bigOption())
+            self._bigChart.setOption(self._bigOption())
             self._updateBigStatus()
 
     def _onGenBigData(self):
@@ -952,40 +1105,37 @@ class ChartsPage(ExamplePage):
             a2 = random.uniform(40, 120)
             w2 = random.uniform(25, 60)
             data = [
-                base + a1 * math.sin(i / w1) + a2 * math.sin(i / w2)
-                for i in range(n)
+                base + a1 * math.sin(i / w1) + a2 * math.sin(i / w2) for i in range(n)
             ]
-            series.append(
-                {"type": "line", "name": f"曲线{j + 1}", "data": data}
-            )
+            series.append({"type": "line", "name": f"曲线{j + 1}", "data": data})
         self._big_series = series
-        self._bigChart.set_option(self._bigOption())
+        self._bigChart.setOption(self._bigOption())
         self._updateBigStatus()
 
     def _updateBigStatus(self):
         r = (
-            self._bigChart.series_renderers[0]
-            if self._bigChart.series_renderers
+            self._bigChart.seriesRenderers[0]
+            if self._bigChart.seriesRenderers
             else None
         )
         if r is None:
             return
         # 当前 x 轴显示范围（真实值域）与 dataZoom 百分比窗口
-        coord = self._bigChart.primary_coord()
+        coord = self._bigChart.primaryCoord()
         range_text = ""
         if coord is not None and hasattr(coord, "x_axis"):
             ax = coord.x_axis
             if ax.type == "value":
                 range_text = f" · x 轴 {ax.vmin:.0f}~{ax.vmax:.0f}"
         dz = next(
-            (c for c in self._bigChart.components if c.option_key == "dataZoom"),
+            (c for c in self._bigChart.components if c.optionKey == "dataZoom"),
             None,
         )
         zoom_text = ""
         if dz is not None:
             zoom_text = f" · 窗口 {dz.start:.0f}%~{dz.end:.0f}%"
         text = (
-            f"{len(self._bigChart.series_renderers)} 条曲线 · "
+            f"{len(self._bigChart.seriesRenderers)} 条曲线 · "
             f"首条原始 {r._data_len} 点 → 绘制 {len(r._points)} 点"
             + ("（已降采样）" if r._sampled else "（全量）")
             + range_text
@@ -995,15 +1145,15 @@ class ChartsPage(ExamplePage):
 
     def _onToggleSampling(self):
         if self._big_series:
-            self._bigChart.set_option(self._bigOption())
+            self._bigChart.setOption(self._bigOption())
             self._updateBigStatus()
 
-    # ── 09 交互组件 ─────────────────────────────────────────────────────
+    # ── 10 交互组件 ─────────────────────────────────────────────────────
 
     def _demoInteractComponents(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "09. 交互组件：dataZoom / visualMap / mark* / toolbox / timeline",
+                "10. 交互组件：dataZoom / visualMap / mark* / toolbox / timeline",
                 self._demoInteractComponents,
             )
         )
@@ -1058,7 +1208,7 @@ class ChartsPage(ExamplePage):
         ]
         self._interactChart = ElaChartWidget(self)
         self._interactChart.setMinimumHeight(400)
-        self._interactChart.set_option(
+        self._interactChart.setOption(
             {
                 "title": {"text": "交互综合演示", "left": "left"},
                 "legend": {"top": "top"},
@@ -1096,4 +1246,134 @@ class ChartsPage(ExamplePage):
         )
         self._addChartWithControls(parent_layout, self._interactChart)
 
+        # ECharts 实例 API 演示：dispatchAction / on / showLoading / getDataURL
+        api_row = QHBoxLayout()
+        api_row.setSpacing(8)
+        api_label = ElaText("ECharts API：", self)
+        api_label.setTextPixelSize(14)
+        api_row.addWidget(api_label)
+        for label, action in (
+            ("切换图例", {"type": "legendToggleSelect", "name": "2024"}),
+            ("缩放 20~70%", {"type": "dataZoom", "start": 20, "end": 70}),
+            ("高亮峰值", {"type": "highlight", "seriesIndex": 0, "dataIndex": 1}),
+            ("还原", {"type": "restore"}),
+        ):
+            btn = ElaPushButton(label, self)
+            btn.setFixedWidth(100)
+            btn.clicked.connect(
+                lambda _checked=False, a=action: self._interactChart.dispatchAction(a)
+            )
+            api_row.addWidget(btn)
+        loading_btn = ElaPushButton("加载遮罩", self)
+        loading_btn.setFixedWidth(100)
+        loading_btn.clicked.connect(lambda: self._toggleInteractLoading(loading_btn))
+        api_row.addWidget(loading_btn)
+        export_btn = ElaPushButton("导出 dataURL", self)
+        export_btn.setFixedWidth(110)
+        export_btn.clicked.connect(self._onExportDataUrl)
+        api_row.addWidget(export_btn)
+        api_row.addStretch()
+        parent_layout.addLayout(api_row)
 
+        # 逐功能交互开关（setInteractionEnabled）
+        feature_row = QHBoxLayout()
+        feature_row.setSpacing(12)
+        feature_label = ElaText("交互开关：", self)
+        feature_label.setTextPixelSize(14)
+        feature_row.addWidget(feature_label)
+        for key, label in (
+            ("tooltip", "提示框"),
+            ("legend", "图例"),
+            ("dataZoom", "缩放"),
+            ("toolbox", "工具箱"),
+            ("timeline", "时间轴"),
+        ):
+            box = ElaCheckBox(label, self)
+            box.setChecked(True)
+            box.toggled.connect(
+                lambda checked, k=key: self._interactChart.setInteractionEnabled(
+                    k, checked
+                )
+            )
+            feature_row.addWidget(box)
+        feature_row.addStretch()
+        parent_layout.addLayout(feature_row)
+
+        # 图表级事件（统一事件接口）：Qt 信号 + ECharts on() 双通道
+        signal_status = ElaText(
+            "事件：—（图例切换 / 缩放 / 帧切换 / 数据点点击 / toolbox / 刷选）", self
+        )
+        signal_status.setTextPixelSize(13)
+        self._interactChart.legendToggled.connect(
+            lambda name, visible: signal_status.setText(
+                f"legendToggled: {name} → {'显示' if visible else '隐藏'}"
+            )
+        )
+        self._interactChart.dataZoomChanged.connect(
+            lambda start, end: signal_status.setText(
+                f"dataZoomChanged: {start:.1f}% - {end:.1f}%"
+            )
+        )
+        self._interactChart.timelineChanged.connect(
+            lambda index: signal_status.setText(f"timelineChanged: 第 {index + 1} 帧")
+        )
+        self._interactChart.itemClicked.connect(
+            lambda info: signal_status.setText(
+                f"itemClicked: {info.get('seriesName')} = {info.get('value')}"
+            )
+        )
+        self._interactChart.toolboxTriggered.connect(
+            lambda action: signal_status.setText(f"toolboxTriggered: {action}")
+        )
+        self._interactChart.brushChanged.connect(
+            lambda items: signal_status.setText(f"brushChanged: 选中 {len(items)} 个点")
+        )
+        # ECharts 事件名（on/off）：click / datazoom / legendselectchanged / finished
+        self._interactChart.on(
+            "click",
+            lambda params: signal_status.setText(
+                f"on('click'): series={params.get('seriesName')} "
+                f"name={params.get('name')} value={params.get('value')}"
+            ),
+        )
+        self._interactChart.on(
+            "datazoom",
+            lambda params: signal_status.setText(
+                f"on('datazoom'): {params.get('start'):.1f}% - {params.get('end'):.1f}%"
+            ),
+        )
+        self._interactChart.on(
+            "finished",
+            lambda _params: signal_status.setText("on('finished'): 动画结束"),
+        )
+        parent_layout.addWidget(signal_status)
+
+    def _toggleInteractLoading(self, btn):
+        """showLoading / hideLoading 演示。"""
+        if self._interactChart.isLoading:
+            self._interactChart.hideLoading()
+            btn.setText("加载遮罩")
+        else:
+            self._interactChart.showLoading("default", {"text": "加载中…"})
+            btn.setText("关闭遮罩")
+
+    def _onExportDataUrl(self):
+        """getDataURL 演示：导出为文件并提示尺寸。"""
+        from PyQt5.QtCore import QBuffer, QIODevice
+        from PyQt5.QtGui import QImage
+
+        url = self._interactChart.getDataURL({"type": "png", "pixelRatio": 2})
+        if not url:
+            return
+        payload = url.split(",", 1)[-1]
+        image = QImage()
+        buffer = QBuffer()
+        buffer.setData(__import__("base64").b64decode(payload))
+        buffer.open(QIODevice.OpenModeFlag.ReadOnly)
+        image.loadFromData(buffer.data())
+        buffer.close()
+        if image.isNull():
+            return
+        target = "chart_dataurl.png"
+        image.save(target, "PNG")
+        self._interactChart.setToolTip(f"getDataURL 已保存：{target}")

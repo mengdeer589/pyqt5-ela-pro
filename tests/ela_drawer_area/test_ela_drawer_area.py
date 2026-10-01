@@ -1,11 +1,12 @@
-"""Tests for ela_drawer_area module: ElaDrawerArea click-to-toggle fix."""
+"""``ElaDrawerArea`` 测试：click-to-toggle 修复 —— 点标题栏开合、交互控件不误触发。"""
 
 from __future__ import annotations
 
+import pytest
 from PyQt5.QtCore import QEvent, QPoint, Qt
 from PyQt5.QtGui import QMouseEvent
 from PyQt5.QtWidgets import QHBoxLayout, QPushButton, QWidget
-
+from PyQt5ElaWidgetTools import ElaDrawerArea as NativeDrawerArea
 from PyQt5ElaWidgetTools import ElaText, ElaToggleSwitch
 
 from pyqt5_ela_pro.ela_drawer_area import ElaDrawerArea
@@ -35,39 +36,64 @@ def _click(qapp, widget: QWidget, pos: QPoint) -> None:
     qapp.processEvents()
 
 
-def _make_area(qapp) -> tuple[QWidget, ElaDrawerArea, QWidget]:
-    parent = QWidget()
+@pytest.fixture
+def drawer(qapp, make):
+    """已 ``show()`` 的抽屉：``(parent, area, 默认标题栏)``，用完自动回收。"""
+    parent = make(QWidget)
     parent.resize(400, 300)
-    area = ElaDrawerArea(parent)
+    area = make(ElaDrawerArea, parent)
     area.setGeometry(0, 0, 400, 300)
-    area.addDrawer(QWidget(area))
+    area.addDrawer(make(QWidget, area))
     parent.show()
     qapp.processEvents()
     header = area.findChild(QWidget, "ElaDrawerHeader")
     assert header is not None
-    return parent, area, header
+    yield parent, area, header
+    if parent.isVisible():
+        parent.close()
+        qapp.processEvents()
+
+
+@pytest.fixture
+def custom_header(qapp, make, drawer):
+    """把自定义标题栏挂上去；``(area, header_widget)``。"""
+    _, area, _ = drawer
+    header = make(ElaThemeWidget, area)
+    return area, header
+
+
+@pytest.fixture
+def make_switch_header(qapp, make):
+    """在标题栏里放一个 ``ElaToggleSwitch`` 并挂到抽屉上，返回 ``(area, switch)``。"""
+
+    def build(area: ElaDrawerArea) -> ElaToggleSwitch:
+        header = make(ElaThemeWidget, area)
+        layout = QHBoxLayout(header)
+        switch = make(ElaToggleSwitch, header)
+        layout.addWidget(switch)
+        layout.addStretch()
+        area.setDrawerHeader(header)
+        qapp.processEvents()
+        return switch
+
+    return build
 
 
 class TestElaDrawerAreaApi:
-    def test_is_native_subclass(self, qapp):
-        from PyQt5ElaWidgetTools import ElaDrawerArea as NativeDrawerArea
-
+    def test_is_native_subclass(self):
         assert issubclass(ElaDrawerArea, NativeDrawerArea)
 
-    def test_toggle_method(self, qapp):
-        parent, area, _ = _make_area(qapp)
+    def test_toggle_method(self, drawer):
+        _, area, _ = drawer
 
         area.toggle()
         assert area.getIsExpand() is True
         area.toggle()
         assert area.getIsExpand() is False
 
-        parent.close()
-        parent.deleteLater()
-
-    def test_expand_collapse_idempotent(self, qapp):
+    def test_expand_collapse_idempotent(self, drawer):
         """Regression: 重复 expand/collapse 不重复发信号（开关回声防护）。"""
-        parent, area, _ = _make_area(qapp)
+        _, area, _ = drawer
         states = []
         area.expandStateChanged.connect(states.append)
 
@@ -79,13 +105,10 @@ class TestElaDrawerAreaApi:
         area.collapse()
         assert states == [True, False]
 
-        parent.close()
-        parent.deleteLater()
-
 
 class TestElaDrawerAreaClickToggle:
-    def test_click_empty_header_toggles_once(self, qapp):
-        parent, area, header = _make_area(qapp)
+    def test_click_empty_header_toggles_once(self, qapp, drawer):
+        _, area, header = drawer
         states = []
         area.expandStateChanged.connect(states.append)
 
@@ -93,125 +116,99 @@ class TestElaDrawerAreaClickToggle:
 
         assert area.getIsExpand() is True
         assert states == [True]
-        parent.close()
-        parent.deleteLater()
 
-    def test_click_empty_header_twice_collapses(self, qapp):
-        parent, area, header = _make_area(qapp)
+    def test_click_empty_header_twice_collapses(self, qapp, drawer):
+        _, area, header = drawer
 
         _click(qapp, header, header.rect().center())
         _click(qapp, header, header.rect().center())
 
         assert area.getIsExpand() is False
-        parent.close()
-        parent.deleteLater()
 
-    def test_click_custom_header_label_toggles(self, qapp):
-        parent, area, _ = _make_area(qapp)
-        header_widget = ElaThemeWidget(area)
-        layout = QHBoxLayout(header_widget)
-        label = ElaText("抽屉标题", header_widget)
+    def test_click_custom_header_label_toggles(self, qapp, make, custom_header):
+        """标题栏里的 ElaText 本身可点。"""
+        area, header = custom_header
+        layout = QHBoxLayout(header)
+        label = make(ElaText, "抽屉标题", header)
         layout.addWidget(label)
         layout.addStretch()
-        area.setDrawerHeader(header_widget)
+        area.setDrawerHeader(header)
         qapp.processEvents()
 
         _click(qapp, label, label.rect().center())
 
         assert area.getIsExpand() is True
-        parent.close()
-        parent.deleteLater()
 
-    def test_click_custom_header_background_toggles(self, qapp):
-        parent, area, _ = _make_area(qapp)
-        header_widget = ElaThemeWidget(area)
-        layout = QHBoxLayout(header_widget)
-        layout.addWidget(ElaText("抽屉标题", header_widget))
+    def test_click_custom_header_background_toggles(self, qapp, make, custom_header):
+        """标题栏空白处（无子控件的区域）也要能点开。"""
+        area, header = custom_header
+        layout = QHBoxLayout(header)
+        layout.addWidget(make(ElaText, "抽屉标题", header))
         layout.addStretch()
-        area.setDrawerHeader(header_widget)
+        area.setDrawerHeader(header)
         qapp.processEvents()
 
-        background_pos = QPoint(header_widget.width() - 5, 5)
-        _click(qapp, header_widget, background_pos)
+        _click(qapp, header, QPoint(header.width() - 5, 5))
 
         assert area.getIsExpand() is True
-        parent.close()
-        parent.deleteLater()
 
-    def test_click_interactive_button_does_not_toggle(self, qapp):
-        parent, area, _ = _make_area(qapp)
-        header_widget = ElaThemeWidget(area)
-        layout = QHBoxLayout(header_widget)
-        button = QPushButton("点我", header_widget)
+    def test_click_interactive_button_does_not_toggle(self, qapp, make, custom_header):
+        """回归: 交互控件自己吃掉点击，不能顺带把抽屉展开。"""
+        area, header = custom_header
+        layout = QHBoxLayout(header)
+        button = make(QPushButton, "点我", header)
         layout.addWidget(button)
         layout.addStretch()
-        area.setDrawerHeader(header_widget)
+        area.setDrawerHeader(header)
         qapp.processEvents()
 
         _click(qapp, button, button.rect().center())
 
         assert area.getIsExpand() is False
-        parent.close()
-        parent.deleteLater()
 
-    def test_header_click_syncs_toggle_switch(self, qapp):
+
+class TestElaDrawerAreaHeaderClickSyncsSwitch:
+    def test_header_click_syncs_toggle_switch(self, qapp, drawer, make_switch_header):
         """Regression: 示例中标题栏点击后右侧开关必须跟随切换。"""
-        from PyQt5ElaWidgetTools import ElaToggleSwitch
-
-        parent, area, _ = _make_area(qapp)
-        header_widget = ElaThemeWidget(area)
-        layout = QHBoxLayout(header_widget)
-        switch = ElaToggleSwitch(header_widget)
-        layout.addWidget(switch)
-        layout.addStretch()
-        area.setDrawerHeader(header_widget)
+        _, area, _ = drawer
+        switch = make_switch_header(area)
         area.expandStateChanged.connect(switch.setIsToggled)
         qapp.processEvents()
 
-        _click(qapp, header_widget, QPoint(header_widget.width() - 5, 5))
-
+        _click(
+            qapp, switch.parentWidget(), QPoint(switch.parentWidget().width() - 5, 5)
+        )
         assert area.getIsExpand() is True
         assert switch.getIsToggled() is True
 
-        _click(qapp, header_widget, QPoint(header_widget.width() - 5, 5))
-
+        _click(
+            qapp, switch.parentWidget(), QPoint(switch.parentWidget().width() - 5, 5)
+        )
         assert area.getIsExpand() is False
         assert switch.getIsToggled() is False
-        parent.close()
-        parent.deleteLater()
 
-    def test_click_toggle_switch_does_not_toggle_drawer(self, qapp):
-        """Regression: 交互开关自处理点击，不应被当成"点击标题栏"。"""
-        parent, area, _ = _make_area(qapp)
-        header_widget = ElaThemeWidget(area)
-        layout = QHBoxLayout(header_widget)
-        switch = ElaToggleSwitch(header_widget)
-        layout.addWidget(switch)
-        layout.addStretch()
-        area.setDrawerHeader(header_widget)
-        qapp.processEvents()
+    def test_click_toggle_switch_does_not_toggle_drawer(
+        self, qapp, drawer, make_switch_header
+    ):
+        """Regression: 交互开关自处理点击，不应被当成「点击标题栏」。"""
+        _, area, _ = drawer
+        switch = make_switch_header(area)
 
         _click(qapp, switch, switch.rect().center())
 
         assert switch.getIsToggled() is True
         assert area.getIsExpand() is False
-        parent.close()
-        parent.deleteLater()
 
-    def test_switch_click_with_bidirectional_wiring_no_flap(self, qapp):
+    def test_switch_click_with_bidirectional_wiring_no_flap(
+        self, qapp, drawer, make_switch_header
+    ):
         """Regression: 示例双向接线（开关↔抽屉）下单击开关只切换一次。"""
-        parent, area, _ = _make_area(qapp)
-        header_widget = ElaThemeWidget(area)
-        layout = QHBoxLayout(header_widget)
-        switch = ElaToggleSwitch(header_widget)
-        layout.addWidget(switch)
-        layout.addStretch()
-        area.setDrawerHeader(header_widget)
+        _, area, _ = drawer
+        switch = make_switch_header(area)
 
-        def on_toggled(state):
-            area.expand() if state else area.collapse()
-
-        switch.toggled.connect(on_toggled)
+        switch.toggled.connect(
+            lambda state: area.expand() if state else area.collapse()
+        )
         area.expandStateChanged.connect(switch.setIsToggled)
         qapp.processEvents()
 
@@ -219,5 +216,3 @@ class TestElaDrawerAreaClickToggle:
 
         assert switch.getIsToggled() is True
         assert area.getIsExpand() is True
-        parent.close()
-        parent.deleteLater()

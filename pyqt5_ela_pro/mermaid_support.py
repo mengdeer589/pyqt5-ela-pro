@@ -9,9 +9,9 @@ mermaidx 在进程内用 QuickJS 运行**真实的 mermaid.js v11**（无浏览�
 - ``(code, theme)`` 维度的 LRU 缓存 + in-flight 去重，流式重渲染不重复出图；
 - 采用 mermaid ``base`` 主题 + :data:`MERMAID_THEME_VARIABLES` 内置美化配色
   （GitHub 风格，跟随查看器亮/暗主题），可用
-  :meth:`ElaMermaidRenderer.set_theme_variables` 覆盖；
+  :meth:`ElaMermaidRenderer.setThemeVariables` 覆盖；
 - 未安装 mermaidx 时 ``available()`` 为 ``False``，调用方回退为代码块；
-- 支持 ``set_renderer(callable)`` 注入自定义渲染器（测试或替换后端）。
+- 支持 ``setRenderer(callable)`` 注入自定义渲染器（测试或替换后端）。
 
 用法::
 
@@ -22,6 +22,7 @@ mermaidx 在进程内用 QuickJS 运行**真实的 mermaid.js v11**（无浏览�
 
 from __future__ import annotations
 
+import re
 import sys
 from collections import OrderedDict
 from typing import Callable, Optional
@@ -119,19 +120,65 @@ _CACHE_CAP = 32
 #: 失败哨兵（缓存失败结果，避免流式重渲染反复触发）
 _FAILED = object()
 
+#: 预热用的极小图（只为启动 mermaid.js 引擎）
+_PREWARM_CODE = "graph LR\n  A-->B"
+#: 光栅化超采样倍率上限 / 下限（按目标显示宽度自适应）
+_MAX_ZOOM = 2.0
+_MIN_ZOOM = 0.5
+
+_VIEWBOX_RE = re.compile(
+    r"viewBox\s*=\s*[\"']\s*[\d.+-]+\s+[\d.+-]+\s+([\d.]+)\s+([\d.]+)"
+)
+_SIZE_RE = re.compile(
+    r"\bwidth\s*=\s*[\"']([\d.]+)(?:px)?[\"'][^>]*\bheight\s*=\s*[\"']([\d.]+)(?:px)?[\"']"
+)
+
+
+def svg_size(svg: str) -> tuple:
+    """从 SVG 文本提取原始宽高（``viewBox`` 优先，其次 width/height 属性）。
+
+    :returns: ``(width, height)``，无法解析时为 ``(0.0, 0.0)``
+    """
+    match = _VIEWBOX_RE.search(svg or "")
+    if match:
+        return float(match.group(1)), float(match.group(2))
+    match = _SIZE_RE.search(svg or "")
+    if match:
+        return float(match.group(1)), float(match.group(2))
+    return 0.0, 0.0
+
+
+def adaptive_zoom(
+    svg: str, max_px: Optional[float], default: float = _MAX_ZOOM
+) -> float:
+    """按目标显示宽度计算光栅化倍率（窄图超采样、宽图降采样省时省内存）。
+
+    :param svg: SVG 文本（读取 ``viewBox`` 得到原始宽度）
+    :param max_px: 目标显示宽度（像素）；``None``/``<=0`` 时返回 ``default``
+    :returns: ``[_MIN_ZOOM, _MAX_ZOOM]`` 区间内的倍率
+    """
+    if not max_px or max_px <= 0:
+        return default
+    natural_w, _ = svg_size(svg)
+    if natural_w <= 0:
+        return default
+    needed = (float(max_px) * default) / natural_w
+    return max(_MIN_ZOOM, min(default, needed))
+
+
 #: mermaidx 可用性探测缓存（进程级）
 _AVAILABLE: Optional[bool] = None
 #: mermaidx 导入失败原因（可用时为 None）
 _AVAILABLE_ERROR: Optional[str] = None
 
 
-def _build_config(theme: str, theme_variables: Optional[dict] = None) -> dict:
+def _build_config(theme: str, themeVariables: Optional[dict] = None) -> dict:
     """构造 mermaid 初始化配置（base 主题 + 自定义 themeVariables + 布局）。"""
     variables = dict(
         MERMAID_THEME_VARIABLES.get(theme, MERMAID_THEME_VARIABLES["light"])
     )
-    if theme_variables:
-        variables.update(theme_variables)
+    if themeVariables:
+        variables.update(themeVariables)
     return {
         "theme": _MERMAID_BASE_THEME,
         "themeVariables": variables,
@@ -162,31 +209,38 @@ def mermaidx_error() -> Optional[str]:
 
 
 def _render_with_mermaidx(
-    code: str, theme: str, theme_variables: Optional[dict] = None
+    code: str,
+    theme: str,
+    themeVariables: Optional[dict] = None,
+    max_px: Optional[float] = None,
 ) -> Optional[QImage]:
-    """用 mermaidx 渲染 Mermaid 源码为 QImage（2x 超采样）。
+    """用 mermaidx 渲染 Mermaid 源码为 QImage（2x 超采样，按需自适应）。
 
     采用 mermaid ``base`` 主题 + :data:`MERMAID_THEME_VARIABLES` 美化配色
-    （可经 ``theme_variables`` 覆盖）；mermaidx 自带 PNG 管线会强制使用
+    （可经 ``themeVariables`` 覆盖）；mermaidx 自带 PNG 管线会强制使用
     内置 DejaVu 字体（不含 CJK，中文变方块），因此优先取 SVG 后用
     ``resvg_py`` 光栅化（默认加载系统字体，可回退中文字体）；直调失败时
     退回 mermaidx 的 PNG 输出。两者都失败时抛出异常（由调用方记录到
-    :meth:`ElaMermaidRenderer.last_error`，便于排查）。
+    :meth:`ElaMermaidRenderer.lastError`，便于排查）。
+
+    :param max_px: 目标显示宽度；给出时按图宽自适应倍率（宽图降采样，
+        避免超大图在固定 2x 下耗费光栅化时间与内存）
     """
     import mermaidx
 
     diagram = mermaidx.render(
         code,
         theme=_MERMAID_BASE_THEME,
-        config=_build_config(theme, theme_variables),
+        config=_build_config(theme, themeVariables),
     )
     svg = diagram.svg()
     try:
         import resvg_py
 
+        zoom = adaptive_zoom(svg, max_px)
         data = resvg_py.svg_to_bytes(
             svg_string=svg,
-            zoom=2,
+            zoom=zoom,
             sans_serif_family="Microsoft YaHei",
         )
     except Exception as exc:
@@ -224,6 +278,22 @@ class _RenderTask(QRunnable):
         self._renderer._notify(self._code, self._theme, image, error)
 
 
+class _PrewarmTask(QRunnable):
+    """后台预热任务：提前启动 mermaid.js 引擎，隐藏冷启动耗时。"""
+
+    def __init__(self, renderer: "ElaMermaidRenderer"):
+        super().__init__()
+        self._renderer = renderer
+
+    def run(self) -> None:  # pragma: no cover - 线程内执行
+        try:
+            render = self._renderer._render_function()
+            if render is not None:
+                render(_PREWARM_CODE, self._renderer._prewarm_theme())
+        except Exception:
+            pass
+
+
 class ElaMermaidRenderer(QObject):
     """Mermaid 异步渲染器（可选依赖 mermaidx，支持自定义渲染函数）。
 
@@ -237,7 +307,7 @@ class ElaMermaidRenderer(QObject):
     def __init__(
         self,
         cache_cap: int = _CACHE_CAP,
-        theme_variables: Optional[dict] = None,
+        themeVariables: Optional[dict] = None,
         parent: Optional[QObject] = None,
     ):
         super().__init__(parent)
@@ -248,12 +318,16 @@ class ElaMermaidRenderer(QObject):
         self._override: Optional[Callable] = None
         self._last_error: Optional[str] = None
         self._logged_errors: set = set()
+        #: 目标显示宽度（用于自适应光栅化倍率；``None`` 表示固定 2x）
+        self._max_image_width: Optional[float] = None
+        #: 引擎预热状态
+        self._prewarmed = False
         #: 每套主题的 mermaid themeVariables（默认内置美化配色，可覆盖）
         self._theme_variables = {
             name: dict(values) for name, values in MERMAID_THEME_VARIABLES.items()
         }
-        if theme_variables:
-            for name, values in theme_variables.items():
+        if themeVariables:
+            for name, values in themeVariables.items():
                 self._theme_variables.setdefault(name, {}).update(values)
         self._pool = QThreadPool(self)
         self._pool.setMaxThreadCount(2)
@@ -261,7 +335,7 @@ class ElaMermaidRenderer(QObject):
 
     # -- 主题 --------------------------------------------------------------
 
-    def set_theme_variables(self, theme: str, variables: Optional[dict] = None) -> None:
+    def setThemeVariables(self, theme: str, variables: Optional[dict] = None) -> None:
         """覆盖指定主题的 mermaid ``themeVariables``（``None`` 恢复内置美化配色）。
 
         :param theme: 主题键（``"light"`` / ``"dark"``）
@@ -273,28 +347,28 @@ class ElaMermaidRenderer(QObject):
             )
         else:
             self._theme_variables.setdefault(theme, {}).update(variables)
-        self.clear_cache()
+        self.clearCache()
 
-    def theme_variables(self, theme: str) -> dict:
+    def themeVariables(self, theme: str) -> dict:
         """获取指定主题当前生效的 themeVariables 副本。"""
         return dict(self._theme_variables.get(theme, {}))
 
     # -- 配置 --------------------------------------------------------------
 
-    def set_renderer(self, renderer: Optional[Callable]) -> None:
+    def setRenderer(self, renderer: Optional[Callable]) -> None:
         """设置自定义渲染函数 ``(code, theme) -> QImage | None``。
 
         :param renderer: 渲染函数；``None`` 表示使用内置 mermaidx 后端
         """
         self._override = renderer
-        self.clear_cache()
+        self.clearCache()
 
     def renderer(self) -> Optional[Callable]:
         """获取自定义渲染函数（未设置返回 ``None``）。"""
         return self._override
 
     def available(self) -> bool:
-        """当前是否有可用的渲染后端（不可用时可在 :meth:`last_error` 查看原因）。"""
+        """当前是否有可用的渲染后端（不可用时可在 :meth:`lastError` 查看原因）。"""
         render = self._render_function()
         if render is None and self._last_error is None:
             self._last_error = (
@@ -302,9 +376,46 @@ class ElaMermaidRenderer(QObject):
             )
         return render is not None
 
-    def last_error(self) -> Optional[str]:
+    def lastError(self) -> Optional[str]:
         """最近一次渲染失败原因（成功或尚未渲染时为 ``None``）。"""
         return self._last_error
+
+    # -- 性能相关 ----------------------------------------------------------
+
+    def setMaxImageWidth(self, width: Optional[float]) -> None:
+        """设置目标显示宽度（像素）。
+
+        内置后端据此自适应光栅化倍率：窄图仍 2x 超采样，宽图自动降采样，
+        避免超大图在固定 2x 下耗费时间与内存。``None`` 恢复固定 2x。
+        自定义渲染函数（:meth:`setRenderer`）不受影响。
+        """
+        self._max_image_width = float(width) if width and width > 0 else None
+
+    def maxImageWidth(self) -> Optional[float]:
+        """获取当前目标显示宽度（未设置返回 ``None``）。"""
+        return self._max_image_width
+
+    def prewarm(self) -> bool:
+        """后台预热渲染引擎（隐藏首次渲染的引擎冷启动耗时）。
+
+        仅在未设置自定义渲染函数且 mermaidx 可用时生效；幂等，重复调用只有
+        第一次真正提交任务，且预热结果不进入缓存。
+
+        :returns: 是否提交了预热任务
+        """
+        if self._prewarmed or self._override is not None:
+            return False
+        if not mermaidx_available():
+            return False
+        self._prewarmed = True
+        self._pool.start(_PrewarmTask(self))
+        return True
+
+    def _prewarm_theme(self) -> str:
+        """预热使用的主题键（优先 ``light``）。"""
+        if "light" in self._theme_variables:
+            return "light"
+        return next(iter(self._theme_variables), "light")
 
     def _render_function(self) -> Optional[Callable]:
         if self._override is not None:
@@ -312,7 +423,7 @@ class ElaMermaidRenderer(QObject):
         if mermaidx_available():
             variables = self._theme_variables
             return lambda code, theme: _render_with_mermaidx(
-                code, theme, variables.get(theme)
+                code, theme, variables.get(theme), self._max_image_width
             )
         return None
 
@@ -329,6 +440,21 @@ class ElaMermaidRenderer(QObject):
         value = self._cache[key]
         self._cache.move_to_end(key)
         return (True, None) if value is _FAILED else (True, value)
+
+    def lookupAnyTheme(self, code: str, theme: str):
+        """查询同一源码在**其它主题**下的缓存（用于主题切换即时降级显示）。
+
+        :returns: ``(known, other_theme, image)``；``known=True, image=None``
+            表示该主题此前渲染失败；未命中返回 ``(False, None, None)``
+        """
+        for key in reversed(self._cache):
+            key_code, key_theme = key
+            if key_code != code or key_theme == theme:
+                continue
+            value = self._cache[key]
+            self._cache.move_to_end(key)
+            return True, key_theme, (None if value is _FAILED else value)
+        return False, None, None
 
     def request(
         self, code: str, theme: str, callback: Optional[Callable] = None
@@ -352,7 +478,7 @@ class ElaMermaidRenderer(QObject):
         self._inflight.add(key)
         self._pool.start(_RenderTask(self, code, theme))
 
-    def clear_cache(self) -> None:
+    def clearCache(self) -> None:
         """清空渲染缓存与待回调。"""
         self._cache.clear()
         self._callbacks.clear()

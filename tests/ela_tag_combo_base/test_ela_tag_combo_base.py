@@ -200,7 +200,12 @@ class TestDrawTagTitle:
         font = QFont()
         content_rect = QRect(3, 3, 94, 32)
         result = _draw_tag_title(
-            painter, content_rect, "测试", 13, QColor(0, 0, 0), font,
+            painter,
+            content_rect,
+            "测试",
+            13,
+            QColor(0, 0, 0),
+            font,
         )
         assert isinstance(result, QRect)
         assert result.left() == content_rect.left()
@@ -255,10 +260,14 @@ class TestDrawMultiValueText:
         painter = QPainter()
         content_rect = QRect(3, 3, 94, 32)
         title_rect = QRect(3, 3, 50, 32)
-        _draw_multi_value_text(painter, content_rect, title_rect, ["A", "B", "C", "D"], max_show=3)
+        _draw_multi_value_text(
+            painter, content_rect, title_rect, ["A", "B", "C", "D"], max_show=3
+        )
 
     def test_draw_multi_value_text_fewer_than_max(self):
         painter = QPainter()
         content_rect = QRect(3, 3, 94, 32)
         title_rect = QRect(3, 3, 50, 32)
-        _draw_multi_value_text(painter, content_rect, title_rect, ["A", "B"], max_show=3)
+        _draw_multi_value_text(
+            painter, content_rect, title_rect, ["A", "B"], max_show=3
+        )

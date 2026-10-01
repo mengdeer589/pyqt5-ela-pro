@@ -28,6 +28,7 @@ from PyQt5.QtCore import (
     QRectF,
 )
 
+from ._styles import setTextColor
 from .widget_base import ElaThemeWidget
 from PyQt5.QtGui import (
     QPainter,
@@ -36,11 +37,12 @@ from PyQt5.QtGui import (
     QColor,
     QPaintEvent,
     QHideEvent,
+    QShowEvent,
     QMouseEvent,
     QPen,
     QPainterPath,
 )
-from PyQt5.QtWidgets import QWidget, QLabel, QGraphicsDropShadowEffect
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QGraphicsDropShadowEffect
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType, ElaText
 
@@ -128,8 +130,25 @@ class ElaToolTip(QWidget):
         font = QFont()
         font.setPixelSize(12)
         self._label.setFont(font)
+        self._apply_text_color()
+
+        # 跟随主题切换（绑定方法连接，对象销毁时 Qt 自动断开）
+        eTheme.themeModeChanged.connect(self._onThemeChanged)
 
         self._updateSize()
+
+    def _apply_text_color(self) -> None:
+        """按当前主题设置标签文字颜色（否则深色背景下文字不可见）。"""
+        color = eTheme.getThemeColor(
+            self._currentTheme, ElaThemeType.ThemeColor.BasicText
+        )
+        setTextColor(self._label, color)
+
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
+        """主题切换：更新底色、边框与文字颜色。"""
+        self._currentTheme = mode
+        self._apply_text_color()
+        self.update()
 
     def _updateSize(self) -> None:
         """根据标签内容更新 tooltip 的固定尺寸。"""
@@ -227,8 +246,43 @@ class ElaToolTip(QWidget):
             x = widgetRect.center().x() - self.width() // 2
             y = widgetRect.top() - self.height() - 6
 
+        above = position in (
+            ElaToolTipPosition.Top,
+            ElaToolTipPosition.TopLeft,
+            ElaToolTipPosition.TopRight,
+        )
+        x, y = self._clamp_to_screen(x, y, widget, above)
         self.move(int(x), int(y))
         self.show()
+
+    def _clamp_to_screen(self, x: int, y: int, widget: QWidget, above: bool) -> tuple:
+        """把提示框收敛到目标 widget 所在屏幕的工作区内。
+
+        上方放不下翻到下方、下方放不下翻到上方，水平方向收敛到边缘。
+
+        :param x: 期望左上角 x
+        :param y: 期望左上角 y
+        :param widget: 目标 widget
+        :param above: 期望位置是否在 widget 上方
+        :returns: 收敛后的 ``(x, y)``
+        """
+        try:
+            screen = QApplication.screenAt(widget.mapToGlobal(widget.rect().center()))
+            if screen is None:
+                screen = QApplication.primaryScreen()
+            if screen is None:
+                return x, y
+            area = screen.availableGeometry()
+            widgetRect = QRect(widget.mapToGlobal(QPoint(0, 0)), widget.size())
+        except (RuntimeError, AttributeError):
+            return x, y
+        if above and y < area.top():
+            y = widgetRect.bottom() + 6
+        elif not above and y + self.height() > area.bottom() + 1:
+            y = widgetRect.top() - self.height() - 6
+        x = max(area.left(), min(x, area.right() - self.width() + 1))
+        y = max(area.top(), min(y, area.bottom() - self.height() + 1))
+        return x, y
 
 
 _tooltip_dict: weakref.WeakKeyDictionary[QWidget, ElaToolTip] = (
@@ -260,6 +314,9 @@ class _TooltipEventFilter(QObject):
     def eventFilter(self, a0: Optional[QObject], a1: Optional[QEvent]) -> bool:
         """事件过滤实现。进入时显示提示框，离开时隐藏。
 
+        已绑定自定义 ``ElaToolTip`` 的控件会吞掉 ``QEvent.ToolTip``，
+        避免 Qt 原生 ``QToolTip`` 与自定义提示同时弹出（双提示）。
+
         :param a0: 事件源对象。
         :type a0: QObject, optional
         :param a1: 事件对象。
@@ -270,11 +327,14 @@ class _TooltipEventFilter(QObject):
         tooltip = self._tooltip()
         if tooltip is None or a0 is None or a1 is None:
             return False
-        if a1.type() == QEvent.Type.Enter:
+        eventType = a1.type()
+        if eventType == QEvent.Type.Enter:
             if isinstance(a0, QWidget):
                 tooltip.showAt(a0, self._position)
-        elif a1.type() == QEvent.Type.Leave:
+        elif eventType == QEvent.Type.Leave:
             tooltip.hide()
+        elif eventType == QEvent.Type.ToolTip:
+            return True
         return False
 
 
@@ -610,6 +670,18 @@ class ElaStateToolTip(ElaThemeWidget):
             self._onCloseButtonClicked()
             return
         super().mousePressEvent(event)
+
+    def showEvent(self, a0: Optional[QShowEvent]) -> None:
+        # _rotateTimer 只在 _connectSignals 里启动、hideEvent 里停止。复用同一个
+        # tooltip（hide 后再 show，是「连续提示同一个控件」的常规用法）时若不重启，
+        # loading spinner 会永久停在最后一个角度。
+        super().showEvent(a0)
+        if (
+            not self._isClosing
+            and not self._destroyed
+            and not self._rotateTimer.isActive()
+        ):
+            self._rotateTimer.start()
 
     def hideEvent(self, a0: Optional[QHideEvent]) -> None:
         if not self._isClosing:

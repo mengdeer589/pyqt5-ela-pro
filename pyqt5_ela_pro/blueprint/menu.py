@@ -16,8 +16,8 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QPoint, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QStandardItem, QStandardItemModel
+from PyQt5.QtCore import QPoint, QRectF, Qt, pyqtSignal
+from PyQt5.QtGui import QColor, QFont, QPainter, QStandardItem, QStandardItemModel
 from PyQt5.QtWidgets import QAction, QDialog, QLineEdit, QVBoxLayout
 from PyQt5ElaWidgetTools import (
     ElaIcon,
@@ -28,6 +28,7 @@ from PyQt5ElaWidgetTools import (
     eTheme,
 )
 
+from .._styles import paintRoundedCard
 from ._tokens import theme_changed_slot
 from .model import ElaPinDirection, types_compatible
 from .registry import ElaNodeRegistry
@@ -109,6 +110,9 @@ class ElaNodeCreationMenu(QDialog):
         self.setMinimumWidth(280)
         self._compatible = None
         self._owner = owner
+        # _rebuild 才赋值；keyPressEvent 的 returnPressed 分支会读它，
+        # 首帧之前按 Enter 会 AttributeError（抛进 Qt 回调 = 进程 abort）。
+        self._first_item = None
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 8, 8, 8)
@@ -144,13 +148,20 @@ class ElaNodeCreationMenu(QDialog):
         theme_changed_slot(self, self._retheme)
         self._retheme()
 
-    def _retheme(self) -> None:
-        """主题感知的外框样式与搜索图标色（内容控件自绘随主题）。"""
-        self.setStyleSheet(
-            f"ElaNodeCreationMenu {{ background-color: {_theme_color(_TC_POPUP_BASE)};"
-            f" border: 1px solid {_theme_color(_TC_POPUP_BORDER)};"
-            f" border-radius: 6px; }}"
+    def paintEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        """自绘外框（弹层底色铺满 + 圆角 1px 边）—— 禁 QSS 后由这里接管。"""
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(_theme_color(_TC_POPUP_BASE)))
+        paintRoundedCard(
+            painter,
+            QRectF(self.rect()),
+            border=QColor(_theme_color(_TC_POPUP_BORDER)),
+            radius=6.0,
         )
+
+    def _retheme(self) -> None:
+        """主题感知的外框重绘与搜索图标色（内容控件自绘随主题）。"""
+        self.update()
         icon = ElaIcon.getInstance().getElaIcon(
             ElaIconType.MagnifyingGlass, 14, QColor(_theme_color(_TC_TEXT))
         )
@@ -275,6 +286,10 @@ class ElaNodeContextMenu(ElaMenu):
 
     def __init__(self, node_id: str, parent=None):
         super().__init__(parent)
+        # 与 ElaNodeCreationMenu 一致：画布每次右键都 new 一个，parent 是 canvas，
+        # 不设 WA_DeleteOnClose 的话局部引用一掉就被 GC 忽略（QObject 有父），
+        # 每右键一次就在 canvas 上永久挂一个 QMenu。
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.node_id = node_id
         self._add(ElaIconType.PenToSquare, "重命名", self.rename_requested)
         self._add(ElaIconType.Copy, "复制", self.duplicate_requested)

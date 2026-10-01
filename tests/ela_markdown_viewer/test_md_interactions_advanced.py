@@ -146,7 +146,13 @@ class TestTaskToggle:
         assert v.markdown() == "- [ ] 待办一\n- [x] 已完成二"
         v.deleteLater()
 
-    def test_marker_keeps_text_color(self):
+    def test_marker_uses_list_color(self):
+        """勾选框跟随主题 ``list`` 色（旧实现钉死正文色，不跟主题切换）。
+
+        任务项整行是 anchor，文字会拿到链接色，所以勾选框必须单独取色区分；
+        取 ``list`` 色既跟主题走，又与链接色区分得开（solarized 这类
+        ``list`` 与 ``link`` 同色的主题除外，那是主题自身的设计）。
+        """
         v = ElaMarkdownViewer()
         v.setMarkdown(self.SOURCE)
         markers = [f for f in _fragments(v) if f.text().strip() in ("☑", "☐")]
@@ -154,7 +160,7 @@ class TestTaskToggle:
         for fragment in markers:
             assert (
                 fragment.charFormat().foreground().color().name()
-                == v._text_color.name()
+                == v._md_list_color.name()
             )
         v.deleteLater()
 

@@ -1,20 +1,22 @@
 """
 ComboBox 组件模块。
 
-提供三种下拉框组件：
+提供以下组件：
 
-- ``ElaMultiSelectComboBox``：支持多选、带拼音搜索的复选框下拉框
-- ``ElaSingleSelectComboBox``：单选下拉框
-- ``ElaSearchableComboBox``：基于 ``ElaComboBox`` 的可搜索下拉框
+- ``ElaSearchBox``：基于 ``ElaComboBox`` 的可搜索单选下拉框
+- ``ElaSearchMultiBox``：基于 ``ElaMultiSelectComboBox`` 的可搜索多选下拉框
+- ``ElaSearchProxyModel``：独立的拼音过滤代理模型
 
-所有组件均支持主题适配，自动跟随应用程序的亮/暗主题切换样式。
+搜索同时匹配选项原文、全拼与拼音首字母（``"bei"`` / ``"bj"`` 均可命中“北京”），
+空格分隔的多个关键词需全部命中。所有组件均支持主题适配，自动跟随应用程序的
+亮/暗主题切换样式。
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
-from PyQt5.QtCore import Qt, QSortFilterProxyModel, QStringListModel, QModelIndex
+from PyQt5.QtCore import QSortFilterProxyModel, QModelIndex
 from PyQt5.QtGui import QPalette, QColor
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QBoxLayout
 from PyQt5ElaWidgetTools import (
@@ -29,8 +31,109 @@ from pypinyin import lazy_pinyin
 from ._internal import _adjust_combobox_popup, _ThemeAwareMixin
 
 
+def _split_keyword(keyword: str) -> list[str]:
+    """把搜索关键词拆成小写 token 列表（空格分隔，全部命中才算匹配）。"""
+    return keyword.lower().split()
+
+
+def _pinyin_index(text: str, cache: dict[str, tuple[str, str]]) -> tuple[str, str]:
+    """返回选项文本的 ``(全拼, 首字母)``（均为小写），并按需写入缓存。"""
+    index = cache.get(text)
+    if index is None:
+        syllables = lazy_pinyin(text)
+        full = "".join(syllables).lower()
+        initials = "".join(syllable[0] for syllable in syllables if syllable).lower()
+        index = (full, initials)
+        cache[text] = index
+    return index
+
+
+def _compact_value(value: str) -> str:
+    """去掉字母数字以外的字符（``"gpt-4o"`` → ``"gpt4o"``），用于标点不敏感匹配。"""
+    return "".join(ch for ch in value.lower() if ch.isalnum())
+
+
+def _match_item(
+    text: str, tokens: list[str], cache: dict[str, tuple[str, str]]
+) -> bool:
+    """判断选项文本是否命中关键词 token。
+
+    匹配规则：原文 / 全拼 / 首字母的任意子串，以及忽略标点空白的紧凑串
+    （``"gpt4o"`` 命中 ``"gpt-4o"``）；多个 token 之间为 AND。
+    """
+    if not tokens:
+        return True
+    full, initials = _pinyin_index(text, cache)
+    lower = text.lower()
+    compact_text = _compact_value(text)
+    for token in tokens:
+        if token in lower or token in full or token in initials:
+            continue
+        compact_token = _compact_value(token)
+        if compact_token and compact_token in compact_text:
+            continue
+        return False
+    return True
+
+
 class _SearchComboMixin:
     """Mixin providing shared search widget methods for combo boxes."""
+
+    _pinyin_cache: dict[str, tuple[str, str]]
+    _popup_search_visible: bool
+
+    def _apply_row_filter(self, keyword: str) -> None:
+        """按关键词隐藏不匹配的行（原文 / 全拼 / 首字母），并滚动到首个命中项。"""
+        view = self.view()
+        if view is None:
+            return
+        tokens = _split_keyword(keyword)
+        first_match = -1
+        for i in range(self.count()):
+            hidden = not _match_item(self.itemText(i), tokens, self._pinyin_cache)
+            if view.isRowHidden(i) != hidden:
+                view.setRowHidden(i, hidden)
+            if not hidden and first_match < 0:
+                first_match = i
+        if tokens and first_match >= 0:
+            model = self.model()
+            if model is not None:
+                view.scrollTo(model.index(first_match, 0))
+
+    def _reset_row_filter(self) -> None:
+        """取消所有行的隐藏状态（重新打开弹窗时调用）。"""
+        view = self.view()
+        if view is None:
+            return
+        for i in range(self.count()):
+            if view.isRowHidden(i):
+                view.setRowHidden(i, False)
+
+    def setSearchVisible(self, on: bool = True) -> None:  # noqa: N802 (Qt 命名)
+        """设置弹窗顶部搜索框显隐（关闭时清空关键词并恢复全部选项）。
+
+        弹窗正打开时立即生效，否则在下次 ``showPopup()`` 时生效。
+
+        :param on: ``True`` 显示搜索框，``False`` 隐藏。
+        """
+        self._popup_search_visible = on
+        if not on:
+            self._apply_row_filter("")
+            search_widget = getattr(self, "_searchWidget", None)
+            if search_widget is not None:
+                search_widget.hide()
+            return
+        view = self.view()
+        if view is not None and view.isVisible():
+            container = self.findChild(QWidget, "ElaComboBoxContainer")
+            if container is not None:
+                self._setupSearchInPopup(container)
+                if getattr(self, "_searchEdit", None) is not None:
+                    self._searchEdit.setFocus()
+
+    def searchVisible(self) -> bool:
+        """返回弹窗顶部搜索框是否可见（默认 ``True``）。"""
+        return self._popup_search_visible
 
     def _cleanupSearchWidget(self) -> None:
         if getattr(self, "_searchWidget", None):
@@ -60,6 +163,7 @@ class _SearchComboMixin:
             self._searchWidget.setParent(None)
         if isinstance(layout, QBoxLayout):
             layout.insertWidget(0, self._searchWidget)
+        self._searchWidget.show()
         if self._searchEdit:
             self._applySearchEditPalette()
             self._searchEdit.blockSignals(True)
@@ -102,15 +206,18 @@ def _apply_search_edit_palette(search_edit: QLineEdit) -> None:
     )
     palette.setColor(
         QPalette.PlaceholderText,
-        QColor(0, 0, 0, 128) if theme_mode == ElaThemeType.ThemeMode.Light else QColor(186, 186, 186),
+        QColor(0, 0, 0, 128)
+        if theme_mode == ElaThemeType.ThemeMode.Light
+        else QColor(186, 186, 186),
     )
     search_edit.setPalette(palette)
 
 
 class ElaSearchProxyModel(QSortFilterProxyModel):
-    """支持拼音首字母过滤的代理模型。
+    """支持拼音过滤的代理模型。
 
-    过滤时同时匹配汉字原文和对应的拼音首字母字符串。
+    过滤时同时匹配汉字原文、全拼（``"bei"``）与拼音首字母（``"bj"``），
+    空格分隔的多个关键词需全部命中（AND）。
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -121,15 +228,22 @@ class ElaSearchProxyModel(QSortFilterProxyModel):
         """
         super().__init__(parent)
         self._keyword: str = ""
+        self._tokens: list[str] = []
+        self._pinyin_cache: dict[str, tuple[str, str]] = {}
 
     def setKeyword(self, keyword: str) -> None:
         """设置过滤关键词。
 
-        :param keyword: 要过滤的拼音或汉字关键词。
+        :param keyword: 要过滤的汉字、全拼或首字母关键词。
         :type keyword: str
         """
         self._keyword = keyword.lower()
+        self._tokens = _split_keyword(keyword)
         self.invalidateFilter()
+
+    def clearPinyinCache(self) -> None:
+        """清空拼音缓存（选项文本批量变更后可调用）。"""
+        self._pinyin_cache.clear()
 
     def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
         """判断某一行是否应显示在代理模型中。
@@ -141,24 +255,24 @@ class ElaSearchProxyModel(QSortFilterProxyModel):
         :return: 如果该行应显示则返回 ``True``。
         :rtype: bool
         """
-        if not self._keyword:
+        if not self._tokens:
             return True
         src_model = self.sourceModel()
         if src_model is None:
             return False
         index = src_model.index(source_row, 0, source_parent)
         text = index.data()
-        if text is None:
+        if not isinstance(text, str):
             return False
-        pinyin_str = "".join(lazy_pinyin(text)).lower()
-        return self._keyword in text.lower() or self._keyword in pinyin_str
+        return _match_item(text, self._tokens, self._pinyin_cache)
 
 
 class ElaSearchMultiBox(_ThemeAwareMixin, _SearchComboMixin, ElaMultiSelectComboBox):
     """可搜索多选下拉框。
 
     基于 ``ElaMultiSelectComboBox`` 扩展，在弹出列表顶部增加了一个搜索框，
-    支持汉字原文和拼音首字母过滤。
+    支持汉字原文、全拼与拼音首字母过滤（``"bei"`` / ``"bj"`` 均可命中“北京”），
+    空格分隔的多个关键词需全部命中。搜索框可用 ``setSearchVisible(False)`` 关闭。
 
     :param parent: 父级 widget。
     :type parent: QWidget, optional
@@ -175,36 +289,16 @@ class ElaSearchMultiBox(_ThemeAwareMixin, _SearchComboMixin, ElaMultiSelectCombo
         self._searchWidget: Optional[QWidget] = None
         self._currentSelection: list[str] = []
         self._isRestoringSelection = False
-        self._pinyin_cache: dict[str, str] = {}
+        self._pinyin_cache: dict[str, tuple[str, str]] = {}
+        self._popup_search_visible = True
 
     @property
     def items(self) -> list[str]:
         """返回当前所有选项列表。"""
         return [self.itemText(i) for i in range(self.count())]
 
-    def addItem(self, text: str, userData: Any = None) -> None:
-        """添加一个选项。
-
-        :param text: 选项文本。
-        :type text: str
-        :param userData: 关联的用户数据。
-        :type userData: Any
-        """
-        self._pinyin_cache[text] = "".join(lazy_pinyin(text)).lower()
-        super().addItem(text, userData)
-
-    def addItems(self, texts: list[str]) -> None:
-        """批量添加选项。
-
-        :param texts: 选项文本列表。
-        :type texts: list[str]
-        """
-        for text in texts:
-            self._pinyin_cache[text] = "".join(lazy_pinyin(text)).lower()
-        super().addItems(texts)
-
     def clear(self) -> None:
-        """清空所有选项。"""
+        """清空所有选项与拼音缓存。"""
         super().clear()
         self._currentSelection = []
         self._pinyin_cache.clear()
@@ -230,15 +324,22 @@ class ElaSearchMultiBox(_ThemeAwareMixin, _SearchComboMixin, ElaMultiSelectCombo
         """显示下拉弹窗，在弹窗顶部插入搜索框。"""
         if self.count() == 0:
             return
+        self._reset_row_filter()
+        # 必须 try/finally：这个标志一旦漏复位就永远是 True，而
+        # _onSearchTextChanged 见它为 True 就直接 return —— 搜索过滤被永久
+        # 短路，搜索框看起来还在但输入任何东西都没反应。中间任何一步抛异常
+        # （_setupSearchInPopup 建控件、_adjust_combobox_popup 定位）都会命中。
         self._isRestoringSelection = True
-        self._restoreSelection()
-        super().showPopup()
+        try:
+            self._restoreSelection()
+            super().showPopup()
 
-        container = self.findChild(QWidget, "ElaComboBoxContainer")
-        if container is not None:
-            self._setupSearchInPopup(container)
-        _adjust_combobox_popup(self)
-        self._isRestoringSelection = False
+            container = self.findChild(QWidget, "ElaComboBoxContainer")
+            if container is not None and self.searchVisible():
+                self._setupSearchInPopup(container)
+            _adjust_combobox_popup(self)
+        finally:
+            self._isRestoringSelection = False
 
     def _restoreSelection(self) -> None:
         """恢复之前的选中状态。"""
@@ -246,12 +347,8 @@ class ElaSearchMultiBox(_ThemeAwareMixin, _SearchComboMixin, ElaMultiSelectCombo
             super().setCurrentSelection(self._currentSelection)
 
     def hidePopup(self) -> None:
-        """关闭弹窗时保存选中状态。"""
+        """关闭弹窗时保存选中状态（行隐藏状态留待下次 showPopup 复位）。"""
         self._currentSelection = super().getCurrentSelection()
-        view = self.view()
-        if view:
-            for i in range(self.count()):
-                view.setRowHidden(i, False)
         super().hidePopup()
 
     def deleteLater(self) -> None:
@@ -260,40 +357,22 @@ class ElaSearchMultiBox(_ThemeAwareMixin, _SearchComboMixin, ElaMultiSelectCombo
         super().deleteLater()
 
     def _onSearchTextChanged(self, text: str) -> None:
-        """搜索框文本变化时过滤项目。"""
+        """搜索框文本变化时隐藏不匹配的行。"""
         if self._isRestoringSelection:
             return
-        text_lower = text.lower()
-        view = self.view()
-        if view is None:
-            return
-        for i in range(self.count()):
-            item_text = self.itemText(i)
-            if item_text not in self._pinyin_cache:
-                self._pinyin_cache[item_text] = "".join(lazy_pinyin(item_text)).lower()
-            pinyin_str = self._pinyin_cache[item_text]
-            visible = (
-                not text_lower
-                or text_lower in item_text.lower()
-                or text_lower in pinyin_str
-            )
-            view.setRowHidden(i, not visible)
-        if text_lower and self._currentSelection:
-            first_match_idx = -1
-            for i in range(self.count()):
-                if not view.isRowHidden(i):
-                    first_match_idx = i
-                    break
-            if first_match_idx >= 0:
-                index = self.model().index(first_match_idx, 0)
-                view.scrollTo(index)
+        self._apply_row_filter(text)
 
 
 class ElaSearchBox(_ThemeAwareMixin, _SearchComboMixin, ElaComboBox):
     """可搜索下拉框。
 
     基于标准 ``ElaComboBox`` 扩展，在弹出列表顶部增加了一个搜索框，
-    支持汉字原文和拼音首字母过滤。
+    支持汉字原文、全拼与拼音首字母过滤（``"bei"`` / ``"bj"`` 均可命中“北京”），
+    空格分隔的多个关键词需全部命中。
+
+    选项由 ``QComboBox`` 原生模型承载，``addItem`` / ``insertItem`` /
+    ``removeItem`` / ``setItemText`` 等原生增删改 API 与 ``items`` 属性、
+    搜索过滤互不干扰。搜索框可用 ``setSearchVisible(False)`` 关闭。
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -303,99 +382,49 @@ class ElaSearchBox(_ThemeAwareMixin, _SearchComboMixin, ElaComboBox):
         :type parent: QWidget, optional
         """
         super().__init__(parent)  # type: ignore[arg-type]
-        self._allItems: list[tuple[str, Any]] = []
-        self._sourceModel = QStringListModel()
-        self._proxyModel = ElaSearchProxyModel(self)
-        self._proxyModel.setSourceModel(self._sourceModel)
-        self.setModel(self._proxyModel)
-
         self._searchEdit: Optional[QLineEdit] = None
         self._searchWidget: Optional[QWidget] = None
-
-        self.activated.connect(self._onActivated)
+        self._pinyin_cache: dict[str, tuple[str, str]] = {}
+        self._popup_search_visible = True
 
     @property
     def items(self) -> list[str]:
         """返回当前所有选项列表。"""
-        return [item[0] for item in self._allItems]
-
-    def addItem(self, text: str, userData: Any = None) -> None:  # type: ignore[override]
-        """添加一个选项。
-
-        :param text: 选项文本。
-        :type text: str
-        :param userData: 关联的用户数据。
-        :type userData: Any
-        """
-        self._allItems.append((text, userData))
-        row = self._sourceModel.rowCount()
-        self._sourceModel.insertRow(row)
-        idx = self._sourceModel.index(row, 0)
-        self._sourceModel.setData(idx, text)
-        if userData is not None:
-            self._sourceModel.setData(idx, userData, Qt.ItemDataRole.UserRole)
-
-    def addItems(self, texts: list[str]) -> None:  # type: ignore[override]
-        """批量添加选项。
-
-        :param texts: 选项文本列表。
-        :type texts: list[str]
-        """
-        for text in texts:
-            self._allItems.append((text, None))
-        self._sourceModel.setStringList([item[0] for item in self._allItems])
+        return [self.itemText(i) for i in range(self.count())]
 
     def clear(self) -> None:
-        """清空所有选项并重置选择状态。"""
-        self._allItems.clear()
-        self._sourceModel.setStringList([])
-        self.setCurrentIndex(-1)
+        """清空所有选项并重置拼音缓存。"""
+        super().clear()
+        self._pinyin_cache.clear()
 
     def showPopup(self) -> None:
-        """显示下拉弹窗，在弹窗顶部插入搜索框。"""
+        """显示下拉弹窗，在弹窗顶部插入搜索框（``setSearchVisible(False)`` 可关闭）。"""
         if self.count() == 0:
             return
-        self._proxyModel.setKeyword("")
+        self._reset_row_filter()
         super().showPopup()
 
         container = self.findChild(QWidget, "ElaComboBoxContainer")
-        if container is not None:
+        if container is not None and self.searchVisible():
             self._setupSearchInPopup(container)
             if self._searchEdit:
                 self._searchEdit.setFocus()
         _adjust_combobox_popup(self)
 
     def _onSearchTextChanged(self, text: str) -> None:
-        """搜索框文本变化时更新过滤关键词。
+        """搜索框文本变化时隐藏不匹配的行。
 
         :param text: 输入的搜索文本。
         :type text: str
         """
-        self._proxyModel.setKeyword(text)
-
-    def _onActivated(self, row: int) -> None:
-        """选项激活回调，设置当前选中文本。
-
-        :param row: 代理模型中的行索引。
-        :type row: int
-        """
-        proxy_index = self._proxyModel.index(row, 0)
-        source_index = self._proxyModel.mapToSource(proxy_index)
-        real_row = source_index.row()
-        if 0 <= real_row < len(self._allItems):
-            text = self._allItems[real_row][0]
-            self.setCurrentText(text)
+        self._apply_row_filter(text)
 
     def hidePopup(self) -> None:
-        """关闭弹窗（搜索框保留复用，下次打开时清空并聚焦）。"""
+        """关闭弹窗（行隐藏状态留待下次 showPopup 复位）。"""
         super().hidePopup()
 
     def deleteLater(self) -> None:
         """清理搜索框，断开信号，调度自身删除。"""
         self._theme_cleanup()
         self._cleanupSearchWidget()
-        try:
-            self.activated.disconnect(self._onActivated)
-        except (TypeError, RuntimeError):
-            pass
         super().deleteLater()

@@ -2,7 +2,7 @@
 无坐标 / 层级 / 关系系列（完整 10 个：pie / radar / gauge / funnel /
 sunburst / treemap / tree / sankey / graph / lines）。
 
-本模块导入时经 ``register_series`` 注册全部系列。除 ``radar``（自绘蛛网）
+本模块导入时经 ``registerSeries`` 注册全部系列。除 ``radar``（自绘蛛网）
 与 ``lines``（Grid 直角坐标）外，全部在 rect 内自布局、不依赖坐标系；
 配色经 ``T()`` 实时读取（Ela 主题令牌），主题切换后重绘即生效。
 
@@ -20,6 +20,7 @@ from PyQt5.QtCore import QPointF, QRectF, Qt, QTimer
 from PyQt5.QtGui import (
     QColor,
     QFontMetricsF,
+    QLinearGradient,
     QPainter,
     QPainterPath,
     QPen,
@@ -32,8 +33,8 @@ from ._utils import ON_FILL_WHITE, clamp as _clamp
 from ._utils import dist_point_segment
 from ._utils import to_float as _to_float
 from ._utils import with_alpha
-from .axes import chart_font, format_value
-from .core import SeriesRenderer, register_series
+from .axes import chartFont, formatValue
+from .core import SeriesRenderer, formatLabelTemplate, registerSeries
 
 __all__ = [
     "PieSeriesRenderer",
@@ -71,7 +72,7 @@ def _text_color(key="color.text.primary"):
 
 
 def _label_font(px=None):
-    return chart_font(px if px else T("font.xs"))
+    return chartFont(px if px else T("font.xs"))
 
 
 def _series_palette_color(chart, index):
@@ -110,7 +111,8 @@ class PieSeriesRenderer(SeriesRenderer):
     - ``data``: [{"name","value"}, ...] 或数值列表；
     - ``radius``: "75%" / px / ["40%","70%"]（内外半径，环形）；
     - ``center``: ["50%","50%"]（相对内容区）；
-    - ``startAngle``: 起始角（自 12 点方向顺时针度数，默认 0）；
+    - ``startAngle``: 起始角（ECharts 角度约定：0 = 3 点方向、逆时针；
+      默认 90 = 12 点方向）；
     - ``roseType``: "radius"（半径映射值）/ "area"（面积映射值）；
     - ``label``: {"show": True, "position": "outside|inside|center",
       "fontSize": px}；outside 为外部引线 + 名称，inside 为内部百分比，
@@ -164,10 +166,23 @@ class PieSeriesRenderer(SeriesRenderer):
             return
         vmax = max(v for _, v in entries) or 1.0
         rose = str(self.opt.get("roseType") or "")
-        start = _to_float(self.opt.get("startAngle"), 0.0)
+        start = self._start_angle()
         acc = start
+        # minAngle / padAngle（ECharts 键）：扇区最小角度与间隔角度
+        min_angle = max(0.0, _to_float(self.opt.get("minAngle"), 0.0))
+        pad_angle = max(0.0, _to_float(self.opt.get("padAngle"), 0.0))
+        spans = [max(v / self._total * 360.0, min_angle) for _, v in entries]
+        span_total = sum(spans)
+        if span_total > 360.0:
+            spans = [s * 360.0 / span_total for s in spans]
         for i, (name, v) in enumerate(entries):
-            span = v / self._total * 360.0
+            span = spans[i]
+            if pad_angle > 0 and span > pad_angle:
+                a0 = acc + pad_angle / 2.0
+                span_eff = span - pad_angle
+            else:
+                a0 = acc
+                span_eff = span
             scale = 1.0
             if rose == "radius":
                 scale = _clamp(v / vmax, 0.05, 1.0)
@@ -175,11 +190,14 @@ class PieSeriesRenderer(SeriesRenderer):
                 scale = _clamp(math.sqrt(_clamp(v / vmax, 0.0, 1.0)), 0.05, 1.0)
             self._sectors.append(
                 {
+                    "index": i,
                     "name": name,
                     "value": v,
-                    "color": _series_palette_color(self.chart, i),
-                    "a0": acc,
-                    "a1": acc + span,
+                    "color": self.itemColor(
+                        i, default=_series_palette_color(self.chart, i)
+                    ),
+                    "a0": a0,
+                    "a1": a0 + span_eff,
                     "r0": r_in,
                     "r1": r_in + (r_out - r_in) * scale,
                 }
@@ -187,6 +205,10 @@ class PieSeriesRenderer(SeriesRenderer):
             acc += span
 
     # -- 角度换算：a 为自 12 点方向顺时针度数 -------------------------------
+    def _start_angle(self) -> float:
+        """ECharts ``startAngle``（0 = 3 点、逆时针）→ 内部角度（12 点起顺时针）。"""
+        return 90.0 - _to_float(self.opt.get("startAngle"), 90.0)
+
     def _pt(self, a_deg, r):
         rad = math.radians(a_deg)
         return QPointF(
@@ -221,7 +243,7 @@ class PieSeriesRenderer(SeriesRenderer):
         return path
 
     def _animated_sectors(self, anim_t):
-        """update_option 旧→新数值插值（等长时重建角度），否则返回原扇区。"""
+        """过渡动画：旧→新数值插值（等长时重建角度），否则返回原扇区。"""
         prev = _parse_named_values(self.prev_data)
         if (
             self.prev_data is None
@@ -235,7 +257,7 @@ class PieSeriesRenderer(SeriesRenderer):
         total = sum(values) or 1.0
         vmax = max(values) or 1.0
         rose = str(self.opt.get("roseType") or "")
-        start = _to_float(self.opt.get("startAngle"), 0.0)
+        start = self._start_angle()
         acc = start
         rebuilt = []
         for sec, v in zip(self._sectors, values):
@@ -258,15 +280,63 @@ class PieSeriesRenderer(SeriesRenderer):
         p.save()
         sectors = self._animated_sectors(anim_t)
         border = QColor(T("color.bg.base"))
+        hover = self.chart.hoverInfo()
+        hovered = (
+            hover[1].get("dataIndex")
+            if hover is not None and hover[0] is self
+            else None
+        )
         for sec in sectors:
             path = self._sector_path(sec, anim_t)
             if path.isEmpty():
                 continue
-            p.setPen(QPen(border, 1.2))
-            p.setBrush(sec["color"])
+            color = QColor(sec["color"])
+            alpha = self.itemOpacity(sec["index"])
+            border_color, border_w = self.itemBorder(sec["index"])
+            if hovered is not None:
+                if sec["index"] == hovered:
+                    emphasis = self.emphasisColor(sec["index"])
+                    color = emphasis if emphasis is not None else color.lighter(112)
+                else:
+                    blur = self.blurOpacity()
+                    alpha *= blur if blur is not None else 0.35
+            if alpha < 1.0:
+                color.setAlphaF(color.alphaF() * alpha)
+            if border_color is not None and border_w > 0:
+                p.setPen(QPen(border_color, border_w))
+            else:
+                p.setPen(QPen(border, 1.2))
+            p.setBrush(color)
             p.drawPath(path)
         self._paint_labels(p, sectors, anim_t)
         p.restore()
+
+    def _label_text(self, sec, pct: str, default_text: str) -> str:
+        """饼图标签文本：``label.formatter``（callable / ``{b} {c} {d}`` 模板）优先。"""
+        formatter = self.labelOption().get("formatter")
+        params = {
+            "a": self.name,
+            "b": sec["name"],
+            "c": sec["value"],
+            "d": pct,
+            "value": sec["value"],
+            "name": sec["name"],
+            "percent": pct,
+            "series": self.name,
+            "dataIndex": sec["index"],
+        }
+        if callable(formatter):
+            try:
+                text = formatter(params)
+                if text is not None:
+                    return str(text)
+            except Exception:
+                pass
+        elif isinstance(formatter, str):
+            text = formatLabelTemplate(formatter, params)
+            if text is not None:
+                return text
+        return default_text
 
     def _paint_labels(self, p, sectors, anim_t):
         label_opt = dict(self.opt.get("label") or {})
@@ -277,7 +347,7 @@ class PieSeriesRenderer(SeriesRenderer):
         p.setFont(font)
         fm = QFontMetricsF(font)
         total = sum(s["value"] for s in self._sectors) or 1.0
-        c_text = _text_color("color.text.primary")
+        c_text = self.labelColor()
         c_line = _text_color("color.border.strong")
         if pos == "center":
             self._paint_center_total(p, font)
@@ -287,16 +357,17 @@ class PieSeriesRenderer(SeriesRenderer):
             if span < 4.0:
                 continue  # 扇区过小省略标签
             mid = sec["a0"] + span / 2
-            name = sec["name"] or format_value(sec["value"])
-            pct = format_value(round(sec["value"] / total * 100, 1)) + "%"
+            name = sec["name"] or formatValue(sec["value"])
+            pct = formatValue(round(sec["value"] / total * 100, 1)) + "%"
             if pos == "inside":
                 r = (sec["r0"] + sec["r1"]) / 2
                 pt = self._pt(mid, r)
+                text = self._label_text(sec, pct, pct)
                 p.setPen(QColor(ON_FILL_WHITE))
                 p.drawText(
                     QRectF(pt.x() - 40, pt.y() - fm.height() / 2, 80, fm.height()),
                     Qt.AlignmentFlag.AlignCenter,
-                    pct,
+                    text,
                 )
             else:  # outside：引线 + 名称（含百分比）
                 pt1 = self._pt(mid, sec["r1"] + 2)
@@ -307,7 +378,9 @@ class PieSeriesRenderer(SeriesRenderer):
                 p.drawLine(pt1, pt2)
                 p.drawLine(pt2, pt3)
                 p.setPen(c_text)
-                text = f"{name} {pct}" if sec["name"] else pct
+                text = self._label_text(
+                    sec, pct, f"{name} {pct}" if sec["name"] else pct
+                )
                 tw = fm.horizontalAdvance(text)
                 if right_side:
                     tr = QRectF(
@@ -337,9 +410,9 @@ class PieSeriesRenderer(SeriesRenderer):
         """环形中心孔显示总计数值。"""
         total_opt = dict(self.opt.get("totalLabel") or {})
         title = str(total_opt.get("text") or "")
-        p.setFont(chart_font(T("font.title.md"), T("font.weight.semibold")))
+        p.setFont(chartFont(T("font.title.md"), T("font.weight.semibold")))
         fm = QFontMetricsF(p.font())
-        value_text = format_value(self._total)
+        value_text = formatValue(self._total)
         cy = self._center.y()
         if title:
             cy -= fm.height() / 2
@@ -370,7 +443,7 @@ class PieSeriesRenderer(SeriesRenderer):
             )
 
     # -- 命中 -------------------------------------------------------------
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         if not self._sectors:
             return None
         dx = pos.x() - self._center.x()
@@ -463,8 +536,8 @@ class RadarSeriesRenderer(SeriesRenderer):
         self._center = rect.center()
         self._radius = max(12.0, min(rect.width(), rect.height()) / 2 - 34.0)
         base_idx = (
-            self.chart.series_renderers.index(self)
-            if self in self.chart.series_renderers
+            self.chart.seriesRenderers.index(self)
+            if self in self.chart.seriesRenderers
             else 0
         )
         for k, (name, vals) in enumerate(entries):
@@ -517,37 +590,65 @@ class RadarSeriesRenderer(SeriesRenderer):
         c_grid = _text_color("color.border")
         c_axis = _text_color("color.border.strong")
         c_text = _text_color("color.text.secondary")
-        font = _label_font()
+        # axisName / splitLine / axisLine（ECharts 键）
+        axis_name_opt = dict(self.opt.get("axisName") or {})
+        split_line_opt = dict(self.opt.get("splitLine") or {})
+        axis_line_opt = dict(self.opt.get("axisLine") or {})
+        if not bool(axis_name_opt.get("show", True)):
+            axis_name_opt["_hide"] = True
+        if isinstance(axis_name_opt.get("color"), str) and axis_name_opt["color"]:
+            c_text = QColor(axis_name_opt["color"])
+        if isinstance(split_line_opt.get("lineStyle"), dict):
+            raw = split_line_opt["lineStyle"].get("color")
+            if isinstance(raw, str) and raw:
+                c_grid = QColor(raw)
+        if isinstance(axis_line_opt.get("lineStyle"), dict):
+            raw = axis_line_opt["lineStyle"].get("color")
+            if isinstance(raw, str) and raw:
+                c_axis = QColor(raw)
+        font = _label_font(axis_name_opt.get("fontSize"))
         p.setFont(font)
         fm = QFontMetricsF(font)
         # 圈环
-        for k in range(1, split + 1):
-            p.setPen(QPen(c_grid, 1))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawPath(self._ring_path(k / split))
+        if bool(split_line_opt.get("show", True)):
+            for k in range(1, split + 1):
+                p.setPen(QPen(c_grid, 1))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawPath(self._ring_path(k / split))
         # 轴线 + 维度标签
-        for j, ind in enumerate(self._indicators):
-            theta = -math.pi / 2 + j / n * 2 * math.pi
-            outer = QPointF(
-                self._center.x() + self._radius * math.cos(theta),
-                self._center.y() + self._radius * math.sin(theta),
-            )
-            p.setPen(QPen(c_axis, 1))
-            p.drawLine(self._center, outer)
-            lx = self._center.x() + (self._radius + 16) * math.cos(theta)
-            ly = self._center.y() + (self._radius + 16) * math.sin(theta)
-            p.setPen(c_text)
-            p.drawText(
-                QRectF(lx - 48, ly - fm.height() / 2, 96, fm.height()),
-                Qt.AlignmentFlag.AlignCenter,
-                ind["name"],
-            )
+        if bool(axis_line_opt.get("show", True)):
+            for j in range(n):
+                theta = -math.pi / 2 + j / n * 2 * math.pi
+                outer = QPointF(
+                    self._center.x() + self._radius * math.cos(theta),
+                    self._center.y() + self._radius * math.sin(theta),
+                )
+                p.setPen(QPen(c_axis, 1))
+                p.drawLine(self._center, outer)
+        if not axis_name_opt.get("_hide"):
+            for j, ind in enumerate(self._indicators):
+                theta = -math.pi / 2 + j / n * 2 * math.pi
+                lx = self._center.x() + (self._radius + 16) * math.cos(theta)
+                ly = self._center.y() + (self._radius + 16) * math.sin(theta)
+                p.setPen(c_text)
+                p.drawText(
+                    QRectF(lx - 48, ly - fm.height() / 2, 96, fm.height()),
+                    Qt.AlignmentFlag.AlignCenter,
+                    ind["name"],
+                )
         # 多边形系列（anim_t 由中心向外展开）
         area_opt = self.opt.get("areaStyle")
         opacity = 0.25
         if isinstance(area_opt, dict):
             opacity = _clamp(_to_float(area_opt.get("opacity"), 0.25), 0.0, 1.0)
-        for poly in self._polys:
+        hover = self.chart.hoverInfo()
+        hovered = (
+            hover[1].get("dataIndex")
+            if hover is not None and hover[0] is self
+            else None
+        )
+        show_label = self.labelShown()
+        for k, poly in enumerate(self._polys):
             pts = [
                 QPointF(
                     self._center.x() + (pt.x() - self._center.x()) * anim_t,
@@ -556,23 +657,42 @@ class RadarSeriesRenderer(SeriesRenderer):
                 for pt in poly["points"]
             ]
             qpoly = QPolygonF(pts)
+            color = QColor(self.itemColor(k, default=poly["color"]))
+            alpha = self.itemOpacity(k)
+            if hovered is not None:
+                if k == hovered:
+                    emphasis = self.emphasisColor(k)
+                    color = emphasis if emphasis is not None else color.lighter(112)
+                else:
+                    blur = self.blurOpacity()
+                    alpha *= blur if blur is not None else 0.35
             if area_opt is not None:
                 p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(with_alpha(poly["color"], opacity * 255))
+                p.setBrush(with_alpha(color, opacity * 255 * alpha))
                 p.drawPolygon(qpoly)
-            pen = QPen(poly["color"], 2)
+            pen = QPen(color, 2)
             pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
             p.setPen(pen)
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawPolyline(qpoly)
             if pts:
                 p.drawLine(pts[-1], pts[0])
-            p.setBrush(poly["color"])
+            p.setBrush(color)
             for pt in pts:
                 p.drawEllipse(pt, 2.5, 2.5)
+            if show_label:
+                p.setPen(self.labelColor())
+                for j, pt in enumerate(pts):
+                    value = poly["values"][j] if j < len(poly["values"]) else 0.0
+                    text = self.labelText(j, value)
+                    p.drawText(
+                        QRectF(pt.x() - 30, pt.y() - fm.height() - 2, 60, fm.height()),
+                        Qt.AlignmentFlag.AlignCenter,
+                        text,
+                    )
         p.restore()
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         for k in range(len(self._polys) - 1, -1, -1):
             poly = self._polys[k]
             if len(poly["points"]) < 3:
@@ -677,7 +797,7 @@ class GaugeSeriesRenderer(SeriesRenderer):
     def paint(self, p: QPainter, anim_t: float) -> None:
         p.save()
         start, end = self._start_angle(), self._end_angle()
-        # 动画：旧值 → 新值（update_option）；首帧从 min 摆起
+        # 动画：旧值 → 新值（过渡）；首帧从 min 摆起
         prev_v = self._vmin()
         prev_entries = _parse_named_values(self.prev_data)
         if prev_entries:
@@ -752,7 +872,7 @@ class GaugeSeriesRenderer(SeriesRenderer):
         detail_opt = dict(self.opt.get("detail") or {})
         fm_h = 0.0
         if bool(detail_opt.get("show", True)):
-            font = chart_font(
+            font = chartFont(
                 detail_opt.get("fontSize") or T("font.title.md"),
                 T("font.weight.semibold"),
             )
@@ -768,7 +888,7 @@ class GaugeSeriesRenderer(SeriesRenderer):
                     fm.height(),
                 ),
                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
-                format_value(cur_v),
+                formatValue(cur_v),
             )
         title_opt = dict(self.opt.get("title") or {})
         name = self._entries[0][0] if self._entries else self.name
@@ -789,7 +909,7 @@ class GaugeSeriesRenderer(SeriesRenderer):
             )
         p.restore()
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         d = _dist(pos, self._center)
         if d > self._radius + 6:
             return None
@@ -828,61 +948,115 @@ class FunnelSeriesRenderer(SeriesRenderer):
 
     def layout(self, rect: QRectF) -> None:
         self._layers = []
-        entries = _parse_named_values(self.data())
-        if not entries:
+        raw_entries = _parse_named_values(self.data())
+        if not raw_entries:
             return
+        entries = [
+            (index, name, value) for index, (name, value) in enumerate(raw_entries)
+        ]
         sort = str(self.opt.get("sort") or "descending")
         if sort == "descending":
-            entries.sort(key=lambda e: e[1], reverse=True)
+            entries.sort(key=lambda e: e[2], reverse=True)
         elif sort == "ascending":
-            entries.sort(key=lambda e: e[1])
+            entries.sort(key=lambda e: e[2])
         # "none" 保持原顺序
         label_opt = dict(self.opt.get("label") or {})
         label_show = bool(label_opt.get("show", True))
-        inside = str(label_opt.get("position") or "outer") == "inside"
-        margin_l = 96.0 if (label_show and not inside) else 12.0
-        margin_r = 84.0 if (label_show and not inside) else 12.0
+        self._label_pos = str(label_opt.get("position") or "outer")
+        outside = self._label_pos in ("outer", "left", "right")
+        margin_l = 96.0 if (label_show and outside) else 12.0
+        margin_r = 84.0 if (label_show and outside) else 12.0
         n = len(entries)
         gap = _clamp(_to_float(self.opt.get("gap"), 2.0), 0.0, 24.0)
         h = (rect.height() - gap * (n - 1)) / n
         if h <= 1:
             return
-        vmax = max(v for _, v in entries) or 1.0
+        vmax = max(value for _, _, value in entries) or 1.0
         min_frac = _clamp(_to_float(self.opt.get("minSize"), 0.12), 0.0, 1.0)
         max_w = max(20.0, rect.width() - margin_l - margin_r)
         cx = rect.left() + margin_l + max_w / 2
+        # ECharts funnelAlign：left / center（默认）/ right
+        align = str(self.opt.get("funnelAlign") or "center")
 
         def width_of(v):
             return max_w * (min_frac + (1 - min_frac) * v / vmax)
 
-        for i, (name, v) in enumerate(entries):
+        for slot, (data_index, name, v) in enumerate(entries):
             top_w = width_of(v)
             bot_w = (
-                width_of(entries[i + 1][1])
-                if i + 1 < n
+                width_of(entries[slot + 1][2])
+                if slot + 1 < n
                 else width_of(v) * min_frac / max(min_frac, 1e-6)
             )
-            y0 = rect.top() + i * (h + gap)
+            y0 = rect.top() + slot * (h + gap)
             y1 = y0 + h
+            if align == "left":
+                left_edge = rect.left() + margin_l
+                x0l, x0r = left_edge, left_edge + top_w
+                x1l, x1r = left_edge, left_edge + bot_w
+                layer_cx = left_edge + top_w / 2
+            elif align == "right":
+                right_edge = rect.right() - margin_r
+                x0l, x0r = right_edge - top_w, right_edge
+                x1l, x1r = right_edge - bot_w, right_edge
+                layer_cx = right_edge - top_w / 2
+            else:
+                x0l, x0r = cx - top_w / 2, cx + top_w / 2
+                x1l, x1r = cx - bot_w / 2, cx + bot_w / 2
+                layer_cx = cx
             poly = QPolygonF(
                 [
-                    QPointF(cx - top_w / 2, y0),
-                    QPointF(cx + top_w / 2, y0),
-                    QPointF(cx + bot_w / 2, y1),
-                    QPointF(cx - bot_w / 2, y1),
+                    QPointF(x0l, y0),
+                    QPointF(x0r, y0),
+                    QPointF(x1r, y1),
+                    QPointF(x1l, y1),
                 ]
             )
+            border_color, border_w = self.itemBorder(data_index)
             self._layers.append(
                 {
+                    "index": data_index,
                     "name": name,
                     "value": v,
                     "poly": poly,
-                    "color": _series_palette_color(self.chart, i),
+                    "color": self.itemColor(
+                        data_index, default=_series_palette_color(self.chart, slot)
+                    ),
+                    "border": (border_color, border_w),
                     "cy": (y0 + y1) / 2,
-                    "left": cx - top_w / 2,
-                    "right": cx + top_w / 2,
+                    "left": min(x0l, x1l),
+                    "right": max(x0r, x1r),
+                    "layer_cx": layer_cx,
                 }
             )
+
+    def _funnel_label(self, layer, pct: str) -> str:
+        """funnel 标签文本：``label.formatter`` 优先，缺省「名称 值 (百分比)」。"""
+        formatter = self.labelOption().get("formatter")
+        params = {
+            "a": self.name,
+            "b": layer["name"],
+            "c": layer["value"],
+            "d": pct,
+            "name": layer["name"],
+            "value": layer["value"],
+            "percent": pct,
+            "series": self.name,
+            "dataIndex": layer["index"],
+        }
+        if callable(formatter):
+            try:
+                text = formatter(params)
+                if text is not None:
+                    return str(text)
+            except Exception:
+                pass
+        elif isinstance(formatter, str):
+            text = formatLabelTemplate(formatter, params)
+            if text is not None:
+                return text
+        name = layer["name"] or formatValue(layer["value"])
+        return f"{name} {formatValue(layer['value'])} ({pct})"
 
     def paint(self, p: QPainter, anim_t: float) -> None:
         if not self._layers:
@@ -890,13 +1064,19 @@ class FunnelSeriesRenderer(SeriesRenderer):
         p.save()
         label_opt = dict(self.opt.get("label") or {})
         label_show = bool(label_opt.get("show", True))
-        inside = str(label_opt.get("position") or "outer") == "inside"
+        pos = str(label_opt.get("position") or "outer")
         font = _label_font(label_opt.get("fontSize"))
         p.setFont(font)
         fm = QFontMetricsF(font)
         total = sum(layer["value"] for layer in self._layers) or 1.0
         border = QColor(T("color.bg.base"))
-        c_text = _text_color("color.text.primary")
+        c_text = self.labelColor()
+        hover = self.chart.hoverInfo()
+        hovered = (
+            hover[1].get("dataIndex")
+            if hover is not None and hover[0] is self
+            else None
+        )
         # 入场动画：自上而下逐层显现 + 宽度展开
         n = len(self._layers)
         for i, layer in enumerate(self._layers):
@@ -916,56 +1096,114 @@ class FunnelSeriesRenderer(SeriesRenderer):
                     ]
                 )
                 poly = scaled
-            p.setPen(QPen(border, 1.2))
-            p.setBrush(layer["color"])
+            color = QColor(layer["color"])
+            alpha = self.itemOpacity(layer["index"])
+            if hovered is not None:
+                if layer["index"] == hovered:
+                    emphasis = self.emphasisColor(layer["index"])
+                    color = emphasis if emphasis is not None else color.lighter(112)
+                else:
+                    blur = self.blurOpacity()
+                    alpha *= blur if blur is not None else 0.35
+            if alpha < 1.0:
+                color.setAlphaF(color.alphaF() * alpha)
+            border_color, border_w = layer.get("border", (None, 0))
+            if border_color is not None and border_w > 0:
+                p.setPen(QPen(border_color, border_w))
+            else:
+                p.setPen(QPen(border, 1.2))
+            p.setBrush(color)
             p.drawPolygon(poly)
             if not label_show or local_t < 0.6:
                 continue
-            name = layer["name"] or format_value(layer["value"])
-            value_text = format_value(layer["value"])
-            if inside:
-                text = f"{name} {value_text}"
+            name = layer["name"] or formatValue(layer["value"])
+            value_text = formatValue(layer["value"])
+            pct = formatValue(round(layer["value"] / total * 100, 1)) + "%"
+            full = self._funnel_label(layer, pct)
+            cy = layer["cy"]
+            left, right = layer["left"], layer["right"]
+            if pos in ("inside", "insideLeft", "insideRight"):
                 p.setPen(QColor(ON_FILL_WHITE))
-                p.drawText(
-                    QRectF(
-                        layer["left"],
-                        layer["cy"] - fm.height() / 2,
-                        layer["right"] - layer["left"],
+                if pos == "inside":
+                    align = Qt.AlignmentFlag.AlignCenter
+                    rect = QRectF(left, cy - fm.height() / 2, right - left, fm.height())
+                elif pos == "insideLeft":
+                    align = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                    rect = QRectF(
+                        left + 8,
+                        cy - fm.height() / 2,
+                        max(8.0, right - left - 16),
                         fm.height(),
-                    ),
-                    Qt.AlignmentFlag.AlignCenter,
-                    text,
+                    )
+                else:  # insideRight
+                    align = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                    rect = QRectF(
+                        left + 8,
+                        cy - fm.height() / 2,
+                        max(8.0, right - left - 16),
+                        fm.height(),
+                    )
+                p.drawText(rect, align, full)
+            elif pos == "left":
+                p.setPen(c_text)
+                p.drawText(
+                    QRectF(0, cy - fm.height() / 2, max(0.0, left - 8), fm.height()),
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                    full,
                 )
-            else:
+            elif pos == "right":
+                p.setPen(c_text)
+                p.drawText(
+                    QRectF(right + 8, cy - fm.height() / 2, 140, fm.height()),
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                    full,
+                )
+            elif pos == "top":
                 p.setPen(c_text)
                 p.drawText(
                     QRectF(
-                        0, layer["cy"] - fm.height() / 2, layer["left"] - 8, fm.height()
+                        left,
+                        cy - fm.height() / 2 - fm.height() - 2,
+                        max(8.0, right - left),
+                        fm.height(),
                     ),
+                    Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom,
+                    full,
+                )
+            elif pos == "bottom":
+                p.setPen(c_text)
+                p.drawText(
+                    QRectF(
+                        left,
+                        cy + fm.height() / 2 + 2,
+                        max(8.0, right - left),
+                        fm.height(),
+                    ),
+                    Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
+                    full,
+                )
+            else:  # outer（默认，引擎扩展）：名称居左、数值居右
+                p.setPen(c_text)
+                p.drawText(
+                    QRectF(0, cy - fm.height() / 2, left - 8, fm.height()),
                     Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
                     name,
                 )
-                pct = format_value(round(layer["value"] / total * 100, 1)) + "%"
                 p.drawText(
-                    QRectF(
-                        layer["right"] + 8,
-                        layer["cy"] - fm.height() / 2,
-                        110,
-                        fm.height(),
-                    ),
+                    QRectF(right + 8, cy - fm.height() / 2, 110, fm.height()),
                     Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                     f"{value_text} ({pct})",
                 )
         p.restore()
 
-    def hit_test(self, pos: QPointF):
-        for i, layer in enumerate(self._layers):
+    def hitTest(self, pos: QPointF):
+        for layer in self._layers:
             if layer["poly"].containsPoint(pos, Qt.FillRule.OddEvenFill):
                 return {
                     "name": layer["name"],
                     "value": layer["value"],
                     "series": self.name,
-                    "dataIndex": i,
+                    "dataIndex": layer["index"],
                 }
         return None
 
@@ -990,6 +1228,8 @@ class _HNode:
         "rect",
         "x",
         "y",
+        "style_index",
+        "path",
     )
 
     def __init__(self, name, value=0.0, depth=0):
@@ -1068,8 +1308,10 @@ class SunburstSeriesRenderer(SeriesRenderer):
 
     def __init__(self, chart, opt):
         super().__init__(chart, opt)
-        self._nodes = []  # 全部节点（先序）
+        self._nodes = []
         self._roots = []
+        #: 下钻路径（子级下标序列；空 = 顶层）
+        self._focus_path = []
         self._center = QPointF()
         self._r0 = 0.0
         self._r1 = 1.0
@@ -1077,11 +1319,29 @@ class SunburstSeriesRenderer(SeriesRenderer):
 
     def layout(self, rect: QRectF) -> None:
         self._nodes = []
-        self._roots = _build_hierarchy(self.data())
-        if not self._roots:
+        roots = _build_hierarchy(self.data())
+        if not roots:
+            self._roots = []
             return
-        _assign_branch_colors(self.chart, self._roots)
-        self._max_depth = max(self._depth_of(r) for r in self._roots)
+        _assign_branch_colors(self.chart, roots)
+        # 下钻：按路径解析当前显示层级（路径失效时回到顶层）
+        display = roots
+        focus = None
+        prefix: tuple = ()
+        for idx in list(self._focus_path):
+            if 0 <= idx < len(display):
+                focus = display[idx]
+                prefix = prefix + (idx,)
+                display = focus.children
+            else:
+                self._focus_path = []
+                focus = None
+                prefix = ()
+                display = roots
+                break
+        self._roots = display
+        self._focus = focus
+        self._max_depth = max((self._depth_of(r) - r.depth for r in display), default=1)
         self._center = rect.center()
         half = min(rect.width(), rect.height()) / 2 - 8
         radius_opt = self.opt.get("radius") or ["15%", "90%"]
@@ -1106,13 +1366,15 @@ class SunburstSeriesRenderer(SeriesRenderer):
             self._assign_angles(root, acc, acc + span, 0)
             acc += span
 
-        def collect(node):
+        def collect(node, path=()):
+            node.style_index = len(self._nodes)
+            node.path = path
             self._nodes.append(node)
-            for c in node.children:
-                collect(c)
+            for child_index, child in enumerate(node.children):
+                collect(child, path + (child_index,))
 
-        for root in self._roots:
-            collect(root)
+        for root_index, root in enumerate(self._roots):
+            collect(root, prefix + (root_index,))
 
     def _depth_of(self, node):
         if not node.children:
@@ -1146,6 +1408,12 @@ class SunburstSeriesRenderer(SeriesRenderer):
             return
         p.save()
         border = QColor(T("color.bg.base"))
+        hover = self.chart.hoverInfo()
+        hovered = (
+            hover[1].get("dataIndex")
+            if hover is not None and hover[0] is self
+            else None
+        )
         for node in self._nodes:
             span = (node.a1 - node.a0) * anim_t
             if span <= 0.05:
@@ -1167,11 +1435,52 @@ class SunburstSeriesRenderer(SeriesRenderer):
             else:
                 path.lineTo(self._center)
             path.closeSubpath()
-            p.setPen(QPen(border, 1.0))
-            p.setBrush(node.color)
+            color = QColor(self.itemColor(node.style_index, default=node.color))
+            alpha = self.itemOpacity(node.style_index)
+            border_color, border_w = self.itemBorder(node.style_index)
+            if hovered is not None:
+                if node.style_index == hovered:
+                    emphasis = self.emphasisColor(node.style_index)
+                    color = emphasis if emphasis is not None else color.lighter(112)
+                else:
+                    blur = self.blurOpacity()
+                    alpha *= blur if blur is not None else 0.35
+            if alpha < 1.0:
+                color.setAlphaF(color.alphaF() * alpha)
+            p.setPen(QPen(border_color or border, border_w if border_w > 0 else 1.0))
+            p.setBrush(color)
             p.drawPath(path)
         self._paint_labels(p, anim_t)
         p.restore()
+
+    def onMousePress(self, pos: QPointF) -> bool:
+        """下钻交互：点击有子级扇区进入；点击中心孔返回上级。"""
+        center_dist = math.hypot(pos.x() - self._center.x(), pos.y() - self._center.y())
+        if center_dist <= max(2.0, self._r0) and self._focus_path:
+            self._focus_path.pop()
+            self.chart.invalidateLayout()
+            self.chart.update()
+            return True
+        hit = self.hitTest(pos)
+        if hit is None:
+            return False
+        index = hit.get("dataIndex")
+        if not isinstance(index, int) or not (0 <= index < len(self._nodes)):
+            return False
+        node = self._nodes[index]
+        if not node.children:
+            return False
+        self._focus_path = list(node.path)
+        self.chart.invalidateLayout()
+        self.chart.update()
+        return True
+
+    def resetDrill(self) -> None:
+        """返回顶层（ECharts sunburst 的返回根节点）。"""
+        if self._focus_path:
+            self._focus_path = []
+            self.chart.invalidateLayout()
+            self.chart.update()
 
     def _paint_labels(self, p, anim_t):
         label_opt = dict(self.opt.get("label") or {})
@@ -1209,7 +1518,7 @@ class SunburstSeriesRenderer(SeriesRenderer):
                 )
             p.restore()
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         if not self._nodes:
             return None
         dx = pos.x() - self._center.x()
@@ -1234,6 +1543,7 @@ class SunburstSeriesRenderer(SeriesRenderer):
             "value": best.value,
             "series": self.name,
             "depth": best.level,
+            "dataIndex": getattr(best, "style_index", None),
         }
 
 
@@ -1303,14 +1613,16 @@ def _squarify(items, rect):
 
 
 class TreemapSeriesRenderer(SeriesRenderer):
-    """矩形树图（squarified 布局，静态两级渲染）。
+    """矩形树图（squarified 布局，父子分层渲染）。
 
     option 键：
     - ``data``: [{"name","value","children":[...]}]；
-    - ``breadcrumb``: {"show": False}：顶部静态路径条（顶层分支名）；
+    - ``breadcrumb``: {"show": True}：顶部路径条（ECharts 默认显示）；
     - ``label``: {"show": True, "fontSize": px}（名称标签，矩形过小省略）；
     - ``gapWidth``: 矩形间隙 px（默认 1）；
-    - 颜色：顶层分支取调色板，子级同色相逐级递减明度。
+    - 颜色：顶层分支取调色板（``itemStyle.color`` 可覆盖），
+      子级同色相逐级递减明度；
+    - 交互：点击父块下钻，点击空白 / 面包屑返回上级（``resetDrill()`` 回顶层）。
     """
 
     def __init__(self, chart, opt):
@@ -1318,6 +1630,9 @@ class TreemapSeriesRenderer(SeriesRenderer):
         self._nodes = []  # 所有可见节点（父先子后，绘制时子覆盖父）
         self._crumb = ""
         self._crumb_y = 2.0
+        #: 下钻路径（子级下标序列；空 = 顶层）
+        self._focus_path = []
+        self._crumb_rect = QRectF()
 
     def layout(self, rect: QRectF) -> None:
         self._nodes = []
@@ -1326,8 +1641,25 @@ class TreemapSeriesRenderer(SeriesRenderer):
             self._crumb = ""
             return
         _assign_branch_colors(self.chart, roots)
+        # 下钻：按路径解析当前显示层级（路径失效时回到顶层）
+        display = roots
+        focus_names = []
+        prefix: tuple = ()
+        for idx in list(self._focus_path):
+            if 0 <= idx < len(display):
+                focus_names.append(display[idx].name)
+                prefix = prefix + (idx,)
+                display = display[idx].children
+            else:
+                self._focus_path = []
+                focus_names = []
+                prefix = ()
+                display = roots
+                break
         crumb_opt = dict(self.opt.get("breadcrumb") or {})
-        top_pad = 20.0 if bool(crumb_opt.get("show", False)) else 0.0
+        # ECharts 默认显示面包屑；顶部预留条带避免与内容重叠
+        self._crumb_show = bool(crumb_opt.get("show", True))
+        top_pad = 22.0 if self._crumb_show else 0.0
         area = QRectF(
             rect.left() + 2,
             rect.top() + top_pad + 2,
@@ -1335,30 +1667,76 @@ class TreemapSeriesRenderer(SeriesRenderer):
             max(4.0, rect.height() - top_pad - 4),
         )
         self._crumb = " / ".join(r.name for r in roots if r.name)
-        self._crumb_y = rect.top() + 2  # 内容区顶部（避开 title 条带）
+        self._crumb_y = rect.top() + 3
         gap = _clamp(_to_float(self.opt.get("gapWidth"), 1.0), 0.0, 8.0)
+        order = [0]
 
-        def lay(node, r):
+        def lay(node, r, path=()):
             node.rect = r
+            node.style_index = order[0]
+            node.path = path
+            order[0] += 1
             self._nodes.append(node)  # 父先子后，绘制顺序正确（子覆盖父）
             if not node.children or r.width() < 10 or r.height() < 10:
                 return
             inner = QRectF(r).adjusted(1, 1, -1, -1)
+            # 父容器：顶部预留 header 条带（ECharts 父子分层观感）
+            header_h = 16.0 if r.height() > 34 else 0.0
+            inner.setTop(inner.top() + header_h)
+            if inner.width() < 6 or inner.height() < 6:
+                return
             items = [(id(c), c.value) for c in node.children]
             rects = _squarify(items, inner)
-            for c in node.children:
+            for child_index, c in enumerate(node.children):
                 cr = rects.get(id(c))
                 if cr is None:
                     continue
-                lay(c, cr.adjusted(gap / 2, gap / 2, -gap / 2, -gap / 2))
+                lay(
+                    c,
+                    cr.adjusted(gap / 2, gap / 2, -gap / 2, -gap / 2),
+                    path + (child_index,),
+                )
 
-        items = [(id(r_), r_.value) for r_ in roots]
+        items = [(id(r_), r_.value) for r_ in display]
         rects = _squarify(items, area)
-        for root in roots:
+        for root_index, root in enumerate(display):
             rr = rects.get(id(root))
             if rr is None:
                 continue
-            lay(root, rr.adjusted(gap / 2, gap / 2, -gap / 2, -gap / 2))
+            lay(
+                root,
+                rr.adjusted(gap / 2, gap / 2, -gap / 2, -gap / 2),
+                prefix + (root_index,),
+            )
+        self._crumb = " / ".join(focus_names) if focus_names else ""
+
+    def onMousePress(self, pos: QPointF) -> bool:
+        """下钻交互：点击父块进入；点击空白 / 面包屑返回上级。"""
+        hit = self.hitTest(pos)
+        if hit is None:
+            if self._focus_path:
+                self._focus_path.pop()
+                self.chart.invalidateLayout()
+                self.chart.update()
+                return True
+            return False
+        index = hit.get("dataIndex")
+        if not isinstance(index, int) or not (0 <= index < len(self._nodes)):
+            return False
+        node = self._nodes[index]
+        if not node.children:
+            return False
+        self._focus_path = list(node.path)
+        self.chart.invalidateLayout()
+        self.chart.update()
+        return True
+
+    def resetDrill(self) -> None:
+        """返回顶层。"""
+        if self._focus_path:
+            self._focus_path = []
+            self.chart.invalidateLayout()
+            self.chart.update()
 
     def paint(self, p: QPainter, anim_t: float) -> None:
         if not self._nodes:
@@ -1370,34 +1748,55 @@ class TreemapSeriesRenderer(SeriesRenderer):
         p.setFont(font)
         fm = QFontMetricsF(font)
         border = QColor(T("color.bg.base"))
-        # 入场：整体由透明渐入 + 轻微缩放
+        hover = self.chart.hoverInfo()
+        hovered = (
+            hover[1].get("dataIndex")
+            if hover is not None and hover[0] is self
+            else None
+        )
         for node in self._nodes:
             r = node.rect
             if r.width() <= 0.5 or r.height() <= 0.5:
                 continue
-            color = with_alpha(node.color, 60 + 195 * anim_t)
-            p.setPen(QPen(border, 1.0))
+            color = QColor(self.itemColor(node.style_index, default=node.color))
+            alpha = self.itemOpacity(node.style_index)
+            if hovered is not None:
+                if node.style_index == hovered:
+                    color = color.lighter(112)
+                else:
+                    alpha *= 0.35
+            color = with_alpha(color, int((60 + 195 * anim_t) * alpha))
+            border_color, border_w = self.itemBorder(node.style_index)
+            p.setPen(QPen(border_color or border, border_w or 1.0))
             p.setBrush(color)
             p.drawRect(r)
             if not label_show or not node.name:
+                continue
+            is_parent = bool(node.children)
+            if is_parent:
+                # 父级标签画在 header 区（顶部）
+                if r.height() < 20:
+                    continue
+                p.setPen(QColor(ON_FILL_WHITE))
+                p.drawText(
+                    QRectF(r.left() + 4, r.top() + 1, r.width() - 8, 15),
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                    node.name,
+                )
                 continue
             if (
                 r.width() < fm.horizontalAdvance(node.name) * 0.9
                 or r.height() < fm.height() + 2
             ):
                 continue  # 矩形过小省略标签
-            p.setPen(
-                QColor(ON_FILL_WHITE)
-                if node.depth == 0
-                else with_alpha(QColor(ON_FILL_WHITE), 230)
-            )
+            p.setPen(with_alpha(QColor(ON_FILL_WHITE), 230))
             p.drawText(
                 QRectF(r.left() + 3, r.top() + 1, r.width() - 6, fm.height()),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 node.name,
             )
-        # 顶部静态 breadcrumb（内容区顶部条）
-        if self._crumb:
+        # 顶部面包屑（默认显示，drill 后为当前焦点路径）
+        if getattr(self, "_crumb_show", False) and self._crumb:
             p.setFont(font)
             p.setPen(_text_color("color.text.secondary"))
             p.drawText(
@@ -1412,7 +1811,7 @@ class TreemapSeriesRenderer(SeriesRenderer):
             )
         p.restore()
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         best = None
         for node in self._nodes:
             if node.rect.contains(pos):
@@ -1425,6 +1824,7 @@ class TreemapSeriesRenderer(SeriesRenderer):
             "value": best.value,
             "series": self.name,
             "depth": best.depth,
+            "dataIndex": getattr(best, "style_index", None),
         }
 
 
@@ -1439,7 +1839,7 @@ class TreeSeriesRenderer(SeriesRenderer):
     option 键：
     - ``data``: [根节点 {"name","children":[...]}]（多根取首个为主，其余并列显示）；
     - ``orient``: "LR"（默认，左根右叶）/ "TB"（上根下叶）；
-    - ``edge``: "polyline"（默认，正交折线）/ "curve"（贝塞尔曲线）；
+    - ``edgeShape``: "polyline"（默认正交折线）/ "curve"（贝塞尔曲线）；
     - ``label``: {"show": True, "fontSize": px}（节点名称）；
     - ``symbolSize``: 节点圆点直径 px（默认 8）。
     """
@@ -1520,7 +1920,7 @@ class TreeSeriesRenderer(SeriesRenderer):
             return
         p.save()
         orient = str(self.opt.get("orient") or "LR").upper()
-        edge = str(self.opt.get("edge") or "polyline")
+        edge = str(self.opt.get("edgeShape") or "polyline")
         c_line = _text_color("color.border.strong")
         pen = QPen(c_line, 1.2)
         p.setPen(pen)
@@ -1593,7 +1993,7 @@ class TreeSeriesRenderer(SeriesRenderer):
                     )
         p.restore()
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         best = None
         best_d = 12.0
         for node, pt in self._nodes:
@@ -1807,28 +2207,64 @@ class SankeySeriesRenderer(SeriesRenderer):
                     "source": nodes[s]["name"],
                     "target": nodes[t]["name"],
                     "value": lk["value"],
+                    "source_color": _series_palette_color(self.chart, s),
+                    "target_color": _series_palette_color(self.chart, t),
                     "color": _series_palette_color(self.chart, s),
                 }
             )
         for i, nd in enumerate(nodes):
             self._nodes.append(
                 {
+                    "index": i,
                     "name": nd["name"],
                     "value": values[i],
                     "rect": node_rect[i],
                     "depth": depth[i],
-                    "color": _series_palette_color(self.chart, i),
+                    "color": self.itemColor(
+                        i, default=_series_palette_color(self.chart, i)
+                    ),
                 }
             )
+
+    def _band_brush(self, band, anim_t):
+        """流带画刷：``lineStyle.color`` 支持 source（默认）/ target / gradient / 色值。"""
+        line_style = self.opt.get("lineStyle") or {}
+        mode = line_style.get("color")
+        opacity = 70.0
+        if isinstance(line_style.get("opacity"), (int, float)):
+            opacity = 255.0 * _clamp(float(line_style["opacity"]), 0.0, 1.0)
+        if mode == "target":
+            return with_alpha(band["target_color"], int(opacity * anim_t))
+        if mode == "gradient":
+            rect = band["path"].boundingRect()
+            grad = QLinearGradient(rect.topLeft(), rect.topRight())
+            grad.setColorAt(
+                0.0, with_alpha(band["source_color"], int(opacity * anim_t))
+            )
+            grad.setColorAt(
+                1.0, with_alpha(band["target_color"], int(opacity * anim_t))
+            )
+            return grad
+        if isinstance(mode, str) and mode not in ("source",):
+            color = QColor(mode)
+            if color.isValid():
+                return with_alpha(color, int(opacity * anim_t))
+        return with_alpha(band["source_color"], int(opacity * anim_t))
 
     def paint(self, p: QPainter, anim_t: float) -> None:
         if not self._nodes:
             return
         p.save()
-        # 流带（源色半透明；anim_t 渐入）
+        hover = self.chart.hoverInfo()
+        hovered = (
+            hover[1].get("dataIndex")
+            if hover is not None and hover[0] is self
+            else None
+        )
+        # 流带（默认源色半透明；anim_t 渐入）
         for band in self._bands:
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(with_alpha(band["color"], int(70 * anim_t)))
+            p.setBrush(self._band_brush(band, anim_t))
             p.drawPath(band["path"])
         # 节点 + 标签
         label_opt = dict(self.opt.get("label") or {})
@@ -1840,8 +2276,17 @@ class SankeySeriesRenderer(SeriesRenderer):
         max_depth = max((nd["depth"] for nd in self._nodes), default=0)
         for nd in self._nodes:
             r = nd["rect"]
+            color = QColor(nd["color"])
+            alpha = self.itemOpacity(nd["index"])
+            if hovered is not None:
+                if nd["index"] == hovered:
+                    emphasis = self.emphasisColor(nd["index"])
+                    color = emphasis if emphasis is not None else color.lighter(112)
+                else:
+                    blur = self.blurOpacity()
+                    alpha *= blur if blur is not None else 0.4
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(with_alpha(nd["color"], int(255 * anim_t)))
+            p.setBrush(with_alpha(color, int(255 * anim_t * alpha)))
             p.drawRect(r)
             if not label_show:
                 continue
@@ -1871,7 +2316,7 @@ class SankeySeriesRenderer(SeriesRenderer):
                 )
         p.restore()
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         for nd in self._nodes:
             if nd["rect"].contains(pos):
                 return {
@@ -1879,6 +2324,7 @@ class SankeySeriesRenderer(SeriesRenderer):
                     "value": nd["value"],
                     "series": self.name,
                     "depth": nd["depth"],
+                    "dataIndex": nd.get("index"),
                 }
         for band in self._bands:
             if band["path"].contains(pos):
@@ -1901,33 +2347,68 @@ class GraphSeriesRenderer(SeriesRenderer):
     """关系图（节点 + 边）。
 
     option 键：
-    - ``data`` / ``nodes``: [{"name","symbolSize","value"}]；
+    - ``data`` / ``nodes``: [{"name","symbolSize","value","category","itemStyle"}]；
+    - ``categories``: ["分类"] 或 [{"name","itemStyle":{"color"}}]（节点分类着色）；
     - ``links``: [{"source","target"}]（名称或下标）；
     - ``layout``: "force"（默认，斥力 + 引力迭代 ~80 轮，确定性随机种子
       保证可复现）/ "circular"（均布圆环）；
     - ``force``: {"seed": 42, "iterations": 80, "repulsion": 1.0}；
     - ``label``: {"show": True, "fontSize": px}（节点名称）；
-    - ``symbolSize``: 默认节点直径 px（节点级 symbolSize 优先）。
+    - ``symbolSize``: 默认节点直径 px（节点级 symbolSize 优先）；
+    - ``draggable``: True 时按住节点拖拽调整位置（拖拽后位置固定，布局重算
+      不覆盖；ECharts 默认 False）；
+    - ``roam``: True / "scale" / "move" 开启滚轮缩放 + 空白处拖拽平移，
+      ``zoom`` 为初始缩放倍数，``resetRoam()`` 复位。
     """
 
     def __init__(self, chart, opt):
         super().__init__(chart, opt)
         self._nodes = []  # [dict(name,size,pos=QPointF,color)]
         self._edges = []  # [(i, j)]
+        self._drag_index = None
+        self._fixed: dict = {}  # 拖拽后的固定位置 {节点下标: QPointF}
+        self._pan = QPointF()
+        self._pan_start = None
+        self._plot = QRectF()
+        self._roam = self._parse_roam()
+        try:
+            self._zoom = max(0.2, min(5.0, float(opt.get("zoom") or 1.0)))
+        except (TypeError, ValueError):
+            self._zoom = 1.0
+
+    def _parse_roam(self):
+        """``roam`` → ("scale" 是否可缩放, "move" 是否可平移)。"""
+        roam = self.opt.get("roam", False)
+        if roam in (None, False):
+            return (False, False)
+        if roam is True:
+            return (True, True)
+        text = str(roam).lower()
+        return ("scale" in text or text == "true", "move" in text or text == "true")
 
     def _parse(self):
         raw_nodes = self.opt.get("data")
         if not isinstance(raw_nodes, list) or not raw_nodes:
             raw_nodes = self.opt.get("nodes")
+        categories = self.opt.get("categories") or []
         nodes = []
         name_index = {}
         for i, item in enumerate(raw_nodes or []):
             if isinstance(item, dict):
                 name = str(item.get("name") or f"node{i}")
                 size = item.get("symbolSize")
+                category = item.get("category")
+                item_style = self.itemStyleOf(item)
             else:
-                name, size = str(item), None
-            nodes.append({"name": name, "size": size})
+                name, size, category, item_style = str(item), None, None, {}
+            nodes.append(
+                {
+                    "name": name,
+                    "size": size,
+                    "category": category,
+                    "itemStyle": item_style,
+                }
+            )
             name_index.setdefault(name, i)
         edges = []
 
@@ -1946,13 +2427,38 @@ class GraphSeriesRenderer(SeriesRenderer):
             if s is None or t is None or s == t:
                 continue
             edges.append((s, t))
-        return nodes, edges
+        return nodes, edges, categories
+
+    def _category_color(self, category, categories):
+        """分类着色：categories[category].itemStyle.color 优先，否则分类下标取色。"""
+        if isinstance(category, bool) or category is None:
+            return None
+        if isinstance(category, (int, float)):
+            index = int(category)
+        else:
+            index = None
+            for i, cat in enumerate(categories):
+                name = cat.get("name") if isinstance(cat, dict) else cat
+                if str(name) == str(category):
+                    index = i
+                    break
+        if index is None or not (0 <= index < len(categories)):
+            return None
+        cat = categories[index]
+        if isinstance(cat, dict):
+            item_style = cat.get("itemStyle") or {}
+            raw = item_style.get("color")
+            if isinstance(raw, str) and raw:
+                color = QColor(raw)
+                if color.isValid():
+                    return color
+        return _series_palette_color(self.chart, index)
 
     # -- 布局 --------------------------------------------------------------
     def layout(self, rect: QRectF) -> None:
         self._nodes = []
         self._edges = []
-        nodes, edges = self._parse()
+        nodes, edges, categories = self._parse()
         if not nodes:
             return
         n = len(nodes)
@@ -1966,6 +2472,7 @@ class GraphSeriesRenderer(SeriesRenderer):
             max(20.0, rect.width() - pad * 2),
             max(20.0, rect.height() - pad * 2),
         )
+        self._plot = QRectF(plot)
         if mode == "circular":
             positions = []
             cx, cy = plot.center().x(), plot.center().y()
@@ -1978,14 +2485,105 @@ class GraphSeriesRenderer(SeriesRenderer):
         default_size = _to_float(self.opt.get("symbolSize"), 14.0)
         for i, nd in enumerate(nodes):
             size = _to_float(nd["size"], default_size)
+            fixed = self._fixed.get(i)
+            pos = (
+                QPointF(fixed)
+                if fixed is not None
+                else QPointF(positions[i][0], positions[i][1])
+            )
+            category_color = self._category_color(nd["category"], categories)
             self._nodes.append(
                 {
                     "name": nd["name"],
                     "size": _clamp(size, 4.0, 60.0),
-                    "pos": QPointF(positions[i][0], positions[i][1]),
-                    "color": _series_palette_color(self.chart, i),
+                    "pos": pos,
+                    "color": category_color or _series_palette_color(self.chart, i),
+                    "item_style": nd["itemStyle"],
                 }
             )
+
+    # -- 交互：节点拖拽 / roam ----------------------------------------------
+    def _transform(self, pt: QPointF) -> QPointF:
+        """布局坐标 → 屏幕坐标（roam 缩放 / 平移）。"""
+        if self._zoom == 1.0 and self._pan.isNull():
+            return QPointF(pt)
+        c = self._plot.center()
+        return QPointF(
+            c.x() + (pt.x() - c.x()) * self._zoom + self._pan.x(),
+            c.y() + (pt.y() - c.y()) * self._zoom + self._pan.y(),
+        )
+
+    def _inverse(self, pos: QPointF) -> QPointF:
+        """屏幕坐标 → 布局坐标（拖拽时用）。"""
+        if self._zoom == 1.0 and self._pan.isNull():
+            return QPointF(pos)
+        c = self._plot.center()
+        return QPointF(
+            c.x() + (pos.x() - c.x() - self._pan.x()) / self._zoom,
+            c.y() + (pos.y() - c.y() - self._pan.y()) / self._zoom,
+        )
+
+    def onMousePress(self, pos: QPointF) -> bool:
+        if bool(self.opt.get("draggable", False)):
+            for i, nd in enumerate(self._nodes):
+                if _dist(pos, self._transform(nd["pos"])) <= max(
+                    nd["size"] / 2 + 2, 8.0
+                ):
+                    self._drag_index = i
+                    return True
+        if self._roam[1]:
+            self._pan_start = QPointF(pos)
+            return True
+        return False
+
+    def onMouseMove(self, pos: QPointF) -> bool:
+        if self._drag_index is not None:
+            layout_pos = self._inverse(pos)
+            self._fixed[self._drag_index] = layout_pos
+            self._nodes[self._drag_index]["pos"] = layout_pos
+            self.chart.update()
+            return True
+        if self._pan_start is not None:
+            self._pan = QPointF(pos) - self._pan_start
+            self.chart.update()
+            return True
+        return False
+
+    def onMouseRelease(self, pos: QPointF) -> bool:
+        if self._drag_index is not None:
+            layout_pos = self._inverse(pos)
+            self._fixed[self._drag_index] = layout_pos
+            self._drag_index = None
+            return True
+        if self._pan_start is not None:
+            self._pan_start = None
+            return True
+        return False
+
+    def onWheel(self, event) -> bool:
+        if not self._roam[0]:
+            return False
+        delta = event.angleDelta().y()
+        if delta == 0:
+            return False
+        factor = 1.15 if delta > 0 else 1 / 1.15
+        self._zoom = max(0.2, min(5.0, self._zoom * factor))
+        self.chart.update()
+        return True
+
+    def resetRoam(self) -> None:
+        """复位 roam 缩放 / 平移（ECharts restore 语义）。"""
+        self._pan = QPointF()
+        self._pan_start = None
+        self._zoom = 1.0
+        self.chart.update()
+
+    def resetPositions(self) -> None:
+        """清除拖拽固定位置，恢复自动布局。"""
+        if self._fixed:
+            self._fixed = {}
+            self.chart.invalidateLayout()
+            self.chart.update()
 
     def _force_layout(self, nodes, edges, plot, force_opt):
         """Fruchterman-Reingold 简化力导布局（确定性随机种子）。"""
@@ -2057,7 +2655,7 @@ class GraphSeriesRenderer(SeriesRenderer):
                 center.y() + (pt.y() - center.y()) * anim_t,
             )
 
-        pts = [anim_pos(nd) for nd in self._nodes]
+        pts = [self._transform(anim_pos(nd)) for nd in self._nodes]
         # 边
         p.setPen(QPen(with_alpha(_text_color("color.border.strong"), 160), 1.2))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2070,10 +2668,33 @@ class GraphSeriesRenderer(SeriesRenderer):
         font = _label_font(label_opt.get("fontSize"))
         p.setFont(font)
         fm = QFontMetricsF(font)
-        for nd, pt in zip(self._nodes, pts):
+        hover = self.chart.hoverInfo()
+        hovered = (
+            hover[1].get("dataIndex")
+            if hover is not None and hover[0] is self
+            else None
+        )
+        for i, (nd, pt) in enumerate(zip(self._nodes, pts)):
             r = nd["size"] / 2
+            style = nd.get("item_style") or {}
+            raw = style.get("color")
+            color = QColor(raw) if isinstance(raw, str) and raw else QColor(nd["color"])
+            alpha = self.itemOpacity(i)
+            if hovered is not None:
+                if i == hovered or i == self._drag_index:
+                    if i == hovered:
+                        emphasis = self.emphasisColor(i)
+                        if emphasis is not None:
+                            color = emphasis
+                        else:
+                            color = color.lighter(112)
+                elif i != self._drag_index:
+                    blur = self.blurOpacity()
+                    alpha *= blur if blur is not None else 0.4
+            if alpha < 1.0:
+                color.setAlphaF(color.alphaF() * alpha)
             p.setPen(QPen(QColor(T("color.bg.elevated")), 1.5))
-            p.setBrush(nd["color"])
+            p.setBrush(color)
             p.drawEllipse(pt, r, r)
             if label_show and nd["name"]:
                 p.setPen(_text_color("color.text.primary"))
@@ -2085,11 +2706,11 @@ class GraphSeriesRenderer(SeriesRenderer):
                 )
         p.restore()
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         best = None
         best_d = 1e9
         for i, nd in enumerate(self._nodes):
-            d = _dist(pos, nd["pos"])
+            d = _dist(pos, self._transform(nd["pos"]))
             if d <= nd["size"] / 2 + 4 and d < best_d:
                 best_d = d
                 best = (i, nd)
@@ -2100,7 +2721,7 @@ class GraphSeriesRenderer(SeriesRenderer):
 
 
 # ---------------------------------------------------------------------------
-# 10. lines 线图（Grid 直角坐标 + trailEffect 移动亮点）
+# 10. lines 线图（Grid 直角坐标 + effect 移动亮点）
 # ---------------------------------------------------------------------------
 
 
@@ -2112,10 +2733,9 @@ class LinesSeriesRenderer(SeriesRenderer):
     - ``data``: [{"coords": [[x1, y1], [x2, y2]]}, ...]；
     - ``lineStyle``: {"width": px, "color": "#..."（缺省取系列色）,
       "curveness": 0.0（>0 时二次贝塞尔弯曲）}；
-    - ``trailEffect``: {"show": False, "period": 4（秒 / 全程）,
+    - ``effect``: {"show": True, "period": 4（秒 / 全程）,
       "symbolSize": 6, "color": "#..."}（QTimer 驱动移动亮点，生命周期挂
-      ChartWidget，渲染器替换时自动停止，不泄漏）；
-    - ``effect``: {"show": ...} 作为 trailEffect 别名兼容。
+      ChartWidget，渲染器替换时自动停止，不泄漏）。
     """
 
     def __init__(self, chart, opt):
@@ -2132,18 +2752,19 @@ class LinesSeriesRenderer(SeriesRenderer):
             self._timer = timer
 
     def _effect_opt(self):
-        eff = self.opt.get("trailEffect")
-        if not isinstance(eff, dict):
-            eff = self.opt.get("effect")
+        eff = self.opt.get("effect")
         return dict(eff or {})
 
     def _on_tick(self):
-        """亮点推进。仅可见时 tick（渲染器替换自动停止；legend 隐藏暂停）。"""
+        """亮点推进。仅可见时 tick（渲染器替换自动停止；legend 隐藏暂停）。
+
+        整个回调包裹：Qt 定时器回调中抛出的异常会终止进程。
+        """
         timer = self._timer
         if timer is None:
             return
         try:
-            alive = self in self.chart.series_renderers
+            alive = self in self.chart.seriesRenderers
         except RuntimeError:
             alive = False  # chart 已销毁
         if not alive:
@@ -2157,20 +2778,29 @@ class LinesSeriesRenderer(SeriesRenderer):
             return
         if not timer.isActive():
             timer.start()
-        effect = self._effect_opt()
-        period = max(0.5, _to_float(effect.get("period"), 4.0))
-        self._phase = (self._phase + 0.04 / period) % 1.0
-        self.chart.update()
+        try:
+            effect = self._effect_opt()
+            period = max(0.5, _to_float(effect.get("period"), 4.0))
+            self._phase = (self._phase + 0.04 / period) % 1.0
+            self.chart.update()
+        except RuntimeError:
+            timer.stop()
+            timer.deleteLater()
+            self._timer = None
+        except Exception:
+            timer.stop()
+            timer.deleteLater()
+            self._timer = None
 
     def _on_visible_changed(self):
-        """显隐变化钩子（core.set_series_visible 调用）：显示恢复时重启定时器。"""
+        """显隐变化钩子（core 图例显隐调用）：显示恢复时重启定时器。"""
         if self.visible and self._timer is not None and not self._timer.isActive():
             self._timer.start()
 
     def layout(self, rect: QRectF) -> None:
         self._segments = []
-        coord = self.chart.coord_for(self.opt)
-        if coord is None or not hasattr(coord, "map_point"):
+        coord = self.chart.coordFor(self.opt)
+        if coord is None or not hasattr(coord, "mapPoint"):
             return
         for item in self.data():
             if not isinstance(item, dict):
@@ -2187,8 +2817,8 @@ class LinesSeriesRenderer(SeriesRenderer):
             ):
                 continue
             try:
-                p0 = coord.map_point(c0[0], c0[1])
-                p1 = coord.map_point(c1[0], c1[1])
+                p0 = coord.mapPoint(c0[0], c0[1])
+                p1 = coord.mapPoint(c1[0], c1[1])
             except Exception:
                 continue
             self._segments.append(
@@ -2233,7 +2863,7 @@ class LinesSeriesRenderer(SeriesRenderer):
         for seg in self._segments:
             p.drawEllipse(seg["p0"], 2.5, 2.5)
             p.drawEllipse(seg["p1"], 2.5, 2.5)
-        # trailEffect 移动亮点
+        # effect 移动亮点
         effect = self._effect_opt()
         if bool(effect.get("show", False)) and anim_t > 0.5:
             dot_size = _to_float(effect.get("symbolSize"), 6.0)
@@ -2254,7 +2884,7 @@ class LinesSeriesRenderer(SeriesRenderer):
                 p.drawEllipse(pt, dot_size / 2, dot_size / 2)
         p.restore()
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         best = None
         best_d = 8.0
         for i, seg in enumerate(self._segments):
@@ -2273,13 +2903,13 @@ class LinesSeriesRenderer(SeriesRenderer):
         }
 
 
-register_series("pie", PieSeriesRenderer)
-register_series("radar", RadarSeriesRenderer)
-register_series("gauge", GaugeSeriesRenderer)
-register_series("funnel", FunnelSeriesRenderer)
-register_series("sunburst", SunburstSeriesRenderer)
-register_series("treemap", TreemapSeriesRenderer)
-register_series("tree", TreeSeriesRenderer)
-register_series("sankey", SankeySeriesRenderer)
-register_series("graph", GraphSeriesRenderer)
-register_series("lines", LinesSeriesRenderer)
+registerSeries("pie", PieSeriesRenderer)
+registerSeries("radar", RadarSeriesRenderer)
+registerSeries("gauge", GaugeSeriesRenderer)
+registerSeries("funnel", FunnelSeriesRenderer)
+registerSeries("sunburst", SunburstSeriesRenderer)
+registerSeries("treemap", TreemapSeriesRenderer)
+registerSeries("tree", TreeSeriesRenderer)
+registerSeries("sankey", SankeySeriesRenderer)
+registerSeries("graph", GraphSeriesRenderer)
+registerSeries("lines", LinesSeriesRenderer)

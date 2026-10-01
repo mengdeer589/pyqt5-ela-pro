@@ -3,21 +3,21 @@
 
 本模块提供：
 
-- ``DataZoomComponent``（option_key="dataZoom"）：inside（滚轮缩放 +
+- ``DataZoomComponent``（optionKey="dataZoom"）：inside（滚轮缩放 +
   按住拖拽平移）与 slider（底部双把手滑块，自绘）两种区域缩放；
   通过修改 GridCoord 主轴（x 轴）的可视范围实现（category 轴替换
   类别窗口、value 轴调整 vmin/vmax 并重算 nice ticks）；``restore()``
   还原初始窗口。
-- ``BrushComponent``（option_key="brush"）：矩形刷选，半透明选框，
+- ``BrushComponent``（optionKey="brush"）：矩形刷选，半透明选框，
   命中数据点存入 ``self.selected_items`` 并发出 ``selected(list)`` 信号；
   支持 option ``brush.outOfBrush`` 框外降透明样式。
-- ``VisualMapComponent``（option_key="visualMap"）：连续值→颜色映射，
-  右下 / 底部渐变条 + 两端数值标签；``map_color(v)`` 供系列（如 map）
+- ``VisualMapComponent``（optionKey="visualMap"）：连续值→颜色映射，
+  右下 / 底部渐变条 + 两端数值标签；``mapColor(v)`` 供系列（如 map）
   经 chart.components 查找调用。
-- ``ChartTimeline``（option_key="timeline"）：底部时间轴（节点圆点 +
-  年份标签 + 播放 / 暂停按钮），切换帧调用
-  ``chart.update_option(option["options"][i])``，autoPlay 经 QTimer。
-- ``ToolboxComponent``（option_key="toolbox"）：右上角自绘图标按钮组
+- ``ChartTimeline``（optionKey="timeline"）：底部时间轴（节点圆点 +
+  年份标签 + 播放 / 暂停按钮），切换帧以 ``baseOption`` 深合并
+  ``options[i]`` 后 notMerge 应用；autoPlay 经 QTimer。
+- ``ToolboxComponent``（optionKey="toolbox"）：右上角自绘图标按钮组
   （saveAsImage / restore / dataZoom 开关）。
 
 移植自 InstructionX_UIKit.charts.interact（PySide6 → PyQt5；主题令牌
@@ -26,26 +26,22 @@
 
 from __future__ import annotations
 
-import os
-
 from PyQt5.QtCore import QEvent, QObject, QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import (
     QColor,
     QFontMetricsF,
-    QGuiApplication,
     QLinearGradient,
     QPainter,
     QPainterPath,
     QPen,
 )
-from PyQt5.QtWidgets import QFileDialog
 
 from ._tokens import T
 from ._utils import clamp as _clamp
 from ._utils import to_float as _to_float
 from ._utils import warn_once
-from .axes import GridCoord, chart_font, format_value, nice_ticks
-from .core import parse_data_point, register_component
+from .axes import GridCoord, chartFont, formatValue, niceTicks
+from .core import parseDataPoint, registerComponent
 
 __all__ = [
     "DataZoomComponent",
@@ -71,19 +67,19 @@ class DataZoomComponent(QObject):
 
     start / end 为 0-100 的百分比窗口。缩放作用于主 GridCoord 的 x 轴：
     category 轴以类别子窗口替换 ``axis.categories``，value 轴调整
-    ``vmin/vmax`` 并经 nice_ticks 重算刻度；均为幂等修改（基于缓存的
+    ``vmin/vmax`` 并经 niceTicks 重算刻度；均为幂等修改（基于缓存的
     完整数据计算），每次布局重放，不污染原始 option。
 
     inside 的滚轮经 chart 上的事件过滤器拦截（core 未提供 wheel 钩子，
     重建时旧过滤器会被移除，不会累积）。toolbox 的 dataZoom 开关经
-    ``chart.datazoom_enabled`` 属性关闭 inside 交互（slider 常可用）。
+    ``chart._dataZoomEnabled`` 属性关闭 inside 交互（slider 常可用）。
 
     **与 brush 共存时的显式优先级**：option 同时配置 brush 时，plot 内
     左键拖拽归 brush（矩形刷选），inside 仅保留滚轮缩放（见
-    ``on_mouse_press`` 的 ``_brush_active`` 判断）。
+    ``onMousePress`` 的 ``_brush_active`` 判断）。
     """
 
-    option_key = "dataZoom"
+    optionKey = "dataZoom"
 
     #: 滑块条带高度
     SLIDER_H = 24.0
@@ -125,7 +121,7 @@ class DataZoomComponent(QObject):
 
     # -- 轴窗口 ------------------------------------------------------------
     def _axis(self):
-        coord = self.chart.primary_coord()
+        coord = self.chart.primaryCoord()
         if isinstance(coord, GridCoord):
             return coord.x_axis
         return None
@@ -164,22 +160,31 @@ class DataZoomComponent(QObject):
             axis.vmax = lo + end / 100.0 * span
             if axis.vmax <= axis.vmin:
                 axis.vmax = axis.vmin + max(1e-6, span * 0.01)
-            _, _, ticks = nice_ticks(axis.vmin, axis.vmax)
+            _, _, ticks = niceTicks(axis.vmin, axis.vmax)
             axis._ticks = ticks
 
     def restore(self) -> None:
         """还原初始窗口（toolbox restore 调用）。"""
+        before = (float(self.start), float(self.end))
         self.start = self.init_start
         self.end = self.init_end
         self.apply()
-        self.chart.invalidate_layout()  # 窗口变化 → 失效布局缓存
+        self.chart.invalidateLayout()  # 窗口变化 → 失效布局缓存
         self.chart.update()
+        self._emit_changed(before)
+
+    def reserveBottom(self) -> float:
+        """底部滑块条带高度：轨道 + 百分比标签（无 slider 时为 0）。"""
+        if self.has_slider:
+            return self.SLIDER_H + 20.0
+        return 0.0
 
     # -- 布局 / 绘制（slider） ---------------------------------------------
     def layout(self, rect: QRectF) -> None:
         if self.has_slider:
             h = self.SLIDER_H
-            y = rect.bottom() - h - 2
+            # 底部预留 20px 给百分比标签（reserveBottom 与之匹配）
+            y = rect.bottom() - h - 20
             band = QRectF(rect.left() + 16, y, max(40.0, rect.width() - 32), h)
             track_h = 8.0
             self._track = QRectF(
@@ -226,7 +231,7 @@ class DataZoomComponent(QObject):
             p.drawLine(QPointF(cx - 2, r.top() + 4), QPointF(cx - 2, r.bottom() - 4))
             p.drawLine(QPointF(cx + 2, r.top() + 4), QPointF(cx + 2, r.bottom() - 4))
         # 百分比标签
-        font = chart_font(T("font.xs"))
+        font = chartFont(T("font.xs"))
         p.setFont(font)
         fm = QFontMetricsF(font)
         p.setPen(QColor(T("color.text.tertiary")))
@@ -245,10 +250,120 @@ class DataZoomComponent(QObject):
 
     # -- inside 交互 ---------------------------------------------------------
     def _inside_enabled(self) -> bool:
-        return self.has_inside and bool(getattr(self.chart, "datazoom_enabled", True))
+        return (
+            self.has_inside
+            and bool(getattr(self.chart, "_dataZoomEnabled", True))
+            and bool(
+                getattr(self.chart, "isInteractionEnabled", lambda _f: True)("dataZoom")
+            )
+        )
+
+    # -- 窗口约束 / 程序化动作 --------------------------------------------
+    def _span_limits(self):
+        """``minSpan`` / ``maxSpan``（取自首个 dataZoom 条目）。"""
+        first = self.entries[0] if self.entries else {}
+        return (
+            _to_float(first.get("minSpan"), None),
+            _to_float(first.get("maxSpan"), None),
+        )
+
+    def _clamp_span(self, start: float, end: float):
+        """按 ``minSpan`` / ``maxSpan`` 约束窗口并收敛回 [0, 100]。"""
+        min_span, max_span = self._span_limits()
+        span = max(0.0, float(end) - float(start))
+        if min_span is not None and span < min_span:
+            span = min_span
+        if max_span is not None and span > max_span:
+            span = max_span
+        span = _clamp(span, 1.0, 100.0)
+        center = (float(start) + float(end)) / 2.0
+        start = _clamp(center - span / 2.0, 0.0, max(0.0, 100.0 - span))
+        return start, start + span
+
+    def applyAction(self, payload: dict) -> bool:
+        """``dispatchAction({"type": "dataZoom", ...})``：
+
+        支持 ``start`` / ``end``（百分比）与 ``startValue`` / ``endValue``
+        （category 轴为类别名或下标，value 轴为数值）；可选 ``zoomLock``
+        保持窗口跨度；``dataZoomIndex`` 仅支持 0（单窗口引擎）。
+        """
+        if not isinstance(payload, dict):
+            return False
+        index = payload.get("dataZoomIndex")
+        if index is not None:
+            try:
+                if int(index) != 0:
+                    return False
+            except (TypeError, ValueError):
+                return False
+        axis = self._axis()
+        if axis is None:
+            return False
+        self._capture_full(axis)
+        start = _to_float(payload.get("start"), None)
+        end = _to_float(payload.get("end"), None)
+        if start is None and end is None:
+            sv = payload.get("startValue")
+            ev = payload.get("endValue")
+            if sv is None and ev is None:
+                return False
+            if axis.type == "category":
+                full = self._full_cats or []
+                n = len(full)
+                if n == 0:
+                    return False
+
+                def _index_of(value):
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        return _clamp(int(value), 0, n - 1)
+                    try:
+                        return full.index(str(value))
+                    except ValueError:
+                        return None
+
+                i0 = _index_of(sv) if sv is not None else 0
+                i1 = _index_of(ev) if ev is not None else n - 1
+                if i0 is None or i1 is None:
+                    return False
+                if i1 < i0:
+                    i0, i1 = i1, i0
+                start = i0 / n * 100.0
+                end = (i1 + 1) / n * 100.0
+            else:
+                if self._full_range is None:
+                    return False
+                lo, hi = self._full_range
+                span = hi - lo or 1.0
+
+                def _pct(value):
+                    num = _to_float(value, None)
+                    return None if num is None else (num - lo) / span * 100.0
+
+                start = _pct(sv) if sv is not None else 0.0
+                end = _pct(ev) if ev is not None else 100.0
+                if start is None or end is None:
+                    return False
+        if start is None:
+            start = self.start
+        if end is None:
+            end = self.end
+        if end < start:
+            start, end = end, start
+        if bool(payload.get("zoomLock")):
+            span = self.end - self.start
+            end = start + span
+        before = (float(self.start), float(self.end))
+        self.start, self.end = self._clamp_span(
+            _clamp(float(start), 0.0, 100.0), _clamp(float(end), 0.0, 100.0)
+        )
+        self.apply()
+        self.chart.invalidateLayout()
+        self.chart.update()
+        self._emit_changed(before)
+        return True
 
     def _plot(self) -> QRectF:
-        coord = self.chart.primary_coord()
+        coord = self.chart.primaryCoord()
         if isinstance(coord, GridCoord):
             return coord.plot
         return QRectF()
@@ -261,7 +376,7 @@ class DataZoomComponent(QObject):
             return self._track.adjusted(-4, -4, 4, 4).contains(pos)
         return False
 
-    def on_wheel(self, event) -> bool:
+    def onWheel(self, event) -> bool:
         """chart.wheelEvent 钩子：消费滚轮缩放并返回 True。
 
         事件到达 chart 的 ``wheelEvent`` 时由 ``ElaChartWidget`` 调用；
@@ -273,9 +388,7 @@ class DataZoomComponent(QObject):
             return False
         try:
             pos = (
-                event.position()
-                if hasattr(event, "position")
-                else QPointF(event.pos())
+                event.position() if hasattr(event, "position") else QPointF(event.pos())
             )
         except Exception:  # noqa: BLE001
             pos = QPointF()
@@ -292,7 +405,7 @@ class DataZoomComponent(QObject):
 
     def eventFilter(self, obj, ev) -> bool:
         if obj is self.chart and ev.type() == QEvent.Type.Wheel:
-            if self.on_wheel(ev):
+            if self.onWheel(ev):
                 # 显式 accept + 返回 True：事件既不再向 widget 传递，
                 # 状态也为「已消费」（防止祖先滚动区据此滚动）
                 try:
@@ -303,6 +416,7 @@ class DataZoomComponent(QObject):
         return False
 
     def _wheel_zoom(self, delta_y: float, pos: QPointF) -> None:
+        before = (float(self.start), float(self.end))
         plot = self._plot()
         if plot.width() <= 0:
             return
@@ -315,17 +429,19 @@ class DataZoomComponent(QObject):
         anchor = self.start + frac * old_span
         self.start = anchor - frac * new_span
         self.end = self.start + new_span
-        # 平移回 [0, 100]
-        if self.start < 0:
-            self.end -= self.start
-            self.start = 0.0
-        if self.end > 100:
-            self.start -= self.end - 100
-            self.end = 100.0
-        self.start = _clamp(self.start, 0.0, 96.0)
+        self.start, self.end = self._clamp_span(self.start, self.end)
         self.apply()
-        self.chart.invalidate_layout()  # 窗口变化 → 失效布局缓存
+        self.chart.invalidateLayout()  # 窗口变化 → 失效布局缓存
         self.chart.update()
+        self._emit_changed(before)
+
+    def _emit_changed(self, before) -> None:
+        """窗口变化 → ``chart.dataZoomChanged(start, end)``（滚轮 / 拖拽 / 平移共用）。"""
+        if before is None:
+            return
+        after = (float(self.start), float(self.end))
+        if after != before:
+            self.chart.dataZoomChanged.emit(after[0], after[1])
 
     def _pan(self, dx_px: float) -> None:
         plot = self._plot()
@@ -336,17 +452,17 @@ class DataZoomComponent(QObject):
         self.start += shift
         self.end += shift
         self.apply()
-        self.chart.invalidate_layout()  # 窗口变化 → 失效布局缓存
+        self.chart.invalidateLayout()  # 窗口变化 → 失效布局缓存
         self.chart.update()
 
     # -- 鼠标钩子 ------------------------------------------------------------
     def _brush_active(self) -> bool:
         """option 同时配置 brush 时返回 True（左键拖拽让位给刷选）。"""
         return any(
-            getattr(c, "option_key", "") == "brush" for c in self.chart.components
+            getattr(c, "optionKey", "") == "brush" for c in self.chart.components
         )
 
-    def on_mouse_press(self, pos: QPointF) -> bool:
+    def onMousePress(self, pos: QPointF) -> bool:
         if self.has_slider and not self._track.isNull():
             grab = 6.0
             if self._h_start.adjusted(-grab, -grab, grab, grab).contains(pos):
@@ -373,9 +489,10 @@ class DataZoomComponent(QObject):
             return True
         return False
 
-    def on_mouse_move(self, pos: QPointF) -> bool:
+    def onMouseMove(self, pos: QPointF) -> bool:
         if self._drag is None:
             return False
+        before = (float(self.start), float(self.end))
         kind, last_x = self._drag
         if kind in ("start", "end"):
             pct = (pos.x() - self._track.left()) / max(1.0, self._track.width()) * 100.0
@@ -384,9 +501,10 @@ class DataZoomComponent(QObject):
                 self.start = min(pct, self.end - 2.0)
             else:
                 self.end = max(pct, self.start + 2.0)
+            self.start, self.end = self._clamp_span(self.start, self.end)
             self._update_handles()
             self.apply()
-            self.chart.invalidate_layout()
+            self.chart.invalidateLayout()
             self.chart.update()
         elif kind == "move":
             dx = pos.x() - last_x
@@ -397,20 +515,21 @@ class DataZoomComponent(QObject):
             self.end = self.start + span
             self._update_handles()
             self.apply()
-            self.chart.invalidate_layout()
+            self.chart.invalidateLayout()
             self.chart.update()
         elif kind == "pan":
             self._pan(pos.x() - last_x)
         self._drag = (kind, pos.x())
+        self._emit_changed(before)
         return True
 
-    def on_mouse_release(self, pos: QPointF) -> bool:
+    def onMouseRelease(self, pos: QPointF) -> bool:
         if self._drag is not None:
             self._drag = None
             return True
         return False
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         return None
 
 
@@ -435,7 +554,7 @@ class BrushComponent(QObject):
     拖拽归刷选，dataZoom inside 仅保留滚轮缩放。
     """
 
-    option_key = "brush"
+    optionKey = "brush"
 
     #: 刷选完成信号：list[{"series","dataIndex","value","x"}]
     selected = pyqtSignal(list)
@@ -452,12 +571,12 @@ class BrushComponent(QObject):
         self.selected_items = []
 
     def _plot(self) -> QRectF:
-        coord = self.chart.primary_coord()
+        coord = self.chart.primaryCoord()
         if isinstance(coord, GridCoord):
             return coord.plot
         return QRectF()
 
-    def on_mouse_press(self, pos: QPointF) -> bool:
+    def onMousePress(self, pos: QPointF) -> bool:
         plot = self._plot()
         if plot.isNull() or not plot.contains(pos):
             return False
@@ -467,14 +586,14 @@ class BrushComponent(QObject):
         self.chart.update()
         return True
 
-    def on_mouse_move(self, pos: QPointF) -> bool:
+    def onMouseMove(self, pos: QPointF) -> bool:
         if self._anchor is None:
             return False
         self._rect = QRectF(self._anchor, pos).normalized()
         self.chart.update()
         return True
 
-    def on_mouse_release(self, pos: QPointF) -> bool:
+    def onMouseRelease(self, pos: QPointF) -> bool:
         if self._anchor is None:
             return False
         self._rect = QRectF(self._anchor, pos).normalized()
@@ -494,25 +613,25 @@ class BrushComponent(QObject):
         return True
 
     def _collect(self) -> None:
-        """统计选框内的数据点（经 parse_data_point + coord 映射，通用各系列）。"""
+        """统计选框内的数据点（经 parseDataPoint + coord 映射，通用各系列）。"""
         self.selected_items = []
-        coord = self.chart.primary_coord()
+        coord = self.chart.primaryCoord()
         if self._rect is None or not isinstance(coord, GridCoord):
             return
-        for r in self.chart.series_renderers:
+        for r in self.chart.seriesRenderers:
             if not r.visible:
                 continue
             for i, item in enumerate(r.data()):
-                x, y = parse_data_point(item, i)
+                x, y = parseDataPoint(item, i)
                 if y is None:
                     continue
                 if coord.x_axis.type == "category":
-                    idx = coord.x_axis.local_index(x)
+                    idx = coord.x_axis.localIndex(x)
                     n = len(coord.x_axis.categories)
                     if not (0 <= idx < n):
                         continue  # 窗口外数据点跳过（不映射，防坍缩误选）
                 try:
-                    pt = coord.map_point(x, y)
+                    pt = coord.mapPoint(x, y)
                 except Exception:
                     continue
                 if self._rect.contains(pt):
@@ -523,10 +642,10 @@ class BrushComponent(QObject):
     def _highlight_points(self) -> list:
         """选中点像素位置列表 [(QPointF, QColor)]（绘制高亮用）。"""
         out = []
-        coord = self.chart.primary_coord()
+        coord = self.chart.primaryCoord()
         if not isinstance(coord, GridCoord):
             return out
-        renderers = {r.name: r for r in self.chart.series_renderers}
+        renderers = {r.name: r for r in self.chart.seriesRenderers}
         for item in self.selected_items:
             r = renderers.get(item.get("series"))
             if r is None or not r.visible:
@@ -535,7 +654,7 @@ class BrushComponent(QObject):
             if y is None:
                 continue
             try:
-                pt = coord.map_point(item.get("x"), y)
+                pt = coord.mapPoint(item.get("x"), y)
             except Exception:
                 continue
             if not coord.plot.adjusted(-2, -2, 2, 2).contains(pt):
@@ -621,7 +740,7 @@ class BrushComponent(QObject):
     def layout(self, rect: QRectF) -> None:
         pass
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         return None
 
 
@@ -639,12 +758,12 @@ class VisualMapComponent:
                       "inRange": {"colors": ["#EBEFF5", "#3F5E8C"]},
                       "orient": "vertical"|"horizontal"}
 
-    ``map_color(v)`` 为公共方法：系列（map / heatmap 等）经
+    ``mapColor(v)`` 为公共方法：系列（map / heatmap 等）经
     ``chart.components`` 查找本组件调用。colors 缺省为
     primary.subtle → primary（T() 实时取，主题感知）。
     """
 
-    option_key = "visualMap"
+    optionKey = "visualMap"
 
     def __init__(self, chart, opt):
         self.chart = chart
@@ -669,7 +788,19 @@ class VisualMapComponent:
             return [str(c) for c in cols]
         return [T("color.primary.subtle"), T("color.primary")]
 
-    def map_color(self, v) -> QColor:
+    def reserveRight(self) -> float:
+        """右侧需预留的宽度（竖直色带 + 两端数值标签）；横向为 0。"""
+        if self.orient == "vertical":
+            return 50.0
+        return 0.0
+
+    def reserveBottom(self) -> float:
+        """底部需预留的高度（横向色带 + 标签）；竖直为 0（占右侧）。"""
+        if self.orient == "horizontal":
+            return 30.0
+        return 0.0
+
+    def mapColor(self, v) -> QColor:
         """值 → 颜色（按 min..max 归一后在色带上分段线性插值）。"""
         fv = _to_float(v, None)
         if fv is None:
@@ -692,12 +823,14 @@ class VisualMapComponent:
     def layout(self, rect: QRectF) -> None:
         if self.orient == "vertical":
             w, h = 12.0, min(120.0, max(40.0, rect.height() * 0.4))
-            x = rect.right() - w - 34
+            # 右侧预留 38px：色带 12 + 右侧数值标签 34（避免标签越界被裁剪）
+            x = rect.right() - w - 38
             y = rect.bottom() - h - 12
         else:
             w, h = min(140.0, max(60.0, rect.width() * 0.35)), 12.0
             x = rect.center().x() - w / 2
-            y = rect.bottom() - h - 18
+            # 底部预留 30px：标签在色带上方，整条落在专属条带内
+            y = rect.bottom() - h - 4
         self._bar = QRectF(x, y, w, h)
 
     def paint(self, p: QPainter, anim_t: float = 1.0) -> None:
@@ -718,11 +851,11 @@ class VisualMapComponent:
         p.setBrush(grad)
         p.drawPath(path)
         # 两端数值标签
-        font = chart_font(T("font.xs"))
+        font = chartFont(T("font.xs"))
         p.setFont(font)
         fm = QFontMetricsF(font)
         p.setPen(QColor(T("color.text.secondary")))
-        hi, lo = format_value(self.max), format_value(self.min)
+        hi, lo = formatValue(self.max), formatValue(self.min)
         if self.orient == "vertical":
             p.drawText(
                 QRectF(
@@ -757,7 +890,7 @@ class VisualMapComponent:
             )
         p.restore()
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         return None
 
 
@@ -771,17 +904,19 @@ class ChartTimeline(QObject):
 
     option::
 
-        "timeline": {"data": ["2024", "2025", "2026"],
+        "timeline": {"data": ["2024", "2025", "2026"], "currentIndex": 0,
                      "autoPlay": False, "playInterval": 1500}
+        "baseOption": {基础 option}          # 顶层（可选）
         "options": [帧0 option, 帧1 option, ...]   # 顶层
 
-    切换帧：``goto(i)`` → ``chart.update_option(option["options"][i])``。
+    切换帧：``goto(i)`` → ``baseOption`` 深合并 ``options[i]`` 后
+    ``setOption(..., notMerge=True)``（保留过渡动画与时间轴结构）。
     当前帧下标与播放状态挂在 chart 上（``_timeline_index`` /
-    ``_timeline_playing``），update_option 触发 core 重建组件后状态不丢；
-    重建时旧 QTimer 会被停止并删除，不会累积。
+    ``_timeline_playing``），重建组件后状态不丢；重建时旧 QTimer 会被
+    停止并删除，不会累积。
     """
 
-    option_key = "timeline"
+    optionKey = "timeline"
 
     #: 底部条带高度
     BAND_H = 44.0
@@ -791,8 +926,12 @@ class ChartTimeline(QObject):
         self.chart = chart
         self.opt = dict(opt or {})
         self.labels = [str(d) for d in (self.opt.get("data") or [])]
-        self.current = int(getattr(chart, "_timeline_index", 0) or 0)
-        self.current = _clamp(self.current, 0, max(0, len(self.labels) - 1))
+        if "currentIndex" in self.opt:
+            current = int(_to_float(self.opt.get("currentIndex"), 0) or 0)
+        else:
+            current = int(getattr(chart, "_timeline_index", 0) or 0)
+        self.current = _clamp(current, 0, max(0, len(self.labels) - 1))
+        chart._timeline_index = self.current
         playing = getattr(chart, "_timeline_playing", None)
         if playing is None:
             playing = bool(self.opt.get("autoPlay", False))
@@ -820,22 +959,36 @@ class ChartTimeline(QObject):
 
     # -- 帧切换 --------------------------------------------------------------
     def goto(self, index: int) -> None:
-        """切换到第 index 帧（经 chart.update_option 合并帧 option）。"""
+        """切换到第 index 帧（经 chart 刷新：``baseOption`` 深合并 ``options[i]``）。"""
         n = max(1, len(self.labels))
         index = int(index) % n
         self.current = index
         self.chart._timeline_index = index
-        frames = (getattr(self.chart, "_option", {}) or {}).get("options") or []
-        if 0 <= index < len(frames) and isinstance(frames[index], dict):
-            self.chart.update_option(frames[index])
+        opt = getattr(self.chart, "_option", None)
+        if isinstance(opt, dict) and isinstance(opt.get("timeline"), dict):
+            # 同步 currentIndex：帧合并时以 timeline.currentIndex 为准
+            opt["timeline"]["currentIndex"] = index
+        refresh = getattr(self.chart, "_refresh", None)
+        if callable(refresh):
+            refresh()
         else:
             self.chart.update()
+        self.chart.timelineChanged.emit(index)
 
     def _advance(self) -> None:
-        if self.labels:
-            self.goto(self.current + 1)
+        # Qt 定时器回调中抛出的异常会终止进程：整体包裹并停表
+        try:
+            if self.labels:
+                self.goto(self.current + 1)
+        except Exception:
+            timer = getattr(self, "_timer", None)
+            if timer is not None:
+                try:
+                    timer.stop()
+                except Exception:
+                    pass
 
-    def toggle_play(self) -> None:
+    def togglePlay(self) -> None:
         """播放 / 暂停切换。"""
         self._playing = not self._playing
         self.chart._timeline_playing = self._playing
@@ -848,6 +1001,12 @@ class ChartTimeline(QObject):
     @property
     def playing(self) -> bool:
         return self._playing
+
+    def reserveBottom(self) -> float:
+        """底部时间轴条带高度（含间距；无标签时为 0）。"""
+        if self.labels:
+            return self.BAND_H + 4.0
+        return 0.0
 
     # -- 布局 / 绘制 ---------------------------------------------------------
     def layout(self, rect: QRectF) -> None:
@@ -874,7 +1033,7 @@ class ChartTimeline(QObject):
         if not self.labels or not self._node_pts:
             return
         p.save()
-        font = chart_font(T("font.xs"))
+        font = chartFont(T("font.xs"))
         p.setFont(font)
         fm = QFontMetricsF(font)
         primary = QColor(T("color.primary"))
@@ -918,9 +1077,9 @@ class ChartTimeline(QObject):
         p.restore()
 
     # -- 交互 ---------------------------------------------------------------
-    def on_mouse_press(self, pos: QPointF) -> bool:
+    def onMousePress(self, pos: QPointF) -> bool:
         if self._play_rect.adjusted(-3, -3, 3, 3).contains(pos):
-            self.toggle_play()
+            self.togglePlay()
             return True
         for i, pt in enumerate(self._node_pts):
             if (pt.x() - pos.x()) ** 2 + (pt.y() - pos.y()) ** 2 <= 100:
@@ -929,7 +1088,7 @@ class ChartTimeline(QObject):
                 return True
         return False
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         return None
 
 
@@ -948,12 +1107,12 @@ class ToolboxComponent:
     - saveAsImage：``chart.grab()`` 后经 QFileDialog 存 PNG；
       offscreen / 对话框不可用时降级保存到当前目录 ``chart_export.png``；
     - restore：重置全部 dataZoom 组件窗口 + 恢复所有系列显隐；
-    - dataZoom：切换 inside 缩放可用状态（``chart.datazoom_enabled``）。
+    - dataZoom：切换 inside 缩放可用状态（``chart._dataZoomEnabled``）。
 
     可注入 ``comp.on_action = fn(name)`` 回调观察点击。
     """
 
-    option_key = "toolbox"
+    optionKey = "toolbox"
 
     #: 按钮边长与间距
     BTN = 24.0
@@ -989,7 +1148,7 @@ class ToolboxComponent:
             self._buttons.append((name, QRectF(x, y, self.BTN, self.BTN)))
             x += self.BTN + self.GAP
 
-    def button_rect(self, name: str) -> QRectF:
+    def buttonRect(self, name: str) -> QRectF:
         """指定功能按钮的矩形（测试定位用，未找到返回空矩形）。"""
         for n, r in self._buttons:
             if n == name:
@@ -1009,30 +1168,20 @@ class ToolboxComponent:
         elif name == "restore":
             self._restore()
         elif name == "dataZoom":
-            cur = bool(getattr(self.chart, "datazoom_enabled", True))
-            self.chart.datazoom_enabled = not cur
+            cur = bool(getattr(self.chart, "_dataZoomEnabled", True))
+            self.chart._dataZoomEnabled = not cur
             self.chart.update()
 
     def _save_image(self) -> None:
-        pm = self.chart.grab()
-        path = None
-        try:
-            if QGuiApplication.platformName() == "offscreen":
-                raise RuntimeError("offscreen 环境不使用文件对话框")
-            path, _ = QFileDialog.getSaveFileName(
-                self.chart, "保存图表", "chart.png", "PNG 图片 (*.png)"
-            )
-        except Exception:
-            path = None
-        if not path:
-            path = os.path.abspath("chart_export.png")
-        try:
-            pm.save(path, "PNG")
-            self.last_saved = path
-        except Exception:
-            self.last_saved = None
+        path = self.chart.saveImage()
+        self.last_saved = path or None
 
     def _restore(self) -> None:
+        """恢复初始状态（经 chart._restore_state 统一复位并发出 restore 事件）。"""
+        restore_state = getattr(self.chart, "_restore_state", None)
+        if callable(restore_state):
+            restore_state()
+            return
         for comp in self.chart.components:
             restore = getattr(comp, "restore", None)
             if callable(restore) and comp is not self:
@@ -1040,13 +1189,10 @@ class ToolboxComponent:
                     restore()
                 except Exception:
                     pass
-        state = getattr(self.chart, "_series_state", {}) or {}
-        for name in list(state.keys()):
-            self.chart.set_series_visible(name, True)
         self.chart.update()
 
     # -- 交互 ----------------------------------------------------------------
-    def on_mouse_press(self, pos: QPointF) -> bool:
+    def onMousePress(self, pos: QPointF) -> bool:
         for name, r in self._buttons:
             if r.adjusted(-2, -2, 2, 2).contains(pos):
                 self.trigger(name)
@@ -1062,8 +1208,11 @@ class ToolboxComponent:
             p.setPen(QPen(QColor(T("color.border")), 1))
             p.setBrush(QColor(T("color.bg.elevated")))
             p.drawRoundedRect(r, 4, 4)
-            enabled = name != "dataZoom" or bool(
-                getattr(self.chart, "datazoom_enabled", True)
+            enabled = (
+                name != "dataZoom"
+                or bool(getattr(self.chart, "_dataZoomEnabled", True))
+            ) and bool(
+                getattr(self.chart, "isInteractionEnabled", lambda _f: True)("toolbox")
             )
             c = (
                 QColor(T("color.text.secondary"))
@@ -1110,7 +1259,7 @@ class ToolboxComponent:
         p.drawLine(QPointF(cx - 4, cy - 1.5), QPointF(cx + 1, cy - 1.5))
         p.drawLine(QPointF(cx - 1.5, cy - 4), QPointF(cx - 1.5, cy + 1))
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         return None
 
 
@@ -1118,8 +1267,8 @@ class ToolboxComponent:
 # 注册
 # ---------------------------------------------------------------------------
 
-register_component("dataZoom", DataZoomComponent)
-register_component("brush", BrushComponent)
-register_component("visualMap", VisualMapComponent)
-register_component("timeline", ChartTimeline)
-register_component("toolbox", ToolboxComponent)
+registerComponent("dataZoom", DataZoomComponent)
+registerComponent("brush", BrushComponent)
+registerComponent("visualMap", VisualMapComponent)
+registerComponent("timeline", ChartTimeline)
+registerComponent("toolbox", ToolboxComponent)

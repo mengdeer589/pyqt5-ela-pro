@@ -7,7 +7,16 @@ link signal, zoom, search, export helpers and context menu.
 from __future__ import annotations
 
 from PyQt5.QtCore import QUrl
-from PyQt5.QtGui import QImage, QColor, QTextCursor
+from PyQt5.QtGui import (
+    QColor,
+    QContextMenuEvent,
+    QImage,
+    QPixmap,
+    QTextCursor,
+    QTextTable,
+)
+from PyQt5.QtWidgets import QApplication
+from PyQt5ElaWidgetTools import ElaMenu
 
 from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
 
@@ -45,7 +54,6 @@ class TestPlaceholder:
         assert v.placeholderText() == "正在生成…"
 
         v.resize(240, 120)
-        from PyQt5.QtGui import QPixmap
 
         pixmap = QPixmap(v.size())
         v.render(pixmap)
@@ -97,7 +105,7 @@ class TestSearch:
 
         assert v.searchText("alpha") == 3
         assert len(v.textBrowser().extraSelections()) == 3
-        assert v.searchText("alpha", case_sensitive=True) == 2
+        assert v.searchText("alpha", caseSensitive=True) == 2
         v.deleteLater()
 
     def test_find_next_cycles(self):
@@ -198,10 +206,68 @@ class TestExportAndMenu:
         menu.deleteLater()
         v.deleteLater()
 
+    def test_context_menu_is_ela_style(self):
+        """右键菜单必须是 ElaMenu（Ela 外观 + Ela 图标），不是 Qt 自带菜单。
+
+        ``addElaIconAction`` 不设 ``QIcon``，而是把图标写进动作的
+        ``ElaIconType`` 属性（由 ElaMenu 自绘）—— 所以这里查属性而不是 icon()。
+        """
+
+        v = ElaMarkdownViewer()
+        menu = v._create_context_menu()
+        assert isinstance(menu, ElaMenu)
+        assert menu.getMenuItemHeight() > 0
+        actions = [a for a in menu.actions() if not a.isSeparator()]
+        assert actions
+        assert all(a.property("ElaIconType") is not None for a in actions)
+        menu.deleteLater()
+        v.deleteLater()
+
+    def test_context_menu_on_viewport_reaches_our_menu(self, qapp, monkeypatch):
+        """回归：右键事件投给 **viewport**，不是 QTextBrowser 本体。
+
+        只拦本体的话会落到 Qt 自带的「复制 / Copy Link Location / 全选」菜单 ——
+        自建 ElaMenu 可达性为 0（事件根本不到过滤器）。
+        """
+
+        v = ElaMarkdownViewer()
+        v.setMarkdown("正文 [链接](https://example.com)")
+        calls = []
+        monkeypatch.setattr(
+            type(v), "_show_context_menu", lambda self, pos: calls.append(pos)
+        )
+        viewport = v.textBrowser().viewport()
+        global_pos = viewport.mapToGlobal(viewport.rect().center())
+        QApplication.sendEvent(
+            viewport,
+            QContextMenuEvent(QContextMenuEvent.Reason.Mouse, global_pos, global_pos),
+        )
+        assert calls == [global_pos]
+        v.deleteLater()
+
+    def test_show_context_menu_execs_the_menu(self, monkeypatch, qapp):
+        """``_show_context_menu`` 真的把菜单弹出来（execElaMenu：兜底 + 回收）。"""
+
+        v = ElaMarkdownViewer()
+        calls = []
+
+        def spy(menu, *args):
+            calls.append((args, menu.minimumSize(), menu.sizeHint()))
+
+        monkeypatch.setattr(ElaMenu, "exec_", spy)
+        pos = v.mapToGlobal(v.rect().center())
+        v._show_context_menu(pos)
+        assert len(calls) == 1
+        args, minimum, hint = calls[0]
+        assert args == (pos,)
+        # 副屏上 ElaMenu 偶发不按 sizeHint 撑开（只显示第一项，实测 100x30）：
+        # execElaMenu 用 setMinimumSize(sizeHint) 兜底
+        assert minimum == hint
+        v.deleteLater()
+
     def test_copy_code_at_cursor_emits_signal(self, qapp):
         v = ElaMarkdownViewer()
         v.setMarkdown("```python\nprint(1)\n```")
-        from PyQt5.QtGui import QTextTable
 
         table = None
         stack = [v.document().rootFrame()]
@@ -231,4 +297,23 @@ class TestExportAndMenu:
         v._copy_all()
         qapp.processEvents()
         assert "hello world" in qapp.clipboard().text()
+        v.deleteLater()
+
+
+class TestFeatureGetters:
+    def test_mermaid_enabled_getter(self):
+        v = ElaMarkdownViewer()
+        assert v.mermaidEnabled() is True
+        v.setMermaidEnabled(False)
+        assert v.mermaidEnabled() is False
+        v.setMermaidEnabled(True)
+        assert v.mermaidEnabled() is True
+        v.deleteLater()
+
+    def test_highlight_cache_size_getter(self):
+        v = ElaMarkdownViewer()
+        v.setHighlightCacheSize(10)
+        assert v.highlightCacheSize() == 10
+        v.setHighlightCacheSize(-1)
+        assert v.highlightCacheSize() == 0
         v.deleteLater()

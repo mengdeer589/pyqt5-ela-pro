@@ -4,10 +4,24 @@
 
 import os
 import inspect
+import re as _re
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QPlainTextEdit, QPushButton, QApplication, QWidget
+from PyQt5.QtWidgets import (
+    QVBoxLayout,
+    QHBoxLayout,
+    QPlainTextEdit,
+    QPushButton,
+    QApplication,
+    QWidget,
+)
 from PyQt5.QtGui import QFont, QColor, QTextCharFormat, QTextCursor, QPalette
-from PyQt5ElaWidgetTools import ElaScrollArea, ElaText, ElaIconType, ElaMessageBar, ElaMessageBarType
+from PyQt5ElaWidgetTools import (
+    ElaScrollArea,
+    ElaText,
+    ElaIconType,
+    ElaMessageBar,
+    ElaMessageBarType,
+)
 from pyqt5_ela_pro import ElaThemeWidget, ElaDialogBase, ElaButton
 
 RESOURCE_PATH = os.path.join(os.path.dirname(__file__), "resource", "images")
@@ -107,13 +121,23 @@ class ExamplePage(ElaThemeWidget):
         container_layout.setContentsMargins(0, 0, 0, 0)
         container_layout.setSpacing(4)
         container_layout.addWidget(edit)
-        copy_btn = ElaButton("复制代码", icon=ElaIconType.IconName.Copy, iconSize=16, variant="solid", color="primary", parent=container)
+        copy_btn = ElaButton(
+            "复制代码",
+            icon=ElaIconType.IconName.Copy,
+            iconSize=16,
+            variant="solid",
+            color="primary",
+            parent=container,
+        )
         copy_btn.clicked.connect(
             lambda: (
                 QApplication.clipboard().setText(source),
                 ElaMessageBar.success(
                     ElaMessageBarType.PositionPolicy.TopRight,
-                    "", "代码已复制到剪贴板", 1000, dlg,
+                    "",
+                    "代码已复制到剪贴板",
+                    1000,
+                    dlg,
                 ),
             )
         )
@@ -126,24 +150,102 @@ class ExamplePage(ElaThemeWidget):
 
 # ── 彩色代码插入到 QTextDocument ──────────────────────────────
 
-import re as _re
-
 _KEYWORDS = {
-    "and", "as", "assert", "async", "await", "break", "class", "continue",
-    "def", "del", "elif", "else", "except", "finally", "for", "from",
-    "global", "if", "import", "in", "is", "lambda", "nonlocal", "not",
-    "or", "pass", "raise", "return", "try", "while", "with", "yield",
-    "True", "False", "None",
+    "and",
+    "as",
+    "assert",
+    "async",
+    "await",
+    "break",
+    "class",
+    "continue",
+    "def",
+    "del",
+    "elif",
+    "else",
+    "except",
+    "finally",
+    "for",
+    "from",
+    "global",
+    "if",
+    "import",
+    "in",
+    "is",
+    "lambda",
+    "nonlocal",
+    "not",
+    "or",
+    "pass",
+    "raise",
+    "return",
+    "try",
+    "while",
+    "with",
+    "yield",
+    "True",
+    "False",
+    "None",
 }
 _BUILTINS = {
-    "abs", "all", "any", "bin", "bool", "callable", "chr", "classmethod",
-    "dict", "dir", "divmod", "enumerate", "eval", "filter", "float", "format",
-    "getattr", "globals", "hasattr", "hash", "help", "hex",
-    "id", "input", "int", "isinstance", "issubclass", "iter", "len", "list", "locals",
-    "map", "max", "min", "next", "object", "oct", "open", "ord",
-    "pow", "print", "property", "range", "repr", "reversed", "round",
-    "set", "setattr", "slice", "sorted", "staticmethod", "str",
-    "sum", "super", "tuple", "type", "vars", "zip",
+    "abs",
+    "all",
+    "any",
+    "bin",
+    "bool",
+    "callable",
+    "chr",
+    "classmethod",
+    "dict",
+    "dir",
+    "divmod",
+    "enumerate",
+    "eval",
+    "filter",
+    "float",
+    "format",
+    "getattr",
+    "globals",
+    "hasattr",
+    "hash",
+    "help",
+    "hex",
+    "id",
+    "input",
+    "int",
+    "isinstance",
+    "issubclass",
+    "iter",
+    "len",
+    "list",
+    "locals",
+    "map",
+    "max",
+    "min",
+    "next",
+    "object",
+    "oct",
+    "open",
+    "ord",
+    "pow",
+    "print",
+    "property",
+    "range",
+    "repr",
+    "reversed",
+    "round",
+    "set",
+    "setattr",
+    "slice",
+    "sorted",
+    "staticmethod",
+    "str",
+    "sum",
+    "super",
+    "tuple",
+    "type",
+    "vars",
+    "zip",
 }
 
 _TOKEN_RE = _re.compile(
@@ -157,18 +259,18 @@ _TOKEN_RE = _re.compile(
 )
 
 _STYLE = {
-    "comment":  ("#6A9955",  False,  True),
-    "decorator":("#DCDCAA",  False, False),
-    "string":   ("#CE9178",  False, False),
-    "number":   ("#B5CEA8",  False, False),
-    "kw":       ("#569CD6",  True,  False),
-    "builtin":  ("#D8A0DF",  False, False),
-    "class":    ("#4EC9B0",  False, False),
-    "method":   ("#DCDCAA",  False, False),
-    "attr":     ("#9CDCFE",  False, False),
-    "operator": ("#D4D4D4",  False, False),
-    "defclass": ("#4EC9B0",  False, False),
-    "default":  ("#D4D4D4",  False, False),
+    "comment": ("#6A9955", False, True),
+    "decorator": ("#DCDCAA", False, False),
+    "string": ("#CE9178", False, False),
+    "number": ("#B5CEA8", False, False),
+    "kw": ("#569CD6", True, False),
+    "builtin": ("#D8A0DF", False, False),
+    "class": ("#4EC9B0", False, False),
+    "method": ("#DCDCAA", False, False),
+    "attr": ("#9CDCFE", False, False),
+    "operator": ("#D4D4D4", False, False),
+    "defclass": ("#4EC9B0", False, False),
+    "default": ("#D4D4D4", False, False),
 }
 
 
@@ -194,7 +296,7 @@ def _insert_colored_line(cur, raw):
     last = 0
     for i, m in enumerate(matches):
         if m.start() > last:
-            cur.insertText(raw[last:m.start()])
+            cur.insertText(raw[last : m.start()])
         kind = m.lastgroup
         text = m.group()
 
@@ -249,7 +351,7 @@ def _ident_type(i, matches, raw):
     if followed_by_paren:
         return "method"
 
-    prev = raw[:matches[i].start()].rstrip()
+    prev = raw[: matches[i].start()].rstrip()
     if prev.endswith("def") or prev.endswith("class"):
         return "defclass"
 

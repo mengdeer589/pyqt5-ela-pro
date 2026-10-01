@@ -35,9 +35,10 @@
 堆叠公式设计，不可直接使用）；TeX 风格原子间距（关系 / 二元运算符 / 标点）、
 脚本分级缩放（0.7 / 0.55）、大算子 display 尺寸与上下限布局。
 
-**容错渲染**：未知命令按字面文本渲染（``report["degraded"]`` 标记），
-只有结构性错误（括号不闭合、``\\end`` 不匹配、缺少 ``\\right``）才返回
-``None``，调用方回退为源码文本显示。
+**容错渲染**：未知命令按字面文本渲染（``report["degraded"]`` 标记）；
+``\\left`` / ``\\right`` 不闭合时自动配平后重试（``report["repaired"]``
+标记），修复仍失败（括号不闭合、``\\end`` 不匹配等）才返回 ``None``，
+调用方回退为源码文本显示。
 
 用法::
 
@@ -77,6 +78,10 @@ _SS = 2
 #: LRU 缓存容量（含失败哨兵）
 _CACHE_CAP = 256
 _FAILED = object()
+
+#: 宏展开后的字符数上限（``\def\a{\a\a\a}`` 这类自引用宏每轮 ×3，
+#: 只限轮数会指数爆炸，实测 20 轮后 3.5e9 字符把 GUI 线程彻底卡死）
+_MACRO_EXPANSION_LIMIT = 200_000
 
 #: 多行块级公式环境（``\begin{...}`` 形式）
 _MATH_ENVS = (
@@ -902,14 +907,21 @@ def _read_macro_arg(text: str, index: int) -> tuple[str, int]:
 
 
 def _expand_macros(text: str, macros: Optional[dict] = None) -> str:
-    """展开 ``\\newcommand`` / ``\\def`` 定义的宏（最多 20 轮防循环）。"""
+    """展开 ``\\newcommand`` / ``\\def`` 定义的宏。
+
+    最多 20 轮防循环，**并对展开后的长度设上限**：``\\def\\a{\\a\\a\\a}\\a`` 这类
+    自引用宏每轮把文本放大 3 倍，光限制轮数并不管用 —— 20 轮后是 3^20 ≈ 3.5e9
+    字符，GUI 线程会直接卡死（实测 >200s 未返回）。超过上限即停止展开并原样返回。
+    """
     text, table = _collect_macros(text, macros)
     if not table:
         return text
     for _ in range(20):
         out: list[str] = []
+        size = 0
         i = 0
         changed = False
+        overflow = False
         total = len(text)
         while i < total:
             char = text[i]
@@ -920,26 +932,31 @@ def _expand_macros(text: str, macros: Optional[dict] = None) -> str:
                 name = text[i:j]
                 entry = table.get(name)
                 if entry is None:
-                    out.append(name)
+                    piece = name
                     i = j
-                    continue
-                n_args, body = entry
-                args: list[str] = []
-                cursor = j
-                for _arg in range(n_args):
-                    arg, cursor = _read_macro_arg(text, cursor)
-                    args.append(arg)
-                expanded = body
-                for idx, arg in enumerate(args, 1):
-                    expanded = expanded.replace(f"#{idx}", arg)
-                out.append(expanded)
-                i = cursor
-                changed = True
-                continue
-            out.append(char)
-            i += 1
+                else:
+                    n_args, body = entry
+                    args: list[str] = []
+                    cursor = j
+                    for _arg in range(n_args):
+                        arg, cursor = _read_macro_arg(text, cursor)
+                        args.append(arg)
+                    piece = body
+                    for idx, arg in enumerate(args, 1):
+                        piece = piece.replace(f"#{idx}", arg)
+                    i = cursor
+                    changed = True
+            else:
+                piece = char
+                i += 1
+            out.append(piece)
+            # 按**字符数**而非条目数设限：宏体可能很长，只数条目会成倍超标
+            size += len(piece)
+            if size > _MACRO_EXPANSION_LIMIT:
+                overflow = True
+                break
         text = "".join(out)
-        if not changed:
+        if not changed or overflow:
             break
     return text
 
@@ -954,6 +971,99 @@ def _strip_env_noise(source: str) -> str:
 def preprocess_latex(source: str, macros: Optional[dict] = None) -> str:
     """公式预处理：宏展开 + 环境噪音清理。"""
     return _strip_env_noise(_expand_macros(source, macros))
+
+
+#: ``\left`` / ``\right`` 定界符镜像表（自动配平用，键为源码中的原始定界符）
+_DELIM_MIRRORS = {
+    "(": ")",
+    "[": "]",
+    "{": r"\}",
+    "|": "|",
+    ".": ".",
+    r"\{": r"\}",
+    r"\}": r"\}",
+    r"\|": r"\|",
+    r"\langle": r"\rangle",
+    r"\rangle": r"\rangle",
+    r"\lvert": r"\rvert",
+    r"\rvert": r"\rvert",
+    r"\vert": r"\vert",
+    r"\lVert": r"\rVert",
+    r"\rVert": r"\rVert",
+    r"\Vert": r"\Vert",
+    r"\lceil": r"\rceil",
+    r"\rceil": r"\rceil",
+    r"\lfloor": r"\rfloor",
+    r"\rfloor": r"\rfloor",
+    r"\lbrace": r"\rbrace",
+    r"\rbrace": r"\rbrace",
+    r"\lbrack": r"\rbrack",
+    r"\rbrack": r"\rbrack",
+    r"\lgroup": r"\rgroup",
+    r"\rgroup": r"\rgroup",
+    r"\uparrow": r"\downarrow",
+    r"\downarrow": r"\downarrow",
+    r"\updownarrow": r"\updownarrow",
+    r"\Uparrow": r"\Downarrow",
+    r"\Downarrow": r"\Downarrow",
+    r"\Updownarrow": r"\Updownarrow",
+    r"\backslash": r"\backslash",
+}
+
+#: ``\left`` / ``\right`` 命令匹配（负向后瞻避免误伤 ``\leftarrow`` 系列，
+#: 负向前瞻避免匹配 ``\\left`` 这种行分隔符后紧跟文本的情况）
+_DELIM_CMD_RE = re.compile(r"(?<!\\)\\(left|right)(?![A-Za-z])")
+
+
+def _read_raw_delim(source: str, pos: int) -> tuple[int, str]:
+    r"""读取 ``\left`` / ``\right`` 后的原始定界符 token（返回起止下标）。"""
+    n = len(source)
+    while pos < n and source[pos].isspace():
+        pos += 1
+    start = pos
+    if pos < n and source[pos] == "\\":
+        pos += 1
+        if pos < n and source[pos].isalpha():
+            while pos < n and source[pos].isalpha():
+                pos += 1
+        elif pos < n:
+            pos += 1
+    elif pos < n:
+        pos += 1
+    return start, source[start:pos]
+
+
+def _repair_delimiters(source: str) -> tuple[str, bool]:
+    """自动配平 ``\\left`` / ``\\right``（LLM 生成公式常见缺闭合）。
+
+    - 多余的 ``\\left<定界符>``：在公式末尾补配对镜像（未知定界符用
+      ``\\right.`` 不可见闭合）；
+    - 孤立的 ``\\right<定界符>``：直接移除。
+
+    :return: (修复后的源码, 是否有改动)
+    """
+    stack: list[str] = []
+    edits: list[tuple[int, int]] = []  # 待删除的孤立 \right 区间
+    for match in _DELIM_CMD_RE.finditer(source):
+        token_start, token = _read_raw_delim(source, match.end())
+        if match.group(1) == "left":
+            stack.append(token)
+        elif stack:
+            stack.pop()
+        else:
+            edits.append((match.start(), token_start + len(token)))
+    if not stack and not edits:
+        return source, False
+
+    result = source
+    for start, end in reversed(edits):
+        result = result[:start] + result[end:]
+    if stack:
+        suffix = "".join(
+            r"\right" + _DELIM_MIRRORS.get(token, ".") for token in reversed(stack)
+        )
+        result = result.rstrip() + " " + suffix
+    return result, True
 
 
 def _column_align_from_spec(spec: str) -> list:
@@ -2978,12 +3088,17 @@ def set_cache_capacity(capacity: int) -> None:
 def _render(
     latex: str, color: QColor, pt: float, display: bool, report: Optional[dict] = None
 ) -> Optional[QImage]:
-    """渲染实现：严格解析失败后进入容错解析（未知命令字面显示）。"""
+    """渲染实现：严格解析失败后进入容错解析（未知命令字面显示）。
+
+    容错解析仍因结构性错误失败时，尝试自动配平 ``\\left`` / ``\\right``
+    后重试（``report["repaired"]`` 标记）。
+    """
     try:
         source = preprocess_latex(latex)
     except Exception:
         return None
     degraded = False
+    repaired = False
     node = None
     try:
         node = _Parser(source, tolerant=False).parse()
@@ -2992,7 +3107,13 @@ def _render(
         try:
             node = _Parser(source, tolerant=True).parse()
         except _ParseError:
-            return None
+            source, repaired = _repair_delimiters(source)
+            if not repaired:
+                return None
+            try:
+                node = _Parser(source, tolerant=True).parse()
+            except _ParseError:
+                return None
     except Exception:
         return None
     if node is None:
@@ -3022,6 +3143,7 @@ def _render(
     image.setDevicePixelRatio(_SS)
     if report is not None:
         report["degraded"] = degraded
+        report["repaired"] = repaired
     return image
 
 
@@ -3034,15 +3156,16 @@ def render_formula(
 ) -> Optional[QImage]:
     """渲染公式为透明底 QImage（2x 超采样）；不支持时返回 ``None``。
 
-    对不支持的 LaTeX 命令采用**容错渲染**（命令字面显示），只有结构性
-    错误（括号不闭合、``\\end`` 不匹配等）才会返回 ``None``。
+    对不支持的 LaTeX 命令采用**容错渲染**（命令字面显示）；结构性错误
+    （定界符不闭合、``\\end`` 不匹配等）会先尝试自动修复（``\\left`` /
+    ``\\right`` 配平），修复仍失败才返回 ``None``。
 
     :param latex: 公式源码（不含 ``$``）
     :param color: 前景色
     :param pt: 字号（pt），块级公式的放大由调用方决定
     :param display: 是否块级展示（仅影响缓存键，尺寸由 ``pt`` 决定）
-    :param report: 可选字典；渲染后填入 ``{"degraded": bool}``
-        （``True`` 表示走过了容错路径）
+    :param report: 可选字典；渲染后填入 ``{"degraded": bool, "repaired": bool}``
+        （``degraded`` 表示走过容错路径，``repaired`` 表示定界符被自动配平）
     """
     key = (latex, color.name(), round(float(pt), 2), bool(display))
     cached = _CACHE.get(key)
@@ -3050,15 +3173,19 @@ def render_formula(
         _CACHE.move_to_end(key)
         if cached is _FAILED:
             return None
-        image, degraded = cached
+        image, degraded, repaired = cached
         if report is not None:
             report["degraded"] = degraded
+            report["repaired"] = repaired
         return image
     local_report: dict = {}
     image = _render(latex, color, float(pt), bool(display), local_report)
+    degraded = local_report.get("degraded", False)
+    repaired = local_report.get("repaired", False)
     if report is not None:
-        report["degraded"] = local_report.get("degraded", False)
-    _CACHE[key] = (image, local_report.get("degraded", False)) if image else _FAILED
+        report["degraded"] = degraded
+        report["repaired"] = repaired
+    _CACHE[key] = (image, degraded, repaired) if image else _FAILED
     while len(_CACHE) > _CACHE_CAP:
         _CACHE.popitem(last=False)
     return image

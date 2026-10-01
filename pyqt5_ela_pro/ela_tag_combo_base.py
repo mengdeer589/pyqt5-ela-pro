@@ -380,8 +380,12 @@ def _paint_tag_single(painter: QPainter, widget) -> None:
     content_rect, text_color, _ = _draw_tag_background(painter, widget)
     _draw_tag_mark(painter, widget, widget._expand_mark_width)
     title_rect = _draw_tag_title(
-        painter, content_rect, widget._title_text,
-        widget._title_font_size, text_color, widget.font(),
+        painter,
+        content_rect,
+        widget._title_text,
+        widget._title_font_size,
+        text_color,
+        widget.font(),
     )
     _draw_single_value_text(painter, content_rect, title_rect, widget.currentText())
     _draw_tag_arrow(painter, content_rect, text_color, widget._expand_icon_rotate)
@@ -394,14 +398,21 @@ def _paint_tag_multi(painter: QPainter, widget) -> None:
     view = widget.view()
     is_popup_visible = view.isVisible() if view else False
     mark_width = (
-        _get_target_mark_width(widget) if is_popup_visible
+        _get_target_mark_width(widget)
+        if is_popup_visible
         else widget._expand_mark_width
     )
     _draw_tag_mark(painter, widget, mark_width)
 
     title_rect = _draw_tag_title(
-        painter, content_rect, widget._title_text,
-        widget._title_font_size, text_color, widget.font(),
+        painter,
+        content_rect,
+        widget._title_text,
+        widget._title_font_size,
+        text_color,
+        widget.font(),
     )
-    _draw_multi_value_text(painter, content_rect, title_rect, widget.getCurrentSelection())
+    _draw_multi_value_text(
+        painter, content_rect, title_rect, widget.getCurrentSelection()
+    )
     _draw_tag_arrow(painter, content_rect, text_color, widget._expand_icon_rotate)

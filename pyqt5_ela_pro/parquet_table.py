@@ -248,7 +248,9 @@ class ElaParquetTable(ElaThemeWidget):
         rows = df.rows()
         data = [headers] + [list(r) for r in rows]
         row_index_start = (self._current_page - 1) * self._page_size + 1
-        self._table.setTableData(data, show_row_index=self._show_row_index, row_index_start=row_index_start)
+        self._table.setTableData(
+            data, show_row_index=self._show_row_index, row_index_start=row_index_start
+        )
 
         total_cols = len(headers)
         total_pages = max(

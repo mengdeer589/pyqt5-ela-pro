@@ -2,7 +2,7 @@
 具名可搜索多选下拉框组件。
 
 带有标题标签的可搜索多选下拉框，继承自 ElaSearchMultiBox，
-支持汉字拼音首字母搜索。
+支持汉字原文、全拼与拼音首字母搜索。
 """
 
 from __future__ import annotations
@@ -15,8 +15,10 @@ from PyQt5.QtWidgets import QWidget
 
 from .combo_box import ElaSearchMultiBox
 from .ela_tag_combo_base import (
-    _TagBoxThemeMixin, _TagBoxAnimMixin,
-    _pre_init_popup, _get_target_mark_width,
+    _TagBoxThemeMixin,
+    _TagBoxAnimMixin,
+    _pre_init_popup,
+    _get_target_mark_width,
     _paint_tag_multi,
 )
 from ._internal import _adjust_combobox_popup
@@ -25,7 +27,7 @@ from ._internal import _adjust_combobox_popup
 class ElaTagSearchMultiBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaSearchMultiBox):
     """具名可搜索多选下拉框。
 
-    带有标题标签的可搜索多选下拉框，支持汉字拼音首字母搜索。
+    带有标题标签的可搜索多选下拉框，支持汉字原文、全拼与拼音首字母搜索。
     继承自 ElaSearchMultiBox，使用胶囊样式。
 
     :param title: 标题文字

@@ -139,13 +139,57 @@ class TestTolerantRendering:
         image = render_formula(r"x^2 + \alpha", COLOR, 14.0, report=report)
         assert image is not None
         assert report["degraded"] is False
+        assert report["repaired"] is False
 
-    def test_structural_error_still_fails(self):
+    def test_unclosed_left_is_repaired(self):
+        """缺 ``\\right`` 的定界符自动配平后仍可渲染。"""
         report = {}
-        assert render_formula(r"\left( x", COLOR, 14.0, report=report) is None
+        image = render_formula(r"\left( x", COLOR, 14.0, report=report)
+        assert image is not None
+        assert report["repaired"] is True
+
+    def test_orphan_right_is_removed(self):
+        """孤立 ``\\right`` 直接移除后渲染。"""
+        report = {}
+        image = render_formula(r"x \right) y", COLOR, 14.0, report=report)
+        assert image is not None
+        assert report["repaired"] is True
+
+    def test_llm_formula_missing_right_renders(self):
+        """大模型常产出缺 ``\\right`` 的公式：自动修复后正常渲染。"""
+        source = (
+            r"\rho \left( \frac{\partial}{\partial t} \left( e +"
+            r" \frac{\mathbf{V}^2}{2} \right) + \nabla \cdot \left( \mathbf{V}"
+            r" (e + \frac{p}{\rho} + \frac{\mathbf{V}^2}{2}) \right) = 0"
+        )
+        report = {}
+        image = render_formula(source, COLOR, 12.0, True, report=report)
+        assert image is not None
+        assert report["repaired"] is True
+
+    def test_valid_delimiters_not_repaired(self):
+        report = {}
+        image = render_formula(
+            r"\left( a \left[ b \right] \right)", COLOR, 14.0, report=report
+        )
+        assert image is not None
+        assert report["repaired"] is False
+        # ``\leftarrow`` 不应被误认为 ``\left``
+        report2 = {}
+        arrow = render_formula(r"a \leftarrow b", COLOR, 14.0, report=report2)
+        assert arrow is not None
+        assert report2["repaired"] is False
 
     def test_unclosed_group_fails(self):
         assert render_formula(r"x^{", COLOR, 14.0) is None
+
+    def test_malformed_display_math_has_no_render_issue(self, qapp):
+        """viewer 层：修复后不再记录渲染问题，文档中无公式源码残留。"""
+        viewer = ElaMarkdownViewer()
+        viewer.setMarkdown("$$\n\\rho \\left( x + \\frac{a}{b} = 0\n$$")
+        assert viewer.renderIssues() == []
+        assert r"\rho" not in viewer.document().toPlainText()
+        viewer.deleteLater()
 
 
 class TestMacros:
@@ -332,12 +376,22 @@ class TestViewerCompat:
         v.deleteLater()
 
     def test_structural_error_keeps_source(self, qapp):
+        """自动修复也处理不了的错误仍回退为源码文本。"""
+        v = ElaMarkdownViewer()
+        v.setMarkdown(r"公式 $x^{$ 结束")
+
+        assert _images(v) == []
+        assert "x^{" in v.document().toPlainText()
+        assert any(kind == "math" for kind, _ in v.renderIssues())
+        v.deleteLater()
+
+    def test_missing_right_is_repaired_without_issue(self, qapp):
+        """缺 ``\\right`` 的定界符修复后正常渲染，不记为渲染问题。"""
         v = ElaMarkdownViewer()
         v.setMarkdown(r"公式 $\left( x$ 结束")
 
-        assert _images(v) == []
-        assert "\\left" in v.document().toPlainText()
-        assert any(kind == "math" for kind, _ in v.renderIssues())
+        assert len(_images(v)) == 1
+        assert v.renderIssues() == []
         v.deleteLater()
 
     def test_boxed_inline_renders(self, qapp):

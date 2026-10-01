@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import re
+
 from PyQt5.QtGui import QColor
 from PyQt5ElaWidgetTools import ElaThemeType
 
 from pyqt5_ela_pro._colors import (
-    _resolve_color,
-    get_color_scheme,
-    get_accent_color,
-    _COLOR_PALETTE,
     _COLOR_ALIAS,
+    _COLOR_PALETTE,
+    _contrast_ratio,
+    _resolve_color,
+    get_accent_color,
+    get_color_scheme,
 )
 
 
@@ -53,7 +56,6 @@ class TestColorsPalette:
                 assert keys == required, f"{cname}/{mode} missing {required - keys}"
 
     def test_all_hex_colors_are_valid(self):
-        import re
 
         for cname, schemes in _COLOR_PALETTE.items():
             for mode in ("light", "dark"):
@@ -113,7 +115,6 @@ class TestColorsGetColorScheme:
         assert required <= set(scheme.keys())
 
     def test_solid_text_meets_contrast(self):
-        from pyqt5_ela_pro._colors import _contrast_ratio
 
         for name in _COLOR_PALETTE:
             for mode in (ElaThemeType.ThemeMode.Light, ElaThemeType.ThemeMode.Dark):

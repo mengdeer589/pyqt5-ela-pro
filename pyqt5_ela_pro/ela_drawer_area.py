@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import QEvent, QObject, QPoint
+from PyQt5.QtCore import QEvent, QObject, QPoint, Qt
 from PyQt5.QtWidgets import (
     QAbstractButton,
     QAbstractItemView,
@@ -94,12 +94,14 @@ class ElaDrawerArea(_ElaDrawerArea):
         super().collapse()
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:
-        if (
-            watched is self._header
-            and event.type() == QEvent.Type.MouseButtonRelease
-            and self._should_toggle_on(event.pos())
-        ):
-            self.toggle()
+        if watched is self._header and event.type() == QEvent.Type.MouseButtonRelease:
+            # 只认左键。基类 _ElaDrawerArea 自己在 header 上按任意键切换，
+            # 所以非左键必须**吞掉事件**，否则仍会被基类切换。
+            if event.button() != Qt.MouseButton.LeftButton:
+                event.accept()
+                return True
+            if self._should_toggle_on(event.pos()):
+                self.toggle()
         return super().eventFilter(watched, event)
 
     def _should_toggle_on(self, pos: QPoint) -> bool:

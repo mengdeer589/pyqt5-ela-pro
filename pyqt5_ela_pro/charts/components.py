@@ -3,15 +3,15 @@
 
 本模块提供：
 
-- ``MarkPointComponent``（option_key="markPoint"，系列级）：
+- ``MarkPointComponent``（optionKey="markPoint"，系列级）：
   最大 / 最小值或指定坐标的圆点 + 值文本标注。
-- ``MarkLineComponent``（option_key="markLine"，系列级）：
+- ``MarkLineComponent``（optionKey="markLine"，系列级）：
   平均值 / 最大 / 最小或指定 yAxis / xAxis 的虚线标线 + 端部标签。
-- ``MarkAreaComponent``（option_key="markArea"，系列级）：
+- ``MarkAreaComponent``（optionKey="markArea"，系列级）：
   xAxis / yAxis 区间对的半透明标域（主题主色低透明度填充）。
-- ``GraphicComponent``（option_key="graphic"，顶层）：
+- ``GraphicComponent``（optionKey="graphic"，顶层）：
   绝对定位图形元素（circle / rect / text / line）。
-- ``MapSeriesRenderer``（经 ``register_series("map", ...)`` 注册）：
+- ``MapSeriesRenderer``（经 ``registerSeries("map", ...)`` 注册）：
   简化地图系列，区域多边形着色 + 名称标签 + 命中检测。
 
 内置演示地图 ``DEMO_MAP`` 为 7 个大区块的**示意轮廓**（自定义平面示意
@@ -28,13 +28,13 @@ from PyQt5.QtCore import QPointF, QRectF, Qt
 from PyQt5.QtGui import QColor, QFontMetricsF, QPainter, QPen, QPolygonF
 
 from ._tokens import T
-from ._utils import ON_FILL_WHITE, to_float as _to_float
-from .axes import GridCoord, chart_font, format_value
+from ._utils import ON_FILL_WHITE, to_float as _to_float, with_alpha
+from .axes import GridCoord, chartFont, formatValue
 from .core import (
     SeriesRenderer,
-    parse_data_point,
-    register_component,
-    register_series,
+    parseDataPoint,
+    registerComponent,
+    registerSeries,
 )
 
 __all__ = [
@@ -73,7 +73,7 @@ class _SeriesMarkBase:
     一律推迟到 layout / paint。
     """
 
-    option_key = ""
+    optionKey = ""
 
     def __init__(self, chart, opt):
         self.chart = chart
@@ -95,10 +95,10 @@ class _SeriesMarkBase:
                 idx = i
                 break
         name = str(s.get("name") or (f"series{idx}" if idx is not None else ""))
-        for r in chart.series_renderers:
+        for r in chart.seriesRenderers:
             if r.name == name:
                 return r
-        for r in chart.series_renderers:  # 兜底：字典相等匹配
+        for r in chart.seriesRenderers:  # 兜底：字典相等匹配
             if r.opt == s:
                 return r
         return None
@@ -106,7 +106,7 @@ class _SeriesMarkBase:
     def _coord(self):
         """所属系列的坐标系（默认主坐标系）。"""
         s = getattr(self, "series_opt", None) or {}
-        return self.chart.coord_for(s)
+        return self.chart.coordFor(s)
 
     def _points(self):
         """系列数据解析为 ``[(x, y)]``（跳过 None 值）。"""
@@ -115,7 +115,7 @@ class _SeriesMarkBase:
             return []
         out = []
         for i, item in enumerate(r.data()):
-            x, y = parse_data_point(item, i)
+            x, y = parseDataPoint(item, i)
             if y is not None:
                 out.append((x, y))
         return out
@@ -146,7 +146,7 @@ class MarkPointComponent(_SeriesMarkBase):
                                {"coord": [x, y], "value": v, "name": "..."}]}
     """
 
-    option_key = "markPoint"
+    optionKey = "markPoint"
 
     def __init__(self, chart, opt):
         super().__init__(chart, opt)
@@ -180,12 +180,12 @@ class MarkPointComponent(_SeriesMarkBase):
             if y is None:
                 continue
             try:
-                pos = coord.map_point(x, y)
+                pos = coord.mapPoint(x, y)
             except Exception:
                 continue
             label = item.get("name")
             if label is None:
-                label = format_value(_to_float(item.get("value"), y))
+                label = formatValue(_to_float(item.get("value"), y))
             self._marks.append({"pos": pos, "text": str(label), "x": x, "y": y})
 
     def paint(self, p: QPainter, anim_t: float = 1.0) -> None:
@@ -193,7 +193,7 @@ class MarkPointComponent(_SeriesMarkBase):
             return
         p.save()
         color = self._color()
-        font = chart_font(T("font.xs"))
+        font = chartFont(T("font.xs"))
         p.setFont(font)
         fm = QFontMetricsF(font)
         for m in self._marks:
@@ -216,7 +216,7 @@ class MarkPointComponent(_SeriesMarkBase):
             )
         p.restore()
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         for m in self._marks:
             mp = m["pos"]
             if (mp.x() - pos.x()) ** 2 + (mp.y() - pos.y()) ** 2 <= 64:
@@ -247,7 +247,7 @@ class MarkLineComponent(_SeriesMarkBase):
     仅作用于 GridCoord 直角坐标（其他坐标系静默跳过）。
     """
 
-    option_key = "markLine"
+    optionKey = "markLine"
 
     def __init__(self, chart, opt):
         super().__init__(chart, opt)
@@ -290,9 +290,7 @@ class MarkLineComponent(_SeriesMarkBase):
             if orient is None or value is None:
                 continue
             name = str(item.get("name") or default_label)
-            vtxt = (
-                format_value(value) if isinstance(value, (int, float)) else str(value)
-            )
+            vtxt = formatValue(value) if isinstance(value, (int, float)) else str(value)
             text = f"{name} {vtxt}" if name else vtxt
             self._lines.append({"orient": orient, "value": value, "text": text})
 
@@ -307,7 +305,7 @@ class MarkLineComponent(_SeriesMarkBase):
         color = self._color()
         pen = QPen(color, 1.4)
         pen.setStyle(Qt.PenStyle.DashLine)
-        font = chart_font(T("font.xs"))
+        font = chartFont(T("font.xs"))
         p.setFont(font)
         fm = QFontMetricsF(font)
         for ln in self._lines:
@@ -335,7 +333,7 @@ class MarkLineComponent(_SeriesMarkBase):
                 )
         p.restore()
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         coord = self._coord()
         if not isinstance(coord, GridCoord):
             return None
@@ -380,7 +378,7 @@ class MarkAreaComponent(_SeriesMarkBase):
     填充取主题主色低透明度；category 轴向两侧各扩半个 band。
     """
 
-    option_key = "markArea"
+    optionKey = "markArea"
 
     def __init__(self, chart, opt):
         super().__init__(chart, opt)
@@ -408,7 +406,7 @@ class MarkAreaComponent(_SeriesMarkBase):
                 x0 = coord.x_axis.map(a["xAxis"], plot.left(), plot.right())
                 x1 = coord.x_axis.map(b["xAxis"], plot.left(), plot.right())
                 if coord.x_axis.type == "category":
-                    half = coord.x_axis.band_width(plot.left(), plot.right()) / 2
+                    half = coord.x_axis.bandWidth(plot.left(), plot.right()) / 2
                     x0, x1 = x0 - half, x1 + half
                 area = QRectF(min(x0, x1), plot.top(), abs(x1 - x0), plot.height())
             elif "yAxis" in a and "yAxis" in b:
@@ -434,7 +432,7 @@ class MarkAreaComponent(_SeriesMarkBase):
             p.drawRect(area)
         p.restore()
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         for area in self._areas:
             if area.contains(pos):
                 r = self._renderer()
@@ -474,7 +472,7 @@ class GraphicComponent:
     （水平 / 垂直居中锚点）；shape 内坐标相对该锚点。未知类型静默跳过。
     """
 
-    option_key = "graphic"
+    optionKey = "graphic"
 
     def __init__(self, chart, opt):
         self.chart = chart
@@ -492,11 +490,11 @@ class GraphicComponent:
         if str(left) == "center":
             x = self.rect.center().x()
         else:
-            x = self.rect.left() + (_to_float(left, 0.0) or 0.0)
+            x = self.rect.left() + _to_float(left, 0.0)
         if str(top) == "center":
             y = self.rect.center().y()
         else:
-            y = self.rect.top() + (_to_float(top, 0.0) or 0.0)
+            y = self.rect.top() + _to_float(top, 0.0)
         return QPointF(x, y)
 
     def paint(self, p: QPainter, anim_t: float = 1.0) -> None:
@@ -518,17 +516,17 @@ class GraphicComponent:
         self, p: QPainter, typ: str, shape: dict, style: dict, base: QPointF
     ) -> None:
         if typ == "circle":
-            cx = base.x() + (_to_float(shape.get("cx"), 0.0) or 0.0)
-            cy = base.y() + (_to_float(shape.get("cy"), 0.0) or 0.0)
-            r = _to_float(shape.get("r"), 20.0) or 20.0
+            cx = base.x() + _to_float(shape.get("cx"), 0.0)
+            cy = base.y() + _to_float(shape.get("cy"), 0.0)
+            r = _to_float(shape.get("r"), 20.0)
             self._apply_brush(p, style, default_fill=T("color.primary"))
             p.drawEllipse(QPointF(cx, cy), r, r)
         elif typ == "rect":
-            x = base.x() + (_to_float(shape.get("x"), 0.0) or 0.0)
-            y = base.y() + (_to_float(shape.get("y"), 0.0) or 0.0)
-            w = _to_float(shape.get("width"), 40.0) or 40.0
-            h = _to_float(shape.get("height"), 24.0) or 24.0
-            radius = _to_float(shape.get("r"), 0.0) or 0.0
+            x = base.x() + _to_float(shape.get("x"), 0.0)
+            y = base.y() + _to_float(shape.get("y"), 0.0)
+            w = _to_float(shape.get("width"), 40.0)
+            h = _to_float(shape.get("height"), 24.0)
+            radius = _to_float(shape.get("r"), 0.0)
             self._apply_brush(p, style, default_fill=T("color.primary.subtle"))
             if radius > 0:
                 p.drawRoundedRect(QRectF(x, y, w, h), radius, radius)
@@ -538,25 +536,25 @@ class GraphicComponent:
             text = str(style.get("text") or "")
             if not text:
                 return
-            size = int(_to_float(style.get("fontSize"), T("font.xs")) or T("font.xs"))
-            p.setFont(chart_font(size))
+            size = int(_to_float(style.get("fontSize"), T("font.xs")))
+            p.setFont(chartFont(size))
             p.setPen(QColor(style.get("fill") or T("color.text.primary")))
             p.setBrush(Qt.BrushStyle.NoBrush)
             fm = QFontMetricsF(p.font())
-            x = base.x() + (_to_float(shape.get("x"), 0.0) or 0.0)
-            y = base.y() + (_to_float(shape.get("y"), 0.0) or 0.0)
+            x = base.x() + _to_float(shape.get("x"), 0.0)
+            y = base.y() + _to_float(shape.get("y"), 0.0)
             p.drawText(
                 QRectF(x, y, fm.horizontalAdvance(text) + 4, fm.height() + 2),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
                 text,
             )
         elif typ == "line":
-            x1 = base.x() + (_to_float(shape.get("x1"), 0.0) or 0.0)
-            y1 = base.y() + (_to_float(shape.get("y1"), 0.0) or 0.0)
-            x2 = base.x() + (_to_float(shape.get("x2"), 40.0) or 40.0)
-            y2 = base.y() + (_to_float(shape.get("y2"), 0.0) or 0.0)
+            x1 = base.x() + _to_float(shape.get("x1"), 0.0)
+            y1 = base.y() + _to_float(shape.get("y1"), 0.0)
+            x2 = base.x() + _to_float(shape.get("x2"), 40.0)
+            y2 = base.y() + _to_float(shape.get("y2"), 0.0)
             stroke = QColor(style.get("stroke") or T("color.border.strong"))
-            width = _to_float(style.get("lineWidth"), 2.0) or 2.0
+            width = _to_float(style.get("lineWidth"), 2.0)
             p.setPen(QPen(stroke, width))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawLine(QPointF(x1, y1), QPointF(x2, y2))
@@ -570,13 +568,11 @@ class GraphicComponent:
         else:
             p.setBrush(QColor(fill or default_fill))
         if stroke:
-            p.setPen(
-                QPen(QColor(stroke), _to_float(style.get("lineWidth"), 1.0) or 1.0)
-            )
+            p.setPen(QPen(QColor(stroke), _to_float(style.get("lineWidth"), 1.0)))
         else:
             p.setPen(Qt.PenStyle.NoPen)
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         return None
 
 
@@ -603,20 +599,50 @@ class MapSeriesRenderer(SeriesRenderer):
     option::
 
         {"type": "map", "map": "demo"|自定义名, "nameProperty": "name",
-         "data": [{"name": "华北", "value": 120}, ...]}
+         "data": [{"name": "华北", "value": 120, "itemStyle": {...}}, ...]}
 
     - ``map`` 为 ``"demo"``（或缺省）时使用内置示意地图 ``DEMO_MAP``；
     - 自定义地图经 ``option["geo"]["regions"] = {"名称": [[x, y], ...]}``
       传入多边形顶点列表（任意平面坐标，自动等比缩放到绘图区）；
-    - 区域着色：优先经 chart.components 中 visualMap 组件的
-      ``map_color(v)``，否则按 primary.subtle → primary 色带插值；
-    - ``nameProperty``：区域标签取自 data 项的该键（缺省 "name"）。
+    - 区域着色：优先经 ``chart.components`` 中 visualMap 组件的
+      ``mapColor(v)``，其次 ``itemStyle.color``，否则按 primary.subtle →
+      primary 色带插值；
+    - ``nameProperty``：区域标签取自 data 项的该键（缺省 "name"）；
+    - ``roam``：True / "scale" / "move" 控制滚轮缩放 + 拖拽平移
+      （ECharts 语义；默认 False）；``zoom`` 初始缩放；``resetRoam()`` 复位。
     """
 
     def __init__(self, chart, opt):
         super().__init__(chart, opt)
-        self._polys = []  # [(region_name, QPolygonF)]
+        self._polys = []  # [(region_name, QPolygonF, data_index)]
         self._rect = QRectF()
+        roam = self.opt.get("roam", False)
+        if roam in (None, False):
+            self._roam = (False, False)
+        elif roam is True:
+            self._roam = (True, True)
+        else:
+            text = str(roam).lower()
+            self._roam = ("scale" in text, "move" in text)
+        try:
+            self._zoom = max(0.2, min(6.0, float(self.opt.get("zoom") or 1.0)))
+        except (TypeError, ValueError):
+            self._zoom = 1.0
+        self._pan = QPointF()
+        self._pan_start = None
+        self._pan_origin = QPointF()
+        self._panning = False
+
+    def _index_map(self) -> dict:
+        """区域名 → data 下标（itemStyle / 命中回传用）。"""
+        out = {}
+        for i, item in enumerate(self.data()):
+            if isinstance(item, dict):
+                name = str(item.get(self.opt.get("nameProperty") or "name") or "")
+            else:
+                name = str(item)
+            out.setdefault(name, i)
+        return out
 
     # -- 数据 ------------------------------------------------------------
     def _regions(self) -> dict:
@@ -671,9 +697,10 @@ class MapSeriesRenderer(SeriesRenderer):
         margin = 18.0
         avail_w = max(10.0, rect.width() - margin * 2)
         avail_h = max(10.0, rect.height() - margin * 2)
-        scale = min(avail_w / span_x, avail_h / span_y)
-        ox = rect.left() + (rect.width() - span_x * scale) / 2
-        oy = rect.top() + (rect.height() - span_y * scale) / 2
+        scale = min(avail_w / span_x, avail_h / span_y) * self._zoom
+        ox = rect.left() + (rect.width() - span_x * scale) / 2 + self._pan.x()
+        oy = rect.top() + (rect.height() - span_y * scale) / 2 + self._pan.y()
+        index_map = self._index_map()
         for name, pts in regions.items():
             poly = QPolygonF(
                 [
@@ -681,7 +708,60 @@ class MapSeriesRenderer(SeriesRenderer):
                     for px, py in pts
                 ]
             )
-            self._polys.append((name, poly))
+            self._polys.append((name, poly, index_map.get(name)))
+
+    # -- 交互：缩放 / 平移（roam） ----------------------------------------
+    def onWheel(self, event) -> bool:
+        if not self._roam[0]:
+            return False
+        try:
+            pos = (
+                event.position() if hasattr(event, "position") else QPointF(event.pos())
+            )
+            delta = event.angleDelta().y()
+        except Exception:
+            return False
+        if self._rect.isNull() or not self._rect.contains(pos):
+            return False
+        factor = 1.15 if delta > 0 else 1 / 1.15
+        self._zoom = max(0.2, min(6.0, self._zoom * factor))
+        self.chart.invalidateLayout()
+        self.chart.update()
+        return True
+
+    def onMousePress(self, pos: QPointF) -> bool:
+        if not self._roam[1] or not self._rect.contains(pos):
+            return False
+        self._pan_start = QPointF(pos)
+        self._pan_origin = QPointF(self._pan)
+        self._panning = False
+        return False  # 不消费点击：区域点击仍可触发 itemClicked
+
+    def onMouseMove(self, pos: QPointF) -> bool:
+        if self._pan_start is None:
+            return False
+        dx = pos.x() - self._pan_start.x()
+        dy = pos.y() - self._pan_start.y()
+        if not self._panning and abs(dx) + abs(dy) < 3.0:
+            return False
+        self._panning = True
+        self._pan = self._pan_origin + QPointF(dx, dy)
+        self.chart.invalidateLayout()
+        self.chart.update()
+        return True
+
+    def onMouseRelease(self, pos: QPointF) -> bool:
+        was_panning = self._panning
+        self._pan_start = None
+        self._panning = False
+        return was_panning
+
+    def resetRoam(self) -> None:
+        """复位缩放与平移。"""
+        self._zoom = 1.0
+        self._pan = QPointF()
+        self.chart.invalidateLayout()
+        self.chart.update()
 
     def _fill_color(
         self, name: str, values: dict, vmin: float, vmax: float, vm
@@ -691,7 +771,7 @@ class MapSeriesRenderer(SeriesRenderer):
             return QColor(T("color.bg.muted"))
         if vm is not None:
             try:
-                return QColor(vm.map_color(v))
+                return QColor(vm.mapColor(v))
             except Exception:
                 pass
         span = vmax - vmin
@@ -707,15 +787,30 @@ class MapSeriesRenderer(SeriesRenderer):
         vmax = max(vals) if vals else 1.0
         vm = None
         for c in self.chart.components:
-            if hasattr(c, "map_color") and callable(getattr(c, "map_color")):
+            if hasattr(c, "mapColor") and callable(getattr(c, "mapColor")):
                 vm = c
                 break
         p.save()
-        font = chart_font(T("font.xs"))
+        font = chartFont(T("font.xs"))
         p.setFont(font)
         border = QPen(QColor(T("color.border.strong")), 1)
-        for name, poly in self._polys:
+        hover = self.chart.hoverInfo()
+        hovered = (
+            hover[1].get("dataIndex")
+            if hover is not None and hover[0] is self
+            else None
+        )
+        for name, poly, data_index in self._polys:
             fill = self._fill_color(name, values, vmin, vmax, vm)
+            if data_index is not None:
+                override = self.itemColor(data_index, default=fill)
+                if override != fill:
+                    fill = override
+            if hovered is not None and data_index is not None:
+                if data_index == hovered:
+                    fill = QColor(fill).lighter(112)
+                else:
+                    fill = with_alpha(QColor(fill), 150)
             p.setPen(border)
             p.setBrush(fill)
             p.drawPolygon(poly)
@@ -733,14 +828,19 @@ class MapSeriesRenderer(SeriesRenderer):
             )
         p.restore()
 
-    def hit_test(self, pos: QPointF):
+    def hitTest(self, pos: QPointF):
         values = self._value_map()
-        for name, poly in reversed(self._polys):
+        for name, poly, data_index in reversed(self._polys):
             if poly.containsPoint(pos, Qt.FillRule.OddEvenFill):
-                return {"name": name, "value": values.get(name), "series": self.name}
+                return {
+                    "name": name,
+                    "value": values.get(name),
+                    "series": self.name,
+                    "dataIndex": data_index,
+                }
         return None
 
-    def value_at_index(self, index: int):
+    def valueAtIndex(self, index: int):
         return None
 
 
@@ -748,8 +848,8 @@ class MapSeriesRenderer(SeriesRenderer):
 # 注册
 # ---------------------------------------------------------------------------
 
-register_component("markPoint", MarkPointComponent)
-register_component("markLine", MarkLineComponent)
-register_component("markArea", MarkAreaComponent)
-register_component("graphic", GraphicComponent)
-register_series("map", MapSeriesRenderer)
+registerComponent("markPoint", MarkPointComponent)
+registerComponent("markLine", MarkLineComponent)
+registerComponent("markArea", MarkAreaComponent)
+registerComponent("graphic", GraphicComponent)
+registerSeries("map", MapSeriesRenderer)

@@ -22,6 +22,7 @@ from PyQt5.QtCore import QObject, QPointF, QRectF, Qt
 from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen
 
 from ._tokens import T
+from .model import ElaPinDirection
 from .registry import pin_color
 
 __all__ = ["bezier_path", "ElaEdgeWidget", "ElaTempWire"]
@@ -67,9 +68,18 @@ def _cached_color(token_value) -> QColor:
 
 
 def _cached_pen(
-    color: QColor, width: float, style=Qt.PenStyle.SolidLine, dash=None
+    color: QColor,
+    width: float,
+    style=Qt.PenStyle.SolidLine,
+    dash=None,
+    mutable: bool = False,
 ) -> QPen:
-    """按 (颜色, 宽度, 线型, dash) 缓存 QPen。"""
+    """按 (颜色, 宽度, 线型, dash) 缓存 QPen。
+
+    ``mutable=True`` 时返回**副本**。缓存里存的是共享实例，直接改它（例如
+    ``setDashOffset``）会让所有共用该键的边互相污染 —— 最后绘制的边留下的
+    偏移会传给下一个 painter。
+    """
     style_v = getattr(style, "value", style)
     key = (color.rgba(), width, style_v, tuple(dash) if dash is not None else None)
     pen = _PEN_CACHE.get(key)
@@ -82,7 +92,7 @@ def _cached_pen(
         if len(_PEN_CACHE) >= _PEN_CACHE_MAX:
             _PEN_CACHE.clear()
         _PEN_CACHE[key] = pen
-    return pen
+    return QPen(pen) if mutable else pen
 
 
 class ElaEdgeWidget(QObject):
@@ -116,16 +126,12 @@ class ElaEdgeWidget(QObject):
     # -- 几何 ------------------------------------------------------------
     def source_pos(self) -> QPointF:
         """输出端引脚的场景坐标（取不到时回退节点左上角）。"""
-        from .model import ElaPinDirection
-
         return self.canvas.pin_scene_pos(
             self.edge.from_node, self.edge.from_pin, ElaPinDirection.Output
         )
 
     def target_pos(self) -> QPointF:
         """输入端引脚的场景坐标。"""
-        from .model import ElaPinDirection
-
         return self.canvas.pin_scene_pos(
             self.edge.to_node, self.edge.to_pin, ElaPinDirection.Input
         )
@@ -182,8 +188,6 @@ class ElaEdgeWidget(QObject):
         """边的基础颜色（按源引脚类型，惰性缓存；主题切换时画布调用
         ``invalidate_color()`` 失效重建）。"""
         if self._base_color is None:
-            from .model import ElaPinDirection
-
             node = self.canvas.graph.node(self.edge.from_node)
             pin = (
                 node.pin(self.edge.from_pin, ElaPinDirection.Output)
@@ -228,6 +232,7 @@ class ElaEdgeWidget(QObject):
                 2.4,
                 Qt.PenStyle.DashLine,
                 [3.0, 3.0],
+                mutable=True,  # 下面要 setDashOffset，必须用副本
             )
             pen.setDashOffset(self._dash_offset)
             p.setPen(pen)
