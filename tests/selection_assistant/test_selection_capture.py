@@ -30,7 +30,9 @@ def _set_clipboard(qapp, text: str) -> str:
 
 
 class TestCapture:
-    def test_success_and_clipboard_restored(self, qapp, monkeypatch):
+    def test_success_and_clipboard_restored(
+        self, qapp, monkeypatch, requires_clipboard
+    ):
         clipboard = qapp.clipboard()
         before = _set_clipboard(qapp, "旧内容")
         capture = ElaClipboardCapture()
@@ -48,7 +50,9 @@ class TestCapture:
         assert _wait_until(qapp, lambda: clipboard.text() == before)
         capture.deleteLater()
 
-    def test_timeout_fails_without_touching_clipboard(self, qapp, monkeypatch):
+    def test_timeout_fails_without_touching_clipboard(
+        self, qapp, monkeypatch, requires_clipboard
+    ):
         clipboard = qapp.clipboard()
         before = _set_clipboard(qapp, "旧内容")
         capture = ElaClipboardCapture()
@@ -63,7 +67,9 @@ class TestCapture:
         assert clipboard.text() == before
         capture.deleteLater()
 
-    def test_restore_disabled_keeps_selection(self, qapp, monkeypatch):
+    def test_restore_disabled_keeps_selection(
+        self, qapp, monkeypatch, requires_clipboard
+    ):
         clipboard = qapp.clipboard()
         _set_clipboard(qapp, "旧内容")
         capture = ElaClipboardCapture()
@@ -81,7 +87,7 @@ class TestCapture:
         assert _wait_until(qapp, lambda: clipboard.text() == "选中")
         capture.deleteLater()
 
-    def test_empty_copy_is_failure(self, qapp, monkeypatch):
+    def test_empty_copy_is_failure(self, qapp, monkeypatch, requires_clipboard):
         clipboard = qapp.clipboard()
         _set_clipboard(qapp, "旧内容")
         capture = ElaClipboardCapture()
@@ -94,7 +100,7 @@ class TestCapture:
         assert _wait_until(qapp, lambda: bool(failures))
         capture.deleteLater()
 
-    def test_cancel_keeps_clipboard(self, qapp, monkeypatch):
+    def test_cancel_keeps_clipboard(self, qapp, monkeypatch, requires_clipboard):
         clipboard = qapp.clipboard()
         before = _set_clipboard(qapp, "旧内容")
         capture = ElaClipboardCapture()

@@ -169,7 +169,7 @@ class ViewsListPage(ExamplePage):
     def _demoScrollBar(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "09. PyQt5ElaWidgetTools - ElaScrollBar 滚动条", self._demoScrollBar
+                "10. PyQt5ElaWidgetTools - ElaScrollBar 滚动条", self._demoScrollBar
             )
         )
         self._addInfoText("滚动条组件", parent_layout)
@@ -185,7 +185,7 @@ class ViewsListPage(ExamplePage):
     def _demoToolBar(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "10. PyQt5ElaWidgetTools - ElaToolBar 工具栏", self._demoToolBar
+                "11. PyQt5ElaWidgetTools - ElaToolBar 工具栏", self._demoToolBar
             )
         )
         self._addInfoText("工具栏组件，可在工具栏中添加各种组件", parent_layout)

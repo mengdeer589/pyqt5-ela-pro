@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 
-from _qthelpers import wait_until as _wait_until
+import pytest
 from PyQt5.QtCore import QCoreApplication, QEvent, QObject, QPoint, pyqtSignal
 
 from pyqt5_ela_pro import ElaMenuItem, ElaSelectionAssistant
@@ -247,6 +247,89 @@ class TestGestures:
         assert capture.count == 0
         _dispose(qapp, assistant)
 
+    def test_drag_then_click_same_spot_captures_once(self, qapp):
+        """拖选释放后在同一点马上点一下（收起选区）不该被误判成双击。"""
+        assistant, monitor, capture = self._enabled(qapp)
+        monitor.leftReleased.emit((100, 100), (160, 130))  # 拖选 → 取词 1
+        assert capture.count == 1
+        monitor.leftPressed.emit((160, 130))
+        monitor.leftReleased.emit((160, 130), (160, 130))  # 同点单击
+        assert capture.count == 1, "拖拽释放被记成了「点击」，导致误判双击"
+        _dispose(qapp, assistant)
+
+    def test_drag_breaks_double_click_sequence(self, qapp):
+        """单击 → 拖拽 → 再单击同一点：两次点击不该跨拖拽配成双击。"""
+        assistant, monitor, capture = self._enabled(qapp)
+        monitor.leftReleased.emit((100, 100), (100, 100))  # 点击 1（只记录）
+        assert capture.count == 0
+        monitor.leftReleased.emit((100, 100), (140, 100))  # 拖拽 → 取词 1
+        assert capture.count == 1
+        monitor.leftPressed.emit((100, 100))
+        monitor.leftReleased.emit((100, 100), (100, 100))  # 点击 2
+        assert capture.count == 1, "拖拽没有打断双击序列"
+        _dispose(qapp, assistant)
+
+
+class TestCaptureFilter:
+    """``setCaptureFilter``：在注入 Ctrl+C 之前给宿主一个闸门。"""
+
+    def _enabled(self, qapp):
+        assistant, monitor, capture = _make(qapp)
+        assistant.setEnabled(True)
+        return assistant, monitor, capture
+
+    def test_filter_blocks_capture(self, qapp):
+        assistant, monitor, capture = self._enabled(qapp)
+        assistant.setCaptureFilter(lambda down, up: False)
+        assert assistant.captureFilter() is not None
+        monitor.leftReleased.emit((100, 100), (160, 130))
+        assert capture.count == 0, "过滤器返回 False 时不该注入 Ctrl+C"
+        _dispose(qapp, assistant)
+
+    def test_filter_allows_capture(self, qapp):
+        assistant, monitor, capture = self._enabled(qapp)
+        assistant.setCaptureFilter(lambda down, up: True)
+        monitor.leftReleased.emit((100, 100), (160, 130))
+        assert capture.count == 1
+        _dispose(qapp, assistant)
+
+    def test_filter_receives_physical_points(self, qapp):
+        assistant, monitor, capture = self._enabled(qapp)
+        seen = []
+        assistant.setCaptureFilter(lambda down, up: seen.append((down, up)) or True)
+        monitor.leftReleased.emit((100, 100), (160, 130))
+        assert seen == [((100, 100), (160, 130))]
+        _dispose(qapp, assistant)
+
+    def test_filter_exception_denies_capture(self, qapp):
+        assistant, monitor, capture = self._enabled(qapp)
+
+        def bad(down, up):
+            raise ValueError("host filter bug")
+
+        assistant.setCaptureFilter(bad)
+        with pytest.warns(RuntimeWarning):
+            monitor.leftReleased.emit((100, 100), (160, 130))
+        assert capture.count == 0, "过滤器异常应拦截（宁可少取一次词）"
+        _dispose(qapp, assistant)
+
+    def test_filter_also_gates_double_click(self, qapp):
+        assistant, monitor, capture = self._enabled(qapp)
+        assistant.setCaptureFilter(lambda down, up: False)
+        monitor.leftReleased.emit((100, 100), (100, 100))
+        monitor.leftReleased.emit((100, 100), (100, 100))
+        assert capture.count == 0
+        _dispose(qapp, assistant)
+
+    def test_filter_can_be_cleared(self, qapp):
+        assistant, monitor, capture = self._enabled(qapp)
+        assistant.setCaptureFilter(lambda down, up: False)
+        assistant.setCaptureFilter(None)
+        assert assistant.captureFilter() is None
+        monitor.leftReleased.emit((100, 100), (160, 130))
+        assert capture.count == 1
+        _dispose(qapp, assistant)
+
 
 class TestCaptureFlow:
     def _flow(self, qapp, monkeypatch):
@@ -444,6 +527,7 @@ class TestActionsConfig:
         for gone in (
             "setCompactMode",
             "compactMode",
+            "setOffset",
             "setRestoreClipboard",
             "setCaptureDelayMs",
             "setRestoreDelayMs",

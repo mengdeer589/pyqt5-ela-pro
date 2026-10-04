@@ -10,12 +10,14 @@ from __future__ import annotations
 from enum import IntEnum
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtSignal, QRect, QEvent
+from PyQt5.QtCore import Qt, QPropertyAnimation, pyqtSignal, QRect, QEvent
 from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPaintEvent, QMouseEvent
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QGraphicsDropShadowEffect
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
+from ._motion import Duration, Easing, start_transition
+from ._ownership import ContentSlot, WidgetOwnership
 from .widget_base import ElaThemeWidget
 
 
@@ -155,8 +157,9 @@ class ElaDrawer(ElaThemeWidget):
         self._position = position
         self._drawer_size = drawer_size
         self._is_opened = False
+        self._is_closing = False
         self._close_on_dim_clicked = True
-        self._animation_duration = 250
+        self._animation_duration = Duration.Normal
         self._corner_radius = 12
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.hide()
@@ -186,17 +189,16 @@ class ElaDrawer(ElaThemeWidget):
         self._main_layout.setContentsMargins(0, 0, 0, 0)
         self._main_layout.setSpacing(0)
 
-        self._content_widget: Optional[QWidget] = None
+        self._content_slot = ContentSlot(self, "drawer-content")
+        self._content_slot.widgetChanged.connect(self._on_content_changed)
 
         self._show_anim = QPropertyAnimation(self._drawer_widget, b"geometry")
-        self._show_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._show_anim.setEasingCurve(Easing.type_name(Easing.Decelerate))
 
         self._hide_anim = QPropertyAnimation(self._drawer_widget, b"geometry")
-        self._hide_anim.setEasingCurve(QEasingCurve.InCubic)
-        self._hide_anim.finished.connect(self._onHideFinished)
+        self._hide_anim.setEasingCurve(Easing.type_name(Easing.Accelerate))
 
         self._dim_anim = QPropertyAnimation(self._dim_widget, b"windowOpacity")
-        self._dim_anim.setDuration(self._animation_duration)
 
         if parent:
             parent.installEventFilter(self)
@@ -239,17 +241,40 @@ class ElaDrawer(ElaThemeWidget):
                 self._drawer_size,
             )
 
-    def setContentWidget(self, widget: QWidget) -> "ElaDrawer":
+    def contentWidget(self) -> Optional[QWidget]:
+        """当前内容组件（已被外部销毁时返回 ``None``）。"""
+        return self._content_slot.widget()
+
+    def contentOwnership(self) -> WidgetOwnership:
+        """内容组件的所有权策略，默认 ``Borrowed``。"""
+        return self._content_slot.ownership()
+
+    def setContentWidget(
+        self, widget: QWidget, ownership=WidgetOwnership.Borrowed
+    ) -> "ElaDrawer":
         """设置抽屉内容组件。
 
         :param widget: 内容组件
+        :param ownership: ``Borrowed``（默认，释放时无父交还）/ ``Reparented``
+            （放回原 parent）/ ``Owned``（抽屉负责 ``deleteLater``）
         :returns: 自身（支持链式调用）
         """
-        if self._content_widget:
-            self._main_layout.removeWidget(self._content_widget)
-        self._content_widget = widget
-        self._main_layout.addWidget(widget)
+        current = self._content_slot.widget()
+        if current is not None:
+            self._main_layout.removeWidget(current)
+        if not self._content_slot.setWidget(widget, ownership):
+            return self
+        hosted = self._content_slot.widget()
+        if hosted is not None:
+            self._main_layout.addWidget(hosted)
         return self
+
+    def takeContentWidget(self) -> Optional[QWidget]:
+        """取回内容组件：从布局摘下、**无父**返回、**从不删除**。"""
+        current = self._content_slot.widget()
+        if current is not None:
+            self._main_layout.removeWidget(current)
+        return self._content_slot.takeWidget()
 
     def setDrawerSize(self, size: int) -> "ElaDrawer":
         """设置抽屉宽度/高度。
@@ -302,12 +327,27 @@ class ElaDrawer(ElaThemeWidget):
         """
         return self._is_opened
 
+    def _on_content_changed(self, widget) -> None:
+        """内容被替换时把新内容挂进布局。
+
+        ``ContentSlot`` 负责所有权与引用，这里只管布局 —— 两者分开才不会互相踩。
+
+        **``widget is None``（内容被外部销毁）时什么都不做**：``destroyed`` 是在
+        ``~QWidget`` **内部**发出的，此刻 ``QLayout`` 可能还没跑完它自己的清理
+        （实测 Qt 会把项自动摘掉，count 1→0）。此时去 ``itemAt`` / ``removeWidget``
+        就是重入布局改结构 = 0xC0000005。
+        """
+        if widget is None:
+            return
+        if self._main_layout.indexOf(widget) < 0:
+            self._main_layout.addWidget(widget)
+
     def showDrawer(self) -> None:
         """打开抽屉（带动画）。"""
         if self._is_opened:
             return
 
-        if not self._content_widget:
+        if not self._content_slot.widget():
             return
 
         win = self.window() if self.parentWidget() else None
@@ -330,24 +370,24 @@ class ElaDrawer(ElaThemeWidget):
             self._dim_widget.show()
             self.show()
 
-            self._show_anim.setDuration(self._animation_duration)
             self._show_anim.setStartValue(start_rect)
             self._show_anim.setEndValue(end_rect)
-            self._show_anim.start()
+            start_transition(self._show_anim, self._animation_duration)
 
             self._dim_anim.setStartValue(0)
             self._dim_anim.setEndValue(1)
-            self._dim_anim.start()
+            start_transition(self._dim_anim, self._animation_duration)
         except Exception as e:
             print(e)
             return
 
+        self._is_closing = False
         self._is_opened = True
         self.opened.emit()
 
     def closeDrawer(self) -> None:
         """关闭抽屉（带动画）。"""
-        if not self._is_opened:
+        if not self._is_opened or self._is_closing:
             return
 
         win = self.window() if self.parentWidget() else None
@@ -357,14 +397,23 @@ class ElaDrawer(ElaThemeWidget):
         current_rect = self._drawer_widget.geometry()
         end_rect = self._getStartRect(win)
 
-        self._hide_anim.setDuration(self._animation_duration)
         self._hide_anim.setStartValue(current_rect)
         self._hide_anim.setEndValue(end_rect)
-        self._hide_anim.start()
+        # 关闭动画在跑。_is_opened 要等 _onHideFinished 才复位（那是唯一的复位点），
+        # 所以这里必须另立一个标志，否则关闭动画期间再 toggle 一次会被
+        # 「_is_opened 还是 True」带进 closeDrawer，抽屉就卡在打开态。
+        #
+        # **必须在 start_transition 之前置位**：Disabled 模式下收尾在
+        # start_transition 内部同步跑完（_onHideFinished 会把 _is_closing 清回
+        # False），之后才置位就再也清不掉了。
+        self._is_closing = True
+        start_transition(
+            self._hide_anim, self._animation_duration, on_complete=self._onHideFinished
+        )
 
         self._dim_anim.setStartValue(1)
         self._dim_anim.setEndValue(0)
-        self._dim_anim.start()
+        start_transition(self._dim_anim, self._animation_duration)
 
     def _onDimClicked(self) -> None:
         if self._close_on_dim_clicked:
@@ -374,11 +423,14 @@ class ElaDrawer(ElaThemeWidget):
         self._dim_widget.hide()
         self._drawer_widget.hide()
         self.hide()
+        self._is_closing = False
         self._is_opened = False
         self.closed.emit()
 
     def toggleDrawer(self) -> None:
-        """切换抽屉开关状态。"""
+        """切换抽屉开关状态。关闭动画进行中忽略（否则会卡在打开态）。"""
+        if self._is_closing:
+            return
         if self._is_opened:
             self.closeDrawer()
         else:

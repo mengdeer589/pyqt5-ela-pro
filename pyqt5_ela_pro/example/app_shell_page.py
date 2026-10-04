@@ -29,6 +29,7 @@ from pyqt5_ela_pro import (
     ElaSplashScreen,
     ElaTaskbarProgress,
     ElaTrayIcon,
+    svg_icon_loader,
 )
 from .base_page import ExamplePage
 from datetime import datetime
@@ -48,6 +49,29 @@ def _dot(color: str) -> QIcon:
     painter.drawEllipse(2, 2, 28, 28)
     painter.end()
     return QIcon(pixmap)
+
+
+#: 托盘图标用的内置 Fluent 图标名（与全库 SVG 图标同一套风格）
+_TRAY_ICON_NORMAL = "ic_fluent_apps_regular"
+_TRAY_ICON_WARNING = "ic_fluent_warning_regular"
+_TRAY_ICON_CRITICAL = "ic_fluent_error_circle_regular"
+_TRAY_ICON_HOST = "ic_fluent_window_regular"
+
+
+def _tray_icon(name: str, color: str) -> QIcon:
+    """用内置 Fluent 图标包渲染托盘图标。
+
+    托盘由 Explorer 绘制、``QIcon`` 不吃 ``eTheme``，所以颜色由宿主显式给；
+    图标本身走 ``svg_icon_loader()``（与页面 / 按钮上的 SVG 图标同一套资源）。
+    多尺寸渲染（16~64）适配不同 DPI 与任务栏缩放，只给一个尺寸会发虚。
+    """
+    loader = svg_icon_loader()
+    if not loader.hasIcon(name):
+        return _dot(color)  # 图标包缺失时降级为色点，不空白也不报错
+    icon = QIcon()
+    for size in (16, 20, 24, 32, 48, 64):
+        icon.addPixmap(loader.getPixmap(name, size, color))
+    return icon
 
 
 class AppShellPage(ExamplePage):
@@ -257,7 +281,26 @@ class AppShellPage(ExamplePage):
         stamp = datetime.now().strftime("%H:%M:%S")
         self._log.appendPlainText(f"[{stamp}] {text}")
 
+    def _ensure_tray_visible(self):
+        """首次交互时把裸托盘图标显示出来。
+
+        本页第 03 节的 ``ElaTrayIcon`` 演示对象默认**不占**系统托盘（第 04 节的
+        宿主演示已经有一个图标在托盘里）。不显示的话三态切换 / 气泡通知都没有
+        可见载体 —— 症状就是「点了按钮没反应」。
+        """
+        if self._tray is None or self._tray.isVisible():
+            return
+        self._tray.show()
+        self._log_line("托盘图标 -> 显示（首次交互自动显示）")
+
+    def _on_tray_state(self, state, label):
+        """三态按钮：切图标状态（首次点击顺带把托盘图标显示出来）。"""
+        self._ensure_tray_visible()
+        self._tray.setState(state)
+        self._log_line(f"托盘状态 -> {label}")
+
     def _on_notify(self):
+        self._ensure_tray_visible()
         ok = self._tray.notify(
             "通知标题",
             "这是一条来自托盘的气泡通知。",
@@ -274,27 +317,33 @@ class AppShellPage(ExamplePage):
         self._log_line(f"托盘通知失败：{message}")
 
     def _on_tray_toggle(self):
-        window = self.window()
-        if window is None:
-            return
-        window.setVisible(not window.isVisible())
-        self._log_line("主窗口 -> " + ("显示" if window.isVisible() else "隐藏"))
+        """显示 / 隐藏**裸托盘图标**（按钮文案说的是托盘，不是主窗口）。"""
+        if self._tray.isVisible():
+            self._tray.hide()
+        else:
+            self._tray.show()
+        self._log_line("托盘图标 -> " + ("显示" if self._tray.isVisible() else "隐藏"))
 
     def _demoTray(self, main_layout):
         info = ElaText(
             "托盘由 Explorer 绘制，QIcon 不吃 eTheme，组件不做主题自动适配——"
-            "深浅两版图标需宿主自行准备。Win7 等环境可能不支持气泡通知，"
-            "notify() 会降级为发 errorOccurred 而不崩。",
+            "深浅两版图标需宿主自行准备。图标来自内置 Fluent 图标包"
+            "（svg_icon_loader，与全库 SVG 图标同源），也可换成任意 QIcon。"
+            "Win7 等环境可能不支持气泡通知，notify() 会降级为发 errorOccurred "
+            "而不崩。演示对象默认不占系统托盘（避免与下方宿主演示重复），"
+            "点击任一托盘按钮会先把它显示出来。",
             self,
         )
         info.setTextPixelSize(14)
         main_layout.addWidget(info)
 
-        self._tray = ElaTrayIcon(_dot("#4f9dff"), "pyqt5_ela_pro 托盘演示", self)
+        self._tray = ElaTrayIcon(
+            _tray_icon(_TRAY_ICON_NORMAL, "#4f9dff"), "pyqt5_ela_pro 托盘演示", self
+        )
         self._tray.setIcons(
-            normal=_dot("#4f9dff"),
-            warning=_dot("#f0a13a"),
-            critical=_dot("#e5484d"),
+            normal=_tray_icon(_TRAY_ICON_NORMAL, "#4f9dff"),
+            warning=_tray_icon(_TRAY_ICON_WARNING, "#f0a13a"),
+            critical=_tray_icon(_TRAY_ICON_CRITICAL, "#e5484d"),
         )
         self._tray.setMenu(self._buildTrayMenu())
         self._tray.errorOccurred.connect(self._on_tray_error)
@@ -313,7 +362,9 @@ class AppShellPage(ExamplePage):
                 label, variant="outlined", color="primary", size="small", parent=row
             )
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            btn.clicked.connect(lambda _c=False, s=state: self._tray.setState(s))
+            btn.clicked.connect(
+                lambda _c=False, s=state, lbl=label: self._on_tray_state(s, lbl)
+            )
             layout.addWidget(btn)
 
         layout.addSpacing(12)
@@ -412,7 +463,10 @@ class AppShellPage(ExamplePage):
         main_layout.addWidget(info)
 
         self._host = ElaTrayHost(
-            self.window(), _dot("#52c41a"), "pyqt5_ela_pro 宿主演示", self
+            self.window(),
+            _tray_icon(_TRAY_ICON_HOST, "#52c41a"),
+            "pyqt5_ela_pro 宿主演示",
+            self,
         )
         self._host.setItems(
             [

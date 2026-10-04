@@ -44,8 +44,10 @@ def _scan(source: str) -> list[tuple[int, str]]:
         if not isinstance(node, ast.Call):
             continue
         func = node.func
-        name = func.attr if isinstance(func, ast.Attribute) else (
-            func.id if isinstance(func, ast.Name) else ""
+        name = (
+            func.attr
+            if isinstance(func, ast.Attribute)
+            else (func.id if isinstance(func, ast.Name) else "")
         )
         if name not in PLAIN_TEXT_CALLS:
             continue
@@ -53,7 +55,7 @@ def _scan(source: str) -> list[tuple[int, str]]:
             if not isinstance(argument, ast.Constant):
                 continue
             text = argument.value
-            if not isinstance(text, str):        # None / 数字不是文字
+            if not isinstance(text, str):  # None / 数字不是文字
                 continue
             if "**" in text or "```" in text:
                 found.append((argument.lineno, text.replace("\n", " ")[:56]))

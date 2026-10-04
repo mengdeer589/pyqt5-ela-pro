@@ -34,8 +34,8 @@ opencode 对这个问题的解法是 journal 每个 ``part_text_accum_delta``（
 设计约束
 --------
 - **不依赖 Qt 核心**：纯数据 + 标准库，可在任意线程构造与重放，便于单测；
-- **追加写**：:meth:`dumps` 产出恰好一行 JSON，宿主 ``write(line + "\\n")``
-  就走；
+- **追加写**：:meth:`dumps` 产出**一行一条**事件（多事件时是多行文本），
+  宿主 ``write(journal.dumps() + "\\n")`` 或逐行落盘都成立；
 - **容忍残行**：进程可能在写一半时被杀，:meth:`loadsLine` 对截断 / 非法 JSON
   返回 ``None`` 而不抛，:meth:`fromLines` 直接跳过；
 - **未知事件跳过**：旧版本读到新版本的事件类型不会崩；
@@ -58,6 +58,8 @@ from .message import (
     ElaChatStatus,
     ElaChatToolCall,
     ElaChatToolStatus,
+    _as_float,
+    _as_int,
 )
 
 #: 日志行格式版本（与消息的 ``SCHEMA_VERSION`` 独立演进）
@@ -105,12 +107,14 @@ class ElaChatTurnJournal:
         timestamp: str = "",
         createdAt: float = 0.0,
     ) -> None:
-        self._message_id = int(messageId or 0)
+        self._message_id = _int(messageId, 0)
         self._role = role if role in ElaChatRole.All else ElaChatRole.Assistant
         self._title = title or ""
         self._timestamp = timestamp or ""
-        self._created_at = float(createdAt or 0.0)
+        self._created_at = _float(createdAt, 0.0)
         self._events: list = []
+        #: 已 connectWorker 的后端（幂等守卫 / 换绑时先解旧的）
+        self._worker = None
 
         # -- 重放状态（从事件构建 parts） --
         self._parts: list = []
@@ -129,12 +133,35 @@ class ElaChatTurnJournal:
         self._rec_stats = 0
         self._seq = 0
 
+    def _reset_state(self) -> None:
+        """复位累计状态（复用同一实例开始新回合时调用）。"""
+        self._events = []
+        self._parts = []
+        self._step = 1
+        self._status = ElaChatStatus.Streaming
+        self._error = ""
+        self._duration_ms = 0.0
+        self._attachments = []
+        self._ended = False
+        self._open = False
+        self._rec_text = None
+        self._rec_reasoning = None
+        self._rec_compaction = None
+        self._rec_stats = 0
+        self._seq = 0
+
     # ------------------------------------------------------------------ 记录
 
     def begin(self, messageId: Optional[int] = None) -> "ElaChatTurnJournal":
-        """开始记录一个回合（``messageId`` 省略则沿用构造时的值）。"""
+        """开始记录一个回合（``messageId`` 省略则沿用构造时的值）。
+
+        复用同一实例记录**第二个**回合时会先复位累计状态（否则第二个回合的
+        ``Text`` 事件会拼进上一回合的分段、``settleOpen`` 也会被跳过）。
+        """
+        if self._events:
+            self._reset_state()
         if messageId is not None:
-            self._message_id = int(messageId)
+            self._message_id = _int(messageId, self._message_id)
         self._open = True
         self._push(
             _Ev.Begin,
@@ -160,7 +187,7 @@ class ElaChatTurnJournal:
 
     def setCreatedAt(self, createdAt: float) -> "ElaChatTurnJournal":
         """设置创建时间（``time.time()`` 秒）。"""
-        self._created_at = float(createdAt or 0.0)
+        self._created_at = _float(createdAt, 0.0)
         self._push(_Ev.Meta, at=self._created_at)
         return self
 
@@ -216,7 +243,7 @@ class ElaChatTurnJournal:
         if not self._open:
             return self
         self._push(
-            _Ev.ReasoningEnd, id=self._rec_reasoning or "", ms=float(durationMs or 0.0)
+            _Ev.ReasoningEnd, id=self._rec_reasoning or "", ms=_float(durationMs, 0.0)
         )
         self._rec_reasoning = None
         return self
@@ -257,7 +284,7 @@ class ElaChatTurnJournal:
         """记录本轮端到端耗时（毫秒）。"""
         if not self._open:
             return self
-        self._push(_Ev.Duration, ms=float(durationMs or 0.0))
+        self._push(_Ev.Duration, ms=_float(durationMs, 0.0))
         return self
 
     # -- 上下文压缩 ---------------------------------------------------------
@@ -300,7 +327,7 @@ class ElaChatTurnJournal:
             _Ev.CompactionEnd,
             id=self._rec_compaction,
             status=status,
-            count=int(historyCount or 0),
+            count=_int(historyCount),
         )
         self._rec_compaction = None
         return self
@@ -368,7 +395,9 @@ class ElaChatTurnJournal:
             data = _json.loads(line)
         except (ValueError, TypeError):
             return None
-        if not isinstance(data, dict) or not data.get("e"):
+        # 只认「事件名是字符串」的行：``{"e": [1,2]}`` 也是合法 JSON，
+        # 放它过去会在 _apply 的 _HANDLERS.get 上抛 unhashable TypeError。
+        if not isinstance(data, dict) or not isinstance(data.get("e"), str):
             return None
         return data
 
@@ -391,6 +420,10 @@ class ElaChatTurnJournal:
         要在这里落定 —— 否则恢复出来的界面会留永久闪烁的光标 / 转圈。
         """
         events = []
+        if isinstance(lines, str):
+            # 裸字符串（``fromLines(fh.read())``）当成一整段文本，而不是
+            # 逐字符迭代 —— 那会静默产出空日志，问题极难发现。
+            lines = [lines]
         for line in lines or ():
             if isinstance(line, dict):
                 events.append(line)
@@ -456,13 +489,17 @@ class ElaChatTurnJournal:
 
     def _apply(self, event: dict) -> None:
         """把一个事件应用到重放状态（未知类型静默跳过）。"""
-        handler = _HANDLERS.get(event.get("e"))
-        if handler is None:
-            return  # 旧版本读到新事件类型：跳过而不是崩
         try:
+            kind = event.get("e")
+            if not isinstance(kind, str):
+                return
+            handler = _HANDLERS.get(kind)
+            if handler is None:
+                return  # 旧版本读到新事件类型：跳过而不是崩
             handler(self, event)
-        except (TypeError, ValueError, KeyError, AttributeError):
+        except (TypeError, ValueError, KeyError, AttributeError, OverflowError):
             pass  # 单条坏事件不该毁掉整条恢复链路
+            # OverflowError 也在列：int(float('inf')) 抛的是它，且不是上面任何一个的子类
 
     def _ev_begin(self, event: dict) -> None:
         self._message_id = _int(event.get("id"), self._message_id)
@@ -704,8 +741,13 @@ class ElaChatTurnJournal:
 
         与 :class:`~pyqt5_ela_pro.chat.binder.ElaChatStreamBinder` 连的是同一批
         信号，**两者可以并存**（Qt 允许多个接收方），所以加崩溃恢复不用改
-        现有接线。
+        现有接线。幂等：重复绑定同一后端直接返回；换绑其他后端先解旧的。
         """
+        if worker is self._worker:
+            return self
+        if self._worker is not None:
+            self.disconnectWorker(self._worker)
+        self._worker = worker
         worker.chunkReceived.connect(self._on_chunk)
         worker.toolStarted.connect(self._on_tool_started)
         worker.toolEnded.connect(self._on_tool_ended)
@@ -724,6 +766,8 @@ class ElaChatTurnJournal:
                 signal.disconnect(slot)
             except (TypeError, RuntimeError):
                 pass
+        if worker is self._worker:
+            self._worker = None
         return self
 
     def _on_chunk(self, chunk) -> None:
@@ -740,7 +784,11 @@ class ElaChatTurnJournal:
     def _on_tool_started(self, toolCall) -> None:
         if not isinstance(toolCall, dict):
             return
+        # 缺 function 时按 "unknown" 兜底；但 function 是字符串这类畸形结构
+        # 不能再 .get 打崩，也不能造出一张假工具卡。
         function = toolCall.get("function") or {}
+        if not isinstance(function, dict):
+            return
         self.toolStart(
             toolCall.get("id") or "",
             function.get("name") or "unknown",
@@ -759,21 +807,21 @@ class ElaChatTurnJournal:
         if isinstance(usage, ElaChatStats):
             stats = usage
             if ttftMs and not stats.ttft_ms:
-                stats = replace(stats, ttft_ms=float(ttftMs))
+                stats = replace(stats, ttft_ms=_as_float(ttftMs))
             if tps and not stats.tps:
-                stats = replace(stats, tps=float(tps))
+                stats = replace(stats, tps=_as_float(tps))
         else:
             cached = getattr(usage, "prompt_cache_hit_tokens", 0) or 0
             if not cached:
                 details = getattr(usage, "prompt_tokens_details", None)
                 cached = getattr(details, "cached_tokens", 0) or 0
             stats = ElaChatStats(
-                prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
-                completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
-                total_tokens=int(getattr(usage, "total_tokens", 0) or 0),
-                cached_tokens=int(cached or 0),
-                ttft_ms=float(ttftMs or 0.0),
-                tps=float(tps or 0.0),
+                prompt_tokens=_as_int(getattr(usage, "prompt_tokens", 0)),
+                completion_tokens=_as_int(getattr(usage, "completion_tokens", 0)),
+                total_tokens=_as_int(getattr(usage, "total_tokens", 0)),
+                cached_tokens=_as_int(cached),
+                ttft_ms=_as_float(ttftMs),
+                tps=_as_float(tps),
             )
         self.stats(stats)
 
@@ -807,11 +855,13 @@ def _str(value, default: str = "") -> str:
 
 
 def _int(value, default: int = 0) -> int:
+    # OverflowError 必须一并捕获：int(float('inf')) 抛的是它，且它不是
+    # TypeError / ValueError 的子类
     if value is None or isinstance(value, bool):
         return default
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
@@ -820,7 +870,7 @@ def _float(value, default: float = 0.0) -> float:
         return default
     try:
         out = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
     return out if out == out and out not in (float("inf"), float("-inf")) else default
 

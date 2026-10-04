@@ -2,17 +2,9 @@
 菜单项 / 动作定义（``pyqt5_ela_pro.menu_item``）。
 
 :class:`ElaMenuItem` 是「一条可点击的菜单项」的统一数据模型，被两个消费者共用：
-
-- :class:`~pyqt5_ela_pro.selection_assistant.assistant.ElaSelectionAssistant`
-  的划词动作条（``setActions``）；
-- :class:`~pyqt5_ela_pro.ela_tray_icon.ElaTrayIcon` 的托盘菜单
-  （``example/tray_host.py`` 的 :class:`~example.tray_host.ElaTrayHost`）。
-
-两个消费者都**只发信号、不执行动作**：行为由宿主监听各自的 ``actionTriggered``
-自行实现（如「复制」写剪贴板、「搜索」打开浏览器、「退出」调
-``QApplication.quit()``）。
-
-命名规范与库内一致（公共 API ``camelCase``，dataclass 字段 ``snake_case``）。
+划词动作条（``ElaSelectionAssistant.setActions``）与托盘菜单（``ElaTrayIcon``）。
+两个消费者都**只发信号、不执行动作**，行为由宿主监听各自的 ``actionTriggered``
+自行实现。
 """
 
 from __future__ import annotations

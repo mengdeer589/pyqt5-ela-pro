@@ -265,7 +265,7 @@ class TestExportAndMenu:
         assert minimum == hint
         v.deleteLater()
 
-    def test_copy_code_at_cursor_emits_signal(self, qapp):
+    def test_copy_code_at_cursor_emits_signal(self, qapp, requires_clipboard):
         v = ElaMarkdownViewer()
         v.setMarkdown("```python\nprint(1)\n```")
 
@@ -291,7 +291,7 @@ class TestExportAndMenu:
         assert qapp.clipboard().text().strip() == "print(1)"
         v.deleteLater()
 
-    def test_copy_full_text(self, qapp):
+    def test_copy_full_text(self, qapp, requires_clipboard):
         v = ElaMarkdownViewer()
         v.setMarkdown("hello world")
         v._copy_all()

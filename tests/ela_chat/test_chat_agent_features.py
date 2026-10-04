@@ -209,9 +209,9 @@ class TestSteer:
         binder = ElaChatStreamBinder(chat)
         chat.beginAssistantMessage()
         binder.beginTurn()
-        binder.beginRound()                # 第 1 轮：无插话
+        binder.beginRound()  # 第 1 轮：无插话
         chat.steerMessage("改主意了")
-        binder.beginRound()                # 第 2 轮 = step 边界 -> 投递
+        binder.beginRound()  # 第 2 轮 = step 边界 -> 投递
         assert chat.steerCount() == 0
 
     def test_binder_respects_disabled_flag(self, qapp, make):
@@ -281,9 +281,7 @@ class TestPermission:
 
     def test_card_buttons_emit(self, chat):
         seen = []
-        chat.permissionReplied.connect(
-            lambda i, r, rep, a, f: seen.append(rep)
-        )
+        chat.permissionReplied.connect(lambda i, r, rep, a, f: seen.append(rep))
         mid = _turn(chat)
         chat.chatView().beginPermission(mid, self._request())
         card = chat.chatView().interactivePermissionCard(mid, "r1")
@@ -297,9 +295,7 @@ class TestPermission:
 
     def test_always_button_emits_always(self, chat):
         seen = []
-        chat.permissionReplied.connect(
-            lambda i, r, rep, a, f: seen.append(rep)
-        )
+        chat.permissionReplied.connect(lambda i, r, rep, a, f: seen.append(rep))
         mid = _turn(chat)
         chat.chatView().beginPermission(mid, self._request())
         chat.chatView().interactivePermissionCard(mid, "r1")._action_buttons()[
@@ -315,15 +311,13 @@ class TestPermission:
         chat.chatView().beginPermission(mid, self._request())
         card = chat.chatView().interactivePermissionCard(mid, "r1")
         card._emit_reply("allowed", "", "")
-        card._emit_reply("always", "", "")        # responding 期间应被拦掉
+        card._emit_reply("always", "", "")  # responding 期间应被拦掉
         assert seen == ["allowed"]
 
     def test_question_options_render(self, chat):
         """问答型：候选卡渲染出来，选中后**提交**才发信号（不再是点一下就发）。"""
         seen = []
-        chat.permissionReplied.connect(
-            lambda i, r, rep, a, f: seen.append((rep, a))
-        )
+        chat.permissionReplied.connect(lambda i, r, rep, a, f: seen.append((rep, a)))
         mid = _turn(chat)
         chat.chatView().beginPermission(
             mid,
@@ -348,16 +342,14 @@ class TestPermission:
         card._option_buttons[0].activate.emit("改成 B")
         assert seen == [], "选中不该立刻发信号 —— 逐题向导要先收齐再提交"
         assert card.answers() == {"q0": ["改成 B"]}
-        card._go_next()          # 最后一题 = 提交
+        card._go_next()  # 最后一题 = 提交
         assert seen == [("allowed", '{"q0":"改成 B"}')]
 
     def test_abort_cancels_pending(self, chat):
         """opencode 漏掉的一环：回合中止必须把未答复的审批作废，
         否则界面上留下永远点不动的死卡。"""
         seen = []
-        chat.permissionReplied.connect(
-            lambda i, r, rep, a, f: seen.append(rep)
-        )
+        chat.permissionReplied.connect(lambda i, r, rep, a, f: seen.append(rep))
         mid = _turn(chat)
         chat.chatView().beginPermission(mid, self._request())
         chat.chatView().bubble(mid).cancelPendingPermissions()
@@ -461,10 +453,13 @@ class TestFontScale:
         view.beginPermission(
             mid,
             ElaChatPermission(
-                request_id="q1", action="question",
+                request_id="q1",
+                action="question",
                 questions=(
                     ElaChatQuestion(
-                        key="q0", header="范围", question="哪些目录？",
+                        key="q0",
+                        header="范围",
+                        question="哪些目录？",
                         options=(ElaChatOption("a/", "组件"),),
                     ),
                 ),
@@ -484,8 +479,7 @@ class TestFontScale:
         labels = chat.findChildren(ColorText)
         assert labels, "没抓到任何 ColorText，测试本身失效了"
         bad = [
-            (label.font().pixelSize(), type(label.parent()).__name__,
-             label.text()[:30])
+            (label.font().pixelSize(), type(label.parent()).__name__, label.text()[:30])
             for label in labels
             if not 0 < label.font().pixelSize() <= self.MAX_PX
         ]
@@ -719,8 +713,10 @@ class TestCost:
 
     def test_cost_from_parts_splits_cache(self):
         price = ModelPricing(
-            input_per_m=3.0, output_per_m=15.0,
-            cache_read_per_m=0.3, cache_write_per_m=3.75,
+            input_per_m=3.0,
+            output_per_m=15.0,
+            cache_read_per_m=0.3,
+            cache_write_per_m=3.75,
         )
         got = cost_from_parts(1000, 500, cacheRead=200, cacheWrite=100, pricing=price)
         expected = (1000 * 3.0 + 500 * 15.0 + 200 * 0.3 + 100 * 3.75) / 1_000_000
@@ -748,7 +744,7 @@ class TestCost:
             mid, ElaChatStats(prompt_tokens=10, completion_tokens=5, cost_usd=0.5)
         )
         bundle = chat.chatView().exportSession()
-        raw = json.dumps(bundle, allow_nan=False)      # 纯 JSON，可落库
+        raw = json.dumps(bundle, allow_nan=False)  # 纯 JSON，可落库
         other = make(ElaChatWidget)
         other.chatView().importSession(json.loads(raw))
         assert other.chatView().message(mid).stats.cost_usd == pytest.approx(0.5)
@@ -800,7 +796,14 @@ class TestContextUsage:
         mid = _turn(chat)
         chat.chatView().setContextUsage(100_000, 200_000, 1.5)
         bundle = chat.chatView().exportSession()
-        assert "context" not in json.dumps(bundle).lower() or True
+        # 占用不是消息数据：view 段没有它，消息段也没有
+        view_options = bundle.get("view", {})
+        assert "context_usage" not in view_options
+        assert "contextUsage" not in view_options
+        assert all(
+            not any("context" in key.lower() for key in row)
+            for row in bundle.get("messages", [])
+        )
         assert chat.chatView().message(mid).stats is None
 
 

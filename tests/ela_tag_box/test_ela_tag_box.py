@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from PyQt5.QtCore import QPropertyAnimation
 
+from pyqt5_ela_pro._motion import Duration
 from pyqt5_ela_pro.ela_tag_box import ElaTagBox
 
 
@@ -46,8 +47,8 @@ class TestElaTagBoxAnimations:
     @pytest.mark.parametrize(
         "attr", ["_mark_animation", "_rotate_animation"], ids=["mark", "rotate"]
     )
-    def test_animation_duration_is_300ms(self, box, attr):
-        assert getattr(box, attr).duration() == 300
+    def test_animation_duration_uses_normal_token(self, box, attr, motion_full):
+        assert getattr(box, attr).duration() == Duration.Normal
 
 
 class TestElaTagBoxExpandProperties:

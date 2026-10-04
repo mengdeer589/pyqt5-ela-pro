@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtWidgets import QLabel
+from PyQt5.QtWidgets import QLabel, QWidget
 
 from PyQt5ElaWidgetTools import ElaIconType
 
@@ -11,8 +11,8 @@ from pyqt5_ela_pro.chat import ElaChatToolBar, ElaChatToolButton
 
 
 class TestAddButton:
-    def test_add_and_query(self, qapp):
-        bar = ElaChatToolBar()
+    def test_add_and_query(self, qapp, make):
+        bar = make(ElaChatToolBar)
         button = bar.addButton(
             icon=ElaIconType.IconName.Bolt, tooltip="执行", key="run"
         )
@@ -22,17 +22,15 @@ class TestAddButton:
         assert bar.toolButton("run") is button
         assert bar.item("run") is button
         assert button.toolTip() == "执行"
-        bar.deleteLater()
 
-    def test_auto_key(self, qapp):
-        bar = ElaChatToolBar()
+    def test_auto_key(self, qapp, make):
+        bar = make(ElaChatToolBar)
         bar.addButton(text="A")
         bar.addButton(text="B")
         assert bar.keys() == ["tool-1", "tool-2"]
-        bar.deleteLater()
 
-    def test_signal_and_callback(self, qapp):
-        bar = ElaChatToolBar()
+    def test_signal_and_callback(self, qapp, make):
+        bar = make(ElaChatToolBar)
         triggered = []
         called = []
         bar.toolTriggered.connect(triggered.append)
@@ -40,10 +38,9 @@ class TestAddButton:
         button.click()
         assert triggered == ["go"]
         assert called == [1]
-        bar.deleteLater()
 
-    def test_checkable_toggle(self, qapp):
-        bar = ElaChatToolBar()
+    def test_checkable_toggle(self, qapp, make):
+        bar = make(ElaChatToolBar)
         toggles = []
         bar.toolToggled.connect(lambda key, checked: toggles.append((key, checked)))
         button = bar.addButton(text="模式", key="mode", checkable=True)
@@ -61,10 +58,9 @@ class TestAddButton:
         icon_button.click()
         assert icon_button.isChecked() is True
         assert toggles[-1] == ("run", True)
-        bar.deleteLater()
 
-    def test_icon_only_button_is_square(self, qapp):
-        bar = ElaChatToolBar()
+    def test_icon_only_button_is_square(self, qapp, make):
+        bar = make(ElaChatToolBar)
         icon_button = bar.addButton(
             icon=ElaIconType.IconName.Bolt, tooltip="执行", key="run"
         )
@@ -76,12 +72,11 @@ class TestAddButton:
         text_button = bar.addButton(text="模式", key="mode")
         assert not isinstance(text_button, ElaChatToolButton)
         assert text_button.sizeHint().width() > text_button.sizeHint().height()
-        bar.deleteLater()
 
 
 class TestZonesAndWidgets:
-    def test_leading_and_trailing(self, qapp):
-        bar = ElaChatToolBar()
+    def test_leading_and_trailing(self, qapp, make):
+        bar = make(ElaChatToolBar)
         bar.addButton(text="左", zone="leading")
         bar.addButton(text="右", zone="trailing")
         leading_button = bar.toolButton("tool-1")
@@ -91,30 +86,27 @@ class TestZonesAndWidgets:
         # 左段在 trailing 段之前
         assert bar._leading.indexOf(leading_button) >= 0
         assert bar._trailing.indexOf(trailing_button) >= 0
-        bar.deleteLater()
 
-    def test_add_widget(self, qapp):
-        bar = ElaChatToolBar()
+    def test_add_widget(self, qapp, make):
+        bar = make(ElaChatToolBar)
         label = QLabel("自定义")
         returned = bar.addWidget(label, zone="trailing", key="custom")
         assert returned is label
         assert bar.item("custom") is label
         assert label.parentWidget() is bar
-        bar.deleteLater()
 
-    def test_separator(self, qapp):
-        bar = ElaChatToolBar()
+    def test_separator(self, qapp, make):
+        bar = make(ElaChatToolBar)
         bar.addButton(text="A")
         line = bar.addSeparator()
         assert line is not None
         assert line.width() == 1
         assert bar.count() == 1  # 分隔线不计入项
-        bar.deleteLater()
 
 
 class TestInsert:
-    def test_insert_button_before_key(self, qapp):
-        bar = ElaChatToolBar()
+    def test_insert_button_before_key(self, qapp, make):
+        bar = make(ElaChatToolBar)
         first = bar.addButton(text="A", key="a")
         second = bar.addButton(text="B", key="b")
         inserted = bar.insertButton("b", text="X", key="x")
@@ -122,19 +114,17 @@ class TestInsert:
         assert bar._leading.indexOf(inserted) == 1
         assert bar._leading.indexOf(second) == 2
         assert bar.keys() == ["a", "b", "x"]  # 登记顺序仍是添加顺序
-        bar.deleteLater()
 
-    def test_insert_uses_reference_zone(self, qapp):
-        bar = ElaChatToolBar()
+    def test_insert_uses_reference_zone(self, qapp, make):
+        bar = make(ElaChatToolBar)
         left = bar.addButton(text="左", key="l", zone="leading")
         right = bar.addButton(text="右", key="r", zone="trailing")
         inserted = bar.insertButton("r", text="前", key="ins")
         assert bar._trailing.indexOf(inserted) == bar._trailing.indexOf(right) - 1
         assert bar._leading.indexOf(left) == 0
-        bar.deleteLater()
 
-    def test_insert_widget_and_separator(self, qapp):
-        bar = ElaChatToolBar()
+    def test_insert_widget_and_separator(self, qapp, make):
+        bar = make(ElaChatToolBar)
         button = bar.addButton(text="A", key="a")
         line = bar.insertSeparator("a")
         label = bar.insertWidget("a", QLabel("自定义"), key="custom")
@@ -143,10 +133,9 @@ class TestInsert:
         index_label = bar._leading.indexOf(label)
         index_button = bar._leading.indexOf(button)
         assert index_line < index_label < index_button
-        bar.deleteLater()
 
-    def test_insert_unknown_before_raises(self, qapp):
-        bar = ElaChatToolBar()
+    def test_insert_unknown_before_raises(self, qapp, make):
+        bar = make(ElaChatToolBar)
         with pytest.raises(ValueError):
             bar.insertButton("missing", text="X")
         with pytest.raises(ValueError):
@@ -154,12 +143,11 @@ class TestInsert:
         with pytest.raises(ValueError):
             bar.insertSeparator("missing")
         assert bar.count() == 0  # 失败不留半成品
-        bar.deleteLater()
 
 
 class TestZoneValidation:
-    def test_invalid_zone_raises(self, qapp):
-        bar = ElaChatToolBar()
+    def test_invalid_zone_raises(self, qapp, make):
+        bar = make(ElaChatToolBar)
         with pytest.raises(ValueError):
             bar.addButton(text="X", zone="top")
         with pytest.raises(ValueError):
@@ -171,12 +159,11 @@ class TestZoneValidation:
         with pytest.raises(ValueError):
             bar.clear(zone="top")
         assert bar.count() == 0
-        bar.deleteLater()
 
 
 class TestItemState:
-    def test_visible_and_enabled(self, qapp):
-        bar = ElaChatToolBar()
+    def test_visible_and_enabled(self, qapp, make):
+        bar = make(ElaChatToolBar)
         button = bar.addButton(icon=ElaIconType.IconName.Bolt, key="bolt")
         assert bar.itemVisible("bolt") is True
         assert bar.itemEnabled("bolt") is True
@@ -198,10 +185,9 @@ class TestItemState:
         assert bar.setItemEnabled("missing", False) is False
         assert bar.itemVisible("missing") is False
         assert bar.itemEnabled("missing") is False
-        bar.deleteLater()
 
-    def test_show_and_enable_again(self, qapp):
-        bar = ElaChatToolBar()
+    def test_show_and_enable_again(self, qapp, make):
+        bar = make(ElaChatToolBar)
         button = bar.addButton(text="A", key="a")
         bar.setItemVisible("a", False)
         bar.setItemEnabled("a", False)
@@ -210,12 +196,11 @@ class TestItemState:
         assert bar.itemVisible("a") is True
         assert bar.itemEnabled("a") is True
         assert button.isHidden() is False
-        bar.deleteLater()
 
 
 class TestRemove:
-    def test_remove_by_key_and_handle(self, qapp):
-        bar = ElaChatToolBar()
+    def test_remove_by_key_and_handle(self, qapp, make):
+        bar = make(ElaChatToolBar)
         first = bar.addButton(text="A", key="a")
         second = bar.addButton(text="B", key="b")
         assert bar.removeItem("a") is True
@@ -223,22 +208,75 @@ class TestRemove:
         assert bar.removeItem(first) is False
         assert bar.removeItem(second) is True
         assert bar.count() == 0
-        bar.deleteLater()
 
-    def test_clear_zone(self, qapp):
-        bar = ElaChatToolBar()
+    def test_clear_zone(self, qapp, make):
+        bar = make(ElaChatToolBar)
         bar.addButton(text="左", key="l", zone="leading")
         bar.addButton(text="右", key="r", zone="trailing")
         bar.clear(zone="leading")
         assert bar.keys() == ["r"]
         bar.clear()
         assert bar.keys() == []
-        bar.deleteLater()
 
-    def test_compact(self, qapp):
-        bar = ElaChatToolBar()
+    def test_compact(self, qapp, make):
+        bar = make(ElaChatToolBar)
         assert not bar.compact()
         bar.setCompact(True)
         assert bar.compact()
         assert bar.layout().spacing() == 2
-        bar.deleteLater()
+
+
+class TestDuplicateKey:
+    def test_explicit_duplicate_key_raises(self, qapp, make):
+        """显式重复 key 必须抛错：静默覆盖会让旧控件留在布局里却无法再管理。"""
+        bar = make(ElaChatToolBar)
+        bar.addButton(text="A", key="dup")
+        with pytest.raises(ValueError):
+            bar.addButton(text="B", key="dup")
+        assert bar.keys() == ["dup"]
+
+    def test_parent_is_first_positional(self, qapp, make):
+        host = make(QWidget)
+        button = make(ElaChatToolButton, host, icon=ElaIconType.IconName.Bolt)
+        assert button.parent() is host
+
+
+class TestSeparatorRemoval:
+    def test_remove_separator_individually(self, qapp, make):
+        """分隔线可单独移除（此前只能 clear 整段）。"""
+        bar = make(ElaChatToolBar)
+        bar.addButton(text="A", key="a")
+        sep = bar.addSeparator(zone="leading")
+        bar.addButton(text="B", key="b")
+        assert bar._leading.count() == 3
+
+        assert bar.removeSeparator(sep) is True
+        assert bar.removeSeparator(sep) is False, "已移除的句柄再删返回 False"
+        assert bar._leading.count() == 2
+        assert bar.keys() == ["a", "b"], "分隔线不进 key 空间"
+
+    def test_remove_item_accepts_separator(self, qapp, make):
+        bar = make(ElaChatToolBar)
+        sep = bar.addSeparator(zone="trailing")
+        assert bar.removeItem(sep) is True
+        assert bar._trailing.count() == 0
+        assert bar.removeItem(sep) is False
+
+    def test_inserted_separator_is_removable(self, qapp, make):
+        bar = make(ElaChatToolBar)
+        bar.addButton(text="A", key="a")
+        sep = bar.insertSeparator("a")
+        assert bar._leading.indexOf(sep) == 0
+        assert bar.removeSeparator(sep) is True
+        assert bar._leading.count() == 1
+
+    def test_separator_visibility_and_enabled(self, qapp, make):
+        bar = make(ElaChatToolBar)
+        sep = bar.addSeparator()
+        assert bar.setItemVisible(sep, False) is True
+        assert bar.itemVisible(sep) is False
+        assert bar.setItemVisible(sep, True) is True
+        assert bar.itemVisible(sep) is True
+        assert bar.setItemEnabled(sep, False) is True
+        assert bar.itemEnabled(sep) is False
+        assert bar.setItemVisible("missing", True) is False

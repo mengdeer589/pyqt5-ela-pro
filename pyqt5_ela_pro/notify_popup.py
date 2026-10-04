@@ -28,6 +28,10 @@ from PyQt5ElaWidgetTools import (
     ElaToolButton,
 )
 
+from ._internal import connect_theme_signal, disconnect_theme
+from ._motion import Duration, start_transition
+from ._styles import SHADOW_MARGIN, paintOverlayShadow
+
 
 class ElaNotifyPopup(QWidget):
     """右下角通知弹窗
@@ -59,13 +63,17 @@ class ElaNotifyPopup(QWidget):
         self._is_closing = False
         self._animation = None
         self._timer = None
+        #: 阴影边距。必须在 _setup_ui 之前定下来 —— 布局的内容边距要把它算进去。
+        self._shadow_margin = SHADOW_MARGIN
 
         self._setup_ui()
         self._init()
 
     def _setup_ui(self):
+        sm = self._shadow_margin
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 12, 15, 12)
+        # 15/12 是卡片内容内缩；再加一圈阴影边距，否则子控件会压在阴影上。
+        layout.setContentsMargins(15 + sm, 12 + sm, 15 + sm, 12 + sm)
         layout.setSpacing(8)
 
         header_layout = QHBoxLayout()
@@ -100,24 +108,17 @@ class ElaNotifyPopup(QWidget):
             | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setFixedWidth(300)
-        self.resize(300, 100)
+        sm = self._shadow_margin
+        self.setFixedWidth(300 + sm * 2)
+        self.resize(300 + sm * 2, 100 + sm * 2)
 
         self._animation = QPropertyAnimation(self, b"pos")
-        self._animation.setDuration(300)
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._on_timeout)
 
-        eTheme.themeModeChanged.connect(self._onThemeChanged)
-        self.destroyed.connect(self._theme_cleanup)
-
-    def _theme_cleanup(self):
-        try:
-            eTheme.themeModeChanged.disconnect(self._onThemeChanged)
-        except TypeError:
-            pass
+        connect_theme_signal(self)
 
     def _onThemeChanged(self, _mode):
         self.update()
@@ -166,16 +167,14 @@ class ElaNotifyPopup(QWidget):
         self._timer.stop()
         self._is_closing = False
         self._animation.stop()
-        try:
-            self._animation.finished.disconnect(self._on_animation_end)
-        except TypeError:
-            pass
         self.move(self._start_pos)
         super().show()
 
         self._animation.setStartValue(self.pos())
         self._animation.setEndValue(self._end_pos)
-        self._animation.start()
+        # 滑入**不传 on_complete** —— 传了就会在滑入结束时把弹窗关掉。
+        # 以前靠「先 disconnect 再 start」表达同一件事，现在语义直写在参数上。
+        start_transition(self._animation, Duration.Normal)
 
         if self._timeout > 0:
             self._timer.start(self._timeout)
@@ -191,19 +190,15 @@ class ElaNotifyPopup(QWidget):
         self._animation.stop()
         self._animation.setStartValue(self.pos())
         self._animation.setEndValue(self._start_pos)
-        try:
-            self._animation.finished.disconnect(self._on_animation_end)
-        except TypeError:
-            pass
-        self._animation.finished.connect(self._on_animation_end)
-        self._animation.start()
+        # 收尾只有这一个注册点。start_transition 内部保证「先断旧再连新」，
+        # 所以关闭动画进行中收到 showNotification 会正确地取消收尾、弹回打开态，
+        # 而不会叠连接让 _on_animation_end 跑两次（两次 closed.emit()）。
+        start_transition(
+            self._animation, Duration.Normal, on_complete=self._on_animation_end
+        )
 
     def _on_animation_end(self):
         self._is_closing = False
-        try:
-            self._animation.finished.disconnect(self._on_animation_end)
-        except TypeError:
-            pass
         self.hide()
         self.closed.emit()
 
@@ -243,9 +238,15 @@ class ElaNotifyPopup(QWidget):
         self._timeout = timeout
 
     def deleteLater(self) -> None:
-        """断开信号并清理资源。"""
+        """断开信号并清理资源。
+
+        弹窗是本库创建/销毁最频繁的无父顶层控件，而 ``processEvents()`` 不派发
+        ``DeferredDelete`` —— 只靠 ``destroyed`` 上的钩子会连着好几个，所以主题单例
+        信号在这里就断。
+        """
         self._timer.stop()
         self._animation.stop()
+        disconnect_theme(self)
         try:
             self._close_btn.clicked.disconnect(self._on_close)
         except (TypeError, RuntimeError):
@@ -259,10 +260,16 @@ class ElaNotifyPopup(QWidget):
         mode = eTheme.getThemeMode()
         bg_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase)
         border_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBaseLine)
+        sm = self._shadow_margin
+
+        paintOverlayShadow(painter, self.rect(), margin=sm, radius=8)
+        painter.translate(sm, sm)
 
         painter.setPen(border_color)
         painter.setBrush(bg_color)
-        painter.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 8, 8)
+        painter.drawRoundedRect(
+            QRect(0, 0, self.width() - 2 * sm, self.height() - 2 * sm), 8, 8
+        )
 
         super().paintEvent(event)
 

@@ -182,7 +182,7 @@ class TestFormulaTooltipAndCopy:
         assert fragment.charFormat().toImageFormat().toolTip() == "LaTeX: E=mc^2"
         v.deleteLater()
 
-    def test_copy_formula(self, qapp):
+    def test_copy_formula(self, qapp, requires_clipboard):
         v = ElaMarkdownViewer()
         v.setMarkdown(self.SOURCE)
         fragment = self._image_fragment(v)

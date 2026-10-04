@@ -14,13 +14,16 @@ from PyQt5.QtWidgets import (
     QApplication,
     QWidget,
 )
-from PyQt5.QtGui import QFont, QColor, QTextCharFormat, QTextCursor, QPalette
+from PyQt5.QtGui import QFont, QColor, QTextCharFormat, QTextCursor
 from PyQt5ElaWidgetTools import (
+    ElaPlainTextEdit,
     ElaScrollArea,
     ElaText,
     ElaIconType,
     ElaMessageBar,
     ElaMessageBarType,
+    ElaThemeType,
+    eTheme,
 )
 from pyqt5_ela_pro import ElaThemeWidget, ElaDialogBase, ElaButton
 
@@ -103,18 +106,23 @@ class ExamplePage(ElaThemeWidget):
             if btn.text() == "确定":
                 btn.hide()
                 break
-        edit = QPlainTextEdit()
+        # 用 ElaPlainTextEdit 而不是裸 QPlainTextEdit，两个问题一次解决：
+        #   - 右键菜单：它覆写了 contextMenuEvent（ElaPlainTextEdit.cpp:100-140），
+        #     里面就是 ElaMenu + addElaIconAction（复制 / 全选），不再是原生菜单；
+        #   - 滚动条：构造时上下都换成了 ElaScrollBar（:22-23），跟随主题。
+        # 代价是背景**由主题决定**（ElaPlainTextEditStyle.cpp:41 用 BasicBaseAlpha
+        # 画，盖不住容器的 setSolidBackground、也不吃 Palette.Base —— 实测设了仍是
+        # 系统色 #a8a8a8）→ 高亮配色因此分亮 / 暗两套（见 _STYLE_DARK/_STYLE_LIGHT）。
+        edit = ElaPlainTextEdit()
         edit.setReadOnly(True)
         edit.setLineWrapMode(QPlainTextEdit.NoWrap)
         edit.setFrameShape(QPlainTextEdit.NoFrame)
-        pal = edit.palette()
-        pal.setColor(QPalette.Base, QColor("#1E1E1E"))
-        pal.setColor(QPalette.Text, QColor("#D4D4D4"))
-        edit.setPalette(pal)
         font = QFont("Consolas", 10)
         font.setStyleHint(QFont.Monospace)
         edit.setFont(font)
         edit.document().setDefaultFont(font)
+        # 逐 token 显式上色，**不依赖 Palette.Text**：ElaPlainTextEdit.paintEvent
+        # 发现 Text 不等于主题 BasicText 就会刷回去（:145-147）
         _insert_colored_code(edit.document(), source)
         container = QWidget()
         container_layout = QVBoxLayout(container)
@@ -258,8 +266,17 @@ _TOKEN_RE = _re.compile(
     r"""|(?P<other>.)"""
 )
 
-_STYLE = {
-    "comment": ("#6A9955", False, True),
+#: 代码高亮配色：kind -> (前景色, 粗体, 斜体)
+#:
+#: **必须两套**，因为代码区的底色是**主题给的、我们改不了**：
+#: ``ElaPlainTextEdit`` 的 ``ElaPlainTextEditStyle`` 直接用 ``BasicBaseAlpha`` 画背景
+#: （``ElaPlainTextEditStyle.cpp:41``），既盖不住容器的 ``setSolidBackground``、
+#: 也不吃 ``Palette.Base``（实测设了仍是系统色 ``#a8a8a8``）—— 亮色 ``#fafafa`` /
+#: 暗色 ``#2d2d2d``。一套中调色不可能在两种底色上都够 4.5:1（注释绿最典型：
+#: ``#6A9955`` 暗底 4.13、亮底 3.19，两边都不达标），所以按主题各选一套并按
+#: WCAG 4.5:1 校验过。
+_STYLE_DARK = {
+    "comment": ("#8CC06E", False, True),
     "decorator": ("#DCDCAA", False, False),
     "string": ("#CE9178", False, False),
     "number": ("#B5CEA8", False, False),
@@ -273,6 +290,26 @@ _STYLE = {
     "default": ("#D4D4D4", False, False),
 }
 
+_STYLE_LIGHT = {
+    "comment": ("#3F6B32", False, True),
+    "decorator": ("#7A3E9D", False, False),
+    "string": ("#A03E00", False, False),
+    "number": ("#0F6E3D", False, False),
+    "kw": ("#0B4F9E", True, False),
+    "builtin": ("#7A3E9D", False, False),
+    "class": ("#0F6E7A", False, False),
+    "method": ("#7A5B00", False, False),
+    "attr": ("#0B4F9E", False, False),
+    "operator": ("#1F1F1F", False, False),
+    "defclass": ("#0F6E7A", False, False),
+    "default": ("#1F1F1F", False, False),
+}
+
+
+def _style_for_mode(mode):
+    """按主题模式取一套高亮配色。"""
+    return _STYLE_LIGHT if mode == ElaThemeType.ThemeMode.Light else _STYLE_DARK
+
 
 def _make_fmt(color, bold=False, italic=False):
     f = QTextCharFormat()
@@ -284,37 +321,44 @@ def _make_fmt(color, bold=False, italic=False):
     return f
 
 
-def _insert_colored_code(doc, source):
+def _insert_colored_code(doc, source, style=None):
+    """把源码按 ``style`` 逐 token 上色写进 ``doc``（``style`` 缺省按当前主题选）。"""
+    if style is None:
+        style = _style_for_mode(eTheme.getThemeMode())
     cur = QTextCursor(doc)
+    newline_fmt = _make_fmt(*style["default"])
     for line in source.split("\n"):
-        _insert_colored_line(cur, line)
-        cur.insertText("\n")
+        _insert_colored_line(cur, line, style)
+        cur.insertText("\n", newline_fmt)
 
 
-def _insert_colored_line(cur, raw):
+def _insert_colored_line(cur, raw, style):
     matches = list(_TOKEN_RE.finditer(raw))
     last = 0
     for i, m in enumerate(matches):
         if m.start() > last:
-            cur.insertText(raw[last : m.start()])
+            cur.insertText(raw[last : m.start()], _make_fmt(*style["default"]))
         kind = m.lastgroup
         text = m.group()
 
         if kind == "ident":
-            fmt = _make_fmt(*_STYLE[_ident_type(i, matches, raw)])
+            fmt = _make_fmt(*style[_ident_type(i, matches, raw)])
         elif kind == "other":
-            cur.insertText(text)
+            # 空白也要**显式上色**：viewer 的 Palette.Text 会被
+            # ElaPlainTextEdit.paintEvent 每次重置回主题 BasicText
+            # （ElaPlainTextEdit.cpp:145-147），依赖它的话亮色主题下缩进会变成近黑
+            cur.insertText(text, _make_fmt(*style["default"]))
             last = m.end()
             continue
         elif kind == "operator":
-            fmt = _make_fmt(*_STYLE["operator"])
+            fmt = _make_fmt(*style["operator"])
         else:
-            fmt = _make_fmt(*_STYLE[kind])
+            fmt = _make_fmt(*style[kind])
 
         cur.insertText(text, fmt)
         last = m.end()
     if last < len(raw):
-        cur.insertText(raw[last:])
+        cur.insertText(raw[last:], _make_fmt(*style["default"]))
 
 
 def _ident_type(i, matches, raw):

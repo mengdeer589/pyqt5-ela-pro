@@ -1,16 +1,13 @@
 """
 聊天 dock 组件（``pyqt5_ela_pro.chat``）。
 
-- :class:`ElaChatQueueDock`：排队消息 dock（输入区上方，可折叠），
-  对齐 opencode 的 follow-up dock：``N 条排队消息`` + 首条预览，
-  展开后每条支持「立即发送 / 编辑 / 移除」；
-- :class:`ElaChatInputDock`：可替换输入区的通用 dock 容器
-  （权限请求 / 提问卡片等），``replace=True`` 时输入区不可用。
+- :class:`ElaChatQueueDock`：排队消息 dock（输入区上方，可折叠），``N 条排队消息``
+  + 首条预览，展开后每条支持「立即发送 / 编辑 / 移除」；
+- :class:`ElaChatInputDock`：可替换输入区的通用 dock 容器，``replace=True`` 时输入区
+  不可用；
+- :class:`ElaChatPermissionDock`：审批 / 提问的交互 dock。
 
-实现件基于 ``ElaScrollPageArea`` 卡面 + ``ElaButton`` / ``ElaIconButton`` /
-``ElaText`` 封装。
-
-命名规范与库内一致（``camelCase``）。
+三者都是 ``ElaScrollPageArea`` 卡面。
 """
 
 from __future__ import annotations
@@ -30,9 +27,11 @@ from PyQt5ElaWidgetTools import (
 )
 
 from .._internal import _ThemeAwareMixin
+from .._ownership import ContentSlot, WidgetOwnership
 from .._styles import BareButton, ColorText
 from ..ela_button import ElaButton
 from ._theme import muted_color, text_color
+from .message import _as_int
 
 
 class ElaChatQueueDock(_ThemeAwareMixin, ElaScrollPageArea):
@@ -78,6 +77,9 @@ class ElaChatQueueDock(_ThemeAwareMixin, ElaScrollPageArea):
         self._chevron.setBorderRadius(4)
         self._title = ColorText(self)
         self._preview = ColorText(self)
+        # 排队文本来自用户输入，按纯文本渲染（AutoText 会真解析 HTML）
+        self._title.setTextFormat(Qt.TextFormat.PlainText)
+        self._preview.setTextFormat(Qt.TextFormat.PlainText)
         header_layout.addWidget(self._chevron)
         header_layout.addWidget(self._title)
         header_layout.addWidget(self._preview, 1)
@@ -105,14 +107,24 @@ class ElaChatQueueDock(_ThemeAwareMixin, ElaScrollPageArea):
                 "attachments": list(item.get("attachments") or []),
             }
             for item in (messages or [])
+            if isinstance(item, dict)
         ]
         self._rebuild_rows()
         self._sync_header()
         self.setVisible(bool(self._messages))
 
     def messages(self) -> list:
-        """排队消息快照列表。"""
-        return [dict(item) for item in self._messages]
+        """排队消息快照列表（``attachments`` 也是副本，改它不会影响内部状态）。"""
+        return [
+            {
+                "id": item["id"],
+                "text": item["text"],
+                "attachments": [
+                    dict(a) if isinstance(a, dict) else a for a in item["attachments"]
+                ],
+            }
+            for item in self._messages
+        ]
 
     def count(self) -> int:
         """排队消息条数。"""
@@ -207,7 +219,9 @@ class ElaChatQueueDock(_ThemeAwareMixin, ElaScrollPageArea):
             row = item.widget() if item is not None else None
             if row is None:
                 continue
-            label = row.layout().itemAt(0).widget()
+            # 按位置反查标签：_build_row 的布局顺序即契约（标签在 index 0）
+            row_layout = row.layout()
+            label = row_layout.itemAt(0).widget() if row_layout is not None else None
             if label is not None:
                 label.setTextColor(muted_color(self._theme_mode, 0.8))
                 label.setTextPixelSize(12)
@@ -218,7 +232,12 @@ class ElaChatQueueDock(_ThemeAwareMixin, ElaScrollPageArea):
 
 
 class ElaChatInputDock(_ThemeAwareMixin, ElaScrollPageArea):
-    """可替换输入区的通用 dock 容器（权限 / 提问卡片等）。"""
+    """可替换输入区的通用 dock 容器（权限 / 提问卡片等）。
+
+    内容槽走 :class:`~pyqt5_ela_pro._ownership.ContentSlot`（AGENTS.md 要求带内容槽
+    的容器一律用它），**释放策略由调用方选**：默认 ``Borrowed`` 只是
+    ``setParent(None)`` 交还，``Owned`` 才由本 dock ``deleteLater()``。
+    """
 
     #: dock 内容变化（参数：是否有内容）
     changed = pyqtSignal(bool)
@@ -230,15 +249,19 @@ class ElaChatInputDock(_ThemeAwareMixin, ElaScrollPageArea):
         self.setMaximumHeight(16777215)
         self.setBorderRadius(10)
         self._title = ""
-        self._widget: Optional[QWidget] = None
         self._replace = False
+        self._updating = False
 
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(10, 8, 10, 8)
         self._layout.setSpacing(6)
         self._title_label = ColorText(self)
+        self._title_label.setTextFormat(Qt.TextFormat.PlainText)
         self._title_label.hide()
         self._layout.addWidget(self._title_label)
+        self._slot = ContentSlot(self, "inputDock")
+        # 只在**外部**销毁内容时收尾；显式 setWidget / clear 走各自的路径
+        self._slot.widgetChanged.connect(self._on_slot_changed)
         self.hide()
         self._apply_theme()
 
@@ -254,43 +277,77 @@ class ElaChatInputDock(_ThemeAwareMixin, ElaScrollPageArea):
         """获取 dock 标题。"""
         return self._title
 
-    def setWidget(self, widget: Optional[QWidget], replace: bool = True) -> None:
-        """设置 dock 内容；``replace=True`` 表示替换输入区（输入区不可用）。"""
-        self._detach_widget()
-        if widget is None:
-            self.hide()
-            self.changed.emit(False)
-            return
-        widget.setParent(self)
-        self._widget = widget
-        self._replace = bool(replace)
-        self._layout.addWidget(widget)
-        self.show()
-        self.changed.emit(True)
+    def setWidget(  # noqa: N802
+        self,
+        widget: Optional[QWidget],
+        replace: bool = True,
+        *,
+        ownership: WidgetOwnership = WidgetOwnership.Borrowed,
+    ) -> bool:
+        """设置 dock 内容；``replace=True`` 表示替换输入区（输入区不可用）。
+
+        :param ownership: 释放策略，默认 ``Borrowed``（交还调用方）。选 ``Owned``
+            时由本 dock 负责 ``deleteLater()``。
+        :returns: 是否挂载成功（自挂 / 挂祖先 / 非 QWidget / 宿主已死都会被拒）。
+        """
+        self._updating = True
+        try:
+            self._replace = bool(replace)
+            if not self._slot.setWidget(widget, ownership=ownership):
+                self._replace = False
+                return False
+            if widget is None:
+                self.hide()
+                self.changed.emit(False)
+                return True
+            self._layout.addWidget(widget)
+            self.show()
+            self.changed.emit(True)
+            return True
+        finally:
+            self._updating = False
 
     def widget(self) -> Optional[QWidget]:
         """获取当前 dock 内容。"""
-        return self._widget
+        return self._slot.widget()
+
+    def ownership(self) -> WidgetOwnership:
+        """当前内容槽的释放策略。"""
+        return self._slot.ownership()
 
     def replacesInput(self) -> bool:
         """当前是否处于替换输入区模式。"""
-        return self._replace and self._widget is not None
+        return self._replace and self._slot.hasWidget()
 
     def clear(self) -> None:
-        """清空 dock 内容并隐藏。"""
-        had_content = self._widget is not None
-        self._detach_widget()
-        self.hide()
-        if had_content:
-            self.changed.emit(False)
-
-    def _detach_widget(self) -> None:
-        if self._widget is not None:
-            self._layout.removeWidget(self._widget)
-            self._widget.setParent(None)
-            self._widget.deleteLater()
-            self._widget = None
+        """按当前策略处置内容并收起 dock。"""
+        widget = self._slot.widget()
         self._replace = False
+        if widget is None:
+            self.hide()
+            return
+        self._updating = True
+        try:
+            # 先摘出布局；releaseWidget 随后 setParent(None)（Borrowed）或删除（Owned）
+            self._layout.removeWidget(widget)
+            self._slot.releaseWidget()
+        finally:
+            self._updating = False
+        self.hide()
+        self.changed.emit(False)
+
+    def _on_slot_changed(self, widget) -> None:
+        """内容被**外部**销毁时收起 dock。
+
+        显式 ``setWidget`` / ``clear`` 自己发 ``changed``（``_updating`` 期间跳过），
+        避免一次替换发两遍。此处**不动布局** —— ``widgetChanged(None)`` 也可能来自
+        ``destroyed``，此刻 Qt 自己的布局清理可能还没跑完。
+        """
+        if self._updating or widget is not None:
+            return
+        self._replace = False
+        self.hide()
+        self.changed.emit(False)
 
     def _apply_theme(self) -> None:
         self._title_label.setTextColor(muted_color(self._theme_mode, 0.6))
@@ -305,14 +362,11 @@ class ElaChatInputDock(_ThemeAwareMixin, ElaScrollPageArea):
 class ElaChatPermissionDock(_ThemeAwareMixin, ElaScrollPageArea):
     """审批 / 提问的交互 dock（输入区**上方**，不占用输入区）。
 
-    **为什么不复用** :class:`ElaChatInputDock`：那个 dock 的语义是「**替换**输入
-    区」（``replace=True`` 时输入区被禁用），而审批卡不是输入 —— 把它塞进去等于
-     hijack 输入框，用户在等待期间连字都打不了，而审批往往并不要求「此刻不许
-    说话」。所以这里独立一个，只做一件事：把交互卡摆在输入区上方，**输入区照常
-    可用**。
+    **不复用** :class:`ElaChatInputDock`：那个的语义是「**替换**输入区」
+    （``replace=True`` 时输入区被禁用），审批卡不是输入 —— 塞进去等于 hijack 输入框，
+    用户等待期间连字都打不了，而审批往往并不要求「此刻不许说话」。
 
-    一次只显示一张卡；排队中的其余请求用一行「还有 N 个待答复」提示，用户能知道
-    后面还有几个（而不是以为漏掉了）。
+    一次只显示一张卡；其余请求用一行「还有 N 个待答复」提示。
     """
 
     #: dock 是否有内容（参数：是否有卡片）
@@ -340,10 +394,9 @@ class ElaChatPermissionDock(_ThemeAwareMixin, ElaScrollPageArea):
     def setCard(self, card: Optional[QWidget]) -> None:  # noqa: N802
         """设置当前交互卡（``None`` 收起整个 dock）。
 
-        **显示时机在这里，不在卡片自己身上。** ``bubble.beginPermission`` 建卡时不
-        给 parent（气泡不知道 dock 的存在），卡片若自己 ``show()``，Qt 会把这个无父
-        控件当**顶层窗口**弹出来 —— 用户看到「小窗一闪 -> 变成输入区上那张卡」，
-        连点几次就同时弹出好几个窗口（实测截图）。
+        **显示时机在这里，不在卡片自己身上。** ``bubble.beginPermission`` 建卡时不给
+        parent，卡片若自己 ``show()``，Qt 会把这个无父控件当**顶层窗口**弹出来 ——
+        用户看到「小窗一闪 -> 变成输入区上那张卡」，连点几次就同时弹出好几个窗口。
         """
         self._detach()
         if card is None:
@@ -365,7 +418,7 @@ class ElaChatPermissionDock(_ThemeAwareMixin, ElaScrollPageArea):
 
     def setQueued(self, count: int) -> None:  # noqa: N802
         """设置「后面还排着几个」（``<= 0`` 不显示）。"""
-        self._queued = max(0, int(count))
+        self._queued = max(0, _as_int(count))
         self._queued_label.setText(f"还有 {self._queued} 个待答复")
         self._queued_label.setVisible(self._queued > 0)
 
@@ -374,7 +427,7 @@ class ElaChatPermissionDock(_ThemeAwareMixin, ElaScrollPageArea):
         return self._queued
 
     def clear(self) -> None:
-        """收起 dock。"""
+        """收起 dock（卡片交还气泡，**不销毁**）。"""
         had = self._card is not None
         self._detach()
         self._queued = 0
@@ -386,13 +439,14 @@ class ElaChatPermissionDock(_ThemeAwareMixin, ElaScrollPageArea):
     def _detach(self) -> None:
         if self._card is None:
             return
-        # 审批落定时 bubble 已经 ``deleteLater()`` 过这张卡（为了让 dock 里也闪一下
-        # 最终态），这里再 ``setParent`` / ``deleteLater`` 就得先确认它还活着 ——
-        # 否则就是对已释放的包装器操作。
+        # **dock 只是借用卡片，所有权在气泡**（``bubble._interactive_cards``）：
+        # 落定时由气泡 deleteLater，气泡销毁时由 ``_reset_part_state`` 收。
+        # 这里绝不能 deleteLater —— 撤下后 part 仍是 pending，气泡会把它重新
+        # 顶回 dock：冲刷过就是 setParent 到已释放对象（0xC0000409），没冲刷
+        # 则卡稍后被 DeferredDelete 删掉、从 dock 里凭空消失。
         if not sip.isdeleted(self._card):
             self._layout.removeWidget(self._card)
             self._card.setParent(None)
-            self._card.deleteLater()
         self._card = None
 
     def _apply_theme(self) -> None:

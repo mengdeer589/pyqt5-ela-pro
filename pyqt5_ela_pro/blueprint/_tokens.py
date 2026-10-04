@@ -30,7 +30,13 @@ SPACE = {"0": 0, "05": 2, "1": 4, "2": 8, "3": 12, "4": 16, "5": 20}
 
 
 def T(key):
-    """读取令牌：颜色返回 hex 字符串，数值返回 int（对齐源库调用面）。"""
+    """读取令牌：颜色返回 hex 字符串，数值返回 int（对齐源库调用面）。
+
+    **未知键抛 ``KeyError``** —— 这是有意的：静默回退会把「拼错一个令牌名」
+    变成一片默认色且永不报警。因此凡是在**绘制期**调 ``T()`` 的地方，配色的
+    合法性必须在更早的注册期就校验掉（见 ``registry.register_pin_type``），
+    或者在读取处显式 ``try``（见 ``registry.pin_color``）。
+    """
     if key.startswith("radius."):
         name = key[len("radius.") :]
         if name in RADIUS:

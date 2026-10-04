@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Optional, Literal
 
-from PyQt5.QtCore import Qt, QRect, QRectF, QSize
+from PyQt5.QtCore import Qt, QRect, QRectF, QSize, QTimer, QVariantAnimation
 from PyQt5.QtGui import (
     QColor,
     QPainter,
@@ -29,10 +29,13 @@ from PyQt5.QtGui import (
 )
 from PyQt5.QtWidgets import QPushButton, QWidget
 
-from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIcon, ElaIconType
+from PyQt5ElaWidgetTools import eApp, eTheme, ElaThemeType, ElaIcon, ElaIconType
 
 from ._internal import _ThemeAwareMixin
 from ._colors import get_color_scheme
+from ._motion import Duration, start_idle_loop, start_transition
+from ._styles import paintOverlayShadow
+from ._theme import accent as theme_accent, blend
 
 
 # ── Type aliases ─────────────────────────────────────────────
@@ -61,25 +64,32 @@ ElaButtonSize = Literal["small", "middle", "large"]
 
 # ── Size presets ─────────────────────────────────────────────
 
+#: 可见按钮面的阴影边距（px）。与上游 ``ElaPushButton`` 的 ``_shadowBorderWidth``
+#: 同值：控件高 38 → 可见面 32，两种按钮混排时高度一致。
+_SHADOW_MARGIN = 3
+
+#: ``fontDelta`` 是相对 ``eApp.getFontPixelSize()`` 的偏移；middle 与上游
+#: ``ElaPushButton``（``eApp + 2``）一致。
+#: 高度 30/38/46 → 可见面 24/32/40（对齐 Ant Design 与上游 ElaPushButton）。
 _SIZE_MAP: dict[str, dict[str, int]] = {
     "small": {
-        "height": 28,
-        "fontSize": 12,
-        "paddingH": 14,
+        "height": 30,
+        "fontDelta": 0,
+        "paddingH": 12,
         "iconSize": 14,
         "radius": 4,
     },
     "middle": {
         "height": 38,
-        "fontSize": 14,
-        "paddingH": 18,
+        "fontDelta": 2,
+        "paddingH": 16,
         "iconSize": 16,
         "radius": 6,
     },
     "large": {
         "height": 46,
-        "fontSize": 16,
-        "paddingH": 22,
+        "fontDelta": 4,
+        "paddingH": 20,
         "iconSize": 18,
         "radius": 8,
     },
@@ -93,6 +103,8 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
     """统一风格按钮组件。
 
     支持 6 种变体、16 种色彩主题、3 种尺寸，自动适配深浅色主题。
+    尺寸与上游 ``ElaPushButton`` 对齐：可见按钮面内缩 3px 阴影边距
+    （控件高 38 → 面 32），middle 字号 = ``eApp.getFontPixelSize() + 2``。
 
     :param text: 按钮文本
     :param icon: 图标名称 (ElaIconType.IconName)
@@ -121,16 +133,24 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         self._color_name = color
         self._danger = danger
         self._border_radius = 6
-        self._padding_h = 18
+        self._padding_h = 16
         self._size_height = 38
         self._icon_name: Optional[ElaIconType.IconName] = icon
         self._icon_size = iconSize
         self._hovered = False
+        self._focus_ring = False
+        self._loading = False
+        self._spin_angle = 0
+        self._hover_t = 0.0
 
         if text:
             self.setText(text)
 
         self._theme_mode = eTheme.getThemeMode()
+        self._hover_anim = QVariantAnimation(self)
+        self._hover_anim.valueChanged.connect(self._onHoverValue)
+        self._spin_timer = QTimer(self)
+        self._spin_timer.timeout.connect(self._onSpinTick)
         self._apply_size(size)
 
     # ── Public API ────────────────────────────────────────
@@ -234,22 +254,29 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         self._border_radius = cfg["radius"]
         self.setFixedHeight(cfg["height"])
         font = self.font()
-        font.setPixelSize(cfg["fontSize"])
+        # 字号跟随 eApp（与上游 ElaPushButton 的 eApp + 2 同源），不再写死 12/14/16
+        font.setPixelSize(eApp.getFontPixelSize() + cfg["fontDelta"])
         self.setFont(font)
         self.updateGeometry()
         self.update()
 
     def sizeHint(self) -> QSize:
-        """按文字 / 图标与内边距计算合适宽度（不再依赖样式默认值）。"""
+        """按文字 / 图标与内边距计算合适宽度（不再依赖样式默认值）。
+
+        宽度是**控件**宽度：可见按钮面还要内缩 ``_SHADOW_MARGIN``（与上游
+        ``ElaPushButton`` 的阴影边距一致），所以面宽 = 控件宽 − 2×margin。
+        """
         fm = self.fontMetrics()
-        width = fm.horizontalAdvance(self.text())
-        if self._icon_name is not None:
-            width += self._icon_size + (6 if self.text() else 0)
-        width += 2 * self._padding_h
-        return QSize(max(64, width), self._size_height)
+        face_width = fm.horizontalAdvance(self.text())
+        if self._icon_name is not None or self._loading:
+            face_width += self._icon_size + (8 if self.text() else 0)
+        face_width += 2 * self._padding_h
+        return QSize(max(64, face_width) + 2 * _SHADOW_MARGIN, self._size_height)
 
     def minimumSizeHint(self) -> QSize:
-        return QSize(max(48, 2 * self._padding_h), self._size_height)
+        return QSize(
+            max(48, 2 * self._padding_h) + 2 * _SHADOW_MARGIN, self._size_height
+        )
 
     def _effective_color(self) -> str:
         return "danger" if self._danger else self._color_name
@@ -272,36 +299,154 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         return eTheme.getThemeColor(self._theme_mode, ElaThemeType.BasicBorder)
 
     def _disabled_bg(self) -> QColor:
-        return QColor(0x2A, 0x2A, 0x2A) if self._is_dark() else QColor(0xF5, 0xF5, 0xF5)
+        return eTheme.getThemeColor(
+            self._theme_mode, ElaThemeType.ThemeColor.BasicDisable
+        )
 
     def _disabled_text(self) -> QColor:
-        return QColor(0x60, 0x60, 0x60) if self._is_dark() else QColor(0xBF, 0xBF, 0xBF)
+        return eTheme.getThemeColor(
+            self._theme_mode, ElaThemeType.ThemeColor.BasicTextDisable
+        )
 
     def _disabled_border(self) -> QColor:
         return self._neutral_border()
 
     def _hover_tint(self) -> QColor:
-        """Subtle overlay for 'text' variant hover."""
-        return QColor(255, 255, 255, 15) if self._is_dark() else QColor(0, 0, 0, 15)
+        """状态层：hover ≈ 8%（暗色叠白 / 亮色叠黑）。"""
+        return QColor(255, 255, 255, 20) if self._is_dark() else QColor(0, 0, 0, 20)
 
     def _pressed_tint(self) -> QColor:
-        """Darker overlay for 'text' variant pressed."""
-        return QColor(255, 255, 255, 30) if self._is_dark() else QColor(0, 0, 0, 38)
+        """状态层：press ≈ 12%。"""
+        return QColor(255, 255, 255, 31) if self._is_dark() else QColor(0, 0, 0, 31)
 
     def _scheme(self) -> dict[str, QColor]:
         return get_color_scheme(self._effective_color(), self._theme_mode)
+
+    def _state_colors(
+        self, scheme: dict[str, QColor], hovered: bool, pressed: bool
+    ) -> tuple:
+        """某状态下的 ``(底, 描边, 文字)``；描边为 ``None`` 表示不画。
+
+        彩色变体的文字一律走 ``accentText``（浅底上的可读档，对比度 ≥ 4.5），
+        ``accent`` 只用于填充 / 描边。
+        """
+        variant = self._variant
+        is_default = self._effective_color() == "default"
+        transparent = QColor(0, 0, 0, 0)
+        if variant == "solid":
+            bg = (
+                scheme["solidActive"]
+                if pressed
+                else (scheme["solidHover"] if hovered else scheme["solid"])
+            )
+            return bg, None, scheme["solidText"]
+        if variant in ("outlined", "dashed"):
+            if is_default:
+                bg = self._hover_tint() if (hovered or pressed) else transparent
+                return bg, self._neutral_border(), self._neutral_text()
+            bg = scheme["accentBgHover"] if (hovered or pressed) else scheme["accentBg"]
+            border = QColor(scheme["accent"])
+            border.setAlpha(110 if not self._is_dark() else 150)
+            return bg, border, scheme["accentText"]
+        if variant == "filled":
+            bg = scheme["accentBgHover"] if (hovered or pressed) else scheme["accentBg"]
+            return bg, None, scheme["accentText"]
+        if variant == "text":
+            bg = (
+                self._pressed_tint()
+                if pressed
+                else (self._hover_tint() if hovered else transparent)
+            )
+            return (
+                bg,
+                None,
+                scheme["accentText"] if not is_default else self._neutral_text(),
+            )
+        if variant == "link":
+            return (
+                transparent,
+                None,
+                scheme["accentText"] if not is_default else self._neutral_text(),
+            )
+        return transparent, None, self._neutral_text()
 
     # ── Events ────────────────────────────────────────────
 
     def enterEvent(self, event: QEnterEvent) -> None:
         self._hovered = True
-        self.update()
+        self._fade_hover(1.0)
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:
         self._hovered = False
-        self.update()
+        self._fade_hover(0.0)
         super().leaveEvent(event)
+
+    def focusInEvent(self, event) -> None:
+        """键盘聚焦（Tab / Shift+Tab / 快捷键）才显示 focus ring。"""
+        self._focus_ring = event.reason() in (
+            Qt.FocusReason.TabFocusReason,
+            Qt.FocusReason.BacktabFocusReason,
+            Qt.FocusReason.ShortcutFocusReason,
+        )
+        self.update()
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event) -> None:
+        self._focus_ring = False
+        self.update()
+        super().focusOutEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        if self._loading:
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if self._loading:
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    # ── Motion / loading ──────────────────────────────────
+
+    def _onHoverValue(self, value) -> None:  # noqa: ANN001
+        self._hover_t = float(value)
+        self.update()
+
+    def _fade_hover(self, target: float) -> None:
+        anim = self._hover_anim
+        anim.stop()
+        anim.setStartValue(self._hover_t)
+        anim.setEndValue(float(target))
+        start_transition(anim, Duration.Fast)
+
+    def _onSpinTick(self) -> None:
+        self._spin_angle = (self._spin_angle + 30) % 360
+        self.update()
+
+    def setLoading(self, loading: bool = True) -> None:  # noqa: N802 (Qt 命名)
+        """加载态：左侧显示旋转指示器，期间不响应点击。
+
+        :param loading: 是否进入加载态
+        """
+        if loading == self._loading:
+            return
+        self._loading = loading
+        if loading:
+            start_idle_loop(self._spin_timer, 33)
+        else:
+            self._spin_timer.stop()
+        self.updateGeometry()
+        self.update()
+
+    def isLoading(self) -> bool:  # noqa: N802 (Qt 命名)
+        """当前是否处于加载态。
+
+        :returns: 加载态
+        """
+        return self._loading
 
     # ── Paint ─────────────────────────────────────────────
 
@@ -314,6 +459,9 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
 
             w = self.width()
             h = self.height()
+            # 可见按钮面：与上游 ElaPushButton 一样留出阴影边距（控件高 38 → 面 32）
+            fw = w - 2 * _SHADOW_MARGIN
+            fh = h - 2 * _SHADOW_MARGIN
             br = self._border_radius
 
             disabled = not self.isEnabled()
@@ -324,11 +472,27 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
             is_default = cname == "default"
             scheme = self._scheme()
 
+            # 阴影与上游同款；text / link 没有面，画阴影会像悬空的框
+            if variant not in ("text", "link"):
+                paintOverlayShadow(
+                    painter, self.rect(), margin=_SHADOW_MARGIN, radius=br
+                )
+
             path = QPainterPath()
-            path.addRoundedRect(QRectF(0.5, 0.5, w - 1.0, h - 1.0), br, br)
+            path.addRoundedRect(
+                QRectF(
+                    _SHADOW_MARGIN + 0.5,
+                    _SHADOW_MARGIN + 0.5,
+                    fw - 1.0,
+                    fh - 1.0,
+                ),
+                br,
+                br,
+            )
 
             # -- Resolve background / border / text color --
-            border_pen = None
+            # 彩色文字一律走 accentText（可读档）；hover 用 _hover_t 在两套状态
+            # 色之间插值（150ms 淡入淡出，Reduced/Disabled 下同步落终值）。
             if disabled:
                 bg = (
                     Qt.GlobalColor.transparent
@@ -336,87 +500,86 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
                     else self._disabled_bg()
                 )
                 text_color = self._disabled_text()
-                if variant in ("outlined", "dashed"):
-                    border_pen = QPen(self._disabled_border(), 1)
-            elif variant == "solid":
-                bg = (
-                    scheme["solidActive"]
-                    if pressed
-                    else (scheme["solidHover"] if hovered else scheme["solid"])
-                )
-                text_color = scheme["solidText"]
-            elif variant in ("outlined", "dashed"):
-                if is_default:
-                    bg = (
-                        self._hover_tint()
-                        if (hovered or pressed)
-                        else Qt.GlobalColor.transparent
-                    )
-                    text_color = self._neutral_text()
-                    border_color = self._neutral_border()
-                else:
-                    bg = (
-                        scheme["accentBgHover"]
-                        if (hovered or pressed)
-                        else scheme["accentBg"]
-                    )
-                    text_color = scheme["accent"]
-                    border_color = QColor(scheme["accent"])
-                    border_color.setAlpha(110 if not self._is_dark() else 150)
-                border_pen = QPen(border_color, 1)
-            elif variant == "filled":
-                bg = (
-                    scheme["accentBgHover"]
-                    if (hovered or pressed)
-                    else scheme["accentBg"]
-                )
-                text_color = scheme["accent"]
-            elif variant == "text":
-                bg = (
-                    self._pressed_tint()
-                    if pressed
-                    else (self._hover_tint() if hovered else Qt.GlobalColor.transparent)
-                )
-                text_color = (
-                    scheme["accent"] if not is_default else self._neutral_text()
-                )
-            elif variant == "link":
-                bg = Qt.GlobalColor.transparent
-                text_color = (
-                    scheme["accent"] if not is_default else self._neutral_text()
+                border_color = (
+                    self._disabled_border()
+                    if variant in ("outlined", "dashed")
+                    else None
                 )
             else:
-                bg = Qt.GlobalColor.transparent
-                text_color = self._neutral_text()
+                bg0, border0, text_color = self._state_colors(scheme, False, False)
+                if pressed:
+                    bg, border_color = self._state_colors(scheme, True, True)[:2]
+                else:
+                    bg1, border1, _ = self._state_colors(scheme, True, False)
+                    t = self._hover_t
+                    bg = blend(bg0, bg1, t)
+                    if border0 is not None and border1 is not None:
+                        border_color = blend(border0, border1, t)
+                    else:
+                        border_color = border0 if border0 is not None else border1
 
-            if variant == "dashed" and border_pen is not None:
-                border_pen.setStyle(Qt.PenStyle.DashLine)
+            border_pen = None
+            if border_color is not None:
+                border_pen = QPen(border_color, 1)
+                if variant == "dashed":
+                    border_pen.setStyle(Qt.PenStyle.DashLine)
 
             painter.setBrush(bg)
             painter.setPen(border_pen if border_pen is not None else Qt.PenStyle.NoPen)
             painter.drawPath(path)
 
-            # -- Draw icon + text --
+            # -- Focus ring（键盘可见性）--
+            if self._focus_ring:
+                ring_color = (
+                    theme_accent(self._theme_mode)
+                    if is_default
+                    else QColor(scheme["accent"])
+                )
+                ring_pen = QPen(ring_color, 2)
+                ring_pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+                painter.setPen(ring_pen)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRoundedRect(
+                    QRectF(
+                        _SHADOW_MARGIN - 1.0,
+                        _SHADOW_MARGIN - 1.0,
+                        fw + 2.0,
+                        fh + 2.0,
+                    ),
+                    br + 2.0,
+                    br + 2.0,
+                )
+
+            # -- Draw icon / spinner + text --
             painter.setPen(text_color)
             icon_name = self._icon_name
+            loading = self._loading
             btn_text = self.text()
-            if icon_name is not None:
-                spacing = 6
+            if icon_name is not None or loading:
+                spacing = 8
                 icon_sz = QSize(self._icon_size, self._icon_size)
                 fm = painter.fontMetrics()
                 tw = fm.horizontalAdvance(btn_text) if btn_text else 0
                 if tw:
                     total_w = icon_sz.width() + spacing + tw
-                    sx = (w - total_w) // 2
+                    sx = _SHADOW_MARGIN + (fw - total_w) // 2
                 else:
                     # 纯图标按钮：只居中图标本身（含 spacing 会向左偏）
-                    sx = (w - icon_sz.width()) // 2
-                iy = (h - icon_sz.height()) // 2
+                    sx = _SHADOW_MARGIN + (fw - icon_sz.width()) // 2
+                iy = _SHADOW_MARGIN + (fh - icon_sz.height()) // 2
                 ir = QRect(sx, iy, icon_sz.width(), icon_sz.height())
-                icon = ElaIcon.getInstance().getElaIcon(icon_name, text_color)
-                painter.drawPixmap(ir, icon.pixmap(icon_sz))
+                if loading:
+                    spin_pen = QPen(text_color, 2)
+                    spin_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                    painter.setPen(spin_pen)
+                    painter.setBrush(Qt.BrushStyle.NoBrush)
+                    painter.drawArc(QRectF(ir), self._spin_angle * 16, 270 * 16)
+                    painter.setPen(text_color)
+                else:
+                    icon = ElaIcon.getInstance().getElaIcon(icon_name, text_color)
+                    painter.drawPixmap(ir, icon.pixmap(icon_sz))
                 if tw:
-                    tr = QRect(ir.right() + spacing, 0, tw, h)
+                    tr = QRect(ir.right() + spacing, _SHADOW_MARGIN, tw, fh)
                     painter.drawText(
                         tr,
                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
@@ -430,15 +593,15 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
                         )
             else:
                 painter.drawText(
-                    QRect(0, 0, w, h),
+                    QRect(_SHADOW_MARGIN, _SHADOW_MARGIN, fw, fh),
                     Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter,
                     btn_text,
                 )
                 if variant == "link" and hovered and not disabled:
                     fm = painter.fontMetrics()
                     tw = fm.horizontalAdvance(btn_text)
-                    tx = (w - tw) // 2
-                    ty = h // 2 + fm.ascent() // 2 + 2
+                    tx = _SHADOW_MARGIN + (fw - tw) // 2
+                    ty = _SHADOW_MARGIN + fh // 2 + fm.ascent() // 2 + 2
                     painter.setPen(QPen(text_color, 1))
                     painter.drawLine(tx, ty, tx + tw, ty)
         finally:

@@ -15,18 +15,22 @@
 from __future__ import annotations
 
 import pytest
+from PyQt5 import sip
 from PyQt5.QtCore import QRect, Qt
 from PyQt5.QtWidgets import QScrollArea
 
 from pyqt5_ela_pro.chat import (
+    ElaChatBubble,
     ElaChatOption,
     ElaChatPermission,
     ElaChatPermissionStatus,
     ElaChatQuestion,
+    ElaChatRole,
     ElaChatWidget,
 )
 from pyqt5_ela_pro.chat.blocks import PermissionCard, PermissionRecord
 from pyqt5_ela_pro.chat.docks import ElaChatPermissionDock
+from pyqt5_ela_pro.chat._question import CARD_PADDING
 from pyqt5_ela_pro.ela_button import ElaButton
 
 
@@ -57,8 +61,11 @@ class TestInteractionLivesInDock:
         chat = make(ElaChatWidget)
         mid = _turn(chat)
         card = _ask(
-            chat, mid, ElaChatPermission(request_id="r1", action="question",
-                                         questions=(_question(),))
+            chat,
+            mid,
+            ElaChatPermission(
+                request_id="r1", action="question", questions=(_question(),)
+            ),
         )
         assert chat.permissionDock().card() is card
         assert not chat.permissionDock().isHidden()
@@ -74,8 +81,11 @@ class TestInteractionLivesInDock:
         chat = make(ElaChatWidget)
         mid = _turn(chat)
         _ask(
-            chat, mid, ElaChatPermission(request_id="r1", action="question",
-                                         questions=(_question(),))
+            chat,
+            mid,
+            ElaChatPermission(
+                request_id="r1", action="question", questions=(_question(),)
+            ),
         )
         assert chat.chatInput().isEnabled()
         chat.permissionDock().setCard(None)
@@ -85,8 +95,11 @@ class TestInteractionLivesInDock:
         chat = make(ElaChatWidget)
         mid = _turn(chat)
         _ask(
-            chat, mid, ElaChatPermission(request_id="r1", action="question",
-                                         questions=(_question(),))
+            chat,
+            mid,
+            ElaChatPermission(
+                request_id="r1", action="question", questions=(_question(),)
+            ),
         )
         assert chat.chatView().permissionCard(mid, "r1") is None
 
@@ -96,13 +109,17 @@ class TestInteractionLivesInDock:
         mid = _turn(chat)
         view = chat.chatView()
         view.beginPermission(
-            mid, ElaChatPermission(request_id="r1", action="question",
-                                   questions=(_question("q0"),))
+            mid,
+            ElaChatPermission(
+                request_id="r1", action="question", questions=(_question("q0"),)
+            ),
         )
         first = view.interactivePermissionCard(mid, "r1")
         view.beginPermission(
-            mid, ElaChatPermission(request_id="r2", action="question",
-                                   questions=(_question("q1"),))
+            mid,
+            ElaChatPermission(
+                request_id="r2", action="question", questions=(_question("q1"),)
+            ),
         )
         assert chat.permissionDock().card() is first, "先来的那张留在 dock 上"
         assert chat.permissionDock().queued() == 1
@@ -112,13 +129,18 @@ class TestInteractionLivesInDock:
         mid = _turn(chat)
         view = chat.chatView()
         view.beginPermission(
-            mid, ElaChatPermission(request_id="r1", action="question",
-                                   questions=(_question("q0"),))
+            mid,
+            ElaChatPermission(
+                request_id="r1", action="question", questions=(_question("q0"),)
+            ),
         )
         first = view.interactivePermissionCard(mid, "r1")
+        assert chat.permissionDock().card() is first, "先到的审批先进 dock"
         view.beginPermission(
-            mid, ElaChatPermission(request_id="r2", action="question",
-                                   questions=(_question("q1"),))
+            mid,
+            ElaChatPermission(
+                request_id="r2", action="question", questions=(_question("q1"),)
+            ),
         )
         second = view.interactivePermissionCard(mid, "r2")
         view.resolvePermission(mid, "r1", "allowed", '{"q0":"tests/"}')
@@ -131,8 +153,11 @@ class TestInteractionLivesInDock:
         chat = make(ElaChatWidget)
         mid = _turn(chat)
         _ask(
-            chat, mid, ElaChatPermission(request_id="r1", action="question",
-                                         questions=(_question(),))
+            chat,
+            mid,
+            ElaChatPermission(
+                request_id="r1", action="question", questions=(_question(),)
+            ),
         )
         chat.clear()
         assert chat.permissionDock().card() is None
@@ -145,8 +170,11 @@ class TestInteractionLivesInDock:
         seen = []
         chat.permissionReplied.connect(lambda i, r, rep, a, f: seen.append(rep))
         _ask(
-            chat, mid, ElaChatPermission(request_id="r1", action="question",
-                                         questions=(_question(),))
+            chat,
+            mid,
+            ElaChatPermission(
+                request_id="r1", action="question", questions=(_question(),)
+            ),
         )
         chat.removeMessage(mid)
         assert seen == ["cancelled"]
@@ -191,7 +219,8 @@ class TestInteractionLivesInDock:
             view.beginPermission(
                 mid,
                 ElaChatPermission(
-                    request_id=f"r{index}", action="question",
+                    request_id=f"r{index}",
+                    action="question",
                     questions=(_question(f"q{index}"),),
                 ),
             )
@@ -210,8 +239,8 @@ class TestRecordIsCollapsed:
         mid = _turn(chat)
         view = chat.chatView()
         view.beginPermission(
-            mid, ElaChatPermission(request_id="r1", action="edit",
-                                   resources=("src/a.py",))
+            mid,
+            ElaChatPermission(request_id="r1", action="edit", resources=("src/a.py",)),
         )
         view.resolvePermission(mid, "r1", "allowed")
         record = view.permissionCard(mid, "r1")
@@ -224,8 +253,8 @@ class TestRecordIsCollapsed:
         mid = _turn(chat)
         view = chat.chatView()
         view.beginPermission(
-            mid, ElaChatPermission(request_id="r1", action="edit",
-                                   resources=("src/a.py",))
+            mid,
+            ElaChatPermission(request_id="r1", action="edit", resources=("src/a.py",)),
         )
         view.resolvePermission(mid, "r1", "allowed")
         record = view.permissionCard(mid, "r1")
@@ -238,8 +267,10 @@ class TestRecordIsCollapsed:
         mid = _turn(chat)
         view = chat.chatView()
         view.beginPermission(
-            mid, ElaChatPermission(request_id="r1", action="question",
-                                   questions=(_question(),))
+            mid,
+            ElaChatPermission(
+                request_id="r1", action="question", questions=(_question(),)
+            ),
         )
         view.resolvePermission(mid, "r1", "allowed", '{"q0":"tests/"}')
         record = view.permissionCard(mid, "r1")
@@ -260,9 +291,7 @@ class TestRecordIsCollapsed:
         chat = make(ElaChatWidget)
         mid = _turn(chat)
         view = chat.chatView()
-        view.beginPermission(
-            mid, ElaChatPermission(request_id="r1", action="edit")
-        )
+        view.beginPermission(mid, ElaChatPermission(request_id="r1", action="edit"))
         view.resolvePermission(mid, "r1", reply)
         assert view.permissionCard(mid, "r1").title() == title
 
@@ -272,8 +301,10 @@ class TestRecordIsCollapsed:
         mid = _turn(chat)
         view = chat.chatView()
         view.beginPermission(
-            mid, ElaChatPermission(request_id="r1", action="question",
-                                   questions=(_question(),))
+            mid,
+            ElaChatPermission(
+                request_id="r1", action="question", questions=(_question(),)
+            ),
         )
         interactive = view.interactivePermissionCard(mid, "r1")
         view.resolvePermission(mid, "r1", "allowed", '{"q0":"tests/"}')
@@ -293,8 +324,8 @@ class TestLargeDiffEliding:
         mid = _turn(chat)
         view = chat.chatView()
         view.beginPermission(
-            mid, ElaChatPermission(request_id="r1", action="edit",
-                                   detail=self._diff(200))
+            mid,
+            ElaChatPermission(request_id="r1", action="edit", detail=self._diff(200)),
         )
         card = view.interactivePermissionCard(mid, "r1")
         assert card._detail_toggle.isVisible() or not card._detail_toggle.isHidden()
@@ -307,8 +338,8 @@ class TestLargeDiffEliding:
         mid = _turn(chat)
         view = chat.chatView()
         view.beginPermission(
-            mid, ElaChatPermission(request_id="r1", action="edit",
-                                   detail=self._diff(200))
+            mid,
+            ElaChatPermission(request_id="r1", action="edit", detail=self._diff(200)),
         )
         card = view.interactivePermissionCard(mid, "r1")
         card._toggle_detail()
@@ -325,6 +356,7 @@ class TestLargeDiffEliding:
         )
         card = view.interactivePermissionCard(mid, "r1")
         assert card._detail_toggle.isHidden()
+        assert "还有 -" not in card._detail.text(), "短详情不该拼出负行数"
 
     def test_single_huge_line_is_clipped(self, qapp, make):
         """行数少但单行巨长（minified / base64）也必须截断。"""
@@ -332,8 +364,7 @@ class TestLargeDiffEliding:
         mid = _turn(chat)
         view = chat.chatView()
         view.beginPermission(
-            mid, ElaChatPermission(request_id="r1", action="edit",
-                                   detail="x" * 5000)
+            mid, ElaChatPermission(request_id="r1", action="edit", detail="x" * 5000)
         )
         card = view.interactivePermissionCard(mid, "r1")
         text = card._detail.text()
@@ -345,8 +376,8 @@ class TestLargeDiffEliding:
         mid = _turn(chat)
         view = chat.chatView()
         view.beginPermission(
-            mid, ElaChatPermission(request_id="r1", action="edit",
-                                   detail=self._diff(200))
+            mid,
+            ElaChatPermission(request_id="r1", action="edit", detail=self._diff(200)),
         )
         view.resolvePermission(mid, "r1", "allowed")
         record = view.permissionCard(mid, "r1")
@@ -376,7 +407,8 @@ class TestLayoutContract:
         chat = make(ElaChatWidget)
         mid = _turn(chat)
         card = _ask(
-            chat, mid,
+            chat,
+            mid,
             ElaChatPermission(
                 request_id="r1", action="question", questions=(_question(),)
             ),
@@ -388,7 +420,8 @@ class TestLayoutContract:
         chat = make(ElaChatWidget)
         mid = _turn(chat)
         card = _ask(
-            chat, mid,
+            chat,
+            mid,
             ElaChatPermission(
                 request_id="r1", action="question", questions=(_question(),)
             ),
@@ -403,7 +436,8 @@ class TestLayoutContract:
         chat.show()
         mid = _turn(chat)
         card = _ask(
-            chat, mid,
+            chat,
+            mid,
             ElaChatPermission(
                 request_id="r1", action="question", questions=(_question(),)
             ),
@@ -421,9 +455,11 @@ class TestLayoutContract:
         chat.show()
         mid = _turn(chat)
         card = _ask(
-            chat, mid,
+            chat,
+            mid,
             ElaChatPermission(
-                request_id="r1", action="question",
+                request_id="r1",
+                action="question",
                 questions=(
                     ElaChatQuestion(
                         key="q0",
@@ -451,9 +487,11 @@ class TestLayoutContract:
         chat.show()
         mid = _turn(chat)
         card = _ask(
-            chat, mid,
+            chat,
+            mid,
             ElaChatPermission(
-                request_id="r1", action="question",
+                request_id="r1",
+                action="question",
                 questions=(
                     ElaChatQuestion(
                         key="q0",
@@ -467,11 +505,15 @@ class TestLayoutContract:
         )
         qapp.processEvents()
         label = card._question_text
-        want = label.fontMetrics().boundingRect(
-            QRect(0, 0, label.width() - 1, 100000),
-            int(Qt.TextFlag.TextWordWrap),
-            label.text(),
-        ).height()
+        want = (
+            label.fontMetrics()
+            .boundingRect(
+                QRect(0, 0, label.width() - 1, 100000),
+                int(Qt.TextFlag.TextWordWrap),
+                label.text(),
+            )
+            .height()
+        )
         assert label.height() >= want, (
             f"题面 {label.height()}px < 需要 {want}px（被压掉了换行）"
         )
@@ -482,7 +524,8 @@ class TestLayoutContract:
         chat.show()
         mid = _turn(chat)
         card = _ask(
-            chat, mid,
+            chat,
+            mid,
             ElaChatPermission(
                 request_id="r1", action="question", questions=(_question(),)
             ),
@@ -516,7 +559,8 @@ class TestLayoutContract:
         chat.show()
         mid = _turn(chat)
         card = _ask(
-            chat, mid,
+            chat,
+            mid,
             ElaChatPermission(
                 request_id="r1", action="question", questions=(_question(),)
             ),
@@ -538,49 +582,50 @@ class TestLayoutContract:
                 f"候选行 {row.height()}px 比内容 {content}px 多出太多"
             )
 
-    def test_known_limit_long_description_gets_clipped(self, qapp, make):
-        """**已知缺陷的记录桩**（当前断言「确实有这个问题」，修好后要反过来）。
+    def test_long_description_grows_row(self, qapp, make):
+        """说明折行时行高跟着长（修复「第二行被裁」的已知缺陷）。
 
-        说明文案可换行，但 ``QAbstractButton`` 不把 ``heightForWidth`` 转发给
-        自己的布局，父布局只按「不换行」估算 —— 说明长到折两行时第二行被裁
-        （实测行高 43px，而 ``sizeHint`` 报 59px）。
-
-        试过的两条路都不通：① 覆写 ``hasHeightForWidth`` / 改 ``Preferred``
-        策略 —— 布局在标签宽度还是 0 时就定了「一行」，自己算出来仍是 43px，
-        覆写只会让 ``heightForWidth``（51）与布局（43）自相矛盾；② 直接
-        ``setFixedHeight`` —— 两边互相喂误差（``AGENTS.md`` 已记录该教训）。
-
-        真正的修法是照 ``_AutoGrowEditor.sizeHint`` 的路子，按
-        ``fontMetrics().boundingRect`` 自己折行算高度 + ``updateGeometry``。
-        那是独立改动；这里留桩是为了别让它在重构中消失。
+        ``QAbstractButton`` 不把 ``heightForWidth`` 转发给布局，光靠 Qt 会在
+        首次（行宽还是 0）按「一行」定死；``resizeEvent`` 里 ``updateGeometry()``
+        让布局在宽度确定后重新问一次。这里按**实际宽度**折行算出的需求高度
+        验证行高容得下。
         """
         chat = make(ElaChatWidget)
         chat.resize(900, 720)
         chat.show()
         mid = _turn(chat)
+        long_desc = "组件库本体，改动会波及全部下游。" * 20
         card = _ask(
-            chat, mid,
+            chat,
+            mid,
             ElaChatPermission(
-                request_id="r1", action="question",
+                request_id="r1",
+                action="question",
                 questions=(
                     ElaChatQuestion(
                         key="q0",
                         question="哪些目录要不要一起看？",
-                        options=(
-                            ElaChatOption(
-                                "pyqt5_ela_pro/",
-                                "组件库本体，改动会波及全部下游",
-                            ),
-                        ),
+                        options=(ElaChatOption("pyqt5_ela_pro/", long_desc),),
                     ),
                 ),
             ),
         )
-        qapp.processEvents()
+        for _ in range(3):
+            qapp.processEvents()
         row = card._option_buttons[0]
-        assert row.height() < row.sizeHint().height(), (
-            "长说明现在不再被裁了 —— 请把本用例改成正向断言，"
-            "并去掉 sizeHint 里的相关注释"
+        desc_line = row._desc.fontMetrics().height()
+        assert row._desc.heightForWidth(row._desc.width()) > desc_line, (
+            "说明应当折行（否则本用例失去鉴别力）"
+        )
+        needed = (
+            row._label.heightForWidth(row._label.width())
+            + row._desc.heightForWidth(row._desc.width())
+            + row._texts_layout.spacing()
+            + CARD_PADDING[1]
+            + CARD_PADDING[3]
+        )
+        assert row.height() >= needed, (
+            f"行高 {row.height()} 应容得下折行后的内容 {needed}"
         )
 
 
@@ -591,9 +636,11 @@ class TestFooterHasNoShortcutHints:
         chat = make(ElaChatWidget)
         mid = _turn(chat)
         card = _ask(
-            chat, mid,
+            chat,
+            mid,
             ElaChatPermission(
-                request_id="r1", action="question",
+                request_id="r1",
+                action="question",
                 questions=(_question(), _question("q1")),
             ),
         )
@@ -605,9 +652,11 @@ class TestFooterHasNoShortcutHints:
         chat = make(ElaChatWidget)
         mid = _turn(chat)
         card = _ask(
-            chat, mid,
+            chat,
+            mid,
             ElaChatPermission(
-                request_id="r1", action="question",
+                request_id="r1",
+                action="question",
                 questions=(_question(), _question("q1")),
             ),
         )
@@ -670,7 +719,9 @@ class TestSettledArrivesAlreadyDone:
         chat.chatView().beginPermission(
             mid,
             ElaChatPermission(
-                request_id="r1", action="bash", detail="x = 1",
+                request_id="r1",
+                action="bash",
+                detail="x = 1",
                 status=ElaChatPermissionStatus.Allowed,
             ),
         )
@@ -691,7 +742,8 @@ class TestSettledArrivesAlreadyDone:
         chat.chatView().beginPermission(
             mid,
             ElaChatPermission(
-                request_id="r1", action="question",
+                request_id="r1",
+                action="question",
                 questions=(_question(header="范围"),),
                 status=ElaChatPermissionStatus.Allowed,
             ),
@@ -704,7 +756,8 @@ class TestSettledArrivesAlreadyDone:
         chat.chatView().beginPermission(
             mid,
             ElaChatPermission(
-                request_id="r1", action="ask",
+                request_id="r1",
+                action="ask",
                 questions=(_question(),),
                 status=ElaChatPermissionStatus.Rejected,
             ),
@@ -712,3 +765,72 @@ class TestSettledArrivesAlreadyDone:
         assert chat.chatView().permissionCard(mid, "r1").title() == (
             "已拒绝：哪些目录需要一起看？"
         )
+
+
+class TestPendingPermissionLifetime:
+    """未答复审批的生命周期：删消息 / 撤 dock / setParts 都不能留下死卡。
+
+    回归的是三条**进程级崩溃**路径（Qt 槽内异常 = 0xC0000409 静默终止）：
+    气泡删了卡还挂在 dock 上可点、``clearPermissionDock`` 后 promote 回填已删卡、
+    ``setParts`` 清扫时对 ``None`` 控件调 ``setParent``。
+    """
+
+    def test_remove_message_cancels_pending(self, qapp, make):
+        chat = make(ElaChatWidget)
+        mid = _turn(chat)
+        _ask(chat, mid, ElaChatPermission(request_id="r1", action="edit"))
+        assert chat.permissionDock().card() is not None
+
+        chat.chatView().removeMessage(mid)
+        qapp.processEvents()
+        assert chat.permissionDock().card() is None
+        assert chat.pendingPermissionCards() == []
+
+    def test_undo_message_cancels_pending(self, qapp, make):
+        chat = make(ElaChatWidget)
+        userId = chat.sendUserMessage("问题")
+        mid = chat.beginAssistantMessage()
+        _ask(chat, mid, ElaChatPermission(request_id="r1", action="edit"))
+
+        chat.undoMessage(userId)
+        qapp.processEvents()
+        assert chat.permissionDock().card() is None
+
+    def test_clear_permission_dock_keeps_pending_answerable(self, qapp, make):
+        """撤下 dock 不等于作废审批：卡只是被 dock 借用，不能再被销毁。"""
+        chat = make(ElaChatWidget)
+        mid = _turn(chat)
+        card1 = _ask(chat, mid, ElaChatPermission(request_id="r1", action="edit"))
+        _ask(chat, mid, ElaChatPermission(request_id="r2", action="edit"))
+
+        chat.clearPermissionDock()
+        qapp.processEvents()
+        assert chat.permissionDock().card() is None
+        assert sip.isdeleted(card1) is False, "dock 只是借用卡片，不能销毁它"
+
+        # 再插一张把 dock 重新武装起来：落定后 promote 会把最早的 r1 顶回来
+        _ask(chat, mid, ElaChatPermission(request_id="r3", action="edit"))
+        assert chat.chatView().resolvePermission(mid, "r3", "allowed")
+        assert chat.permissionDock().card() is not None
+
+        # 这条路径以前会操作已释放的卡片（退出码 -1073740791）
+        assert chat.chatView().resolvePermission(mid, "r1", "allowed")
+        remaining = [p.request_id for p in chat.chatView().pendingPermissions(mid)]
+        assert remaining == ["r2"]
+        assert chat.chatView().resolvePermission(mid, "r2", "allowed")
+        assert chat.chatView().pendingPermissions(mid) == []
+
+    def test_set_parts_with_pending_permission_is_safe(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble.beginPermission(ElaChatPermission(request_id="r1", action="edit"))
+        # 待答复审批没有控件（_part_widgets 里是 None）：清扫必须跳过
+        assert bubble.setParts([]) is True
+
+
+class TestPermissionModelTolerance:
+    def test_from_dict_requires_request_id(self):
+        """与 Question 对空 key 的口径一致：空 request_id 整条丢掉。"""
+        assert ElaChatPermission.fromDict({"action": "edit"}) is None
+        assert ElaChatPermission.fromDict({"request_id": "", "action": "edit"}) is None
+        got = ElaChatPermission.fromDict({"request_id": "r1", "action": "edit"})
+        assert got is not None and got.request_id == "r1"

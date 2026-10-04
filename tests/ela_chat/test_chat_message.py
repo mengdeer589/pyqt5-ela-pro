@@ -135,6 +135,8 @@ class TestElaChatAttachment:
     def test_display_size(self):
         assert ElaChatAttachment(name="a", size=0).displaySize == "0 B"
         assert ElaChatAttachment(name="a", size=1024).displaySize == "1.0 KB"
+        # 非有限大小按「未知」处理，不能输出 "inf TB" 这种怪值
+        assert ElaChatAttachment(name="a", size=float("inf")).displaySize == ""
         attachment = ElaChatAttachment(name="a", path="C:/a", size=2)
         assert attachment.withName("b").name == "b"
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtCore import QTimer, pyqtSignal
 from PyQt5.QtGui import QCursor, QTextCursor
 from PyQt5.QtWidgets import (
     QApplication,
@@ -24,12 +24,33 @@ from pyqt5_ela_pro import (
     ElaButton,
     ElaMenuItem,
     ElaSelectionAssistant,
+    ElaSelectionResultDialog,
 )
 
 from .base_page import ExamplePage
 
 #: 日志最大行数
 _MAX_LOG_LINES = 200
+
+#: 假后端按动作 id 给的流式分片（本页没有真模型，纯演示对话框的显示契约）
+_FAKE_REPLIES = {
+    "translate": (
+        "## 翻译\n\n",
+        "**Hello world** 译作「你好，世界」。\n\n",
+        "```text\n你好，世界\n```\n\n",
+        "- 语气：中性\n- 场合：正式\n",
+    ),
+    "explain": (
+        "## 这段话在说什么\n\n",
+        "它先给结论，再用一个**代码块**举例，",
+        "最后用列表补充两个使用场合。\n\n",
+        "> 结构是「结论 → 例证 → 补充」\n",
+    ),
+    "summary": (
+        "## 一句话总结\n\n",
+        "作者主张**先给结论**，再补论据。\n",
+    ),
+}
 
 
 class SelectionAssistantPage(ExamplePage):
@@ -46,6 +67,8 @@ class SelectionAssistantPage(ExamplePage):
         self._demo_actions = ()
         self._log = None
         self._updating_switch = False
+        self._result_dialog = None
+        self._start_action = None
 
         main_layout.addLayout(
             self._createHeaderRow("01. 启用与参数", self._demoSettings)
@@ -62,6 +85,11 @@ class SelectionAssistantPage(ExamplePage):
         )
         self._demoEvents(main_layout)
 
+        main_layout.addLayout(
+            self._createHeaderRow("04. 结果对话框（流式）", self._demoResultDialog)
+        )
+        self._demoResultDialog(main_layout)
+
     # -- 分区 01：启用与参数 -------------------------------------------------
 
     def _demoSettings(self, main_layout):
@@ -77,26 +105,34 @@ class SelectionAssistantPage(ExamplePage):
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
-        layout.addWidget(ElaText("启用", row))
+        enable_label = ElaText("启用", row)
+        enable_label.setTextPixelSize(14)
+        layout.addWidget(enable_label)
         self._enable_switch = ElaToggleSwitch(row)
         self._enable_switch.toggled.connect(self._on_enable_toggled)
         layout.addWidget(self._enable_switch)
         layout.addSpacing(12)
 
-        layout.addWidget(ElaText("紧凑模式", row))
+        compact_label = ElaText("紧凑模式", row)
+        compact_label.setTextPixelSize(14)
+        layout.addWidget(compact_label)
         self._compact_switch = ElaToggleSwitch(row)
         self._compact_switch.toggled.connect(self._on_compact_toggled)
         layout.addWidget(self._compact_switch)
         layout.addSpacing(12)
 
-        layout.addWidget(ElaText("恢复剪贴板", row))
+        restore_label = ElaText("恢复剪贴板", row)
+        restore_label.setTextPixelSize(14)
+        layout.addWidget(restore_label)
         self._restore_switch = ElaToggleSwitch(row)
         self._restore_switch.setIsToggled(True)
         self._restore_switch.toggled.connect(self._on_restore_toggled)
         layout.addWidget(self._restore_switch)
         layout.addSpacing(12)
 
-        layout.addWidget(ElaText("最小长度", row))
+        length_label = ElaText("最小长度", row)
+        length_label.setTextPixelSize(14)
+        layout.addWidget(length_label)
         self._length_combo = ElaComboBox(row)
         for value in (1, 2, 3, 5):
             self._length_combo.addItem(f"{value} 个字符", value)
@@ -296,6 +332,167 @@ class SelectionAssistantPage(ExamplePage):
         if actionId == "copy":
             QApplication.clipboard().setText(text)
             self._log_line("  宿主实现：已写入剪贴板")
+        elif actionId in _FAKE_REPLIES:
+            # 需要跑模型的动作：开结果对话框（对话流式显示模型返回的 Markdown）。
+            # ``_start_action`` 是第 04 节 demo 方法里定义的闭包，存了一份到实例上
+            self._start_action(actionId, text)
+
+    # -- 分区 04：结果对话框（流式） ------------------------------------------
+
+    def _demoResultDialog(self, main_layout):
+        """结果对话框：宿主推进流式内容，取消接 ``stopRequested`` 自己中止。
+
+        对话框（``ElaSelectionResultDialog``）**只管显示，不碰网络** —— 本页没有
+        真模型，所以用一个挂在页面上的 ``QTimer`` 逐段吐字当假后端。
+
+        本节的接入代码**刻意全部写在这个方法体内**（含下面几个局部闭包），因为
+        每节标题的「</> 代码」按钮展示的就是本方法的源码 —— 拆到 ``_`` 开头的
+        helper 里等于把读者要学的东西藏起来了。
+        """
+        self._addInfoText(
+            "点下面的按钮会在光标附近弹出结果对话框，逐段显示 Markdown。"
+            "对话框只负责显示，不发网络请求：内容由本页的假后端用 QTimer 逐段推进，"
+            "「停止」与关窗都会发 stopRequested，宿主必须在那里真的中止请求。",
+            main_layout,
+        )
+
+        dialog = ElaSelectionResultDialog()
+        self._result_dialog = dialog
+        # 当前在跑的假后端定时器。用闭包盒子装，是为了让 abort 能看到并停掉它
+        timer_box = {"timer": None}
+
+        def abort(actionId):
+            """``stopRequested`` 的处理：停掉本页的假后端。
+
+            真实宿主在这里 abort 自己的 HTTP 请求 / 取消 worker —— 对话框管不了
+            也不该管网络。不接这一条，面板关了模型还在烧 token。
+            """
+            timer = timer_box["timer"]
+            if timer is not None:
+                timer.stop()
+                timer.deleteLater()
+                timer_box["timer"] = None
+            self._log_line(f"stopRequested：{actionId}（本页已中止假后端）")
+
+        def drive(source):
+            """假后端：开一个回合，把 ``source`` 逐段推进进去直到落定。"""
+            turn = dialog.beginStream()  # ← turn token，挡掉迟到分片
+            index = 0
+
+            def tick():
+                nonlocal index
+                if index < len(source):
+                    dialog.appendMarkdown(source[index], turn)
+                    index += 1
+                    return
+                timer.stop()
+                dialog.endStream(turn)  # 落定 → 发 finished → 复制按钮可用
+
+            # 定时器必须是页面的子对象（QTimer.singleShot 是无主的，页面销毁后
+            # 照样在 T+ms 触发，去摸已释放的控件 = 0xC0000409 静默终止）
+            timer = QTimer(self)
+            timer.setInterval(320)
+            timer.timeout.connect(tick)
+            timer.start()
+            timer_box["timer"] = timer
+
+        def start(
+            actionId, text="Hello world, this is a sample selection for the demo."
+        ):
+            """**新划词**：开窗 + 按落点定位 + 跑一个回合。"""
+            abort(actionId)  # 顶掉上一回合（会先发一次 stopRequested）
+            dialog.openFor(
+                actionId,
+                {"translate": "翻译", "explain": "解释", "summary": "总结"}[actionId],
+                text,
+                QCursor.pos(),
+                self._action_icon(actionId),
+            )
+            drive(_FAKE_REPLIES[actionId])
+
+        def regenerate(actionId):
+            """**重新生成**：只重开一个回合。
+
+            刻意**不调** ``openFor`` —— 重新生成是同一次划词的重跑，标题 / 原文 /
+            位置全是现成的，而 ``openFor`` 会按选区落点重新定位，用户刚把窗口挪到
+            顺手的位置就又被他眼前抽走。
+            """
+            abort(actionId)
+            drive(_FAKE_REPLIES[actionId])
+
+        def show_one_shot():
+            """非流式动作：一次性把完整结果塞进去。"""
+            abort("search")
+            dialog.openFor(
+                "search",
+                "搜索",
+                "Hello world",
+                QCursor.pos(),
+                self._action_icon("search"),
+            )
+            dialog.setResult("## 搜索结果\n\n1. 第一个结果\n2. 第二个结果\n")
+
+        def show_error():
+            """出错动作：显示错误行，复制保持禁用（没有可用结果）。"""
+            abort("explain")
+            dialog.openFor(
+                "explain",
+                "解释",
+                "Hello world",
+                QCursor.pos(),
+                self._action_icon("explain"),
+            )
+            dialog.setError("连接模型服务失败：请求超时（演示）")
+
+        # ---- 接线 ----
+        # ★ 取消的唯一钩子：关窗 / 停止 / 流式中 Esc **都**会发它，宿主必须在这里
+        #   真的 abort 自己的后端。Cherry Studio 就是缺这一步（processMessages 传了
+        #   空 requestOptions，从未注册 AbortSignal），停止按钮点了不真停。
+        dialog.stopRequested.connect(abort)
+
+        # 重新生成 = 同一次划词的重跑，重开一个回合即可（regenerate 刻意不走
+        #   openFor，否则窗口被按落点重新定位、从用户眼前挪走）
+        dialog.regenerateRequested.connect(regenerate)
+
+        # finished 只在**正常落定**时发；被中止的半句话不发（复制按钮保持禁用）。
+        dialog.finished.connect(
+            lambda actionId, text: self._log_line(
+                f"finished：{actionId}（{len(text)} 字）"
+            )
+        )
+
+        # 闭包 start 要给真实划词路径（``_on_action_triggered``）也用，存一份到
+        # 实例上 —— 比让那条路径复制一遍 openFor 好
+        self._start_action = start
+
+        row = QWidget(self)
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        for actionId, label in (
+            ("translate", "演示翻译"),
+            ("explain", "演示解释"),
+            ("summary", "演示总结"),
+        ):
+            btn = ElaButton(label, variant="outlined", size="small", parent=row)
+            btn.clicked.connect(lambda _checked=False, aid=actionId: start(aid))
+            layout.addWidget(btn)
+        layout.addSpacing(12)
+        once_btn = ElaButton("一次性结果", variant="text", size="small", parent=row)
+        once_btn.clicked.connect(show_one_shot)
+        layout.addWidget(once_btn)
+        err_btn = ElaButton("演示错误", variant="text", size="small", parent=row)
+        err_btn.clicked.connect(show_error)
+        layout.addWidget(err_btn)
+        layout.addStretch(1)
+        main_layout.addWidget(row)
+
+    def _action_icon(self, actionId: str):  # noqa: N802 (Qt 命名)
+        """从已勾选的动作里取图标（结果对话框标题栏图标用）。"""
+        for action in self._demo_actions:
+            if action.id == actionId:
+                return action.icon
+        return None
 
     def _log_line(self, message: str) -> None:
         if self._log is None:
@@ -319,4 +516,11 @@ class SelectionAssistantPage(ExamplePage):
     def closeEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
         if self._assistant is not None:
             self._assistant.setEnabled(False)
+        # 结果对话框是无父顶层窗：必须显式 close + deleteLater，光靠父窗口
+        # 析构带不走它，会留在屏幕上（测试 tests/selection_assistant 守着同一条）。
+        # 先 close() 让它走完 closeEvent → 发 stopRequested，再收尾
+        if self._result_dialog is not None:
+            self._result_dialog.close()
+            self._result_dialog.deleteLater()
+            self._result_dialog = None
         super().closeEvent(event)

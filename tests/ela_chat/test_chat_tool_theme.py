@@ -102,7 +102,7 @@ class TestCollapsibleHeaderColor:
         """两者的标题色必须**完全相等**。"""
         chat = make(ElaChatWidget)
         mid = chat.beginAssistantMessage()
-        view = _with_reasoning(chat, mid)
+        _with_reasoning(chat, mid)
         bubble = _tool_area(chat, mid)
         reasoning = bubble.reasoningBlock()._title_label.textColor()
         for panel in bubble.toolPanels():

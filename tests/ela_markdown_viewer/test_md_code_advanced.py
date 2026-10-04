@@ -58,7 +58,7 @@ class TestCodeCollapse:
         assert "展开其余 7 行" in text
         v.deleteLater()
 
-    def test_copy_uses_full_text(self, qapp):
+    def test_copy_uses_full_text(self, qapp, requires_clipboard):
         v = ElaMarkdownViewer()
         v.setCodeBlockCollapseLines(3)
         v.setMarkdown(LONG_MARKDOWN)
@@ -137,7 +137,7 @@ class TestLineNumbers:
         assert v.lineNumbersEnabled() is True
         v.deleteLater()
 
-    def test_copy_excludes_line_numbers(self, qapp):
+    def test_copy_excludes_line_numbers(self, qapp, requires_clipboard):
         v = ElaMarkdownViewer()
         v.setLineNumbersEnabled(True)
         v.setMarkdown("```python\nx = 1\ny = 2\n```")

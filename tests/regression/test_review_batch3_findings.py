@@ -216,6 +216,10 @@ class TestClipboardRestoreSettledFirst:
         monkeypatch.setattr(QApplication, "clipboard", staticmethod(lambda: fake))
 
         cap._old_text = "USER_PRECIOUS"
+        # 假剪贴板声称自己持有的是 "x"（见上面 FakeClipboard.text），
+        # 所以上一次取词放进剪贴板的也必须是 "x" —— 新契约下「剪贴板还是
+        # 我们自己放的那份」是还原的前提（见 AGENTS.md 剪贴板恢复那条）
+        cap._captured_text = "x"
         cap._need_restore = True
         cap._restore_delay_ms = 500
 

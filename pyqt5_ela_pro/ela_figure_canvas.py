@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import QWidget, QSizePolicy
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
-from ._internal import disconnect_theme_signal
+from ._internal import connect_theme_signal, disconnect_theme
 
 # ── Optional matplotlib import ──────────────────────────
 
@@ -95,9 +95,7 @@ if _FigureCanvas is not None:
             self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
             self._theme_mode = eTheme.getThemeMode()
-            self._theme_connected = True
-            eTheme.themeModeChanged.connect(self._onThemeChanged)
-            self.destroyed.connect(self._theme_cleanup)
+            connect_theme_signal(self)
             self._setup_cjk_font()
             self._apply_theme()
 
@@ -114,11 +112,6 @@ if _FigureCanvas is not None:
 
         # ── Internal ──────────────────────────────────────
 
-        def _theme_cleanup(self) -> None:
-            if self._theme_connected:
-                disconnect_theme_signal(self._onThemeChanged)
-                self._theme_connected = False
-
         @staticmethod
         def _setup_cjk_font() -> None:
             if not mpl:
@@ -131,7 +124,7 @@ if _FigureCanvas is not None:
             mpl.rcParams["axes.unicode_minus"] = False
 
         def deleteLater(self) -> None:
-            self._theme_cleanup()
+            disconnect_theme(self)
             super().deleteLater()
 
         def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:

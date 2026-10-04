@@ -13,16 +13,10 @@ from pyqt5_ela_pro import tooltips as tt
 
 _ACTIONS = (
     ElaMenuItem(id="copy", label="复制", icon=ElaIconType.IconName.Copy),
-    ElaMenuItem(
-        id="translate", label="翻译", icon=ElaIconType.IconName.Language
-    ),
-    ElaMenuItem(
-        id="explain", label="解释", icon=ElaIconType.IconName.CommentQuestion
-    ),
+    ElaMenuItem(id="translate", label="翻译", icon=ElaIconType.IconName.Language),
+    ElaMenuItem(id="explain", label="解释", icon=ElaIconType.IconName.CommentQuestion),
     ElaMenuItem(id="summary", label="总结", icon=ElaIconType.IconName.FileLines),
-    ElaMenuItem(
-        id="search", label="搜索", icon=ElaIconType.IconName.MagnifyingGlass
-    ),
+    ElaMenuItem(id="search", label="搜索", icon=ElaIconType.IconName.MagnifyingGlass),
     ElaMenuItem(id="quote", label="引用", icon=ElaIconType.IconName.QuoteLeft),
 )
 
@@ -88,9 +82,7 @@ class TestActions:
         popup = ElaSelectionPopup()
         popup.setActions(
             [
-                ElaMenuItem(
-                    id="copy", label="复制", icon=ElaIconType.IconName.Copy
-                ),
+                ElaMenuItem(id="copy", label="复制", icon=ElaIconType.IconName.Copy),
                 ElaMenuItem(
                     id="search", label="搜索", icon=ElaIconType.IconName.MagnifyingGlass
                 ),
@@ -131,6 +123,19 @@ class TestActions:
         popup.deleteLater()
         qapp.processEvents()
 
+    def test_shadow_margin_reserved_in_layout(self, qapp):
+        """阴影边距必须从共享常量预留（否则阴影被自身窗口裁掉）。"""
+        from pyqt5_ela_pro._styles import SHADOW_MARGIN
+
+        popup = ElaSelectionPopup()
+        margins = popup.layout().contentsMargins()
+        assert margins.left() >= SHADOW_MARGIN
+        assert margins.top() >= SHADOW_MARGIN
+        assert margins.right() >= SHADOW_MARGIN
+        assert margins.bottom() >= SHADOW_MARGIN
+        popup.deleteLater()
+        qapp.processEvents()
+
 
 class TestPositioning:
     def test_popup_near_cursor(self, qapp):
@@ -163,6 +168,49 @@ class TestPositioning:
         popup.popupAt(QPoint(400, 400))
         qapp.processEvents()
         assert popup.frameGeometry().topLeft() == QPoint(392, 390)
+        popup.hide()
+        qapp.processEvents()
+        popup.deleteLater()
+
+    def test_clearing_actions_hides_visible_popup(self, qapp):
+        """弹窗显示中把动作清空 → 不能把没有按钮的空盒子留在屏幕上。"""
+        popup = ElaSelectionPopup()
+        popup.setActions([ElaMenuItem(id="copy", label="复制")])
+        popup.popupAt(QPoint(200, 200))
+        qapp.processEvents()
+        assert popup.isVisible() is True
+        popup.setActions([])
+        qapp.processEvents()
+        assert popup.hasActions() is False
+        assert popup.isVisible() is False, "空动作后弹窗还留在屏幕上"
+        popup.deleteLater()
+        qapp.processEvents()
+
+    def test_disabling_all_actions_hides_visible_popup(self, qapp):
+        popup = ElaSelectionPopup()
+        popup.setActions([ElaMenuItem(id="copy", label="复制")])
+        popup.popupAt(QPoint(200, 200))
+        qapp.processEvents()
+        assert popup.isVisible() is True
+        popup.setActions([ElaMenuItem(id="copy", label="复制", enabled=False)])
+        qapp.processEvents()
+        assert popup.hasActions() is False
+        assert popup.isVisible() is False
+        popup.deleteLater()
+        qapp.processEvents()
+
+    def test_resize_while_visible_reclamps_inside_screen(self, qapp):
+        """可见期间从紧凑切回完整（变宽）后要按原锚点重新收敛，别越出屏幕。"""
+        popup = ElaSelectionPopup()
+        popup.setActions(_ACTIONS[:3])
+        popup.setCompactMode(True)
+        area = QApplication.primaryScreen().availableGeometry()
+        popup.popupAt(QPoint(area.right() - 2, area.bottom() - 2))
+        qapp.processEvents()
+        assert area.contains(popup.frameGeometry())
+        popup.setCompactMode(False)  # 变宽
+        qapp.processEvents()
+        assert area.contains(popup.frameGeometry()), "改尺寸后没有重新收敛到工作区"
         popup.hide()
         qapp.processEvents()
         popup.deleteLater()

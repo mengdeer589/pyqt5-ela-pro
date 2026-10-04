@@ -26,6 +26,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from PyQt5.QtCore import (
     QEvent,
     QPoint,
@@ -40,6 +42,8 @@ from PyQt5.QtCore import (
 from PyQt5.QtGui import QBrush, QColor, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import QWidget
 
+from .._internal import execElaMenu
+from .._motion import start_idle_loop
 from ._tokens import T, shadow_md, theme_changed_slot
 from .edge_widget import (
     ElaEdgeWidget,
@@ -55,6 +59,7 @@ from .model import (
     ElaBlueprintNode,
     ElaEdge,
     ElaPinDirection,
+    _finite,
     types_compatible,
 )
 from .node_widget import ElaNodeWidget, ElaPinHandle
@@ -63,8 +68,12 @@ from .viewport import create_viewport
 
 __all__ = ["ElaBlueprintCanvas"]
 
+logger = logging.getLogger(__name__)
+
 #: 缩放范围
 ZOOM_MIN, ZOOM_MAX = 0.25, 2.5
+#: 流动边线虚线相位的推进间隔（ms）。持续动效，Reduced/Disabled 下冻结。
+EDGE_FLOW_TICK_MS = 50
 #: 磁吸半径（视图像素）
 MAGNET_R = 22.0
 #: 右键抬起判定为点击的位移阈值（px）
@@ -134,7 +143,7 @@ class ElaBlueprintCanvas(QWidget):
         self._gesture_deferred = False
 
         self._flow_timer = QTimer(self)
-        self._flow_timer.setInterval(50)
+        self._flow_timer.setInterval(EDGE_FLOW_TICK_MS)
         self._flow_timer.timeout.connect(self._tick_flow)
 
         # 滚轮缩放手势标记：手势期间 GL 代理节点位图按纹理缩放（不重建
@@ -296,21 +305,46 @@ class ElaBlueprintCanvas(QWidget):
         }
 
     def from_dict(self, data: dict) -> None:
-        """从 ``to_dict`` 结果恢复：重建节点 / 边并还原 zoom 与 offset。"""
+        """从 ``to_dict`` 结果恢复：重建节点 / 边并还原 zoom 与 offset。
+
+        两条不能省的：
+
+        1. **边必须走 ``graph.add_edge()``**。直接往 ``graph._edges`` 里塞
+           会跳过 ``add_edge`` 的全量校验（方向 / 类型兼容 / 存在性 /
+           单连接替换），于是「文件里引脚已经被改名」这类脏数据会还原成一批
+           **指向幽灵引脚的边** —— 它们照样进 ``_edge_widgets``、照样被绘制
+           与命中，只是两端都退化成默认点，表现为「有根看不见的线」，
+           而且删不掉（``delete_selection`` 只按 id 删边）。
+        2. **必须复位执行态**。``graph.clear()`` 只发移除信号，不碰节点的
+           ``status`` / ``elapsed_ms`` / ``error_message``；而 ``to_dict``
+           并不序列化这三项，所以复用同一批节点对象时上一轮的「运行中」
+           徽标会留在刚载入的图上。
+        """
         self._settle_view_gesture()
+        self._cancel_gestures()
         self.clear_selection()
         self.graph.clear()
         gdata = data.get("graph", data)
         for nd in gdata.get("nodes", []):
             self.graph.add_node(ElaBlueprintNode.from_dict(nd))
         for ed in gdata.get("edges", []):
-            edge = ElaEdge.from_dict(ed)
-            self.graph._edges[edge.id] = edge
-            self.graph.edge_added.emit(edge)
+            raw = ElaEdge.from_dict(ed)
+            # 走 add_edge 校验（保留原 id 以便往返），不过就丢弃：
+            # 一条坏边不该让整张图载入失败
+            added = self.graph.add_edge(
+                raw.from_node,
+                raw.from_pin,
+                raw.to_node,
+                raw.to_pin,
+                edge_id=raw.id,
+            )
+            if added is None:
+                logger.warning("跳过非法连线 %r（引脚缺失或类型不兼容）", raw.id)
+        self._execution.reset()
         view = data.get("view", {})
-        self._zoom = max(ZOOM_MIN, min(ZOOM_MAX, float(view.get("zoom", 1.0))))
+        self._zoom = max(ZOOM_MIN, min(ZOOM_MAX, _finite(view.get("zoom", 1.0), 1.0)))
         off = view.get("offset", [0.0, 0.0])
-        self._offset = QPointF(float(off[0]), float(off[1]))
+        self._offset = QPointF(_finite(off[0]), _finite(off[1]))
         self._update_view()
 
     # ------------------------------------------------------------------
@@ -923,6 +957,41 @@ class ElaBlueprintCanvas(QWidget):
         super().keyReleaseEvent(event)
 
     # -- 平移 / 框选 -------------------------------------------------------
+    def _cancel_gestures(self) -> None:
+        """复位所有「按住类」手势状态（失焦 / 隐藏 / 载入新图时调用）。
+
+        这些状态**只由成对的按下-松开维护**，而松开事件在若干情况下根本
+        不会到达：
+
+        - 按住空格后 Alt+Tab / 点到别的控件 → ``focusOutEvent`` 之后没有
+          ``keyRelease``，``_space_down`` 永远True → **之后每次左键都变成
+          平移，框选彻底失效**（实测）；
+        - 框选进行中失焦 → ``_band`` 的起点留在上一个位置，下次鼠标移动
+          会对着它画框（实测）。
+
+        顺带把 ``_rpress`` / ``_wire`` 一起清掉：它们会与 ``_band`` 并存
+        （框选中按下右键时两者同时非None），松右键会弹创建菜单而框选状态
+        继续挂着。
+        """
+        self._space_down = False
+        self._band = None
+        self._band_additive = False
+        self._rpress = None
+        self._rpan = False
+        self._wire = None
+        if self._panning:
+            self._panning = False
+            self.unsetCursor()
+
+    def focusOutEvent(self, event) -> None:
+        self._cancel_gestures()
+        self.update()
+        super().focusOutEvent(event)
+
+    def hideEvent(self, event) -> None:
+        self._cancel_gestures()
+        super().hideEvent(event)
+
     def _start_pan(self, view_pos: QPointF) -> None:
         self._panning = True
         self._pan_start = QPointF(view_pos)
@@ -981,7 +1050,9 @@ class ElaBlueprintCanvas(QWidget):
             lambda i: [self.graph.remove_edge(e.id) for e in self.graph.edges_of(i)]
         )
         menu.delete_requested.connect(lambda i: self.graph.remove_node(i))
-        menu.exec(global_pos)
+        # 走 ``execElaMenu``：它在 ``exec_`` 前 ``setMinimumSize(sizeHint())``，
+        # 兜住「非主屏上 ElaMenu 偶发只显示第一项」，返回后再回收
+        execElaMenu(menu, global_pos)
 
     def _duplicate_node(self, node_id: str) -> None:
         """默认复制实现：同类型新节点 + 拷贝属性，位置错开 24px。"""
@@ -999,8 +1070,9 @@ class ElaBlueprintCanvas(QWidget):
     # 流动动画
     # ------------------------------------------------------------------
     def _ensure_flow_timer(self) -> None:
-        if not self._flow_timer.isActive():
-            self._flow_timer.start()
+        # 持续动效：Reduced/Disabled 下不流动。停掉时虚线相位冻结在当前值 ——
+        # 边线仍然是流动虚线图案，只是不动，所以不需要摆姿态钩子。
+        start_idle_loop(self._flow_timer, EDGE_FLOW_TICK_MS)
 
     def _tick_flow(self) -> None:
         any_flowing = False

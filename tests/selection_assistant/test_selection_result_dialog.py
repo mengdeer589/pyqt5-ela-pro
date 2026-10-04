@@ -1,0 +1,591 @@
+"""ElaSelectionResultDialog 测试。
+
+重点压在**回合状态机**上 —— 那是 Cherry Studio 实际坏掉的地方
+（``ActionUtils.ts:85`` 传了空 ``requestOptions``，从未注册过 ``AbortSignal``，
+停止按钮点了不真停，只靠 renderer 进程死亡顺带杀掉 fetch）。所以三条取消路径
+（停止按钮 / 关窗 / 流式中 Esc）都必须发 ``stopRequested``，且**半句话不能算
+结果**（``finished`` 不发、复制禁用）。
+
+上游 ``ElaWidget``（标题栏 / 阴影 / 缩放 / 置顶按钮）由 C++ 负责，本文件只测
+本组件自己的契约。
+"""
+
+from __future__ import annotations
+
+import pytest
+from PyQt5 import sip
+from PyQt5.QtCore import QCoreApplication, QEvent, QPoint, QSize, Qt
+from PyQt5.QtGui import QKeyEvent
+from PyQt5.QtWidgets import QApplication
+from PyQt5ElaWidgetTools import ElaIconType, ElaThemeType, eTheme
+
+from pyqt5_ela_pro import ElaSelectionResultDialog
+from pyqt5_ela_pro.selection_assistant.result_dialog import _PREVIEW_SOURCE_MAX
+
+_SOURCE = "这是一段被划词选中的文本"
+_ANCHOR = QPoint(300, 200)
+
+
+def _make(make):
+    """造对话框并登记到 ``qt_cleanup``（无父顶层窗必须登记，见 AGENTS.md）。"""
+    dialog = make(ElaSelectionResultDialog)
+    dialog.openFor("translate", "翻译", _SOURCE, _ANCHOR, ElaIconType.IconName.Language)
+    return dialog
+
+
+def _press_escape(dialog) -> None:
+    """直接派发 Esc 键（offscreen 下 QTest 的命中路由不可靠）。"""
+    event = QKeyEvent(
+        QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier
+    )
+    QApplication.sendEvent(dialog, event)
+
+
+def _press_ctrl_c(dialog) -> None:
+    event = QKeyEvent(
+        QEvent.Type.KeyPress,
+        Qt.Key.Key_C,
+        Qt.KeyboardModifier.ControlModifier,
+    )
+    QApplication.sendEvent(dialog, event)
+
+
+class TestOpen:
+    def test_open_for_sets_state(self, make):
+        dialog = _make(make)
+        assert dialog.isVisible() is True
+        assert dialog.actionId() == "translate"
+        assert dialog.selectedText() == _SOURCE
+        assert dialog.windowTitle() == "翻译"
+        assert dialog.isStreaming() is False
+        assert dialog.hasResult() is False
+        assert dialog.resultText() == ""
+
+    def test_initial_controls_reflect_idle_state(self, make):
+        dialog = _make(make)
+        assert dialog._stop_button.isVisible() is False
+        assert dialog._copy_button.isVisible() is True
+        assert dialog._copy_button.isEnabled() is False  # 没有结果不能复制
+        assert dialog._regen_button.isEnabled() is False  # 宿主还没发过请求
+        assert dialog._ring.isVisible() is False
+
+    def test_open_for_returns_turn_token(self, make):
+        dialog = _make(make)
+        first = dialog.currentTurn()
+        second = dialog.openFor("explain", "解释", _SOURCE, _ANCHOR)
+        assert second > first
+
+    def test_open_for_resets_previous_result(self, make):
+        dialog = _make(make)
+        dialog.setResult("旧结果")
+        assert dialog.hasResult() is True
+        dialog.openFor("summary", "总结", "新原文", _ANCHOR)
+        assert dialog.resultText() == ""
+        assert dialog.hasResult() is False
+        assert dialog.actionId() == "summary"
+
+
+class TestStream:
+    def test_stream_accumulates_and_settles(self, make):
+        dialog = _make(make)
+        finished = []
+        dialog.finished.connect(lambda aid, text: finished.append((aid, text)))
+
+        turn = dialog.beginStream()
+        assert dialog.isStreaming() is True
+        dialog.appendMarkdown("**粗体**", turn)
+        dialog.appendMarkdown(" 和 ", turn)
+        dialog.appendMarkdown("正文", turn)
+        assert dialog.resultText() == "**粗体** 和 正文"
+
+        dialog.endStream(turn)
+        assert dialog.isStreaming() is False
+        assert dialog.hasResult() is True
+        assert dialog._copy_button.isEnabled() is True
+        assert finished == [("translate", "**粗体** 和 正文")]
+
+    def test_stream_toggles_footer_controls(self, make):
+        dialog = _make(make)
+        turn = dialog.beginStream()
+        assert dialog._stop_button.isVisible() is True
+        assert dialog._copy_button.isVisible() is False
+        assert dialog._ring.isVisible() is True
+        dialog.endStream(turn)
+        assert dialog._stop_button.isVisible() is False
+        assert dialog._copy_button.isVisible() is True
+        assert dialog._ring.isVisible() is False
+
+    def test_begin_stream_clears_previous_error(self, make):
+        dialog = _make(make)
+        dialog.setError("boom")
+        assert dialog.errorText() == "boom"
+        dialog.beginStream()
+        assert dialog.errorText() == ""
+        assert dialog._error_row.isVisible() is False
+
+    def test_set_result_settles_without_streaming(self, make):
+        dialog = _make(make)
+        finished = []
+        dialog.finished.connect(lambda aid, text: finished.append((aid, text)))
+        dialog.setResult("一次性结果")
+        assert dialog.isStreaming() is False
+        assert dialog.hasResult() is True
+        assert dialog.resultText() == "一次性结果"
+        assert finished == [("translate", "一次性结果")]
+
+    def test_empty_result_is_not_settled_content(self, make):
+        dialog = _make(make)
+        dialog.setResult("   \n  ")
+        # 空白不算结果：复制必须仍禁用，否则能把空气复制走
+        assert dialog._copy_button.isEnabled() is False
+
+
+class TestStaleChunks:
+    """迟到分片闸门：被中止的回合之后宿主仍可能推几片在途。"""
+
+    def test_append_after_stop_is_dropped(self, make):
+        dialog = _make(make)
+        turn = dialog.beginStream()
+        dialog.appendMarkdown("AAA", turn)
+        dialog._on_stop_clicked()
+        dialog.appendMarkdown("STALE", turn)
+        assert dialog.resultText() == "AAA"
+
+    def test_append_with_old_turn_token_is_dropped(self, make):
+        dialog = _make(make)
+        old_turn = dialog.beginStream()
+        dialog.appendMarkdown("OLD", old_turn)
+        new_turn = dialog.beginStream()
+        dialog.appendMarkdown("NEW", new_turn)
+        # 拿旧回合的 token 推片必须无效
+        dialog.appendMarkdown("STALE", old_turn)
+        assert dialog.resultText() == "NEW"
+
+    def test_end_stream_with_old_turn_token_is_dropped(self, make):
+        dialog = _make(make)
+        old_turn = dialog.beginStream()
+        dialog.appendMarkdown("OLD", old_turn)
+        new_turn = dialog.beginStream()
+        dialog.appendMarkdown("NEW", new_turn)
+        finished = []
+        dialog.finished.connect(lambda aid, text: finished.append((aid, text)))
+        dialog.endStream(old_turn)
+        assert finished == []
+        assert dialog.isStreaming() is True
+
+
+class TestStopPaths:
+    """三条取消路径都必须真中止 —— 这是 Cherry 缺的那一环。"""
+
+    @pytest.mark.parametrize("path", ["stop_button", "close", "escape"])
+    def test_cancel_emits_stop_requested(self, make, path):
+        dialog = _make(make)
+        stops = []
+        dialog.stopRequested.connect(stops.append)
+        turn = dialog.beginStream()
+        dialog.appendMarkdown("半句话", turn)
+
+        if path == "stop_button":
+            dialog._stop_button.click()
+        elif path == "close":
+            dialog.closeDialog()
+        else:
+            _press_escape(dialog)
+
+        assert stops == ["translate"], f"{path} 未触发 stopRequested"
+        assert dialog.isStreaming() is False
+
+    @pytest.mark.parametrize("path", ["stop_button", "close", "escape"])
+    def test_partial_text_is_not_a_result(self, make, path):
+        dialog = _make(make)
+        finished = []
+        dialog.finished.connect(lambda aid, text: finished.append((aid, text)))
+        turn = dialog.beginStream()
+        dialog.appendMarkdown("半句话", turn)
+
+        if path == "stop_button":
+            dialog._stop_button.click()
+        elif path == "close":
+            dialog.closeDialog()
+        else:
+            _press_escape(dialog)
+
+        # 半截内容保留可见，但**不算结果**：不发 finished、复制禁用
+        assert finished == []
+        assert dialog.hasResult() is False
+        assert dialog._copy_button.isEnabled() is False
+        assert dialog.resultText() == "半句话"
+
+    def test_stop_keeps_window_open(self, make):
+        dialog = _make(make)
+        dialog.beginStream()
+        dialog._stop_button.click()
+        assert dialog.isVisible() is True
+        assert dialog._stop_button.isVisible() is False
+        assert dialog._copy_button.isVisible() is True
+
+    @pytest.mark.parametrize("path", ["stop_button", "close", "escape"])
+    def test_stopped_partial_text_is_actually_rendered(self, make, qapp, path):
+        """停止后正文必须**看得见**那半截，不能是空盒子。
+
+        回归：ElaMarkdownViewer 把分片攒在 QTimer 里按节流提交，用户在定时器
+        触发前点停止，缓冲里那半截就永远没进文档 —— 状态行写着「已停止」而正文
+        全白。``_endTurn("stopped")`` 因此要显式冲掉查看器缓冲。
+        """
+        dialog = _make(make)
+        turn = dialog.beginStream()
+        dialog.appendMarkdown("## 标题\n\n已经收到的一段正文。", turn)
+
+        if path == "stop_button":
+            dialog._stop_button.click()
+        elif path == "close":
+            dialog.closeDialog()
+        else:
+            _press_escape(dialog)
+        qapp.processEvents()
+
+        # 刻意不调查看器任何私有方法：冲刷必须由 _endTurn 自己同步做完
+        assert "已经收到的一段正文。" in dialog._viewer.toPlainText(), (
+            f"{path} 停止后正文没渲染出来"
+        )
+
+    def test_close_while_streaming_emits_stop_then_closed(self, make):
+        dialog = _make(make)
+        order = []
+        dialog.stopRequested.connect(lambda aid: order.append(("stop", aid)))
+        dialog.closed.connect(lambda aid: order.append(("closed", aid)))
+        dialog.beginStream()
+        dialog.closeDialog()
+        # 顺序有讲究：先发 stopRequested（让宿主有机会 abort），再发 closed
+        assert order == [("stop", "translate"), ("closed", "translate")]
+        assert dialog.isVisible() is False
+
+    def test_escape_when_idle_closes(self, make):
+        dialog = _make(make)
+        closed = []
+        dialog.closed.connect(closed.append)
+        _press_escape(dialog)
+        assert closed == ["translate"]
+        assert dialog.isVisible() is False
+
+    def test_close_when_idle_does_not_ask_for_stop(self, make):
+        dialog = _make(make)
+        stops = []
+        dialog.stopRequested.connect(stops.append)
+        dialog.closeDialog()
+        assert stops == []
+
+    def test_reopen_while_streaming_stops_previous_turn(self, make):
+        dialog = _make(make)
+        stops = []
+        dialog.stopRequested.connect(stops.append)
+        dialog.beginStream()
+        dialog.openFor("summary", "总结", "别的原文", _ANCHOR)
+        # 带上**旧**动作 id，宿主才知道要停哪个请求
+        assert stops == ["translate"]
+        assert dialog.actionId() == "summary"
+        assert dialog.isStreaming() is False
+
+
+class TestFooterActions:
+    def test_copy_writes_settled_result(self, make, requires_clipboard):
+        dialog = _make(make)
+        copied = []
+        dialog.copied.connect(copied.append)
+        dialog.setResult("可复制内容")
+        dialog._copy_button.click()
+        assert copied == ["translate"]
+        assert QApplication.clipboard().text() == "可复制内容"
+
+    def test_copy_refused_for_partial_text(self, make, requires_clipboard):
+        dialog = _make(make)
+        copied = []
+        dialog.copied.connect(copied.append)
+        turn = dialog.beginStream()
+        dialog.appendMarkdown("半句话", turn)
+        dialog._on_stop_clicked()
+        dialog._on_copy()  # 按钮禁用也拦一道
+        assert copied == []
+
+    def test_ctrl_c_copies_settled_result(self, make, requires_clipboard):
+        dialog = _make(make)
+        dialog.setResult("键盘复制")
+        _press_ctrl_c(dialog)
+        assert QApplication.clipboard().text() == "键盘复制"
+
+    def test_ctrl_c_ignored_while_streaming(self, make, requires_clipboard):
+        dialog = _make(make)
+        dialog.beginStream()
+        _press_ctrl_c(dialog)
+        # 流式期间复制键无效（半句话不进剪贴板）
+        assert QApplication.clipboard().text() != "半句话"
+
+    def test_regenerate_emits_with_action_id(self, make):
+        dialog = _make(make)
+        regens = []
+        dialog.regenerateRequested.connect(regens.append)
+        dialog.setResult("结果")
+        dialog._regen_button.click()
+        assert regens == ["translate"]
+
+    def test_regenerate_disabled_while_streaming(self, make):
+        dialog = _make(make)
+        regens = []
+        dialog.regenerateRequested.connect(regens.append)
+        dialog.beginStream()
+        assert dialog._regen_button.isEnabled() is False
+        dialog._on_regenerate()
+        assert regens == []
+
+    @pytest.mark.parametrize("stage", ["stopped", "error"])
+    def test_regenerate_available_after_stop_or_error(self, make, stage):
+        """出错与被中止之后「重新生成」必须可用 —— 那正是用户下一步要按的钮。
+
+        回归：判据原先挂在 ``_settled`` 上，于是报错页与停止页上这个按钮是灰的，
+        等于把重试入口藏起来了。
+        """
+        dialog = _make(make)
+        regens = []
+        dialog.regenerateRequested.connect(regens.append)
+        turn = dialog.beginStream()
+        dialog.appendMarkdown("半句话", turn)
+        if stage == "stopped":
+            dialog._stop_button.click()
+        else:
+            dialog.setError("boom")
+        assert dialog._regen_button.isEnabled() is True
+        dialog._regen_button.click()
+        assert regens == ["translate"]
+
+    def test_regenerate_disabled_before_any_request(self, make):
+        # openFor 之后宿主还没发过请求，此时没有「重来」可言
+        dialog = _make(make)
+        assert dialog._regen_button.isEnabled() is False
+
+
+class TestError:
+    def test_error_row_shows_message(self, make):
+        dialog = _make(make)
+        dialog.setError("网络超时")
+        assert dialog.errorText() == "网络超时"
+        assert dialog._error_row.isVisible() is True
+        assert dialog.hasResult() is False
+        assert dialog._copy_button.isEnabled() is False
+
+    def test_error_does_not_emit_stop(self, make):
+        # 宿主已经自己收尾了，再发 stopRequested 会让它去 abort 一个已结束的请求
+        dialog = _make(make)
+        stops = []
+        dialog.stopRequested.connect(stops.append)
+        dialog.beginStream()
+        dialog.setError("boom")
+        assert stops == []
+
+    def test_clear_error_hides_row(self, make):
+        dialog = _make(make)
+        dialog.setError("boom")
+        dialog.clearError()
+        assert dialog.errorText() == ""
+        assert dialog._error_row.isVisible() is False
+
+    def test_error_text_is_plain_text(self, make):
+        # 错误文案来自网络，必须按纯文本显示（ElaText 默认 AutoText 会解析富文本）
+        dialog = _make(make)
+        assert dialog._error_text.textFormat() == Qt.TextFormat.PlainText
+
+
+class TestPlacement:
+    def test_window_fits_work_area_for_corner_anchor(self, make, qapp):
+        area = QApplication.primaryScreen().availableGeometry()
+        dialog = make(ElaSelectionResultDialog)
+        # 锚点贴在工作区右下角：必须翻到上方并夹回工作区，不能溢出屏幕。
+        # 回归：上游在 QEvent::Show 里补 WS_THICKFRAME 会把窗口**首次**撑高约
+        # 31px，先算位置再 show 就会差出这 31px（所以 openFor 是先 show 再定位）
+        dialog.openFor(
+            "translate", "翻译", _SOURCE, QPoint(area.right() - 2, area.bottom() - 2)
+        )
+        qapp.processEvents()
+        assert area.contains(dialog.frameGeometry())
+
+    def test_window_fits_work_area_for_top_corner_anchor(self, make, qapp):
+        area = QApplication.primaryScreen().availableGeometry()
+        dialog = make(ElaSelectionResultDialog)
+        dialog.openFor(
+            "translate", "翻译", _SOURCE, QPoint(area.left() + 2, area.top() + 2)
+        )
+        qapp.processEvents()
+        assert area.contains(dialog.frameGeometry())
+
+    def test_placement_resize_is_not_remembered_as_preference(self, make, qapp):
+        # 定位时按工作区夹取出来的尺寸不该被记成「用户偏好」，否则偏好会被
+        # 这次夹取的结果污染（换小屏开一次之后尺寸再也涨不回去）
+        area = QApplication.primaryScreen().availableGeometry()
+        dialog = make(ElaSelectionResultDialog)
+        preferred = QSize(area.width() * 3, area.height() * 3)
+        dialog._preferred_size = QSize(preferred)
+        dialog.openFor("translate", "翻译", _SOURCE, area.center())
+        qapp.processEvents()
+        # 窗口确实被夹到工作区内，而偏好原封不动
+        assert dialog.width() <= area.width()
+        assert QSize(dialog._preferred_size) == preferred
+
+    def test_user_resize_is_remembered(self, make, qapp):
+        dialog = _make(make)
+        grown = dialog.size() + QSize(120, 60)
+        dialog.resize(grown)
+        qapp.processEvents()
+        assert QSize(dialog._preferred_size) == QSize(grown)
+
+    def test_hidden_resize_is_not_remembered(self, make, qapp):
+        # 隐藏时的 resize 是程序行为（构造 / 首帧布局都会发）
+        dialog = _make(make)
+        before = QSize(dialog._preferred_size)
+        dialog.hide()
+        dialog.resize(QSize(640, 500))
+        qapp.processEvents()
+        assert QSize(dialog._preferred_size) == before
+
+
+class TestRegenerateDoesNotMove:
+    """点「重新生成」不该把窗子从用户眼前挪走。
+
+    回归：``openFor`` 原先无条件 ``_place()`` 按选区落点重新定位，而宿主在
+    重新生成时往往会复用整条 ``openFor`` 链路 —— 于是用户刚拖到顺手位置的窗口
+    被抽回划词落点。
+    """
+
+    def test_open_for_without_anchor_keeps_position(self, make, qapp):
+        dialog = _make(make)
+        dialog.move(640, 300)
+        qapp.processEvents()
+        parked = QPoint(dialog.pos())
+
+        dialog.openFor("translate", "翻译", _SOURCE)  # 不给锚点 = 复用位置
+        qapp.processEvents()
+        assert QPoint(dialog.pos()) == parked
+
+    def test_regenerate_flow_keeps_position(self, make, qapp):
+        # 端到端：先落定 → 用户把窗子挪走 → 点重新生成（走 beginStream 链路）
+        dialog = _make(make)
+        dialog.setResult("结果")
+        dialog.move(600, 280)
+        qapp.processEvents()
+        parked = QPoint(dialog.pos())
+
+        dialog.regenerateRequested.emit("translate")  # 宿主自行决定重跑方式
+        turn = dialog.beginStream()
+        dialog.appendMarkdown("重来", turn)
+        dialog.endStream(turn)
+        qapp.processEvents()
+        assert QPoint(dialog.pos()) == parked
+
+    def test_open_for_with_anchor_still_repositions(self, make, qapp):
+        # 给了锚点就必须重新定位 —— 这是「新划词」路径的行为，不能被上面那条带跑
+        dialog = _make(make)
+        dialog.move(0, 0)
+        qapp.processEvents()
+        area = QApplication.primaryScreen().availableGeometry()
+        target = QPoint(area.left() + 120, area.top() + 120)
+        dialog.openFor("translate", "翻译", _SOURCE, target)
+        qapp.processEvents()
+        assert QPoint(dialog.pos()) != QPoint(0, 0)
+        assert dialog._anchor == target
+
+    def test_first_open_without_anchor_still_gets_a_position(self, make, qapp):
+        # 关着的时候不给锚点也必须有位置（用屏幕中心兜底），不能停在 0,0
+        dialog = make(ElaSelectionResultDialog)
+        dialog.openFor("translate", "翻译", _SOURCE)
+        qapp.processEvents()
+        assert dialog.isVisible() is True
+        assert dialog.pos() != QPoint(0, 0)
+
+
+class TestTheme:
+    def test_theme_switch_repaints_without_crash(self, make, qapp):
+        dialog = _make(make)
+        dialog.setResult("深浅色都要画得出来")
+        previous = eTheme.getThemeMode()
+        try:
+            for mode in (ElaThemeType.ThemeMode.Dark, ElaThemeType.ThemeMode.Light):
+                eTheme.setThemeMode(mode)
+                qapp.processEvents()
+                dialog.grab()
+        finally:
+            eTheme.setThemeMode(previous)
+            qapp.processEvents()
+        assert dialog.hasResult() is True
+
+    def test_preview_text_uses_muted_color(self, make):
+        dialog = _make(make)
+        # ColorText 的显式色是快照：切主题后必须仍是非空颜色
+        assert dialog._preview_text.textColor() is not None
+        assert dialog._status_text.textColor() is not None
+
+    def test_preview_keeps_full_text(self, make):
+        dialog = _make(make)
+        long_source = "很长的划词原文 " * 20
+        dialog.openFor("translate", "翻译", long_source, _ANCHOR)
+        # 显示按宽度省略，但全文始终拿得到（省略位置依赖字体度量，不可钉）
+        assert dialog._preview_text.fullText() == long_source
+        assert dialog.selectedText() == long_source
+
+    def test_preview_label_never_holds_the_whole_selection(self, make):
+        """一次性划词几百万字时，显示文本必须有上限。
+
+        回归：``_refresh_elide`` 在 ``width <= 0`` 时（首帧布局；``Ignored``
+        策略下 0 宽也是合法状态）原本走 ``setText(全文)`` —— 几十万字直接进
+        QLabel，首帧卡住。判据钉在「显示文本长度有界」而不是具体省略位置。
+        """
+        dialog = _make(make)
+        huge = "字" * 400_000
+        dialog.openFor("translate", "翻译", huge, _ANCHOR)
+        shown = dialog._preview_text.text()
+        assert len(shown) <= _PREVIEW_SOURCE_MAX + 1  # +1 是补的省略号
+        # 全文仍然完整保留给宿主（宿主要拿原文就取这里，不要从显示文本反推）
+        assert dialog._preview_text.fullText() == huge
+        assert dialog.selectedText() == huge
+
+    def test_preview_label_bounded_before_layout(self, make):
+        """宽度未定下来时也必须有界 —— 那正是上一条踩的 0 宽分支。"""
+        dialog = make(ElaSelectionResultDialog)
+        preview = dialog._preview_text
+        preview.resize(0, 20)
+        preview.setFullText("x" * 50_000)
+        assert len(preview.text()) <= _PREVIEW_SOURCE_MAX + 1
+
+    def test_preview_normalizes_once_not_per_resize(self, make):
+        # 归一化（split/join 全文）只在 setFullText 做一次；resize 只在截断后的
+        # 源上算 —— 否则拖一次窗口边就是 O(n) × resize 次数
+        dialog = _make(make)
+        preview = dialog._preview_text
+        preview.setFullText("换行\n与\t制表   重复   空格" * 50)
+        flat = preview._flat
+        assert "\n" not in flat and "\t" not in flat and "  " not in flat
+        for _ in range(5):
+            preview.resize(200, 20)
+        assert preview._flat == flat
+
+
+class TestLifecycle:
+    def test_destroy_leaves_no_top_level_window(self, make, qapp):
+        dialog = make(ElaSelectionResultDialog)
+        dialog.openFor("translate", "翻译", _SOURCE, _ANCHOR)
+        qapp.processEvents()
+        assert dialog.isVisible() is True
+
+        dialog.deleteLater()
+        # 无父顶层窗的 deleteLater 对 processEvents 不生效，必须显式冲刷
+        QCoreApplication.sendPostedEvents(dialog, QEvent.Type.DeferredDelete)
+        qapp.processEvents()
+        assert sip.isdeleted(dialog) is True
+
+    def test_python_sources_carry_no_qss(self):
+        # 全库禁用 QSS。ElaWidget 的 C++ 构造函数自己会写一条
+        # ``#ElaWidget{background-color:transparent;}``（那是上游内部实现，Python
+        # 侧读得到 styleSheet 但不是我们写的），所以这里扫**源码**而不是读属性。
+        import inspect
+
+        from pyqt5_ela_pro.selection_assistant import result_dialog
+
+        source = inspect.getsource(result_dialog)
+        assert ".setStyleSheet(" not in source

@@ -424,29 +424,12 @@ class MarkdownPage(ExamplePage):
         main_layout.addSpacing(24)
         self._demoStreaming(main_layout)
 
-    # -- 通用：查看器与状态行 ----------------------------------------------
-
-    def _createDemoViewer(
-        self,
-        source: str,
-        min_height: int,
-        line_numbers: bool = False,
-        collapse_lines: int = 0,
-        mermaid_prewarm: bool = False,
-    ):
-        """创建演示查看器（统一外链确认、基准路径与渲染开关）。"""
-        viewer = ElaMarkdownViewer(parent=self)
-        viewer.setMinimumHeight(min_height)
-        viewer.setOpenExternalLinks(False)
-        viewer.setBaseUrl(_ensure_demo_image())
-        if line_numbers:
-            viewer.setLineNumbersEnabled(True)
-        if collapse_lines:
-            viewer.setCodeBlockCollapseLines(collapse_lines)
-        if mermaid_prewarm:
-            viewer.setMermaidPrewarm(True)
-        viewer.setMarkdown(source)
-        return viewer
+    # -- 通用：状态行 ------------------------------------------------------
+    #
+    # 这里**刻意没有**「创建演示查看器」的 helper：五节各自需要的 setter 只差两三个，
+    # 而每节标题的「</> 代码」按钮展示的是该节方法自身的源码 —— 构造一旦抽进
+    # helper，读者点开代码就只剩信号接线，看不到查看器是怎么建起来的（第 5 节
+    # 流式演示本来就是内联的，现在五节统一）。
 
     def _createDemoStatus(self, text: str):
         """创建演示状态行（由调用方加入布局，保证位于工具条之后）。"""
@@ -465,7 +448,14 @@ class MarkdownPage(ExamplePage):
             "选中文本右键可「复制为 Markdown」用于引用回复；外链二次确认后打开。",
             main_layout,
         )
-        viewer = self._createDemoViewer(_MARKDOWN_TEXT, 620)
+        # 查看器构造**就地写出来**（与第 5 节流式演示同款）：每节标题的「</> 代码」
+        # 按钮展示的就是本方法的源码，抽到 _createDemoViewer 里等于把读者要学的东西
+        # 藏起来了。四节里只有这三个 setter 不同，所以刻意不用 helper。
+        viewer = ElaMarkdownViewer(parent=self)
+        viewer.setMinimumHeight(620)
+        viewer.setOpenExternalLinks(False)
+        viewer.setBaseUrl(_ensure_demo_image())
+        viewer.setMarkdown(_MARKDOWN_TEXT)
         main_layout.addWidget(viewer)
         status = self._createDemoStatus(
             "最近操作：—（试试点击推理/详情折叠、点击任务勾选、选中文本后右键引用、"
@@ -499,9 +489,14 @@ class MarkdownPage(ExamplePage):
             "悬停右上角复制按钮；`diff` 围栏行级着色（新增绿 / 删除红 / 位置行蓝）。",
             main_layout,
         )
-        viewer = self._createDemoViewer(
-            _MARKDOWN_CODE, 560, line_numbers=True, collapse_lines=12
-        )
+        # 构造就地写出来（见 _demoText 的说明）：行号 + 超长折叠
+        viewer = ElaMarkdownViewer(parent=self)
+        viewer.setMinimumHeight(560)
+        viewer.setOpenExternalLinks(False)
+        viewer.setBaseUrl(_ensure_demo_image())
+        viewer.setLineNumbersEnabled(True)
+        viewer.setCodeBlockCollapseLines(12)
+        viewer.setMarkdown(_MARKDOWN_CODE)
         main_layout.addWidget(viewer)
         status = self._createDemoStatus(
             "最近操作：—（悬停代码卡片右上角复制 / 点击「展开其余 N 行」）"
@@ -521,7 +516,12 @@ class MarkdownPage(ExamplePage):
             "点击公式可复制 LaTeX 源码，悬浮可查看源码。",
             main_layout,
         )
-        viewer = self._createDemoViewer(_MARKDOWN_MATH, 700)
+        # 构造就地写出来（见 _demoText 的说明）
+        viewer = ElaMarkdownViewer(parent=self)
+        viewer.setMinimumHeight(700)
+        viewer.setOpenExternalLinks(False)
+        viewer.setBaseUrl(_ensure_demo_image())
+        viewer.setMarkdown(_MARKDOWN_MATH)
         main_layout.addWidget(viewer)
         status = self._createDemoStatus("最近操作：—（点击任意公式复制 LaTeX 源码）")
         viewer.formulaCopied.connect(
@@ -540,7 +540,13 @@ class MarkdownPage(ExamplePage):
             "（setMermaidPrewarm），并按视口距离优先渲染可见的图。",
             main_layout,
         )
-        viewer = self._createDemoViewer(_MARKDOWN_MERMAID, 520, mermaid_prewarm=True)
+        # 构造就地写出来（见 _demoText 的说明）；引擎预热按视口距离优先渲染可见的图
+        viewer = ElaMarkdownViewer(parent=self)
+        viewer.setMinimumHeight(520)
+        viewer.setOpenExternalLinks(False)
+        viewer.setBaseUrl(_ensure_demo_image())
+        viewer.setMermaidPrewarm(True)
+        viewer.setMarkdown(_MARKDOWN_MERMAID)
         main_layout.addWidget(viewer)
         status = self._createDemoStatus("最近操作：—（点击图可复制 Mermaid 源码）")
         viewer.mermaidCopied.connect(

@@ -40,7 +40,7 @@ from PyQt5 import sip
 from PyQt5.QtCore import QObject, QPoint, pyqtSignal
 
 from ..menu_item import ElaMenuItem
-from ._native import ElaMouseMonitor, safe_connect, to_logical_pos
+from ._native import ElaMouseMonitor, _warn_once, safe_connect, to_logical_pos
 from .capture import ElaClipboardCapture
 from .popup import ElaSelectionPopup
 
@@ -125,6 +125,7 @@ class ElaSelectionAssistant(QObject):
         self._popup = ElaSelectionPopup()
         # 动作条菜单项完全由宿主定义（setActions），默认无动作
         self._actions: List[ElaMenuItem] = []
+        self._capture_filter = None
         self._min_length = 1
         self._drag_threshold = _DEFAULT_DRAG_THRESHOLD
         self._double_click_ms = _DEFAULT_DOUBLE_CLICK_MS
@@ -213,9 +214,23 @@ class ElaSelectionAssistant(QObject):
         """双击选词判定的最大间隔毫秒数。"""
         return self._double_click_ms
 
-    def setOffset(self, offset: QPoint) -> None:
-        """设置动作条相对落点的偏移。"""
-        self._popup.setOffset(offset)
+    def setCaptureFilter(self, predicate) -> None:
+        """设置取词过滤器：``predicate(down, up) -> bool``，返回 ``False`` 时
+        本次手势**不取词**（不注入 Ctrl+C）。
+
+        两个参数都是按下 / 抬起点的**物理像素**坐标（与监视信号一致）。
+        默认 ``None``（不拦截）。典型用途：跳过「拖窗口 / 拖滚动条 / 拖文件」
+        这类非划词拖拽 —— 可用 :func:`~pyqt5_ela_pro.selection_assistant.foreground_pid`
+        / :func:`~pyqt5_ela_pro.selection_assistant.window_pid_at` 判断前台窗口。
+
+        过滤器异常按**拦截**处理（宁可少取一次词，也不向未知应用注入 Ctrl+C），
+        并发一条 ``RuntimeWarning``。
+        """
+        self._capture_filter = predicate
+
+    def captureFilter(self):  # noqa: ANN201
+        """当前取词过滤器（未设置时为 ``None``）。"""
+        return self._capture_filter
 
     # -- 显示 --------------------------------------------------------------
 
@@ -287,10 +302,6 @@ class ElaSelectionAssistant(QObject):
             return False
         return True
 
-    def _on_destroyed(self, _object=None) -> None:
-        """析构收尾入口（由 :func:`_cleanup_on_destroy` 调用，保留供测试直调）。"""
-        _cleanup_on_destroy(self, _object)
-
     # -- 内部：划词手势 ----------------------------------------------------
 
     def _on_left_pressed(self, point) -> None:
@@ -318,6 +329,15 @@ class ElaSelectionAssistant(QObject):
         dy = int(up[1]) - int(down[1])
         dragged = dx * dx + dy * dy >= self._drag_threshold**2
 
+        if dragged:
+            # 拖拽不算「点击」：不记录，且打断双击序列 —— 否则拖选后在同一
+            # 点马上点一下会被误判成双击，多注入一次 Ctrl+C（实测踩过）。
+            self._last_click_at = 0.0
+            self._last_click_pos = None
+            if self._allow_capture(down, up):
+                self._start_capture(up)
+            return
+
         now = time.monotonic()
         double = (
             self._last_click_pos is not None
@@ -327,9 +347,19 @@ class ElaSelectionAssistant(QObject):
         )
         self._last_click_at = now
         self._last_click_pos = (int(up[0]), int(up[1]))
-        if not (dragged or double):
-            return
-        self._start_capture(up)
+        if double and self._allow_capture(down, up):
+            self._start_capture(up)
+
+    def _allow_capture(self, down, up) -> bool:
+        """取词过滤器闸门（默认放行；过滤器异常按拦截处理）。"""
+        predicate = self._capture_filter
+        if predicate is None:
+            return True
+        try:
+            return bool(predicate(tuple(down), tuple(up)))
+        except Exception as exc:  # noqa: BLE001 - 宿主过滤器不可信
+            _warn_once("取词过滤器异常，已拦截本次手势：", exc)
+            return False
 
     def _on_other_pressed(self, _point) -> None:
         self.hide()

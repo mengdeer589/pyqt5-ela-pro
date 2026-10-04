@@ -126,8 +126,11 @@ class TestContentDialogSection:
         dialog.leftButtonClicked.connect(lambda: seen.append("left"))
         dialog.middleButtonClicked.connect(lambda: seen.append("middle"))
         dialog.rightButtonClicked.connect(lambda: seen.append("right"))
-        for emit in (dialog.leftButtonClicked, dialog.middleButtonClicked,
-                     dialog.rightButtonClicked):
+        for emit in (
+            dialog.leftButtonClicked,
+            dialog.middleButtonClicked,
+            dialog.rightButtonClicked,
+        ):
             emit.emit()
         qapp.processEvents()
         assert len(seen) == 3, seen

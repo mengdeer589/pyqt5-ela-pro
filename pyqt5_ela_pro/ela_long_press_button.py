@@ -60,7 +60,7 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         duration: int = 500,
         text: Optional[str] = None,
         icon: Optional[ElaIconType.IconName] = None,
-        icon_size: int = 16,
+        iconSize: int = 16,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -72,10 +72,10 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         self._progress_color = QColor()
         self._custom_progress_color = False
         self._icon_name = None
-        self._icon_size = icon_size
+        self._icon_size = iconSize
 
         if icon is not None:
-            self.set_ela_icon(icon, icon_size)
+            self.setElaIcon(icon, iconSize)
 
         self._mouse_pressed_timer = self._make_timer(self._onMousePressedTick)
         self._go_backwards_timer = self._make_timer(self._onGoBackwardsTick)
@@ -90,7 +90,7 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         timer.timeout.connect(callback)
         return timer
 
-    def set_duration(self, ms: int) -> None:
+    def setDuration(self, ms: int) -> None:
         """设置长按触发所需的时长（毫秒）。
 
         :param ms: 时长，必须大于 0
@@ -105,7 +105,7 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         """
         return self._duration
 
-    def set_progress_color(self, color: QColor) -> None:
+    def setProgressColor(self, color: QColor) -> None:
         """设置进度条填充颜色。
 
         :param color: 进度条颜色
@@ -114,16 +114,16 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         self._progress_color = color
         self.update()
 
-    def set_ela_icon(self, icon_name, icon_size: int = 16) -> None:
+    def setElaIcon(self, icon, iconSize: int = 16) -> None:
         """设置图标。
 
-        :param icon_name: 图标名称
-        :param icon_size: 图标大小，默认 16
+        :param icon: 图标名称（``ElaIconType.IconName``）
+        :param iconSize: 图标大小，默认 16
         """
-        self._icon_name = icon_name
-        self._icon_size = icon_size
-        self.setIcon(ElaIcon.getInstance().getElaIcon(icon_name, QColor(255, 255, 255)))
-        self.setIconSize(QSize(icon_size, icon_size))
+        self._icon_name = icon
+        self._icon_size = iconSize
+        self.setIcon(ElaIcon.getInstance().getElaIcon(icon, QColor(255, 255, 255)))
+        self.setIconSize(QSize(iconSize, iconSize))
         self.update()
 
     def _getCurrentBgColor(self) -> QColor:
@@ -150,7 +150,7 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         self._go_backwards_timer.stop()
         super().deleteLater()
 
-    def progress_color(self) -> QColor:
+    def progressColor(self) -> QColor:
         """返回进度条填充颜色。
 
         :return: 进度条颜色
@@ -165,6 +165,14 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         return self._progress
 
     def _stepLength(self) -> float:
+        # 注意：这里**故意不接**全局动效策略（_motion.start_transition_timer）。
+        #
+        # 进度环不是装饰动效，是**功能契约**：`setDuration(ms)` 的语义就是
+        # 「要按这么久才触发」，进度环是用户唯一的计时反馈。接到策略上会有两个后果：
+        #   * Reduced 下 min(duration, 50) → 800ms 的长按变 50ms，一碰就触发；
+        #   * Disabled 下直接落终值 → 长按按钮退化成单击按钮。
+        # 两者都让控件行为不可预测，属于 bug 而不是无障碍。机器守卫见
+        # tests/motion/test_motion_blacklist.py::test_essential_gesture_not_scaled。
         steps = self._duration / 16.0
         return 1.0 / steps if steps >= 1 else 1.0
 

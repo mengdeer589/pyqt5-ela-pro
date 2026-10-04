@@ -150,6 +150,10 @@ class TestPrewarm:
 
     def test_viewer_toggle_and_forwarding(self, qapp, monkeypatch):
 
+        # 同类用例都把可选依赖抹掉（见 test_prewarm_once_uses_tiny_diagram）。
+        # 本用例验证的是**viewer 的转发**，不是 mermaidx 装没装；不抹的话
+        # 未装可选依赖的机器上``mermaidRenderer()`` 恒为 None，本条永久红。
+        monkeypatch.setattr(support, "mermaidx_available", lambda: True)
         viewer = ElaMarkdownViewer()
         assert viewer.mermaidPrewarm() is False
         with patch.object(

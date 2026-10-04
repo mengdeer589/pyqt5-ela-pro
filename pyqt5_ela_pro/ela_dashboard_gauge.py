@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import QWidget
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
+from ._motion import start_transition_timer
 from .widget_base import ElaThemeWidget
 
 
@@ -128,20 +129,32 @@ class ElaDashboardGauge(ElaThemeWidget):
             self._anim_start = self._animated_value
             self._anim_target = value
             self._anim_progress = 0.0
-            if self._anim_timer is not None:
-                self._anim_timer.start()
+            if self._anim_timer is not None and not start_transition_timer(
+                self._anim_timer
+            ):
+                # 策略要求同步落终值（Disabled）：直接摆到目标值，别等 600ms 的插值。
+                self._settleAnimatedValue()
         else:
             self._animated_value = value
             self.update()
         self.valueChanged.emit(value)
 
+    def _settleAnimatedValue(self) -> None:
+        """落到插值终点。正常路径由计时器走完调它，被 snap 时由 setValue 直接调。"""
+        if self._anim_timer is not None:
+            self._anim_timer.stop()
+        self._anim_progress = 1.0
+        self._animated_value = self._anim_target
+        self.update()
+
     def _onAnimTick(self) -> None:
         if self._anim_timer is None:
             return
         self._anim_progress += self._anim_timer.interval() / 600.0
-        t = 1 - pow(1 - self._anim_progress, 3)
         if self._anim_progress >= 1.0:
-            self._anim_timer.stop()
+            self._settleAnimatedValue()
+            return
+        t = 1 - pow(1 - self._anim_progress, 3)
         self._animated_value = (
             self._anim_start + (self._anim_target - self._anim_start) * t
         )

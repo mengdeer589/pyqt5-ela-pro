@@ -101,6 +101,21 @@ class TestPolling:
         assert events == [("down", (10, 20)), ("down", (10, 20))]
         monitor.deleteLater()
 
+    def test_swapped_buttons_use_primary(self, qapp, monkeypatch):
+        """系统交换主 / 次键后，物理右键才是「左键」（主键）。"""
+        from pyqt5_ela_pro.selection_assistant import _native
+
+        monkeypatch.setattr(_native, "_swap_buttons", lambda: True)
+        monitor = ElaMouseMonitor()
+        fake = _FakeInput()
+        fake.install(monitor)
+        events = []
+        monitor.leftPressed.connect(lambda pt: events.append(("down", pt)))
+        fake.right = True  # 物理右键 = 主键
+        monitor._poll()
+        assert events == [("down", (10, 20))]
+        monitor.deleteLater()
+
 
 class TestLifecycle:
     def test_start_stop_and_interval(self, qapp):

@@ -48,7 +48,7 @@ class TestMathFontFallback:
 
 
 class TestClickCopy:
-    def test_formula_click_copies_latex(self, qapp):
+    def test_formula_click_copies_latex(self, qapp, requires_clipboard):
         v = ElaMarkdownViewer()
         v.setMarkdown(r"公式 $x^2$ 结束")
         fragment = _image_fragments(v)[0]
@@ -63,7 +63,7 @@ class TestClickCopy:
         assert qapp.clipboard().text() == "x^2"
         v.deleteLater()
 
-    def test_mermaid_click_copies_source(self, qapp):
+    def test_mermaid_click_copies_source(self, qapp, requires_clipboard):
         v = ElaMarkdownViewer()
         v.setMermaidRenderer(
             lambda code, theme: QImage(20, 20, QImage.Format.Format_ARGB32)

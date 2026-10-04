@@ -79,6 +79,18 @@ _SS = 2
 _CACHE_CAP = 256
 _FAILED = object()
 
+#: 单边像素上限。公式是文档内嵌内容，单边超过这个量级早已超出任何视口 ——
+#: 而 ``box.w`` 只有下界没有上界（``\hspace`` 的数值参数直接进 ``box.w``，
+#: ``_SpaceBox`` 只对负值 ``max(0.0, ...)``）。实测不设限时
+#: ``x\hspace{1000000em}x`` 会真实分配 3.1 GiB 缓冲，
+#: ``10000000em`` 让 QImage 返回 null 而被当成功交出去。
+#: 取 20000 是为了给「超宽的长公式」留足余量，同时把最坏分配压到
+#: ``_MAX_PIXELS`` 之下。
+_MAX_DIM = 20000
+#: 总像素上限（ARGB32 = 4 字节/像素，20k×20k ≈ 1.6 GiB 太离谱）。
+#: 6400 万像素 ≈ 256 MiB 缓冲，已远超任何真实公式（典型公式不到 10 万像素）。
+_MAX_PIXELS = 64_000_000
+
 #: 宏展开后的字符数上限（``\def\a{\a\a\a}`` 这类自引用宏每轮 ×3，
 #: 只限轮数会指数爆炸，实测 20 轮后 3.5e9 字符把 GUI 线程彻底卡死）
 _MACRO_EXPANSION_LIMIT = 200_000
@@ -1392,12 +1404,52 @@ def _parse_color(raw: str) -> Optional[QColor]:
 
 
 def _dimension_em(raw: str, size: float) -> float:
-    """物理维度（``2em`` / ``3pt`` / ``1cm``）→ em 值（无法解析返回 0）。"""
-    match = re.match(r"\s*([+-]?[\d.]+)\s*([a-zA-Z]*)\s*$", raw or "")
-    if match is None:
+    """物理维度（``2em`` / ``3pt`` / ``1cm``）→ em 值（无法解析返回 0）。
+
+    **解析必须线性**：原先的 ``r"\\s*([+-]?[\\d.]+)\\s*([a-zA-Z]*)\\s*$"`` 里
+    三个可回溯量词相邻又带尾锚 ``$``，在「有数字段和单位段、没有收尾空格」的
+    长输入上会从中间 ``\\s*`` 的每个回溯位置重试 → **O(n²)**。实测
+    ``\\hspace{1} + 空格×N + a×N}`` 的 N 从 10k 翻到 60k，耗时
+    282ms → 1135ms → 4517ms → 10223ms（干净的二次），单个公式就能把 GUI
+    线程按住十秒。
+
+    改成「单位段先行切出 + 数字段用贪心前缀」，两遍都线性，且对同样输入
+    结果完全一致。
+    """
+    text = (raw or "").strip()
+    if not text:
         return 0.0
-    value = float(match.group(1))
-    unit = (match.group(2) or "em").lower()
+    # 单位段 = 结尾连续的 ASCII 字母（允许内部空格）
+    i = len(text)
+    while i > 0 and text[i - 1].isalpha():
+        i -= 1
+    unit = text[i:].strip().lower()
+    number = text[:i].strip()
+    if not number:
+        return 0.0
+    # 贪心吃掉 ``[+-]? digits [. digits]``（允许 ``1.2.3`` 这种畸形输入，
+    # 由 float() 抛 ValueError —— 调用方已兜）
+    j = 0
+    n = len(number)
+    if n and number[j] in "+-":
+        j += 1
+    seen_digit = False
+    while j < n and number[j].isdigit():
+        j += 1
+        seen_digit = True
+    if j < n and number[j] == ".":
+        j += 1
+        while j < n and number[j].isdigit():
+            j += 1
+            seen_digit = True
+    if not seen_digit or j != n:
+        return 0.0
+    value = float(number)
+    if not math.isfinite(value):
+        # ``float("1"×400)`` 是 inf 而非异常 —— 由输出层的 isfinite 兜底拒收，
+        # 这里先归零，语义上「解析不出可用尺寸」更贴切。
+        return 0.0
+    unit = unit or "em"
     if unit == "em":
         return value
     if unit == "ex":
@@ -3104,6 +3156,16 @@ def _render(
         node = _Parser(source, tolerant=False).parse()
     except _ParseError:
         degraded = True
+        # **兄弟处理器不接兄弟块内抛出的异常**，所以这三层重试里每一层都
+        # 必须自己写全 ``except Exception``：原先只接 ``_ParseError``，于是
+        # 「严格解析因浅层未知命令失败 -> 进容错重试 -> 容错路径深递归爆栈」
+        # 这条链上抛出的 ``RecursionError`` 会从上一层的处理块里穿出去，
+        # 没人接。而 ``render_formula`` 的对外契约是「不支持时返回 None」。
+        #
+        # 实测阈值（recursionlimit=1000）：``\zzz`` + 400 层花括号即逃逸；
+        # 不带未知命令的纯深嵌套反而被最外层的 ``except Exception`` 兜住
+        # —— 因为严格解析先撞限，抛的正是 ``RecursionError``。只要先浅层
+        # 失败进容错分支，就失守。
         try:
             node = _Parser(source, tolerant=True).parse()
         except _ParseError:
@@ -3112,8 +3174,10 @@ def _render(
                 return None
             try:
                 node = _Parser(source, tolerant=True).parse()
-            except _ParseError:
+            except Exception:
                 return None
+        except Exception:
+            return None
     except Exception:
         return None
     if node is None:
@@ -3126,10 +3190,30 @@ def _render(
         return None
     if box.w <= 0 or box.h <= 0:
         return None
+    if not (math.isfinite(box.w) and math.isfinite(box.h)):
+        # ``\hspace{1e400}`` 这类会让 ``_dimension_em`` 返回 inf，一路加进
+        # ``box.w``。下面 ``int(inf)`` 抛OverflowError，而这一行**在模块里
+        # 唯一没有 try 兜底的输出级**（preprocess / parse / build 三级都有），
+        # 异常会顺着 ``_stream_timer.timeout -> _render_into -> _embed_math``
+        # 冲出 Qt 回调 = **0xC0000409 零traceback 终止**。
+        return None
     pad = max(1.0, pt * 0.2)
     width = int(box.w + 2 * pad) + 1
     height = int(box.h + 2 * pad) + 1
+    # **尺寸上限**：``box.w`` 只有下界没有上界（``_SpaceBox`` 只对负值
+    # ``max(0.0, ...)``），而 ``\hspace`` 的数值参数直接进 ``box.w``。实测
+    # ``x\hspace{1000000em}x`` 会**真实分配 3.1 GiB** 缓冲，
+    # ``10000000em`` 让 QImage 返回 null 而本函数把它当成功交出去 ——
+    # 调用方的 ``if image is None`` 降级分支因此被绕过（``setWidth(0.0)``）。
+    # 超过上限按「不支持」处理，走调用方既有的降级路径。
+    if width > _MAX_DIM or height > _MAX_DIM:
+        return None
+    if width * height > _MAX_PIXELS:
+        return None
     image = QImage(width * _SS, height * _SS, QImage.Format_ARGB32_Premultiplied)
+    if image.isNull():
+        # 分配失败（尺寸超出平台上限）同样是「渲染不出来」，不能当成功返回
+        return None
     image.fill(Qt.GlobalColor.transparent)
     painter = QPainter(image)
     try:

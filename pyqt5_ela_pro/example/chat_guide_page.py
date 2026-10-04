@@ -374,7 +374,8 @@ binder 和窗口（本页示例里 `worker` 就是这个角色）。
    `LLM_TEST_BACKEND=agent` 时切 `AgentWorker`（真，走 `agents/` 副本，见第 4 节），
    两者信号完全同构，窗口不感知差异；
 3. **接信号**：`ElaChatStreamBinder(chat, worker=worker)` 自动接 6 条机械信号
-   （分片 / 工具 / 统计 / 空正文），`shutdownOnClose(window)` 关窗自动收尾；
+   （`llmStarted` / `chunkReceived` / `toolStarted` / `toolEnded` / `statsReady` /
+   `emptyTurn`），`shutdownOnClose(window)` 关窗自动收尾；
 4. **宿主行为**：提交 → `binder.startTurn`；停止 → `binder.cancel()` +
    `worker.cancel()`；撤回 / 重新生成用组件 API；**清空上下文 → `cleared`
    里 `worker.reset()`**（组件只清界面与队列）；回合结束 → `binder.finish()`。
@@ -407,7 +408,7 @@ binder 和窗口（本页示例里 `worker` 就是这个角色）。
 | `permissionRequested` / `permissionReplied` | 工具审批（**组件不阻塞**：收到 `permissionRequested(id, requestId)` 自行挂起后端，收到 `permissionReplied(id, requestId, reply, answer, feedback)` 自行恢复） |
 | `steerReady` / `steerChanged` | steer 插话投递 / 队列变化 |
 | `newTopicRequested` | 输入区「新建话题」按钮（组件**什么都不做** —— 宿主在此 `view.clear()` + `worker.reset()` + 新建 `ElaChatSessionInfo` 并切换） |
-| `undoMessage(id)` | 删除该条及其后消息，原文 / 附件回填输入框 |
+| `undoMessage(id)` / `undoLastUserMessage()` | 撤回用户消息：删除该条及其后消息，原文 / 附件回填输入框。`undoMessage` **只对用户消息生效**（传助手消息返回 `None`，别拿 `messages()[-1]` 的助手回答 id 去撤）；`undoLastUserMessage()` 自己找**最后一条用户消息**，是「撤回最后一条消息」的正确入口 |
 | `regenerateFrom(id)` | 删除该回答，返回前置用户消息（**按钮与整条底部行只在回合结束后出现** —— 流式 / 排队中不显示：回答没写完点了会整段丢掉，复制到的也只是半句话） |
 | `retryMessage(id)` | **重试**（同参数重发）：只清错误、**保留消息位置与 id**，返回前置用户消息。与 `regenerateFrom` 的区别就是不删消息 —— 删掉重建会让「重试」看起来像「重新生成」，也会打断用户正在读的上下文 |
 | `steerMessage(text)` / `drainSteer()` / `setSteerEnabled(on)` | 生成中插话：在 `beginStep` 安全边界把新指令送进**正在跑的这一轮**（对齐 opencode 的 `Delivery = "steer" \| "queue"`，那边 prompt 默认 steer），而不是排队等它跑完。`drainSteer()` 一次只投一条 |
@@ -439,7 +440,7 @@ binder 和窗口（本页示例里 `worker` 就是这个角色）。
 | 拖放 | **整个聊天组件都是放置点**：拖文件 / 拖图片到消息区、标签外区域、输入卡片、编辑框都会进附件条（`ElaChatWidget` 收下后落到 `ElaChatInput`） |
 | 粘贴 | Ctrl+V：图片（截图 / 浏览器复制）与「复制的文件」（资源管理器 Ctrl+C）都进附件，文本正常插入 —— 粘贴与拖入共用 `insertFromMimeData` 一个钩子 |
 | `filesAdded(paths)` | 文件进入输入区（拖放 / 粘贴复制的文件；已自动加入附件） |
-| `imagePasted(image)` | 图片进入输入区（粘贴 / 拖入，已自动加入附件） |
+| `imagePasted(image)` | 图片进入输入区（粘贴 / 拖入，已自动加入附件）；粘贴图片的图像挂在附件对象上（运行时，不序列化），消息显示 / 撤回回填都带缩略图 |
 | `newTopicRequested` | 点击「新建话题」按钮（组件**什么都不做**，话题 / 会话由宿主创建） |
 | `newTopicButton()` / `setNewTopicVisible(on)` | 内置「新建话题」按钮句柄 / 显隐（默认显示） |
 | `acceptsMime(mime)` / `attachMime(mime)` | 「这个 mime 收不收」/「收下并入附件」——组件各处拖放判定都走这两个，宿主自定义放置点时可复用 |
@@ -449,18 +450,19 @@ binder 和窗口（本页示例里 `worker` 就是这个角色）。
 | API | 说明 |
 |---|---|
 | `addMessage(role, text)` / `addMessageFromDict(data)` | 新建消息；后者沿用存储 id（冲突抛 `ValueError`） |
-| `restoreMessages(list)` | 重新分配 id 批量恢复（走 `beginBatch` / `endBatch`） |
+| `restoreMessages(list, preserveIds=False)` | 重新分配 id 批量恢复（走 `beginBatch` / `endBatch`）；`preserveIds=True` 时保留存储 id，先全量校验再写入、撞 id 抛 `ValueError` |
 | `addToolCall(messageId, name, args, toolCallId)` | 追加工具调用（上下文工具自动归组） |
 | `setReasoningStyle(style)` / `setToolGrouping(on)` / `setStatsMode(mode)` | 展示形态，立即对已有消息生效 |
 | `setDisclaimer(text)` / `setDisclaimerVisible(on)` | 助手消息底部的「内容由 AI 生成，仅供参考」提示（默认开启；流式期间随整行隐藏）；`DISCLAIMER_TEXT` 是默认文案 |
+| `setUserAvatar(source)` / `setAssistantAvatar(source)` / `setAvatarShape(shape)` | 头像自定义：SVG / 路径 / `QPixmap` / `QImage` / `QIcon` / `bytes` 等（含已存在与后续消息）；形状 `"circle"`（默认）/ `"rounded"`（**带圆角的矩形**）/ `"square"`，非法值回落圆形 |
 | `setToolDefaultOpen(policy)` | 注入工具卡展开策略（`policy(name, args, ok) -> bool`），只影响**之后新建**的卡片 |
-| `registerToolRenderer(name, factory, *, subtitle, groupable)` | **工具结果富渲染**（模块级函数）：`factory(ToolRenderContext) -> QWidget` 只替换卡片**内容区**，头部 / 折叠 / 错误竖线 / 忙碌环 / 展开策略仍由 `ToolCallCard` 负责。可选实现 `updateToolResult(result, status)` 收推送。`subtitle(args) -> (键, 值)` 的键自动从参数摘要排除。库内不内置任何渲染器 |
+| `registerToolRenderer(name, factory, *, subtitle, groupable, replace=False)` | **工具结果富渲染**（模块级函数）：`factory(ToolRenderContext) -> QWidget` 只替换卡片**内容区**，头部 / 折叠 / 错误竖线 / 忙碌环 / 展开策略仍由 `ToolCallCard` 负责。可选实现 `updateToolResult(result, status)` 收推送。`subtitle(args) -> (键, 值)` 的键自动从参数摘要排除。`replace=False` 时注册同名渲染器直接报错（防静默覆盖）。库内不内置任何渲染器 |
 | `beginPermission(messageId, request)` / `resolvePermission(messageId, requestId, reply, answer, feedback)` | 工具审批。**交互与记录分离**：等待回复时交互卡在**输入区上方的 `ElaChatPermissionDock`**（输入区照常可用，不顶替它），答完在时间线该 part 的**原位**留下一张**默认折叠**的 `PermissionRecord`（与「工具调用 (N)」同一套折叠交互）。**组件只画卡 + 发信号，不阻塞**（Qt 里挂起等用户点按钮会卡死事件循环）；「始终允许」的规则持久化归宿主。`request.questions` 非空 = **问答型逐题向导**（见下），为空 = 批准型三键。传入**已是落定态**的 request 时直接落成记录卡（重放后端历史用），不进 dock、不发 `permissionRequested` |
 | `pendingPermissions(messageId)` / `permissionCard(messageId, requestId)` / `interactivePermissionCard(messageId, requestId)` / `permissionAnswers(messageId, requestId)` | 读审批状态。`permissionCard` 只返回时间线上的**记录卡**（等待期间是 `None`），还在 dock 里等回复的交互卡用 `interactivePermissionCard`。`permissionAnswers` 给**未塌缩**的 `{key: [label, ...]}`，用于「答到一半还没提交」时看进度 |
 | `beginCompaction(messageId, reason)` / `appendCompactionSummary(...)` / `endCompaction(...)` | 上下文压缩在时间线上的表达。**库不实现压缩算法**，只负责「能表达 + 能持久化」 |
 | `addSteerNotice(messageId, text)` | 插话回执行（`↳ <text>`）。刻意不插用户气泡 —— 助手消息正在流式输出，中途插一条用户消息视觉上很怪 |
 | `setContextUsage(used, window, costUsd)` | 右上角上下文占用圆环（`<60%` 弱化 / `60~85%` 警示 / `>85%` 危险），hover 显示花费 / 百分比 / 词元数。数据全由宿主提供 |
-| `setContentMaxWidth(px)` / `setMaxWidthRatio(ratio)` | 气泡宽度约束。`setContentMaxWidth` 限的是**整列**（正文 + 附件条 + 底部行），宽窗口下右边缘对齐 |
+| `setContentMaxWidth(px)` | 气泡宽度约束。限的是**整列**（正文 + 附件条 + 底部行），宽窗口下右边缘对齐；不限宽时行为完全不变 |
 | `setScrollBarPolicy(policy)` / `scrollBar()` | 垂直滚动条策略（默认 `ScrollBarAsNeeded`，仅溢出时显示）与滚动条句柄；手动拖动把手会自动退出贴底跟随 |
 | `setStrictIds(on)` | 严格模式：对**不存在的消息**抛 `KeyError`（默认关闭，迟到事件静默忽略） |
 | `messages()` / `message(id)` / `lastMessage()` | 读快照（读取时才结算派生字段） |
@@ -590,7 +592,7 @@ python llm_test\agent_demo.py                 # 等价入口（直接起 AgentWo
 | `LLM_TEST_BASE_URL` | `http://127.0.0.1:8000/v1` | OpenAI 兼容服务地址 |
 | `LLM_TEST_MODEL` | `Spark-X2.5-4B-FP8` | 模型名 |
 | `LLM_TEST_API_KEY` | `not-needed` | API Key |
-| `LLM_TEST_THINKING` | `0`（关闭） | 置 `1` / `true` 请求推理输出 |
+| `LLM_TEST_THINKING` | 空（关闭） | 置 `1` / `true` / `yes` / `on` 请求推理输出 |
 | `LLM_TEST_WORK_DIR` | `llm_test/workspace` | 工作目录（`demo.txt` 供 `read_file` 演示） |
 
 限制：工具调用是否发生取决于模型能力；`agents/` 副本的依赖（openai / loguru）

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-
+import pytest
 from _qthelpers import wait_until as _wait_until
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPalette
@@ -14,6 +14,11 @@ from pyqt5_ela_pro.chat._theme import muted_color
 from pyqt5_ela_pro.chat import (
     DISCLAIMER_TEXT,
     ElaChatBubble,
+    ElaChatPart,
+    ElaChatPartKind,
+    ElaChatPermission,
+    ElaChatPermissionStatus,
+    ElaChatReasoningStyle,
     ElaChatRole,
     ElaChatStats,
     ElaChatStatus,
@@ -23,8 +28,8 @@ from pyqt5_ela_pro.chat import (
 
 
 class TestUserBubble:
-    def test_plain_text_and_selectable(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.User, "<b>不是 HTML</b>")
+    def test_plain_text_and_selectable(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.User, "<b>不是 HTML</b>")
         assert bubble.role() == ElaChatRole.User
         assert bubble.text() == "<b>不是 HTML</b>"
         assert bubble._label.textFormat() == Qt.TextFormat.PlainText
@@ -32,36 +37,32 @@ class TestUserBubble:
             bubble._label.textInteractionFlags()
             & Qt.TextInteractionFlag.TextSelectableByMouse
         )
-        bubble.deleteLater()
 
-    def test_layers_present(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.User, "hi")
+    def test_layers_present(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.User, "hi")
         # 头部层（头像在头部内）+ 正文层 + 底部操作层
         assert bubble.header().role() == ElaChatRole.User
         assert bubble.header().avatar() is not None
         assert bubble._body is not None
         assert bubble.actions().keys() == ["copy", "undo"]
-        bubble.deleteLater()
 
-    def test_max_width_ratio(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.User, "一段比较长的文本" * 5)
+    def test_max_width_ratio(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.User, "一段比较长的文本" * 5)
         bubble.resize(600, 80)
         bubble.show()
         qapp.processEvents()
         bubble.setMaxWidthRatio(0.5)
         assert bubble.maxWidthRatio() == 0.5
         assert bubble._body.maximumWidth() <= int(600 * 0.5) + 1
-        bubble.deleteLater()
 
-    def test_set_text_and_append(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.User, "a")
+    def test_set_text_and_append(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.User, "a")
         bubble.setText("b")
         bubble.appendText("c")
         assert bubble.text() == "bc"
-        bubble.deleteLater()
 
-    def test_title_timestamp_status(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.User, "hi")
+    def test_title_timestamp_status(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.User, "hi")
         bubble.setTitle("我")
         bubble.setTimestamp("12:00:01")
         bubble.setStatus(ElaChatStatus.Stopped)
@@ -71,27 +72,24 @@ class TestUserBubble:
         assert header.title() == "我"
         assert header.timestamp() == "12:00:01"
         assert header.statusText() == "已停止"
-        bubble.deleteLater()
 
-    def test_copy_action_copies_clipboard(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.User, "复制我")
+    def test_copy_action_copies_clipboard(self, qapp, requires_clipboard, make):
+        bubble = make(ElaChatBubble, ElaChatRole.User, "复制我")
         copied = []
         bubble.copyRequested.connect(lambda: copied.append(1))
         bubble.actions().toolButton("copy").click()
         assert copied == [1]
         assert QApplication.clipboard().text() == "复制我"
-        bubble.deleteLater()
 
-    def test_undo_action_signal(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.User, "hi")
+    def test_undo_action_signal(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.User, "hi")
         undone = []
         bubble.undoRequested.connect(lambda: undone.append(1))
         bubble.actions().toolButton("undo").click()
         assert undone == [1]
-        bubble.deleteLater()
 
-    def test_attachments_layer(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.User, "hi")
+    def test_attachments_layer(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.User, "hi")
         assert bubble.attachments() == []
         bubble.addAttachment("a.pdf", "C:/tmp/a.pdf", 2048)
         bubble.setAttachments([{"name": "b.txt", "path": "C:/tmp/b.txt", "size": 10}])
@@ -101,10 +99,9 @@ class TestUserBubble:
         assert attachments[0].displaySize == "10 B"
         bubble.clearAttachments()
         assert bubble.attachments() == []
-        bubble.deleteLater()
 
-    def test_attachment_chips_right_aligned_and_fit(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.User, "hi")
+    def test_attachment_chips_right_aligned_and_fit(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.User, "hi")
         bubble.resize(700, 220)
         bubble.show()
         qapp.processEvents()
@@ -118,10 +115,9 @@ class TestUserBubble:
         text_width = chip.fontMetrics().horizontalAdvance(chip.text())
         assert chip.width() >= text_width + 32
         assert chip.geometry().right() <= strip.width()
-        bubble.deleteLater()
 
-    def test_bubble_width_follows_text(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.User, "你好")
+    def test_bubble_width_follows_text(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.User, "你好")
         bubble.resize(600, 160)
         bubble.show()
         qapp.processEvents()
@@ -131,20 +127,18 @@ class TestUserBubble:
         wide = bubble._body.width()
         assert wide > narrow
         assert wide <= int(600 * 0.72) + 1
-        bubble.deleteLater()
 
 
 class TestAssistantBubble:
-    def test_markdown_viewer_embedded(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant, "**粗体**")
+    def test_markdown_viewer_embedded(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant, "**粗体**")
         viewer = bubble.markdownViewer()
         assert viewer is not None
         assert viewer.embeddedMode() is True
         assert viewer.markdown().strip() == "**粗体**"
-        bubble.deleteLater()
 
-    def test_text_viewer_trims_trailing_margin(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant, "一行正文")
+    def test_text_viewer_trims_trailing_margin(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant, "一行正文")
         viewer = bubble.markdownViewer()
         assert viewer is not None
         # 聊天正文查看器启用文末空白裁剪（正文 → 后续分段的间距与其它分段一致）
@@ -157,10 +151,9 @@ class TestAssistantBubble:
         last_rect = document.documentLayout().blockBoundingRect(document.lastBlock())
         assert viewer.height() < document.size().height()
         assert viewer.height() >= last_rect.bottom()
-        bubble.deleteLater()
 
-    def test_stream_flow(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_stream_flow(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         finished = []
         bubble.streamFinished.connect(lambda: finished.append(bubble.status()))
         bubble.beginStream()
@@ -179,58 +172,52 @@ class TestAssistantBubble:
         assert not bubble.isStreaming()
         assert bubble.status() == ElaChatStatus.Done
         assert finished == [ElaChatStatus.Done]
-        bubble.deleteLater()
 
-    def test_stream_placeholder(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_stream_placeholder(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginStream()
         assert bubble.markdownViewer().placeholderText() == "正在生成…"
         bubble.endStream(ElaChatStatus.Stopped)
         assert bubble.status() == ElaChatStatus.Stopped
-        bubble.deleteLater()
 
-    def test_non_assistant_begin_stream_noop(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.User, "hi")
+    def test_non_assistant_begin_stream_noop(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.User, "hi")
         bubble.beginStream()
         assert not bubble.isStreaming()
         bubble.endStream()
         assert bubble.status() == ElaChatStatus.Done
-        bubble.deleteLater()
 
-    def test_two_phase_status_reasoning_first(self, qapp):
+    def test_two_phase_status_reasoning_first(self, qapp, make):
         """思考先到也算「模型已开始输出」：排队中 → 生成中。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginStream()
         assert bubble.header().statusText() == "排队中…"
         bubble.appendReasoning("先想想")
         assert bubble.header().statusKind() == ElaChatStatus.Streaming
         assert bubble.header().statusText() == "生成中…"
         bubble.endStream()
-        bubble.deleteLater()
 
-    def test_two_phase_status_tool_first(self, qapp):
+    def test_two_phase_status_tool_first(self, qapp, make):
         """工具调用先到同样触发阶段切换。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginStream()
         assert bubble.header().statusKind() == ElaChatStatus.Queued
         bubble.addToolCall("read", "{}")
         assert bubble.header().statusKind() == ElaChatStatus.Streaming
         bubble.endStream()
-        bubble.deleteLater()
 
-    def test_two_phase_status_stop_before_first_token(self, qapp):
+    def test_two_phase_status_stop_before_first_token(self, qapp, make):
         """首个输出前停止：直接进终态，不留「排队中」。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginStream()
         bubble.endStream(ElaChatStatus.Stopped)
         assert bubble.header().statusKind() == ElaChatStatus.Stopped
         assert bubble.header().statusText() == "已停止"
-        bubble.deleteLater()
 
-    def test_two_phase_status_via_widget(self, qapp):
+    def test_two_phase_status_via_widget(self, qapp, make):
         """widget 回合路径：beginAssistantMessage → 排队中；首个分片 → 生成中。"""
 
-        chat = ElaChatWidget()
+        chat = make(ElaChatWidget)
         messageId = chat.beginAssistantMessage()
         view = chat.chatView()
         bubble = view.bubble(messageId)
@@ -239,11 +226,10 @@ class TestAssistantBubble:
         assert bubble.header().statusText() == "生成中…"
         chat.endAssistantMessage(messageId)
         assert bubble.header().statusText() == ""
-        chat.deleteLater()
         qapp.processEvents()
 
-    def test_reasoning_layer(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_reasoning_layer(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginReasoning()
         block = bubble.reasoningBlock()
         assert block.isOpened()
@@ -253,10 +239,9 @@ class TestAssistantBubble:
         bubble.endReasoning(1500)
         assert not block.isOpened()
         assert "思考完成 (1.5s)" in block.title()
-        bubble.deleteLater()
 
-    def test_tool_call_layer(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_tool_call_layer(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         callId = bubble.addToolCall("read_file", '{"path": "a.txt"}')
         assert bubble.toolCallCount() == 1
         running = bubble.toolCall(callId)
@@ -267,10 +252,9 @@ class TestAssistantBubble:
         assert done.isDone and done.result == "文件内容"
         bubble.clearToolCalls()
         assert bubble.toolCallCount() == 0
-        bubble.deleteLater()
 
-    def test_stats_layer(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_stats_layer(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         stats = ElaChatStats(
             prompt_tokens=10,
             completion_tokens=20,
@@ -282,21 +266,18 @@ class TestAssistantBubble:
         assert bubble.stats() is stats
         assert bubble.statsBadge().isVisible() is False  # 未 show，父链不可见
         assert "首字 250 ms" in stats.tooltip()
-        bubble.deleteLater()
 
-    def test_error_layer(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_error_layer(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.setError("连接超时")
         assert bubble.error() == "连接超时"
         assert bubble.status() == ElaChatStatus.Error
         bubble.clearError()
         assert bubble.error() == ""
-        bubble.deleteLater()
 
-    def test_actions_keys(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_actions_keys(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         assert bubble.actions().keys() == ["copy", "regenerate"]
-        bubble.deleteLater()
 
     def test_header_title_font_stack(self, qapp, make):
         """标题字体走 ``QFont`` 字体栈（拉丁 Segoe UI、中文逐字形回退），不用 QSS。"""
@@ -324,9 +305,9 @@ class TestAssistantBubble:
             assert abs(offset.x() - (AVATAR_SIZE - logical) / 2) <= 1 / dpr + 1e-9
         badge.deleteLater()
 
-    def test_disclaimer_label(self, qapp):
+    def test_disclaimer_label(self, qapp, make):
         """底部「内容由 AI 生成，仅供参考」：只助手消息有，随整行显隐，可改可关。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         assert bubble.disclaimer() == DISCLAIMER_TEXT
         assert bubble.disclaimerVisible() is True
 
@@ -345,18 +326,16 @@ class TestAssistantBubble:
         bubble.setDisclaimer("")  # 空串 → 自动隐藏
         assert bubble.disclaimer() == ""
         assert bubble.disclaimerVisible() is False
-        bubble.deleteLater()
 
-    def test_user_bubble_has_no_disclaimer(self, qapp):
+    def test_user_bubble_has_no_disclaimer(self, qapp, make):
         """「AI 生成」提示只属于助手消息 —— 用户消息没有这个标签。"""
-        bubble = ElaChatBubble(ElaChatRole.User, "我发的")
+        bubble = make(ElaChatBubble, ElaChatRole.User, "我发的")
         assert bubble.disclaimer() == DISCLAIMER_TEXT  # 文案仍是全局设置
         assert bubble.disclaimerVisible() is False
-        bubble.deleteLater()
 
-    def test_invalid_status_falls_back_to_done(self, qapp):
+    def test_invalid_status_falls_back_to_done(self, qapp, make):
         """状态是字符串枚举：非法值（如大小写笔误）一律回落 Done，不污染状态机。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginStream()
         assert bubble.status() == ElaChatStatus.Streaming
 
@@ -368,11 +347,10 @@ class TestAssistantBubble:
         assert bubble.status() == ElaChatStatus.Done
         bubble.setStatus(ElaChatStatus.Stopped)
         assert bubble.status() == ElaChatStatus.Stopped
-        bubble.deleteLater()
 
-    def test_footer_hidden_while_streaming(self, qapp):
+    def test_footer_hidden_while_streaming(self, qapp, make):
         """底部行（复制 / 重新生成 / 用量 / 耗时）整行只在回合有结果之后出现。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         assert bubble.footer().isHidden() is False  # 静态消息（Done）→ 正常显示
 
         bubble.beginStream()
@@ -386,7 +364,6 @@ class TestAssistantBubble:
         assert bubble.footer().isHidden() is False
         for key in ("copy", "regenerate"):
             assert bubble.actions().toolButton(key).isVisibleTo(bubble) is True
-        bubble.deleteLater()
 
     def test_footer_visible_after_stop_and_error(self, qapp):
         """停止 / 出错之后底部行要回来（这两种结果都需要复制与重新生成）。"""
@@ -398,9 +375,9 @@ class TestAssistantBubble:
             assert bubble.actions().toolButton("regenerate").isVisibleTo(bubble) is True
             bubble.deleteLater()
 
-    def test_stats_badge_hidden_during_tool_steps(self, qapp):
+    def test_stats_badge_hidden_during_tool_steps(self, qapp, make):
         """智能体调工具的过程中不显示词元用量：中途数字不是最终值、还会来回跳。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginStream()
         bubble.setStepStats(ElaChatStats(total_tokens=120))
         badge = bubble.statsBadge()
@@ -414,28 +391,25 @@ class TestAssistantBubble:
         bubble.endStream()
         assert bubble.statsBadge().isVisibleTo(bubble) is True  # 回合结束才出现
         assert bubble.stats().total_tokens == 300  # 各步求和
-        bubble.deleteLater()
 
-    def test_stats_badge_hidden_in_steps_mode_too(self, qapp):
+    def test_stats_badge_hidden_in_steps_mode_too(self, qapp, make):
         """调试用的 ``"steps"`` 模式同样等回合结束 —— 过程里不摆用量。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.setStatsMode("steps")
         bubble.beginStream()
         bubble.setStepStats(ElaChatStats(total_tokens=10))
         assert bubble.statsBadge().isVisibleTo(bubble) is False
         bubble.endStream()
         assert bubble.statsBadge().isVisibleTo(bubble) is True
-        bubble.deleteLater()
 
-    def test_attachment_strip_left_aligned(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_attachment_strip_left_aligned(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         assert bubble.attachmentStrip().alignment() == Qt.AlignmentFlag.AlignLeft
-        bubble.deleteLater()
 
 
 class TestSystemBubble:
-    def test_centered_and_header_hidden(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.System, "会话已开始")
+    def test_centered_and_header_hidden(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.System, "会话已开始")
         assert bubble.header().isHidden()
         assert bubble._label.alignment() == Qt.AlignmentFlag.AlignCenter
         holder_layout = bubble._label.parentWidget().layout()
@@ -446,12 +420,11 @@ class TestSystemBubble:
             QPalette.ColorRole.WindowText
         ) == muted_color(bubble._theme_mode, 0.45)
         assert bubble.actions().isHidden()
-        bubble.deleteLater()
 
 
 class TestAppearance:
-    def test_avatar_visibility(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant, "hi")
+    def test_avatar_visibility(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant, "hi")
         bubble.show()
         qapp.processEvents()
         assert bubble.avatarVisible()
@@ -460,17 +433,78 @@ class TestAppearance:
         bubble.setAvatarVisible(False)
         assert not bubble.avatarVisible()
         assert not avatar.isVisible()
-        bubble.deleteLater()
 
-    def test_theme_switch_recolors_bubble(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.User, "hi")
+    def test_hidden_avatar_frees_width(self, qapp, make):
+        """头像隐藏后不占宽度：用户气泡最大宽度应随之变大。"""
+        bubble = make(ElaChatBubble, ElaChatRole.User, "内容" * 20)
+        bubble.resize(400, 200)
+        bubble.show()
+        qapp.processEvents()
+        shown = bubble._body.maximumWidth()
+        bubble.setAvatarVisible(False)
+        assert bubble._body.maximumWidth() > shown
+
+    def test_theme_switch_recolors_bubble(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.User, "hi")
         before = bubble._body._bg.name()
         bubble._onThemeChanged(ElaThemeType.ThemeMode.Dark)
         after = bubble._body._bg.name()
         assert after != before
-        bubble.deleteLater()
 
-    def test_role_fallback(self, qapp):
-        bubble = ElaChatBubble("unknown-role", "hi")
+    def test_role_fallback(self, qapp, make):
+        bubble = make(ElaChatBubble, "unknown-role", "hi")
         assert bubble.role() == ElaChatRole.Assistant
-        bubble.deleteLater()
+
+
+class TestReadGettersArePure:
+    """「取控件」不是写操作：读取不得凭空造分段 / 改展示形态。"""
+
+    def test_markdown_viewer_does_not_create_part(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        assert bubble.markdownViewer() is None
+        assert bubble.parts() == ()
+
+    def test_reasoning_getters_do_not_create_parts(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        with pytest.raises(RuntimeError):
+            bubble.reasoningBlock()
+        with pytest.raises(RuntimeError):
+            bubble.inlineReasoningViewer()
+        assert bubble.parts() == ()
+        assert bubble.reasoningStyle() == ElaChatReasoningStyle.Collapse
+
+    def test_markdown_viewer_none_for_done_message_without_text(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble.addToolCall("read", "{}")
+        assert bubble.markdownViewer() is None
+        assert [p.kind for p in bubble.parts()] == ["tool"]
+
+
+class TestPermissionGuards:
+    def test_resolve_is_idempotent(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble.beginPermission(ElaChatPermission(request_id="r1", action="edit"))
+        assert bubble.resolvePermission("r1", "allowed") is True
+        # 已落定：不再改写用户答案、不再重发信号
+        assert bubble.resolvePermission("r1", "rejected") is False
+        settled = [p.permission for p in bubble.parts() if p.permission is not None][0]
+        assert settled.status == ElaChatPermissionStatus.Allowed
+
+    def test_set_text_empty_keeps_no_part(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble.setText("")
+        assert bubble.parts() == ()
+
+    def test_set_parts_normalizes_empty_ids(self, qapp, make):
+        """损坏数据缺 id：两条空 id 分段不能互相覆盖。"""
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        assert bubble.setParts(
+            [
+                ElaChatPart(id="", kind=ElaChatPartKind.Text, text="A"),
+                ElaChatPart(id="", kind=ElaChatPartKind.Text, text="B"),
+            ]
+        )
+        ids = [part.id for part in bubble.parts()]
+        assert len(ids) == 2
+        assert len(set(ids)) == 2
+        assert bubble.text() == "AB"

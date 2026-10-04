@@ -22,6 +22,8 @@ from PyQt5.QtGui import QStandardItem, QStandardItemModel
 from PyQt5.QtWidgets import QAbstractItemView, QVBoxLayout, QWidget
 from PyQt5ElaWidgetTools import ElaListView, ElaScrollPageArea
 
+from .message import _as_int
+
 #: 列表项高度
 _ITEM_HEIGHT = 30
 #: 默认最大高度
@@ -107,7 +109,7 @@ class SuggestionPopup(ElaScrollPageArea):
         """设置高亮下标（夹取到合法范围）。"""
         if not self._items:
             return
-        index = max(0, min(int(index), len(self._items) - 1))
+        index = max(0, min(_as_int(index), len(self._items) - 1))
         self._view.setCurrentIndex(self._model.index(index, 0))
 
     def moveSelection(self, delta: int) -> None:
@@ -118,7 +120,7 @@ class SuggestionPopup(ElaScrollPageArea):
         if current < 0:
             current = 0 if delta > 0 else len(self._items) - 1
         else:
-            current = (current + int(delta)) % len(self._items)
+            current = (current + _as_int(delta)) % len(self._items)
         self.setCurrentIndex(current)
 
     # -- 开合与激活 --------------------------------------------------------

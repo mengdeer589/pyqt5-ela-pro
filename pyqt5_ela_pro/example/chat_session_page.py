@@ -218,9 +218,7 @@ class ChatSessionPage(ExamplePage):
             else ElaChatReasoningStyle.Collapse
         )
         label = (
-            "内联"
-            if self._reasoning_style == ElaChatReasoningStyle.Inline
-            else "折叠"
+            "内联" if self._reasoning_style == ElaChatReasoningStyle.Inline else "折叠"
         )
         self._style_button.setText(f"思考形态：{label}")
         for topic in self._pages.values():

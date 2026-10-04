@@ -1,4 +1,4 @@
-﻿"""工具结果富渲染注册表（``pyqt5_ela_pro.chat.renderers``）。
+"""工具结果富渲染注册表（``pyqt5_ela_pro.chat.renderers``）。
 
 守三件容易踩的事：
 
@@ -28,12 +28,23 @@ from pyqt5_ela_pro.chat import (
     toolRendererNames,
     unregisterToolRenderer,
 )
-from pyqt5_ela_pro.chat.blocks import ToolCallCard, toolArgumentPairs
+from pyqt5_ela_pro.chat.blocks import (
+    CONTEXT_TOOLS,
+    ToolCallCard,
+    toolArgumentPairs,
+)
 from pyqt5_ela_pro.chat.message import ElaChatToolCall, ElaChatToolStatus
 from pyqt5_ela_pro.chat.renderers import (
+    _CONTEXT_TOOLS,
     parseToolArguments,
     toolRendererSubtitle,
 )
+
+
+class TestContextToolsParity:
+    def test_renderers_copy_matches_blocks(self):
+        """renderers 不能 import blocks（成环），复制的上下文工具清单必须一致。"""
+        assert set(CONTEXT_TOOLS) == set(_CONTEXT_TOOLS)
 
 
 @pytest.fixture(autouse=True)
@@ -125,7 +136,9 @@ class TestRegistryContract:
         assert toolRendererGroupable("read") is True
 
     def test_subtitle_shape_and_failure_fallback(self):
-        registerToolRenderer("demo", lambda ctx: QWidget(), subtitle=lambda a: ("k", "v"))
+        registerToolRenderer(
+            "demo", lambda ctx: QWidget(), subtitle=lambda a: ("k", "v")
+        )
         assert toolRendererSubtitle("demo", "{}") == ("k", "v")
         # 抛异常 / 形状不对 / 未注册 —— 一律落回 ("", "")，宿主 bug 不该弄崩卡片
         registerToolRenderer("boom", lambda ctx: QWidget(), subtitle=lambda a: 1 / 0)
@@ -180,7 +193,7 @@ class TestCardIntegration:
         registerToolRenderer("patch", boom)
         card = _card()
         make.track(card)
-        _open(card, qapp)          # 不崩 = 通过
+        _open(card, qapp)  # 不崩 = 通过
         assert card._renderer_widget is None
         assert card._args_caption is not None
 
@@ -241,7 +254,7 @@ class TestUpdateProtocol:
         card = _card()
         make.track(card)
         _open(card, qapp)
-        card.setResult("x", ok=True)      # 不崩 = 通过
+        card.setResult("x", ok=True)  # 不崩 = 通过
         assert card._renderer_widget is not None
 
     def test_push_exception_is_swallowed(self, qapp, make):
@@ -253,13 +266,12 @@ class TestUpdateProtocol:
         card = _card()
         make.track(card)
         _open(card, qapp)
-        card.setResult("x", ok=True)      # 不崩 = 通过
+        card.setResult("x", ok=True)  # 不崩 = 通过
 
     def test_push_after_card_destroyed_is_guarded(self, qapp, make):
         registerToolRenderer("patch", lambda ctx: _Recorder())
         card = _card()
         _open(card, qapp)
-        widget = card._renderer_widget
         make.track(card)
         card.deleteLater()
         qapp.processEvents()
@@ -276,8 +288,8 @@ class TestLifetime:
         make.track(card)
         _open(card, qapp)
         widget = card._renderer_widget
-        gc.collect()                      # 没有 Python 引用的话这里就死了
-        assert widget.pushes == [] or True
+        gc.collect()  # 没有 Python 引用的话这里就死了
+        assert widget.pushes == [], "刚建好还没推送过，且对象仍可访问"
         widget.updateToolResult("still alive", "done")
         assert widget.pushes[-1] == ("still alive", "done")
 

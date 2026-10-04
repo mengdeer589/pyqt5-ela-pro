@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget
 from PyQt5ElaWidgetTools import ElaIconType
 
 from pyqt5_ela_pro.chat import (
+    ElaChatPartKind,
     ElaChatReasoningStyle,
     ElaChatBubble,
     ElaChatRole,
@@ -25,6 +26,7 @@ from pyqt5_ela_pro.chat.blocks import (
     ThinkingRow,
     ToolCallCard,
     _HeadingScanner,
+    _preview_value,
     extractReasoningHeading,
     formatDuration,
     toolArgumentPairs,
@@ -36,6 +38,17 @@ from pyqt5_ela_pro.tooltips import _tooltip_dict
 
 
 class TestToolHelpers:
+    def test_tool_argument_pairs_bounds_large_containers(self):
+        big = {"files": [{"path": f"/a/{i}"} for i in range(5000)]}
+        pairs = toolArgumentPairs(big)
+        assert len(pairs) == 1
+        assert pairs[0].startswith("files=[")
+        # 只预览前 8 项：靠后的元素不能出现在摘要里
+        assert "/a/4999" not in pairs[0]
+        assert _preview_value(list(range(100))).endswith("(+92 项)")
+        assert _preview_value({"k": [1, 2]}) == '{"k":[1,2]}'
+        assert _preview_value([1, 2, 3]) == "[1,2,3]"
+
     def test_subtitle_priority(self):
         assert toolSubtitle("read", '{"path": "a.py"}') == "a.py"
         assert toolSubtitle("grep", '{"pattern": "x", "path": "b.py"}') == "b.py"
@@ -142,6 +155,12 @@ class TestToolHelpers:
         assert _HeadingScanner().push("x" * 300) == ""
         assert _HeadingScanner().push("普通") == ""
 
+        # 超长**标题**行两边一致（都视为不可能）：此前 scanner 跳过、全量抽取
+        # 仍返回标题（属性测试的片段最长 ~10 字符，漏掉了这条）
+        long_bold = "**" + "x" * 300 + "**"
+        assert extractReasoningHeading(long_bold) == ""
+        assert _HeadingScanner().push(long_bold) == ""
+
         # 超长行跳过后仍能识别后续标题（含分片跨换行）
         scanner = _HeadingScanner()
         scanner.push("x" * 300)
@@ -154,7 +173,7 @@ class TestToolHelpers:
 
 
 class TestToolCallCard:
-    def test_header_labels_no_wrap_no_overlap(self, qapp):
+    def test_header_labels_no_wrap_no_overlap(self, qapp, make):
         """窄卡片下标题 / 副标题 / 参数摘要单行省略，不换行叠字。
 
         先把调用**置为完成**再校验布局：运行中参数摘要是隐藏的（参数分片
@@ -163,12 +182,14 @@ class TestToolCallCard:
         真正需要保证不叠字的场景。
         """
 
-        host = QWidget()
+        host = make(QWidget)
         host.resize(360, 200)
         layout = QVBoxLayout(host)
         layout.setContentsMargins(0, 0, 0, 0)
-        card = ToolCallCard(
-            name="glob_file", arguments='{"pattern": "**/*.py", "limit": 100}'
+        card = make(
+            ToolCallCard,
+            name="glob_file",
+            arguments='{"pattern": "**/*.py", "limit": 100}',
         )
         layout.addWidget(card)
         layout.addStretch(1)
@@ -186,18 +207,19 @@ class TestToolCallCard:
         rects = [label.geometry() for label in labels]
         for left, right in zip(rects, rects[1:]):
             assert left.right() <= right.left() + 1
-        host.deleteLater()
         qapp.processEvents()
 
-    def test_args_hidden_while_running_shown_after_done(self, qapp):
+    def test_args_hidden_while_running_shown_after_done(self, qapp, make):
         """运行中隐藏参数摘要（避免半截参数 + 宽度跳变），完成后出现。"""
 
         host = QWidget()
         host.resize(420, 200)
         layout = QVBoxLayout(host)
         layout.setContentsMargins(0, 0, 0, 0)
-        card = ToolCallCard(
-            name="glob_file", arguments='{"pattern": "**/*.py", "limit": 100}'
+        card = make(
+            ToolCallCard,
+            name="glob_file",
+            arguments='{"pattern": "**/*.py", "limit": 100}',
         )
         layout.addWidget(card)
         layout.addStretch(1)
@@ -208,16 +230,15 @@ class TestToolCallCard:
         card.setResult("找到 12 个文件", ok=True)
         qapp.processEvents()
         assert card._args_label.isVisible() is True
-        host.deleteLater()
         qapp.processEvents()
 
-    def test_collapse_updates_ancestor_layout_immediately(self, qapp):
+    def test_collapse_updates_ancestor_layout_immediately(self, qapp, make):
         """收起时同步重排祖先布局链（避免逐帧收缩造成视觉抖动）。"""
 
         host = QWidget()
         host.resize(400, 300)
         layout = QVBoxLayout(host)
-        card = ToolCallCard(name="read", arguments='{"path": "a.py"}')
+        card = make(ToolCallCard, name="read", arguments='{"path": "a.py"}')
         card.setResult("结果行\n" * 6)
         layout.addWidget(card)
         below = QLabel("后续内容", host)
@@ -236,10 +257,11 @@ class TestToolCallCard:
         # 不经过事件循环：整条祖先链已收缩为最终状态
         assert card.height() == collapsed_height
         assert below.y() == collapsed_y
-        host.deleteLater()
 
-    def test_default_collapsed_and_pending_locked(self, qapp):
-        card = ToolCallCard(name="read", arguments='{"path": "a.py"}', toolCallId="t1")
+    def test_default_collapsed_and_pending_locked(self, qapp, make):
+        card = make(
+            ToolCallCard, name="read", arguments='{"path": "a.py"}', toolCallId="t1"
+        )
         assert card.isOpened() is False
         assert card.isExpandable() is True  # 默认 running 可展开
         assert card.isBusy() is True
@@ -253,18 +275,16 @@ class TestToolCallCard:
         assert card.isExpandable() is True
         card.setOpened(True)
         assert card.isOpened() is True
-        card.deleteLater()
 
-    def test_allow_open_while_pending(self, qapp):
-        card = ToolCallCard(name="shell", toolCallId="t1")
+    def test_allow_open_while_pending(self, qapp, make):
+        card = make(ToolCallCard, name="shell", toolCallId="t1")
         card.setStatus(ElaChatToolStatus.Pending)
         assert card.isExpandable() is False
         card.setAllowOpenWhilePending(True)
         assert card.isExpandable() is True
-        card.deleteLater()
 
-    def test_result_and_error_style(self, qapp):
-        card = ToolCallCard(name="grep", arguments='{"pattern": "x"}')
+    def test_result_and_error_style(self, qapp, make):
+        card = make(ToolCallCard, name="grep", arguments='{"pattern": "x"}')
         card.setResult("结果内容")
         call = card.toolCall()
         assert call.isDone
@@ -276,26 +296,23 @@ class TestToolCallCard:
         assert card.status() == ElaChatToolStatus.Error
         assert card.isOpened() is True
         assert card.result() == "失败了"
-        card.deleteLater()
 
-    def test_body_deferred(self, qapp):
-        card = ToolCallCard(name="read", arguments='{"path": "a.py"}')
+    def test_body_deferred(self, qapp, make):
+        card = make(ToolCallCard, name="read", arguments='{"path": "a.py"}')
         assert card._body_built is False
         card.setStatus(ElaChatToolStatus.Running)
         card.setOpened(True)
         assert card._body_built is True
-        card.deleteLater()
 
-    def test_update_result_by_id(self, qapp):
-        card = ToolCallCard(tool_call=ElaChatToolCall(id="t9", name="read"))
+    def test_update_result_by_id(self, qapp, make):
+        card = make(ToolCallCard, tool_call=ElaChatToolCall(id="t9", name="read"))
         card.updateResult("t9", "内容")
         assert card.toolCall().result == "内容"
-        card.deleteLater()
 
 
 class TestContextToolGroup:
-    def test_group_summary_and_rows(self, qapp):
-        group = ContextToolGroupCard()
+    def test_group_summary_and_rows(self, qapp, make):
+        group = make(ContextToolGroupCard)
         group.addToolCall(
             ElaChatToolCall(id="1", name="read", arguments='{"path": "a.py"}')
         )
@@ -313,11 +330,10 @@ class TestContextToolGroup:
         group.finish()
         assert group.title() == "已探索"
         assert group.isBusy() is False
-        group.deleteLater()
 
 
 class TestToolGroupPanel:
-    def test_inline_surface_matches_reasoning(self, qapp):
+    def test_inline_surface_matches_reasoning(self, qapp, make):
         """外层面板与思考块同为内联样式，**标题颜色也一致**。
 
         曾经给工具面板标题叠过强调色以「稍作区分」，实际两头不讨好：0.35 的
@@ -327,16 +343,14 @@ class TestToolGroupPanel:
         ``ToolGroupPanel._apply_theme`` 的说明与
         ``tests/ela_chat/test_chat_tool_theme.py``）。
         """
-        panel = ToolGroupPanel()
-        reasoning = ReasoningBlock()
+        panel = make(ToolGroupPanel)
+        reasoning = make(ReasoningBlock)
         assert panel.surfaceVisible() is False
         assert panel.surfaceVisible() == reasoning.surfaceVisible()
         assert panel._title_label.textColor() == reasoning._title_label.textColor()
-        panel.deleteLater()
-        reasoning.deleteLater()
 
-    def test_panel_counts_and_running(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_panel_counts_and_running(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         first = bubble.addToolCall("read", '{"path": "a.py"}')
         panel = bubble.toolPanel()
         assert panel is not None
@@ -355,10 +369,9 @@ class TestToolGroupPanel:
         assert panel.title() == "工具调用 (2)"
         assert panel.isBusy() is False
         assert panel._busy.getIsBusying() is False
-        bubble.deleteLater()
 
-    def test_cards_inside_panel(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_cards_inside_panel(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         first = bubble.addToolCall("read", '{"path": "a.py"}')
         second = bubble.addToolCall("glob", '{"pattern": "*"}')
         third = bubble.addToolCall("shell", '{"command": "ls"}')
@@ -368,72 +381,63 @@ class TestToolGroupPanel:
         # 连续上下文工具仍归组
         assert bubble._tool_cards[first] is bubble._tool_cards[second]
         assert type(bubble._tool_cards[first]).__name__ == "ContextToolGroupCard"
-        bubble.deleteLater()
 
-    def test_panel_toggle_emits_bubble_signal(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_panel_toggle_emits_bubble_signal(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.addToolCall("shell", '{"command": "ls"}')
         events = []
         bubble.toolToggled.connect(lambda: events.append(1))
         bubble.toolPanel().setOpened(True)
         assert events == [1]
-        bubble.deleteLater()
 
-    def test_clear_removes_panel(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_clear_removes_panel(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.addToolCall("shell", '{"command": "ls"}')
         assert bubble.toolPanel() is not None
         bubble.clearToolCalls()
         assert bubble.toolPanel() is None
         assert bubble.toolCallCount() == 0
-        bubble.deleteLater()
 
 
 class TestThinkingAndMeta:
-    def _host(self, widget):
-
-        host = QWidget()
+    def _host(self, make, widget):
+        host = make(QWidget)
         widget.setParent(host)
         return host
 
-    def test_thinking_row(self, qapp):
-        row = ThinkingRow()
-        host = self._host(row)
+    def test_thinking_row(self, qapp, make):
+        row = make(ThinkingRow)
+        self._host(make, row)
         row.begin()
         assert row.isHidden() is False
         row.setHeading("分析问题")
         assert row.heading() == "分析问题"
         row.end()
         assert row.isHidden()
-        row.deleteLater()
-        host.deleteLater()
 
-    def test_message_meta(self, qapp):
-        meta = MessageMeta()
-        host = self._host(meta)
+    def test_message_meta(self, qapp, make):
+        meta = make(MessageMeta)
+        self._host(make, meta)
         assert meta.isHidden()
         meta.setDuration(3200)
         assert meta.isHidden() is False
         assert "耗时 3.2s" in meta._label.text()
         meta.setTitle("模型")
         assert "模型" in meta._label.text()
-        meta.deleteLater()
-        host.deleteLater()
 
-    def test_error_card(self, qapp):
-        card = ErrorCard()
+    def test_error_card(self, qapp, make):
+        card = make(ErrorCard)
         assert card.isHidden()
         card.setMessage("连接超时")
         assert card.message() == "连接超时"
         card.setMessage("")
         assert card.isHidden()
-        card.deleteLater()
 
 
 class TestReasoningStyles:
-    def test_collapse_style_uses_single_view(self, qapp):
+    def test_collapse_style_uses_single_view(self, qapp, make):
         """折叠形态只用 ReasoningBlock（标题 + 进度环），不叠加思考行。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginReasoning()
         bubble.appendReasoning("第一行正文\n第二行正文")
         block = bubble.reasoningBlock()
@@ -446,10 +450,9 @@ class TestReasoningStyles:
         assert block.isBusy() is False
         assert "思考完成 (0.8s)" in block.title()
         assert bubble.reasoning() == "第一行正文\n第二行正文"
-        bubble.deleteLater()
 
-    def test_collapse_style(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_collapse_style(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         assert bubble.reasoningStyle() == ElaChatReasoningStyle.Collapse
         bubble.beginReasoning()
         bubble.appendReasoning("## 拆解\n步骤一")
@@ -457,10 +460,9 @@ class TestReasoningStyles:
         assert bubble.reasoning() == "## 拆解\n步骤一"
         assert bubble.reasoningBlock().isOpened() is False
         assert "思考完成 (0.9s)" in bubble.reasoningBlock().title()
-        bubble.deleteLater()
 
-    def test_inline_style(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_inline_style(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.setReasoningStyle(ElaChatReasoningStyle.Inline)
         assert bubble.reasoningStyle() == ElaChatReasoningStyle.Inline
         bubble.beginReasoning()
@@ -470,11 +472,10 @@ class TestReasoningStyles:
         assert "内联推理内容" in viewer.markdown()
         bubble.endReasoning(500)
         assert bubble.thinkingRow().isHidden()
-        bubble.deleteLater()
 
-    def test_switch_style_rebuilds_content(self, qapp):
+    def test_switch_style_rebuilds_content(self, qapp, make):
         """切换形态原位重建：内容 / 耗时保留，不丢数据。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.setReasoning("旧内容", durationMs=800)
         bubble.setReasoningStyle(ElaChatReasoningStyle.Inline)
         assert bubble.reasoningStyle() == ElaChatReasoningStyle.Inline
@@ -486,11 +487,10 @@ class TestReasoningStyles:
         assert bubble.reasoning() == "旧内容"
         assert "旧内容" in bubble.reasoningBlock().text()
         assert "思考完成 (0.8s)" in bubble.reasoningBlock().title()
-        bubble.deleteLater()
 
-    def test_switch_style_mid_stream_keeps_streaming(self, qapp):
+    def test_switch_style_mid_stream_keeps_streaming(self, qapp, make):
         """流式中切换形态：已收文本保留、标题重建，继续追加正常。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginStream()
         bubble.beginReasoning()
         bubble.appendReasoning("# 分析步骤\n前半")
@@ -506,38 +506,34 @@ class TestReasoningStyles:
         bubble.endReasoning(400)
         assert viewer.isStreaming() is False
         assert bubble.thinkingRow().isHidden()
-        bubble.deleteLater()
 
 
 class TestBubbleMetaAndHover:
-    def test_duration_and_meta(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_duration_and_meta(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.setDuration(12300)
         assert bubble.duration() == 12300
         assert "耗时 12.3s" in bubble.meta()._label.text()
-        bubble.deleteLater()
 
-    def test_actions_hover_reveal(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.User, "hi")
+    def test_actions_hover_reveal(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.User, "hi")
         assert bubble.actionsHoverReveal() is True
         # 占位保留（仅改透明度），避免悬浮时消息区跳动
         assert bubble.actions().isHidden() is False
         assert bubble._actions_effect.opacity() == 0.0
         bubble.setActionsHoverReveal(False)
         assert bubble._actions_effect.opacity() == 1.0
-        bubble.deleteLater()
 
-    def test_action_tooltips_bound(self, qapp):
+    def test_action_tooltips_bound(self, qapp, make):
 
-        bubble = ElaChatBubble(ElaChatRole.User, "hi")
+        bubble = make(ElaChatBubble, ElaChatRole.User, "hi")
         for key in ("copy", "undo"):
             button = bubble.actions().toolButton(key)
             assert button.toolTip()
             assert button in _tooltip_dict
-        bubble.deleteLater()
 
-    def test_hidden_actions_mouse_transparent(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.User, "hi")
+    def test_hidden_actions_mouse_transparent(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.User, "hi")
         copy_button = bubble.actions().toolButton("copy")
         transparent = Qt.WidgetAttribute.WA_TransparentForMouseEvents
         assert copy_button.testAttribute(transparent) is True
@@ -547,11 +543,10 @@ class TestBubbleMetaAndHover:
         bubble._set_actions_revealed(False)
         custom = bubble.actions().addCustomAction("fav", tooltip="收藏")
         assert custom.testAttribute(transparent) is True
-        bubble.deleteLater()
 
-    def test_hover_does_not_shift_layout(self, qapp):
+    def test_hover_does_not_shift_layout(self, qapp, make):
 
-        view = ElaChatView()
+        view = make(ElaChatView)
         view.resize(600, 400)
         view.show()
         qapp.processEvents()
@@ -565,10 +560,9 @@ class TestBubbleMetaAndHover:
         qapp.processEvents()
         assert content.sizeHint().height() == before
         assert bubble.actions().height() == before_actions_height
-        view.deleteLater()
 
-    def test_tool_grouping_in_bubble(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_tool_grouping_in_bubble(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         first = bubble.addToolCall("read", '{"path": "a.py"}')
         second = bubble.addToolCall("glob", '{"pattern": "*"}')
         third = bubble.addToolCall("shell", '{"command": "ls"}')
@@ -583,13 +577,67 @@ class TestBubbleMetaAndHover:
         ]
         bubble.clearToolCalls()
         assert bubble.toolCallCount() == 0
-        bubble.deleteLater()
 
-    def test_tool_grouping_disabled(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_tool_grouping_disabled(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.setToolGrouping(False)
         first = bubble.addToolCall("read", '{"path": "a.py"}')
         second = bubble.addToolCall("glob", '{"pattern": "*"}')
         assert type(bubble._tool_cards[first]).__name__ == "ToolCallCard"
         assert type(bubble._tool_cards[second]).__name__ == "ToolCallCard"
-        bubble.deleteLater()
+
+
+class TestReasoningReplacement:
+    def test_set_reasoning_replaces_and_closes_previous(self, qapp, make):
+        """``setReasoning`` 先收尾在途段再复用：不丢缓冲、不留永久转圈。"""
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble.beginStream()
+        bubble.beginReasoning()
+        bubble.appendReasoning("旧内容")
+        bubble.setReasoning("新内容")
+
+        parts = [p for p in bubble.parts() if p.kind == ElaChatPartKind.Reasoning]
+        assert len(parts) == 1
+        assert parts[0].text == "新内容"
+        assert bubble.reasoning() == "新内容"
+
+        bubble.endStream()
+        assert bubble.reasoning() == "新内容"
+
+
+class TestDefaultOpenBody:
+    def test_default_open_builds_body_when_shown(self, qapp, make):
+        """初始展开的卡首次显示就要有正文（不能箭头朝下却空白）。"""
+        card = make(
+            ToolCallCard, name="bash", arguments='{"cmd": "ls"}', defaultOpen=True
+        )
+        card.resize(640, 200)
+        card.show()
+        qapp.processEvents()
+        assert card._body_built is True
+        assert card.bodyLayout().count() > 0
+
+    def test_default_open_builds_body_on_message_id(self, qapp, make):
+        card = make(ToolCallCard, name="bash", arguments="{}", defaultOpen=True)
+        card.setMessageId(7)
+        assert card._body_built is True
+
+
+class TestConstructorParentFirst:
+    def test_parent_is_first_positional(self, qapp, make):
+        host = make(QWidget)
+        card = make(ToolCallCard, host)
+        assert card.parent() is host
+
+    def test_shell_like_tools_allow_open_while_pending(self, qapp, make):
+        """shell 类清单与默认展开策略共用 blocks.SHELL_TOOLS，不再两处漂移。"""
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble.setToolGrouping(False)
+
+        shell_card = bubble._tool_cards[bubble.addToolCall("run", '{"cmd": "ls"}')]
+        shell_card.setStatus(ElaChatToolStatus.Pending)
+        assert shell_card.isExpandable() is True
+
+        read_card = bubble._tool_cards[bubble.addToolCall("read", '{"path": "a"}')]
+        read_card.setStatus(ElaChatToolStatus.Pending)
+        assert read_card.isExpandable() is False

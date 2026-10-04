@@ -8,8 +8,11 @@ ElaIconButton 从「基础控件」并到这里 —— 它们和 ElaButton 是�
 拆两页等于逼用户自己判断「该用哪个」。
 """
 
+from functools import partial
+
 from PyQt5.QtCore import QPoint, QTimer, Qt
-from PyQt5.QtWidgets import QGridLayout, QHBoxLayout
+from PyQt5.QtGui import QColor
+from PyQt5.QtWidgets import QApplication, QGridLayout, QHBoxLayout
 from PyQt5ElaWidgetTools import (
     ElaIconButton,
     ElaIconType,
@@ -22,6 +25,7 @@ from PyQt5ElaWidgetTools import (
     ElaThemeType,
     ElaToggleButton,
     ElaToolButton,
+    eTheme,
 )
 from .base_page import ExamplePage
 from pyqt5_ela_pro import (
@@ -32,8 +36,20 @@ from pyqt5_ela_pro import (
     ElaSplitButton,
     ElaSvgButton,
     ElaSvgIconButton,
+    accent,
+    resetAccentColor,
+    setAccentColor,
 )
 from pyqt5_ela_pro.svg_icon import ElaSvgIconLoader
+
+#: 强调色预设。第一个是上游出厂值，其余用来演示「换色后 hover/press 跟着变」。
+_ACCENT_PRESETS = [
+    ("出厂蓝", "#0067c0"),
+    ("赤陶红", "#c0392b"),
+    ("松石绿", "#16a085"),
+    ("紫罗兰", "#8e44ad"),
+    ("琥珀橙", "#d35400"),
+]
 
 
 class ButtonsMenusPage(ExamplePage):
@@ -46,6 +62,7 @@ class ButtonsMenusPage(ExamplePage):
         self._passwordEdit = None
         self._longPressBtn = None
         self._svg_loader = None
+        self._accentInfo = None
         super().__init__(parent)
 
     def _addDemoContent(self, main_layout):
@@ -63,6 +80,73 @@ class ButtonsMenusPage(ExamplePage):
         self._demoSplitButton(main_layout)
         self._demoElaMenu(main_layout)
         self._demoMenuBar(main_layout)
+        self._demoAccentColor(main_layout)
+
+    def _demoAccentColor(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow(
+                "99. pyqt5_ela_pro - setAccentColor 强调色换色",
+                self._demoAccentColor,
+            )
+        )
+        self._addInfoText(
+            "换强调色时 hover / press / 开关圆点会一并派生写入 —— 只改基础色的话，\n"
+            "按钮本体是新色、悬停又跳回出厂蓝。派生规则是从出厂值反解的，所以\n"
+            "「换色再换回来」是逐值一致的。注意 eTheme 没有换色通知，需要自行重绘。",
+            parent_layout,
+        )
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        for name, hexColor in _ACCENT_PRESETS:
+            btn = ElaPushButton(name, self)
+            btn.setFixedWidth(110)
+            # 用 partial 而不是 lambda：后者在循环里会闭包捕获循环变量，
+            # 且 PyQt5 的 connect(slot, arg) 不是有效重载。
+            btn.clicked.connect(partial(self._onAccentPreset, hexColor))
+            row.addWidget(btn)
+        reset_btn = ElaPushButton("还原", self)
+        reset_btn.setFixedWidth(90)
+        reset_btn.clicked.connect(self._onAccentReset)
+        row.addWidget(reset_btn)
+        row.addStretch()
+        parent_layout.addLayout(row)
+        self._accentInfo = ElaText("", self)
+        self._accentInfo.setTextPixelSize(14)
+        parent_layout.addWidget(self._accentInfo)
+        self._refreshAccentInfo()
+        parent_layout.addSpacing(20)
+
+    def _refreshAccentInfo(self):
+        if self._accentInfo is None:
+            return
+        light = accent(ElaThemeType.ThemeMode.Light)
+        dark = accent(ElaThemeType.ThemeMode.Dark)
+        hover = eTheme.getThemeColor(
+            ElaThemeType.ThemeMode.Light, ElaThemeType.ThemeColor.PrimaryHover
+        )
+        self._accentInfo.setText(
+            f"当前强调色  Light {light.name()}   Dark {dark.name()}   "
+            f"派生 hover {hover.name()}"
+        )
+
+    def _repaint_all(self):
+        """``eTheme.setThemeColor`` 没有 NOTIFY 信号，换完色得自己让界面重画。"""
+        app = QApplication.instance()
+        if app is None:
+            return
+        for widget in app.topLevelWidgets():
+            if not widget.isHidden():
+                widget.update()
+
+    def _onAccentPreset(self, hexColor):
+        setAccentColor(QColor(hexColor))
+        self._repaint_all()
+        self._refreshAccentInfo()
+
+    def _onAccentReset(self):
+        resetAccentColor()
+        self._repaint_all()
+        self._refreshAccentInfo()
 
     def _demoPushButton(self, parent_layout):
         parent_layout.addLayout(
@@ -361,7 +445,8 @@ class ButtonsMenusPage(ExamplePage):
             )
         )
         self._addInfoText(
-            "Ant Design 风格按钮 — 横向 6 种变体，纵向 16 种色彩主题",
+            "Ant Design 风格按钮 — 6 种变体 × 16 色主题；可见面高度 24/32/40，"
+            "键盘 Tab 聚焦有 accent focus ring，setLoading(True) 显示加载指示器",
             parent_layout,
         )
         parent_layout.addSpacing(8)
@@ -463,6 +548,23 @@ class ButtonsMenusPage(ExamplePage):
             ("旋转", ElaIconType.IconName.ArrowRotateRight, "text", "default"),
         ]:
             row.addWidget(ElaButton(text, icon=icon, variant=v, color=c, parent=self))
+        row.addStretch()
+        parent_layout.addLayout(row)
+        parent_layout.addSpacing(8)
+
+        # ── Loading 态（点「切换加载态」看指示器）──
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        loading_btn = ElaButton("加载中", variant="solid", color="primary", parent=self)
+        loading_btn.setLoading(True)
+        row.addWidget(loading_btn)
+        toggle_btn = ElaButton(
+            "切换加载态", variant="outlined", color="primary", parent=self
+        )
+        toggle_btn.clicked.connect(
+            lambda: loading_btn.setLoading(not loading_btn.isLoading())
+        )
+        row.addWidget(toggle_btn)
         row.addStretch()
         parent_layout.addLayout(row)
         parent_layout.addSpacing(20)

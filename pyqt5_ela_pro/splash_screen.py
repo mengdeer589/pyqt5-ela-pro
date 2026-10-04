@@ -31,6 +31,7 @@ from PyQt5ElaWidgetTools import (
     ElaProgressRing,
 )
 
+from ._motion import start_transition_timer
 from .widget_base import ElaThemeWidget
 
 
@@ -60,6 +61,7 @@ class ElaSplashScreen(ElaThemeWidget):
         self._drag_start = QPoint()
         self._fade_target = None
         self._fade_opacity = 1.0
+        self._fade_settled = False
         self._fade_timer = QTimer(self)
 
         self.setWindowFlags(
@@ -301,15 +303,35 @@ class ElaSplashScreen(ElaThemeWidget):
 
         :param main_window: 主窗口实例
         """
-        if self._fade_timer.isActive():
+        if self._fade_timer.isActive() or self._fade_settled:
             return
         self._fade_target = main_window
         self._fade_opacity = 1.0
         self._fade_timer.setInterval(20)
         self._fade_timer.timeout.connect(self._onFadeTick)
-        self._fade_timer.start()
+        if not start_transition_timer(self._fade_timer):
+            # Reduced/Disabled：同步落终值。收尾（关自己 + 激活主窗口）不能丢，
+            # 所以走同一条 _settleFadeOut。
+            self._settleFadeOut()
 
     # ── Internal ──────────────────────────────────────────
+
+    def _settleFadeOut(self) -> None:
+        """淡出收尾：关自己 + 把主窗口顶到前台。
+
+        正常路径由计时器走到 0 时调，被动效策略 snap 时由 ``finish`` 直接调 ——
+        收尾只能有一个入口，否则 snap 与正常播放两条路会各做一半。
+        """
+        self._fade_timer.stop()
+        self._fade_settled = True
+        target = self._fade_target
+        self.setWindowOpacity(1.0)
+        self.closed.emit()
+        super().close()
+        if target:
+            target.show()
+            target.raise_()
+            target.activateWindow()
 
     def _onFadeTick(self) -> None:
         if not self.isVisible():
@@ -317,15 +339,7 @@ class ElaSplashScreen(ElaThemeWidget):
             return
         self._fade_opacity -= 0.05
         if self._fade_opacity <= 0:
-            self._fade_timer.stop()
-            target = self._fade_target
-            self.setWindowOpacity(1.0)
-            self.closed.emit()
-            super().close()
-            if target:
-                target.show()
-                target.raise_()
-                target.activateWindow()
+            self._settleFadeOut()
             return
         self.setWindowOpacity(self._fade_opacity)
 

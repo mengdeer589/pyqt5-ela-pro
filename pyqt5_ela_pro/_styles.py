@@ -1,16 +1,11 @@
 """
 共用样式 / 自绘原语（内部模块，不作为公共 API 暴露）。
 
-``EditBorderlessStyle``：共享 ``QProxyStyle``（去掉 Ela 输入框原生的自绘边框）。
+**全库禁 QSS**：需要「非主题色文字 / 纯色底 / 透明底 / 圆角卡片 / 无外观按钮」时用
+这里的原语，不要写 ``setStyleSheet``（守卫见 ``tests/styles/test_qss_free_guard.py``）。
 
-其余部分是**库内禁 QSS** 的替代件：需要「非主题色文字 / 纯色底 / 透明底 / 圆角
-卡片」时用这里的控件或 helper，不要再写 ``setStyleSheet``。
-
-为什么 ``ElaText`` 必须换成 :class:`ColorText` 才能上色：``ElaText::paintEvent``
-开头就检查 ``palette().color(WindowText) != ElaThemeColor(mode, BasicText)``，不等
-就调 ``onThemeChanged(mode)`` **把 palette 改回主题色** —— 所以 palette / QSS 之外
-的方式对 ``ElaText`` 无效，历史代码才到处写 ``QSS color:``。:class:`ColorText`
-在有显式颜色时直接走 ``QLabel::paintEvent``，不经那次重置。
+``ElaText`` 上不了非主题色 —— 它的 ``paintEvent`` 开头就把 palette 重置回主题
+``BasicText``，所以 :class:`ColorText` 在有显式颜色时改走 ``QLabel::paintEvent``。
 """
 
 from __future__ import annotations
@@ -18,7 +13,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PyQt5.QtCore import QRectF, QSize, Qt
-from PyQt5.QtGui import QColor, QIcon, QPainter, QPalette, QPen
+from PyQt5.QtGui import QColor, QIcon, QPainter, QPalette, QPen, QPixmap
 from PyQt5.QtWidgets import (
     QFrame,
     QLabel,
@@ -62,17 +57,9 @@ _EDIT_BORDERLESS_STYLE: Optional[EditBorderlessStyle] = None
 def editBorderlessStyle() -> EditBorderlessStyle:  # noqa: N802 (Qt 命名)
     """取共享的无边框代理样式（**进程级单例**）。
 
-    **不要给每个控件各建一个** —— ``QWidget.setStyle()`` 不接管所有权，唯一
-    的持有者只能是 Python 引用：引用一消失（控件销毁，或干脆没保存），sip 就
-    会 delete 掉这个 ``QProxyStyle``，而 Qt 的样式解析链（``QStyleSheetStyle``
-    / app style 缓存）**仍持有它的指针**。此后任意控件重绘时就会解引用已释放
-    的内存 → 进程 access violation（0xC0000005，无 traceback）。
-
-    实测踩坑路径：销毁一个带此 style 的输入区（``chat/input.py``）后，紧接着
-    渲染 200 条聊天消息必崩；把该 style 额外存进一个长生命周期列表就不崩。
-
-    样式本身无状态（只覆写 ``drawControl`` 跳过 ``CE_ShapedFrame``），全局共享
-    一个实例没有任何副作用。
+    **不要给每个控件各建一个** —— ``QWidget.setStyle()`` 不接管所有权，引用一消失
+    sip 就会 delete 掉它，而 Qt 的样式解析链仍持有该指针 → 之后任意重绘就是
+    0xC0000005（无 traceback）。样式本身无状态，共享无副作用。
     """
     global _EDIT_BORDERLESS_STYLE
     if _EDIT_BORDERLESS_STYLE is None:
@@ -134,6 +121,85 @@ def setTransparentTextBase(widget: QWidget) -> None:  # noqa: N802 (Qt 命名)
     widget.update()
 
 
+def elaIconPixmap(icon, color, size, ratio: float = 1.0) -> QPixmap:  # noqa: N802
+    """按**物理**像素尺寸取一个上好色的 ElaAwesome 字形位图。
+
+    上游 ``eTheme`` 只暴露 ``drawEffectShadow``，没有 ``drawElaIcon``，所以走
+    ``ElaIcon.getInstance().getElaIcon(name, color)``。按 ``size * ratio`` 请求是
+    为高 DPI：``QIcon.pixmap(QSize)`` 用主屏 DPR，在副屏上会发虚。
+    """
+    from PyQt5ElaWidgetTools import ElaIcon
+
+    if icon is None or not size or size.width() <= 0 or size.height() <= 0:
+        return QPixmap()
+    physical = QSize(
+        max(1, round(size.width() * ratio)), max(1, round(size.height() * ratio))
+    )
+    return ElaIcon.getInstance().getElaIcon(icon, color).pixmap(physical)
+
+
+def drawElaIcon(  # noqa: N802
+    painter: QPainter,
+    rect,
+    icon,
+    color,
+    *,
+    ratio: float = 1.0,
+) -> None:
+    """把 ElaAwesome 字形**等比**画进 ``rect``（居中、不变形）。"""
+    box = QRectF(rect)
+    if box.isEmpty():
+        return
+    side = min(box.width(), box.height())
+    target = QRectF(
+        box.center().x() - side / 2.0,
+        box.center().y() - side / 2.0,
+        side,
+        side,
+    )
+    pixmap = elaIconPixmap(
+        icon, color, QSize(int(round(side)), int(round(side))), ratio
+    )
+    if pixmap.isNull():
+        return
+    # 目标与源都是 QRectF：drawPixmap 的源矩形类型必须与目标配对，配错是 TypeError
+    painter.drawPixmap(target, pixmap, QRectF(pixmap.rect()))
+
+
+def drawCoverPixmap(painter: QPainter, target, pixmap: QPixmap) -> None:  # noqa: N802
+    """把位图按 **cover（等比填满并居中裁掉溢出）** 画进 ``target``。
+
+    ``drawPixmap(target, pixmap)`` 是非等比拉伸，16:9 的图塞进方形头像会被压扁，
+    PyQt5 没有 cover 版 API，只能自己算裁剪源矩形。
+
+    **DPR 陷阱**（两条 PyQt5 限制）：没有 ``QPixmap.deviceIndependentSize()``（Qt
+    5.14 才有，PyQt5 5.15 未暴露）；且 ``pixmap.width()`` 是**物理**像素而 ``target``
+    是逻辑尺寸，拿前者当源矩形尺寸会算出缩到一半的裁剪区。所以先换算到逻辑像素算
+    比例，最后把源矩形乘回 DPR。
+    """
+    if pixmap is None or pixmap.isNull():
+        return
+    box = QRectF(target)
+    ratio = pixmap.devicePixelRatio() or 1.0
+    logicalWidth = pixmap.width() / ratio
+    logicalHeight = pixmap.height() / ratio
+    if logicalWidth <= 0 or logicalHeight <= 0:
+        return
+    if box.width() <= 0 or box.height() <= 0:
+        return
+    # 覆盖逻辑尺寸所需的缩放比：宽高取 max 即「至少盖满一边」，另一边居中裁掉。
+    scale = max(box.width() / logicalWidth, box.height() / logicalHeight)
+    srcWidth = logicalWidth * scale
+    srcHeight = logicalHeight * scale
+    src = QRectF(
+        (logicalWidth - srcWidth) / 2.0 * ratio,
+        (logicalHeight - srcHeight) / 2.0 * ratio,
+        srcWidth * ratio,
+        srcHeight * ratio,
+    )
+    painter.drawPixmap(box, pixmap, src)
+
+
 def paintRoundedCard(
     painter: QPainter,
     rect,
@@ -178,24 +244,45 @@ def paintRoundedCard(
     painter.restore()
 
 
+#: 弹层阴影边距（px）。弹层要留出这一圈边距，否则阴影会被自身窗口裁掉。
+#: ``FramelessWindowHint`` 会去掉系统阴影，不自己画就完全没有。
+SHADOW_MARGIN = 4
+
+
+def paintOverlayShadow(
+    painter: QPainter,
+    rect,
+    *,
+    margin: int = SHADOW_MARGIN,
+    radius: float = 8.0,
+) -> None:
+    """画弹层阴影（转调上游 ``eTheme.drawEffectShadow``）。
+
+    :param margin: 阴影边距。内容要画在 ``rect.adjusted(m, m, -m, -m)`` 里，
+        窗口尺寸要把这圈边距算进去。
+    """
+    from PyQt5ElaWidgetTools import eTheme
+
+    eTheme.drawEffectShadow(painter, rect, margin, radius)
+
+
 # ── 禁 QSS 原语：控件 ────────────────────────────────────────────────────
 
 
 class ColorText(ElaText):
     """``ElaText`` 的「显式文字色」版本（禁 QSS 后的上色正路）。
 
-    ``ElaText`` 没有颜色 API，且 paint 时会把 palette 重置回主题 ``BasicText``
-    （见模块 docstring），所以历史上只能靠 ``QSS color:``。本子类在设置了显式
-    颜色后改为直接走 ``QLabel::paintEvent``（用我们设的 palette 上色）；图标模式
-    / wrap-anywhere 两种特例仍交回 ``ElaText`` 原实现。
+    有显式颜色时改走 ``QLabel::paintEvent``（用我们设的 palette 上色）；图标模式 /
+    wrap-anywhere 两种特例仍交回 ``ElaText`` 原实现。颜色是**快照**：主题切换时各
+    组件在自己的 ``_apply_theme()`` 里重新 ``setTextColor(...)`` 刷新即可。
 
-    颜色是**快照**：主题切换时各组件照旧在自己的 ``_apply_theme()`` 里重新
-    ``setTextColor(...)`` 刷新即可（与原来重设 QSS 的时机一致）。
+    **每个实例都必须显式 ``setTextPixelSize``** —— 不设就是 ``ElaText`` 的默认字号
+    （实测 28px），比组件的 11~14px 标尺大一大截，且不报错只是「大」。
     """
 
     def __init__(self, *args) -> None:
-        # ElaText 有 ``(parent)`` / ``(text, parent)`` / ``(text, height, parent)``
-        # 三个重载，这里原样透传，别自己解释参数。
+        # ElaText 有 (parent) / (text, parent) / (text, height, parent) 三个重载，
+        # 这里原样透传，别自己解释参数。
         super().__init__(*args)
         self._text_color: Optional[QColor] = None
 
@@ -219,12 +306,11 @@ class ColorText(ElaText):
     def _apply_text_color(self) -> None:
         """把显式文字色写进 palette 的**前景色角色**。
 
-        **必须写 ``foregroundRole()`` 而不是写死 ``WindowText``。**
-        ``foregroundRole`` 是 per-widget 的属性，而 Ela 的控件树里同一个
-        ``ColorText`` 可能拿到各种值（实测 ``_CollapsibleBlock`` 里的标题标签是
-        ``8 = ButtonText``）。写死 ``WindowText`` 时 ``textColor()`` 读回来是对的、
-        ``palette().color(WindowText)`` 也是对的，唯独绘制走的 ``foregroundRole()``
-        仍是主题的 BasicText —— 表现就是**设了颜色却画成黑字**，而且完全没有报错。
+        **必须写 ``foregroundRole()`` 而不是写死 ``WindowText``。** 写死时
+        ``textColor()`` 与 ``palette().color(WindowText)`` 读回来都对，唯独绘制走的
+        ``foregroundRole()`` 仍是主题 BasicText —— 症状是「设了颜色却画成黑字」且
+        **无任何报错**（Ela 控件树里同一个 ``ColorText`` 实测能拿到
+        ``8 = ButtonText``）。
         """
         if self._text_color is None:
             return
@@ -236,9 +322,9 @@ class ColorText(ElaText):
         if self._text_color is None or self.getElaIcon() or self.getIsWrapAnywhere():
             super().paintEvent(event)
             return
-        # ElaText 自己在 C++ 构造里连了 eTheme.themeModeChanged → onThemeChanged，
-        # 主题信号一发就把 palette 刷回 BasicText（父容器 _apply_theme 与它的连接
-        # 顺序不保证），所以绘制前补一次显式颜色 —— 相等时直接跳过，不会反复触发。
+        # ElaText 在 C++ 构造里连了 themeModeChanged → onThemeChanged，主题信号一发
+        # 就把 palette 刷回 BasicText（与父容器 _apply_theme 的连接顺序不保证），
+        # 所以绘制前补一次显式颜色；相等时跳过，不会反复触发。
         palette = self.palette()
         if palette.color(self.foregroundRole()) != self._text_color:
             palette.setColor(self.foregroundRole(), self._text_color)
@@ -247,10 +333,10 @@ class ColorText(ElaText):
 
 
 class BareButton(QPushButton):
-    """只当「可点行容器」用的按钮：什么都不自绘（替代 QSS ``background: transparent; border: none;``）。
+    """什么都不自绘的按钮（替代 QSS ``background: transparent; border: none;``）。
 
-    用于头部 / 折叠行这类「按钮当布局容器、内容全是子控件」的场景 ——
-    ``setFlat(True)`` 仍会画悬浮 / 按下底色，不符原视觉，故整体跳过绘制。
+    用于头部 / 折叠行这类「按钮当布局容器、内容全是子控件」的场景 —— ``setFlat(True)``
+    仍会画悬浮 / 按下底色，不符原视觉。
     """
 
     def paintEvent(self, _event) -> None:  # noqa: N802 (Qt 命名)
@@ -260,11 +346,7 @@ class BareButton(QPushButton):
 class FlatIconButton(QToolButton):
     """透明底 + 圆角悬浮 / 按下底色的图标按钮（替代 ``QToolButton`` 的 QSS 写法）。
 
-    QToolButton 默认由 style 画边框与凸起底，以前用
-    ``QSS QToolButton { background: transparent; border: none; border-radius: 6px; }``
-    压掉、再用 ``:hover`` / ``:pressed`` 给底色。这里改为自己画：平时不画底，
-    悬浮 / 按下时画 ``setHoverColor`` / ``setPressColor`` 指定的圆角底，图标沿用
-    ``setIcon`` 传入的 ``QIcon``（按 ``iconSize`` 请求，交给 Qt 处理设备像素比）。
+    平时不画底，悬浮 / 按下时画 ``setHoverColor`` / ``setPressColor`` 指定的圆角底。
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -321,9 +403,8 @@ class FlatIconButton(QToolButton):
             mode = QIcon.Mode.Active
         else:
             mode = QIcon.Mode.Normal
-        # PyQt5 的 QIcon.pixmap 没有 devicePixelRatio 重载（只有 QWindow* 版，且
-        # 控件没显示时拿不到 windowHandle），所以按物理尺寸请求位图、再缩到逻辑
-        # 尺寸画 —— 高 DPI 下比「请求逻辑尺寸后放大」清晰。
+        # 按物理尺寸请求位图再缩到逻辑尺寸画：PyQt5 的 QIcon.pixmap 没有
+        # devicePixelRatio 重载，高 DPI 下比「请求逻辑尺寸后放大」清晰。
         size = self.iconSize()
         ratio = self.devicePixelRatioF()
         physical = QSize(

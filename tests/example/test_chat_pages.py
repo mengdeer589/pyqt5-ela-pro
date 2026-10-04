@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import pytest
 
+from _qthelpers import wait_until as _wait_until
+
 from pyqt5_ela_pro.chat import ElaChatReasoningStyle
 from pyqt5_ela_pro.example.chat_agent_page import ChatAgentPage
 from pyqt5_ela_pro.example.chat_input_page import ChatInputPage
@@ -109,8 +111,7 @@ class TestChatOverviewPage:
         page = make(ChatOverviewPage)
         before = page._chat.chatView().count()
         page._player.play(page._script_full_turn(), interval=0)
-        _wait(qapp, 500)
-        assert page._chat.chatView().count() > before
+        assert _wait_until(qapp, lambda: page._chat.chatView().count() > before)
 
 
 # ================================================================ 输入区
@@ -212,7 +213,9 @@ class TestChatSessionPage:
         page._on_toggle_reasoning_style()
         qapp.processEvents()
         styles = {p.chat.chatView().reasoningStyle() for p in page._pages.values()}
-        assert styles == {ElaChatReasoningStyle.Inline}, f"有页面没跟上外观设置：{styles}"
+        assert styles == {ElaChatReasoningStyle.Inline}, (
+            f"有页面没跟上外观设置：{styles}"
+        )
 
 
 # ================================================================ 持久化
@@ -249,7 +252,7 @@ class TestChatPersistPage:
     def test_perf_switches(self, qapp, make):
         """两个开关都是「翻转当前值」。
 
-        注意**默认都���开**（延迟重排、视口挂起），所以第一次点击是关 ——
+        注意**默认都是开**（延迟重排、视口挂起），所以第一次点击是关 ——
         断言「点完等于 True」会把默认值写死进去，以后库改默认就假失败。
         """
         page = make(ChatPersistPage)
@@ -270,12 +273,3 @@ class TestChatPersistPage:
         page._on_batch()
         page._on_load_30()
         assert view.count() > 1
-
-
-def _wait(qapp, ms):
-    from PyQt5.QtCore import QEventLoop, QTimer
-
-    loop = QEventLoop()
-    QTimer.singleShot(ms, loop.quit)
-    loop.exec_()
-    qapp.processEvents()

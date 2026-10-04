@@ -64,8 +64,12 @@ def safe_connect(obj, signal_name: str, slot, label: str = "") -> None:
 
 
 def _warn_once(prefix: str, exc: BaseException) -> None:
-    """同一个异常只提示一次（按类型去重），避免 15ms 一次地刷屏。"""
-    key = type(exc)
+    """同一个「来源 + 异常类型」只提示一次，避免 15ms 一次地刷屏。
+
+    key 里带上 ``prefix``：不同槽 / 不同闸门各自去重、互不吞告警
+    （曾只用 ``type(exc)``，一种类型先出现就会把别处的同类型异常静默）。
+    """
+    key = (prefix, type(exc))
     if key in _warned_poll_errors:
         return
     _warned_poll_errors.add(key)
@@ -78,6 +82,8 @@ _DEFAULT_POLL_MS = 15
 _VK_LBUTTON = 0x01
 _VK_RBUTTON = 0x02
 _VK_MBUTTON = 0x04
+#: ``GetSystemMetrics``：系统是否交换了鼠标主 / 次键
+_SM_SWAPBUTTON = 23
 
 _INPUT_KEYBOARD = 1
 _KEYEVENTF_KEYUP = 0x0002
@@ -149,6 +155,18 @@ if _IS_WINDOWS:  # pragma: no cover - 平台分支
     ]
     _user32.GetWindowThreadProcessId.restype = wintypes.DWORD
     _user32.GetForegroundWindow.restype = wintypes.HWND
+    _user32.GetSystemMetrics.argtypes = [ctypes.c_int]
+    _user32.GetSystemMetrics.restype = ctypes.c_int
+
+
+def _swap_buttons() -> bool:
+    """系统是否交换了鼠标主 / 次键（``SM_SWAPBUTTON``）。
+
+    交换后物理右键才是「主键」，划词手势必须跟着换，否则这类用户完全用不了。
+    """
+    if not _IS_WINDOWS:  # pragma: no cover - 平台分支
+        return False
+    return bool(_user32.GetSystemMetrics(_SM_SWAPBUTTON))
 
 
 def send_copy() -> None:
@@ -194,8 +212,9 @@ def foreground_pid() -> int:
 class ElaMouseMonitor(QObject):
     """轮询式全局鼠标监视（主线程 QTimer，无全局钩子、无额外线程）。
 
-    信号参数中的坐标一律为 Win32 物理像素 ``(x, y)``，宿主 / 组件负责换算
-    为 Qt 逻辑坐标（见 :func:`to_logical_pos`）。
+    「左键」指**系统主键**（尊重 Windows 主 / 次键互换设置；交换后物理右键
+    即主键）。信号参数中的坐标一律为 Win32 物理像素 ``(x, y)``，宿主 / 组件
+    负责换算为 Qt 逻辑坐标（见 :func:`to_logical_pos`）。
 
     已知限制：单次按下 / 抬起间隔短于轮询间隔（默认 15ms）的极快点击可能
     被漏检；滚轮事件无法轮询，``wheelScrolled`` 仅为契约保留（真实监视不会
@@ -205,7 +224,7 @@ class ElaMouseMonitor(QObject):
     :param pollMs: 轮询间隔毫秒数
     """
 
-    #: 左键按下
+    #: 左键（系统主键）按下
     leftPressed = pyqtSignal(object)
     #: 左键抬起（参数：按下点、抬起点）
     leftReleased = pyqtSignal(object, object)
@@ -224,6 +243,9 @@ class ElaMouseMonitor(QObject):
         self._left_last = False
         self._right_last = False
         self._middle_last = False
+        self._primary_vk = _VK_LBUTTON
+        self._secondary_vk = _VK_RBUTTON
+        self._refresh_buttons()
         self._timer = QTimer(self)
         self._timer.setInterval(max(1, int(pollMs)))
         self._timer.timeout.connect(self._poll)
@@ -236,6 +258,7 @@ class ElaMouseMonitor(QObject):
             raise RuntimeError("划词助手仅支持 Windows")
         if self._timer.isActive():
             return True
+        self._refresh_buttons()
         self._reset_state()
         self._timer.start()
         return True
@@ -259,6 +282,15 @@ class ElaMouseMonitor(QObject):
 
     # -- 轮询 --------------------------------------------------------------
 
+    def _refresh_buttons(self) -> None:
+        """按系统「主 / 次键互换」设置决定哪个虚拟键算主键。"""
+        if _swap_buttons():
+            self._primary_vk = _VK_RBUTTON
+            self._secondary_vk = _VK_LBUTTON
+        else:
+            self._primary_vk = _VK_LBUTTON
+            self._secondary_vk = _VK_RBUTTON
+
     def _reset_state(self) -> None:
         self._down = None
         self._left_last = False
@@ -279,8 +311,8 @@ class ElaMouseMonitor(QObject):
         sampled = False
         try:
             point = self._cursor_pos()
-            left = self._key_down(_VK_LBUTTON)
-            right = self._key_down(_VK_RBUTTON)
+            left = self._key_down(self._primary_vk)
+            right = self._key_down(self._secondary_vk)
             middle = self._key_down(_VK_MBUTTON)
             sampled = True
 

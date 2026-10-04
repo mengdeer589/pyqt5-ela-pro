@@ -35,36 +35,40 @@ from PyQt5ElaWidgetTools import (
     ElaPushButton,
 )
 
+from ._internal import _ThemeAwareMixin
+from ._motion import start_transition_timer
 from ._styles import paintRoundedCard
 from .widget_base import ElaThemeWidget
 
 
-class _TipCard(QWidget):
-    """提示浮层卡片底（圆角 + 1px 描边）—— 禁 QSS 后自绘，颜色随主题刷新。"""
+class _TipCard(_ThemeAwareMixin, QWidget):
+    """提示浮层卡片底（圆角 + 1px 描边）—— 禁 QSS 后自绘。
+
+    颜色**绘制期现取**（同 ``ela_ghost_box._theme_color`` 的做法），不做缓存 ——
+    派生色一旦存成状态，就多出一份「必须记得在主题钩子里刷新」的隐形契约；
+    刷新点再挂到重定位这类无关操作上，迟早漏。主题感知（订阅 + 重绘）由卡片
+    自己负责，父组件不需要知道子控件有哪些自绘色。
+    """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self._background = QColor()
-        self._border = QColor()
+        self._theme_mode = eTheme.getThemeMode()
         self._radius = 8.0
 
-    def setCardColors(  # noqa: N802 (Qt 命名)
-        self, background: QColor, border: Optional[QColor] = None
-    ) -> None:
-        """设置卡片底色与描边色（``None`` 描边表示不画边）。"""
-        self._background = QColor(background)
-        self._border = QColor(border) if border is not None else QColor(0, 0, 0, 0)
-        self.update()
-
     def paintEvent(self, _event) -> None:  # noqa: N802 (Qt 命名)
+        mode = self._theme_mode
         painter = QPainter(self)
         paintRoundedCard(
             painter,
             self.rect(),
-            background=self._background,
-            border=self._border,
+            background=eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.DialogBase),
+            border=eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBorder),
             radius=self._radius,
         )
+
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
+        self._theme_mode = mode
+        self.update()
 
 
 class ElaSpotlight(ElaThemeWidget):
@@ -194,7 +198,10 @@ class ElaSpotlight(ElaThemeWidget):
             self._fade_timer.timeout.connect(self._onFadeTick)
         self._fade_timer.stop()
         self._opacity = 0.0
-        self._fade_timer.start()
+        if not start_transition_timer(self._fade_timer):
+            # Reduced/Disabled：同步落终值。淡入目标恒为 1.0，直接摆上去并重画。
+            self._opacity = 1.0
+            self.update()
 
     def _onFadeTick(self) -> None:
         self._opacity = min(1.0, self._opacity + 0.06)
@@ -307,12 +314,6 @@ class ElaSpotlight(ElaThemeWidget):
         ty = max(10, ty)
 
         self._tip_widget.move(tx, ty)
-
-        bg = eTheme.getThemeColor(self._theme_mode, ElaThemeType.ThemeColor.DialogBase)
-        border = eTheme.getThemeColor(
-            self._theme_mode, ElaThemeType.ThemeColor.PopupBorder
-        )
-        self._tip_widget.setCardColors(bg, border)
 
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self._theme_mode = mode

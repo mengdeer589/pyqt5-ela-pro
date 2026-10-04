@@ -27,21 +27,21 @@ class TestElaLongPressBtn:
     def test_has_signal(self, make, signal):
         assert hasattr(make(ElaLongPressBtn), signal)
 
-    def test_set_duration(self, make):
+    def test_setDuration(self, make):
         btn = make(ElaLongPressBtn)
-        btn.set_duration(1000)
+        btn.setDuration(1000)
         assert btn._duration == 1000
 
     def test_duration_returns_value(self, make):
         """setter 之后 getter 必须回读得到（此前只测了 ``_duration``）。"""
         btn = make(ElaLongPressBtn)
-        btn.set_duration(2000)
+        btn.setDuration(2000)
         assert btn.duration() == 2000
 
-    def test_set_duration_ignores_zero(self, make):
+    def test_setDuration_ignores_zero(self, make):
         """非法值（0）被忽略，保持默认 500。"""
         btn = make(ElaLongPressBtn)
-        btn.set_duration(0)
+        btn.setDuration(0)
         assert btn._duration == 500
 
     def test_progress_initially_zero(self, make):

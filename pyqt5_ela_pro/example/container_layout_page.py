@@ -44,15 +44,15 @@ class ContainerLayoutPage(ExamplePage):
         super().__init__(parent)
 
     def _addDemoContent(self, main_layout):
+        # 调用顺序即页面顺序，且必须与各节标题的编号一致
         self._demoDrawerArea(main_layout)
         self._demoScrollArea(main_layout)
+        self._demoScrollPage(main_layout)
         self._demoSplitter(main_layout)
         self._demoDivider(main_layout)
         self._demoGroupBox(main_layout)
         self._demoFlowLayout(main_layout)
         self._demoDrawer(main_layout)
-        self._demoSiSideDrawer(main_layout)
-        self._demoScrollPage(main_layout)
         self._demoElaDrawerArea(main_layout)
 
     def _demoDrawerArea(self, parent_layout):
@@ -126,7 +126,7 @@ class ContainerLayoutPage(ExamplePage):
     def _demoScrollPage(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "02a. PyQt5ElaWidgetTools - ElaScrollPage 分段页容器",
+                "03. PyQt5ElaWidgetTools - ElaScrollPage 分段页容器",
                 self._demoScrollPage,
             )
         )
@@ -186,7 +186,7 @@ class ContainerLayoutPage(ExamplePage):
     def _demoSplitter(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "02. pyqt5_ela_pro - ElaSplitter 分隔器", self._demoSplitter
+                "04. pyqt5_ela_pro - ElaSplitter 分隔器", self._demoSplitter
             )
         )
         self._addInfoText(
@@ -198,6 +198,7 @@ class ContainerLayoutPage(ExamplePage):
         layout1 = QVBoxLayout(widget1)
         text1 = ElaText("面板 1", widget1)
         text1.setAlignment(Qt.AlignCenter)
+        text1.setTextPixelSize(14)
         layout1.addWidget(text1)
 
         widget2 = ElaThemeWidget(self)
@@ -205,6 +206,7 @@ class ContainerLayoutPage(ExamplePage):
         layout2 = QVBoxLayout(widget2)
         text2 = ElaText("面板 2", widget2)
         text2.setAlignment(Qt.AlignCenter)
+        text2.setTextPixelSize(14)
         layout2.addWidget(text2)
 
         widget3 = ElaThemeWidget(self)
@@ -212,6 +214,7 @@ class ContainerLayoutPage(ExamplePage):
         layout3 = QVBoxLayout(widget3)
         text3 = ElaText("面板 3", widget3)
         text3.setAlignment(Qt.AlignCenter)
+        text3.setTextPixelSize(14)
         layout3.addWidget(text3)
 
         splitter = create_ela_splitter([widget1, widget2, widget3], Qt.Horizontal)
@@ -225,6 +228,7 @@ class ContainerLayoutPage(ExamplePage):
         l1 = QVBoxLayout(v1)
         t1 = ElaText("面板 A", v1)
         t1.setAlignment(Qt.AlignCenter)
+        t1.setTextPixelSize(14)
         l1.addWidget(t1)
 
         v2 = ElaThemeWidget(self)
@@ -232,6 +236,7 @@ class ContainerLayoutPage(ExamplePage):
         l2 = QVBoxLayout(v2)
         t2 = ElaText("面板 B", v2)
         t2.setAlignment(Qt.AlignCenter)
+        t2.setTextPixelSize(14)
         l2.addWidget(t2)
 
         vsplitter = create_ela_splitter([v1, v2], Qt.Vertical)
@@ -242,7 +247,7 @@ class ContainerLayoutPage(ExamplePage):
     def _demoDivider(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "03. pyqt5_ela_pro - ElaDivider 分割线", self._demoDivider
+                "05. pyqt5_ela_pro - ElaDivider 分割线", self._demoDivider
             )
         )
         self._addInfoText(
@@ -308,7 +313,7 @@ class ContainerLayoutPage(ExamplePage):
     def _demoGroupBox(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "04. pyqt5_ela_pro - ElaGroupBox 分组框", self._demoGroupBox
+                "06. pyqt5_ela_pro - ElaGroupBox 分组框", self._demoGroupBox
             )
         )
         self._addInfoText(
@@ -358,7 +363,7 @@ class ContainerLayoutPage(ExamplePage):
 
         parent_layout.addLayout(
             self._createHeaderRow(
-                "13. PyQt5ElaWidgetTools - ElaFlowLayout 流式布局", self._demoFlowLayout
+                "07. PyQt5ElaWidgetTools - ElaFlowLayout 流式布局", self._demoFlowLayout
             )
         )
         self._addInfoText(
@@ -441,7 +446,7 @@ class ContainerLayoutPage(ExamplePage):
     def _demoElaDrawerArea(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "00. PyQt5ElaWidgetTools - ElaDrawerArea 折叠面板",
+                "02. ela_ext - ElaDrawerArea 折叠面板",
                 self._demoElaDrawerArea,
             )
         )

@@ -13,9 +13,9 @@ from pyqt5_ela_pro.chat import (
 
 
 class TestInlineReasoningStream:
-    def test_end_reasoning_stops_inline_viewer(self, qapp):
+    def test_end_reasoning_stops_inline_viewer(self, qapp, make):
         """内联思考结束后查看器必须退出流式（否则光标永久闪烁）。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.setReasoningStyle(ElaChatReasoningStyle.Inline)
         bubble.beginReasoning()
         bubble.appendReasoning("思考内容")
@@ -26,11 +26,10 @@ class TestInlineReasoningStream:
 
         assert viewer.isStreaming() is False
         assert viewer._caret_timer.isActive() is False
-        bubble.deleteLater()
 
-    def test_end_stream_stops_inline_reasoning(self, qapp):
+    def test_end_stream_stops_inline_reasoning(self, qapp, make):
         """endStream 收尾仍处于流式的内联思考查看器。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.setReasoningStyle(ElaChatReasoningStyle.Inline)
         bubble.beginStream()
         bubble.beginReasoning()
@@ -41,12 +40,11 @@ class TestInlineReasoningStream:
 
         assert viewer.isStreaming() is False
         assert bubble.status() == ElaChatStatus.Done
-        bubble.deleteLater()
 
 
 class TestErrorTearsDownStream:
-    def test_error_stops_text_viewer(self, qapp):
-        chat = ElaChatWidget()
+    def test_error_stops_text_viewer(self, qapp, make):
+        chat = make(ElaChatWidget)
         messageId = chat.beginAssistantMessage()
         chat.chatView().appendText(messageId, "部分回答")
         viewer = chat.chatView().bubble(messageId).markdownViewer()
@@ -59,10 +57,9 @@ class TestErrorTearsDownStream:
         message = chat.chatView().message(messageId)
         assert message.status == ElaChatStatus.Error
         assert all(part.status == ElaChatStatus.Done for part in message.parts)
-        chat.deleteLater()
 
-    def test_error_stops_inline_reasoning_and_text(self, qapp):
-        chat = ElaChatWidget()
+    def test_error_stops_inline_reasoning_and_text(self, qapp, make):
+        chat = make(ElaChatWidget)
         messageId = chat.beginAssistantMessage()
         view = chat.chatView()
         view.setReasoningStyle(ElaChatReasoningStyle.Inline)
@@ -80,10 +77,9 @@ class TestErrorTearsDownStream:
         message = chat.chatView().message(messageId)
         assert message.status == ElaChatStatus.Error
         assert all(part.status == ElaChatStatus.Done for part in message.parts)
-        chat.deleteLater()
 
-    def test_view_error_syncs_part_status(self, qapp):
-        view = ElaChatView()
+    def test_view_error_syncs_part_status(self, qapp, make):
+        view = make(ElaChatView)
         messageId = view.beginMessage(ElaChatRole.Assistant)
         view.appendText(messageId, "part")
 
@@ -92,13 +88,12 @@ class TestErrorTearsDownStream:
         message = view.message(messageId)
         assert message.error == "boom"
         assert all(part.status == ElaChatStatus.Done for part in message.parts)
-        view.deleteLater()
 
 
 class TestToolGroupFinish:
-    def test_context_only_turn_finishes_group(self, qapp):
+    def test_context_only_turn_finishes_group(self, qapp, make):
         """仅上下文工具的回合在 endStream 时分组卡应收为「已探索」。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginStream()
         callId = bubble.addToolCall("read", '{"path": "a.py"}')
         bubble.setToolCallResult(callId, "内容")
@@ -110,12 +105,11 @@ class TestToolGroupFinish:
 
         assert group.title() == "已探索"
         assert group.isBusy() is False
-        bubble.deleteLater()
 
 
 class TestSnapshotConsistency:
-    def test_end_message_syncs_part_status(self, qapp):
-        view = ElaChatView()
+    def test_end_message_syncs_part_status(self, qapp, make):
+        view = make(ElaChatView)
         messageId = view.beginMessage(ElaChatRole.Assistant)
         view.appendText(messageId, "hello")
 
@@ -125,4 +119,3 @@ class TestSnapshotConsistency:
         assert parts
         assert all(part.status == ElaChatStatus.Done for part in parts)
         assert view.message(messageId).status == ElaChatStatus.Done
-        view.deleteLater()

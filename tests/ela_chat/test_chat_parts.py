@@ -85,8 +85,8 @@ class TestStreamBuffers:
     「当前可见全文」由 ``bubble.text()`` / ``partText()`` 给出。
     """
 
-    def test_in_flight_text_not_written_back_to_part(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_in_flight_text_not_written_back_to_part(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginStream()
         bubble.beginText()
         bubble.appendText("第一段")
@@ -100,11 +100,10 @@ class TestStreamBuffers:
         bubble.endStream()
         assert bubble.parts()[0].text == "第一段续"
         assert bubble.text() == "第一段续"
-        bubble.deleteLater()
 
-    def test_parts_read_is_idempotent(self, qapp):
+    def test_parts_read_is_idempotent(self, qapp, make):
         """读一次与读一百次结果相同 —— 快照可安全重复落库。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginStream()
         bubble.beginText()
         bubble.appendText("x")
@@ -113,19 +112,17 @@ class TestStreamBuffers:
             assert [(p.id, p.status, p.text) for p in bubble.parts()] == first
         assert bubble.parts()[0].text == "", "重复读把在途分片物化进了 part.text"
         bubble.endStream()
-        bubble.deleteLater()
 
-    def test_set_text_discards_pending_buffer(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_set_text_discards_pending_buffer(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginStream()
         bubble.appendText("旧")
         bubble.setText("新")
         assert bubble.text() == "新"
         assert bubble.parts()[0].text == "新"
-        bubble.deleteLater()
 
-    def test_multiple_text_parts_settle_independently(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_multiple_text_parts_settle_independently(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginStream()
         bubble.beginText()
         bubble.appendText("A")
@@ -143,10 +140,9 @@ class TestStreamBuffers:
             part.text for part in bubble.parts() if part.kind == ElaChatPartKind.Text
         ]
         assert texts == ["A", "B"]
-        bubble.deleteLater()
 
-    def test_reasoning_not_written_back_until_end(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_reasoning_not_written_back_until_end(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginStream()
         bubble.beginReasoning()
         bubble.appendReasoning("思考")
@@ -167,22 +163,20 @@ class TestStreamBuffers:
         ]
         assert reasons == ["思考续"], "endReasoning 未把缓冲落定进 part.text"
         assert bubble.reasoning() == "思考续"
-        bubble.deleteLater()
 
-    def test_reasoning_block_flushes_on_read_and_end(self, qapp):
-        block = ReasoningBlock()
+    def test_reasoning_block_flushes_on_read_and_end(self, qapp, make):
+        block = make(ReasoningBlock)
         for chunk in ("a", "b", "c"):
             block.appendText(chunk)
         assert block.text() == "abc"
         block.appendText("d")
         block.end(500)
         assert "abcd" in block.label().text()
-        block.deleteLater()
 
 
 class TestBubbleParts:
-    def test_step_timeline_order_and_kinds(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_step_timeline_order_and_kinds(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginReasoning()
         bubble.appendReasoning("分析")
         bubble.endReasoning(900)
@@ -205,8 +199,8 @@ class TestBubbleParts:
         assert bubble.text() == "回答"
         assert bubble.stats() is stats
 
-    def test_multiple_text_parts_keep_viewers(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_multiple_text_parts_keep_viewers(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginText()
         bubble.appendText("第一段")
         bubble.beginText()
@@ -216,8 +210,8 @@ class TestBubbleParts:
         assert bubble.text() == "第一段第二段"
         assert len(bubble.textViewers()) == 2
 
-    def test_end_text_then_viewer_reuses_last_part(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_end_text_then_viewer_reuses_last_part(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginStream()
         bubble.appendText("内容")
         bubble.endStream()
@@ -225,8 +219,8 @@ class TestBubbleParts:
         texts = [part for part in bubble.parts() if part.kind == ElaChatPartKind.Text]
         assert len(texts) == 1
 
-    def test_set_text_replaces_last_part(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_set_text_replaces_last_part(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginText()
         bubble.appendText("旧内容")
         bubble.endText()
@@ -235,8 +229,8 @@ class TestBubbleParts:
         assert len(texts) == 1
         assert bubble.text() == "新内容"
 
-    def test_step_tool_panels_isolated_counts(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_step_tool_panels_isolated_counts(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         first = bubble.addToolCall("read", '{"path": "a"}')
         assert bubble.toolPanel().counts() == (0, 1)
         bubble.setToolCallResult(first, "ok")
@@ -255,9 +249,9 @@ class TestBubbleParts:
         assert panels[1].title() == "工具调用 (1)"
         assert panels[0].counts() == (1, 1)
 
-    def test_duplicate_tool_call_id_updates_not_appends(self, qapp):
+    def test_duplicate_tool_call_id_updates_not_appends(self, qapp, make):
         """同一调用 id 重复上报（参数分片）只更新参数，不追加重复分段。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         callId = bubble.addToolCall("read", '{"path": "a"}', toolCallId="dup")
         again = bubble.addToolCall("read", '{"path": "b"}', toolCallId="dup")
 
@@ -266,19 +260,18 @@ class TestBubbleParts:
         calls = bubble.toolCalls()
         assert len(calls) == 1
         assert "b" in calls[0].arguments
-        bubble.deleteLater()
 
-    def test_begin_step_empty_noop(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_begin_step_empty_noop(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         assert bubble.beginStep() == 1
         bubble.beginText()
         bubble.appendText("x")
         assert bubble.beginStep() == 2
         assert bubble.stepIndex() == 2
 
-    def test_step_stats_footer_merges_by_default(self, qapp):
+    def test_step_stats_footer_merges_by_default(self, qapp, make):
         """默认 footer 模式：原始分步保留，界面只显示最后一个徽标且为汇总。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         first = ElaChatStats(prompt_tokens=1, completion_tokens=2, total_tokens=3)
         second = ElaChatStats(prompt_tokens=4, completion_tokens=5, total_tokens=9)
         bubble.setStepStats(first)
@@ -313,9 +306,9 @@ class TestBubbleParts:
         assert bubble.statsBadge() is badges[0]
         assert badges[0].isHidden() is False
 
-    def test_stats_mode_steps_shows_each_step(self, qapp):
+    def test_stats_mode_steps_shows_each_step(self, qapp, make):
         """steps 模式恢复每步各自显示（服务端原值，不汇总）。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.setStatsMode("steps")
         bubble.setStepStats(ElaChatStats(total_tokens=1))
         bubble.beginStep()
@@ -336,9 +329,9 @@ class TestBubbleParts:
         assert badges[0].isHidden() is True
         assert badges[1].stats().total_tokens == 3
 
-    def test_stats_mode_none_hides_and_falls_back_duration(self, qapp):
+    def test_stats_mode_none_hides_and_falls_back_duration(self, qapp, make):
         """none 模式不显示徽标，端到端耗时回退到底部 meta。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.setStatsMode("none")
         bubble.setStepStats(ElaChatStats(total_tokens=5))
         part = next(p for p in bubble.parts() if p.kind == ElaChatPartKind.Stats)
@@ -353,9 +346,10 @@ class TestBubbleParts:
         assert bubble.statsBadge() is badge
         assert bubble.meta().duration() == 0.0
 
-    def test_step_stats_inline_moves_to_step_end(self, qapp):
-        """统计先到、工具后到时，内容区徽标移到步骤末尾。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_step_stats_inline_moves_to_step_end(self, qapp, make):
+        """统计先到、工具后到时，内容区徽标移到步骤末尾（流式进行中）。"""
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble.beginStream()
         bubble.setStepStats(ElaChatStats(total_tokens=10))
         part = next(p for p in bubble.parts() if p.kind == ElaChatPartKind.Stats)
         badge = bubble._part_widgets[part.id]
@@ -366,9 +360,9 @@ class TestBubbleParts:
         assert bubble.statsBadge() is badge
         assert badge.stats().total_tokens == 10
 
-    def test_end_stream_docks_last_stats_to_footer(self, qapp):
+    def test_end_stream_docks_last_stats_to_footer(self, qapp, make):
         """steps 模式下回合结束时最后一步停靠底部，中间步骤仍在各自步骤末尾。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.setStatsMode("steps")
         bubble.beginStream()
         bubble.beginText()
@@ -389,9 +383,9 @@ class TestBubbleParts:
         assert docked_badge.stats().total_tokens == 6
         assert inline_badge.stats().total_tokens == 5
 
-    def test_end_stream_docks_merged_badge_to_footer(self, qapp):
+    def test_end_stream_docks_merged_badge_to_footer(self, qapp, make):
         """footer 模式回合结束后只有一个底部徽标，数值为整轮汇总。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginStream()
         bubble.beginText()
         bubble.appendText("答案")
@@ -412,9 +406,26 @@ class TestBubbleParts:
         ]
         assert hideable[0].isHidden() is True
 
-    def test_end_to_end_duration_in_badge_tooltip(self, qapp):
+    def test_begin_text_after_end_stream_keeps_badge_docked(self, qapp, make):
+        """回合结束后再追加正文，不把已停靠底部行的整轮徽标拽回时间线。"""
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble.beginStream()
+        bubble.beginText()
+        bubble.appendText("答案")
+        bubble.setStepStats(ElaChatStats(total_tokens=3))
+        bubble.endStream()
+        badge = bubble.statsBadge()
+        assert badge.parentWidget() is bubble._stats_host
+
+        bubble.beginText()
+        bubble.appendText("追加")
+        bubble.endText()
+
+        assert badge.parentWidget() is bubble._stats_host
+
+    def test_end_to_end_duration_in_badge_tooltip(self, qapp, make):
         """端到端耗时并入用量行 tooltip（与首字相邻），不再显示可见文本。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginStream()
         bubble.beginText()
         bubble.appendText("答案")
@@ -433,16 +444,16 @@ class TestBubbleParts:
         assert bubble.meta().duration() == 0.0
         assert bubble.meta().isHidden()
 
-    def test_duration_falls_back_to_meta_without_badge(self, qapp):
+    def test_duration_falls_back_to_meta_without_badge(self, qapp, make):
         """没有用量徽标时，端到端耗时仍显示在底部 meta。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.setDuration(12300)
         assert bubble.meta().duration() == 12300.0
         assert "耗时 12.3s" in bubble.meta()._label.text()
 
-    def test_reasoning_resumes_in_same_step(self, qapp):
+    def test_reasoning_resumes_in_same_step(self, qapp, make):
         """同一步骤内正文后又来思考：回到原思考块，不插到正文后面。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginReasoning()
         bubble.appendReasoning("第一段")
         bubble.endReasoning(100)
@@ -460,9 +471,9 @@ class TestBubbleParts:
         assert bubble.parts()[0].duration_ms == 300.0
         assert "第二段" in bubble.reasoningBlock().text()
 
-    def test_reasoning_after_step_starts_new_block(self, qapp):
+    def test_reasoning_after_step_starts_new_block(self, qapp, make):
         """换步骤后重新开始思考，创建新的思考块。"""
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         bubble.beginReasoning()
         bubble.appendReasoning("第一步")
         bubble.endReasoning(100)
@@ -477,8 +488,8 @@ class TestBubbleParts:
         assert len(reasons) == 2
         assert [part.step for part in reasons] == [1, 2]
 
-    def test_tool_lists_across_steps(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.Assistant)
+    def test_tool_lists_across_steps(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
         first = bubble.addToolCall("read", '{"path": "a"}')
         bubble.beginStep()
         second = bubble.addToolCall("shell", '{"command": "ls"}')
@@ -490,8 +501,8 @@ class TestBubbleParts:
         assert bubble.toolPanels() == []
         assert bubble.toolPanel() is None
 
-    def test_user_bubble_has_no_parts(self, qapp):
-        bubble = ElaChatBubble(ElaChatRole.User, "hi")
+    def test_user_bubble_has_no_parts(self, qapp, make):
+        bubble = make(ElaChatBubble, ElaChatRole.User, "hi")
         assert bubble.parts() == ()
         assert bubble.beginText() is None
         assert bubble.addToolCall("read") == ""
@@ -499,8 +510,8 @@ class TestBubbleParts:
 
 
 class TestViewParts:
-    def test_snapshot_parts_derived(self, qapp):
-        view = ElaChatView()
+    def test_snapshot_parts_derived(self, qapp, make):
+        view = make(ElaChatView)
         messageId = view.beginMessage(ElaChatRole.Assistant)
         view.beginReasoning(messageId)
         view.appendReasoning(messageId, "想")
@@ -526,10 +537,9 @@ class TestViewParts:
         assert len(message.tool_calls) == 1
         assert message.stats is stats
         assert message.stepCount == 2
-        view.deleteLater()
 
-    def test_initial_assistant_text_creates_part(self, qapp):
-        view = ElaChatView()
+    def test_initial_assistant_text_creates_part(self, qapp, make):
+        view = make(ElaChatView)
         messageId = view.addMessage(ElaChatRole.Assistant, "**hi**")
         message = view.message(messageId)
         assert len(message.parts) == 1
@@ -538,10 +548,9 @@ class TestViewParts:
         view.updateMessage(messageId, "**bye**")
         assert view.message(messageId).text == "**bye**"
         assert len(view.message(messageId).parts) == 1
-        view.deleteLater()
 
-    def test_compat_aliases(self, qapp):
-        view = ElaChatView()
+    def test_compat_aliases(self, qapp, make):
+        view = make(ElaChatView)
         messageId = view.beginMessage(ElaChatRole.Assistant)
         view.appendText(messageId, "a")
         view.setStepStats(messageId, ElaChatStats(total_tokens=1))
@@ -551,20 +560,18 @@ class TestViewParts:
         assert view.message(messageId).stats.total_tokens == 1
         view.endMessage(messageId)
         assert view.message(messageId).text == "a"
-        view.deleteLater()
 
-    def test_reasoning_style_applies_to_existing_and_future(self, qapp):
-        view = ElaChatView()
+    def test_reasoning_style_applies_to_existing_and_future(self, qapp, make):
+        view = make(ElaChatView)
         first = view.addMessage(ElaChatRole.Assistant, "hi")
         view.setReasoningStyle(ElaChatReasoningStyle.Inline)
         second = view.addMessage(ElaChatRole.Assistant, "hey")
         assert view.bubble(first).reasoningStyle() == ElaChatReasoningStyle.Inline
         assert view.bubble(second).reasoningStyle() == ElaChatReasoningStyle.Inline
-        view.deleteLater()
 
-    def test_snapshot_stats_merges_steps(self, qapp):
+    def test_snapshot_stats_merges_steps(self, qapp, make):
         """快照 stats 为整轮汇总，parts 中保留每步原始数字。"""
-        view = ElaChatView()
+        view = make(ElaChatView)
         messageId = view.beginMessage(ElaChatRole.Assistant)
         view.appendText(messageId, "答")
         view.setStepStats(
@@ -588,10 +595,9 @@ class TestViewParts:
             (1, 3),
             (4, 9),
         ]
-        view.deleteLater()
 
-    def test_stats_mode_applies_to_existing_and_future(self, qapp):
-        view = ElaChatView()
+    def test_stats_mode_applies_to_existing_and_future(self, qapp, make):
+        view = make(ElaChatView)
         first = view.addMessage(ElaChatRole.Assistant, "hi")
         view.setStepStats(first, ElaChatStats(total_tokens=1))
         assert view.bubble(first).statsMode() == "footer"
@@ -605,12 +611,11 @@ class TestViewParts:
         view.setStatsMode("bogus")
         assert view.statsMode() == "footer"
         assert view.bubble(second).statsMode() == "footer"
-        view.deleteLater()
 
 
 class TestWidgetSteps:
-    def test_step_passthrough(self, qapp):
-        chat = ElaChatWidget()
+    def test_step_passthrough(self, qapp, make):
+        chat = make(ElaChatWidget)
         messageId = chat.beginAssistantMessage()
         assert chat.chatView().beginStep(messageId) == 1
         chat.chatView().beginText(messageId)
@@ -626,13 +631,11 @@ class TestWidgetSteps:
         assert message.stats.total_tokens == 2
         assert chat.stepCount(messageId) == 2
         assert chat.toolPanels(messageId) == []
-        chat.deleteLater()
 
-    def test_stats_mode_passthrough(self, qapp):
-        chat = ElaChatWidget()
+    def test_stats_mode_passthrough(self, qapp, make):
+        chat = make(ElaChatWidget)
         assert chat.chatView().statsMode() == "footer"
         chat.chatView().setStatsMode("none")
         assert chat.chatView().statsMode() == "none"
         messageId = chat.beginAssistantMessage()
         assert chat.chatView().bubble(messageId).statsMode() == "none"
-        chat.deleteLater()

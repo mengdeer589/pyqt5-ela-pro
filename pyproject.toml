@@ -41,9 +41,16 @@ all = [
     "tsdownsample>=0.1.5.1",
     "mermaidx>=0.9; python_version >= '3.10'",
     "orjson>=3.9",
+    "polars>=1.0",
 ]
 orjson = [
     "orjson>=3.9",
+]
+# ElaParquetTable 从顶层 __init__ 导出，所以「装了包却拿到一个必然抛
+# ImportError 的公开类」是可达的。charts 系列的 polars / numpy /
+# tsdownsample 走的就是 optional-dependencies 这条路，这里补齐同一套约定。
+parquet = [
+    "polars>=1.0",
 ]
 dev = [
     "pytest>=7.0.0",
@@ -68,9 +75,6 @@ pyqt5_ela_pro = ["icons/*.svg", "icons/*.png", "icons/*.ico", "icons/packages/*.
 
 [tool.uv]
 required-environments="sys_platform == 'win32' and platform_machine == 'AMD64'"
-
-[tool.uv.sources]
-pyqt5-elawidgettools = { path = "../../python_win7/PyElaWidgetTools/scripts/wheel/dist/PyQt5_ElaWidgetTools-0.11.1-cp37-abi3-win_amd64.whl" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

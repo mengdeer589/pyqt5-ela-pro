@@ -13,7 +13,7 @@
   ``sendQueuedNow()`` / ``editQueuedMessage()`` / ``dequeueMessage()`` /
   ``clearQueue()`` / ``setQueueEnabled()``；
 - 消息搬运：``addMessage()``（工厂）/ ``removeMessage()`` / ``undoMessage()`` /
-  ``regenerateFrom()``；
+  ``undoLastUserMessage()`` / ``regenerateFrom()``；
 - 输入区与 dock：``chatInput()`` / ``toolBar()`` / ``inputDock()`` /
   ``setDockWidget()`` / ``clearDock()`` / ``queueDock()`` /
   ``setPlaceholderText()`` / ``setUserName()`` / ``setAssistantName()`` /
@@ -51,6 +51,7 @@ from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
+from .._ownership import WidgetOwnership
 from ..ela_confirm_dialog import ElaConfirmDialog
 from ..widget_base import ElaThemeWidget
 from .blocks import MessageActions
@@ -258,9 +259,21 @@ class ElaChatWidget(ElaThemeWidget):
         """获取排队消息 dock。"""
         return self._queue_dock
 
-    def setDockWidget(self, widget: Optional[QWidget], replace: bool = True) -> None:
-        """在输入区上方显示 dock 内容（``replace=True`` 时输入区不可用）。"""
-        self._input_dock.setWidget(widget, replace=replace)
+    def setDockWidget(
+        self,
+        widget: Optional[QWidget],
+        replace: bool = True,
+        *,
+        ownership=WidgetOwnership.Borrowed,
+    ) -> bool:
+        """在输入区上方显示 dock 内容（``replace=True`` 时输入区不可用）。
+
+        :param ownership: 释放策略，默认 ``Borrowed`` —— ``clearDock()`` 只把控件
+            ``setParent(None)`` 交还调用方，**不删除**。要让本组件负责销毁请传
+            :attr:`~pyqt5_ela_pro.WidgetOwnership.Owned`。
+        :returns: 是否挂载成功。
+        """
+        return self._input_dock.setWidget(widget, replace=replace, ownership=ownership)
 
     def clearDock(self) -> None:
         """清空**输入区替换 dock**（宿主自用的 :meth:`setDockWidget` 那一套）。
@@ -306,19 +319,22 @@ class ElaChatWidget(ElaThemeWidget):
         if self._permission_dock_part != str(partId):
             return
         self._permission_dock_part = ""
-        self._promote_next_permission(int(messageId))
+        self._promote_next_permission()
 
-    def _promote_next_permission(self, afterMessageId: int = 0) -> None:
-        """把最早那张还没答的审批放进 dock（没有就清空 dock）。"""
+    def _promote_next_permission(self) -> None:
+        """把最早那张还没答的审批放进 dock（没有就清空 dock）。
+
+        **全时间线取最早**：审批卡被 :meth:`clearPermissionDock` 撤下后 part 仍是
+        pending，按「已落定消息之后」过滤会让它永远回不到 dock。卡缺失 / 已销毁时
+        由气泡按 pending 载荷重建（见 ``ensureInteractivePermissionCard``）。
+        """
         pending = []
         for message in self._view.messages():
-            if message.id < afterMessageId:
-                continue
             bubble = self._view.bubble(message.id)
             if bubble is None:
                 continue
-            for partId, permission in bubble.pendingPermissionParts():
-                card = bubble.interactivePermissionCard(partId)
+            for partId, _permission in bubble.pendingPermissionParts():
+                card = bubble.ensureInteractivePermissionCard(partId)
                 if card is not None:
                     pending.append((partId, card))
         if not pending:
@@ -879,12 +895,17 @@ class ElaChatWidget(ElaThemeWidget):
     def undoMessage(self, messageId: int) -> Optional[ElaChatMessage]:
         """撤回消息：删除该条及其后全部消息，并把原文 / 附件回填输入框。
 
-        :param messageId: 被撤回的消息 id（通常为触发撤回按钮的消息）
-        :returns: 被撤回的目标消息快照（不存在返回 ``None``）；
+        **只对用户消息生效**（撤回 = 收回自己发的那条）：目标不是用户消息
+        （助手回答 / 系统消息）或不存在时返回 ``None`` 且不做任何改动 ——
+        否则会把 AI 的回复删掉、再把它的文本回填进输入框。要删回答用
+        ``chatView().removeMessage(id)``，重发回答用 :meth:`regenerateFrom`。
+
+        :param messageId: 被撤回的**用户**消息 id（通常为触发撤回按钮的消息）
+        :returns: 被撤回的目标消息快照（不存在 / 非用户消息返回 ``None``）；
             宿主可据此中止后端流并回滚自身会话历史
         """
         target = self._view.message(messageId)
-        if target is None:
+        if target is None or not target.isUser:
             return None
         if self._streaming_id is not None and self._streaming_id >= messageId:
             self._streaming_id = None
@@ -893,6 +914,25 @@ class ElaChatWidget(ElaThemeWidget):
         self._input.setText(target.text)
         self._input.setAttachments(target.attachments)
         return target
+
+    def undoLastUserMessage(self) -> Optional[ElaChatMessage]:
+        """撤回**最后一条用户消息**：删除该条及其后全部消息，并把原文 / 附件
+        回填输入框。
+
+        这是「撤回最后一条消息」的正确入口：自己从时间线末尾往前找最近一条
+        用户消息（跳过其后的助手回答 / 系统消息）。直接对 ``messages()[-1]``
+        （多半是助手回答）调 :meth:`undoMessage` 会被拒绝（返回 ``None``），
+        而不是删掉 AI 的回复。
+
+        :returns: 被撤回的用户消息快照；没有用户消息时返回 ``None`` 且不做改动
+        """
+        target = None
+        for message in self._view.messages():
+            if message.isUser:
+                target = message
+        if target is None:
+            return None
+        return self.undoMessage(target.id)
 
     def regenerateFrom(self, messageId: int) -> Optional[ElaChatMessage]:
         """重新生成准备：删除该回答及其后消息，返回其之前的用户消息。

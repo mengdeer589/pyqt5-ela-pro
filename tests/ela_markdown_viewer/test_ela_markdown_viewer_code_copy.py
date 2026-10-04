@@ -167,7 +167,7 @@ class TestCopyButtons:
             ),
         )
 
-    def test_click_copies_and_emits(self, qapp):
+    def test_click_copies_and_emits(self, qapp, requires_clipboard):
         v = self._prepare(qapp, "```python\nx = 1\ny = 2\n```")
         received = []
         v.codeCopied.connect(received.append)
@@ -179,7 +179,7 @@ class TestCopyButtons:
         v.close()
         v.deleteLater()
 
-    def test_button_click_triggers_copy(self, qapp):
+    def test_button_click_triggers_copy(self, qapp, requires_clipboard):
         v = self._prepare(qapp, "```python\nx = 1\n```")
         received = []
         v.codeCopied.connect(received.append)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from PyQt5.QtCore import QPropertyAnimation
 
+from pyqt5_ela_pro._motion import Duration
 from pyqt5_ela_pro.combo_box import ElaSearchBox
 from pyqt5_ela_pro.ela_tag_search_box import ElaTagSearchBox
 
@@ -43,8 +44,8 @@ class TestElaTagSearchBoxAnimations:
         assert hasattr(box, attr)
         assert isinstance(getattr(box, attr), QPropertyAnimation)
 
-    def test_mark_animation_duration_is_300ms(self, box):
-        assert box._mark_animation.duration() == 300
+    def test_mark_animation_duration_uses_normal_token(self, box, motion_full):
+        assert box._mark_animation.duration() == Duration.Normal
 
 
 class TestElaTagSearchBoxExpandProperties:

@@ -65,7 +65,7 @@ class ProgressFeedbackPage(ExamplePage):
     def _demoLCDNumber(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "08. PyQt5ElaWidgetTools - ElaLCDNumber LCD数字显示",
+                "01. PyQt5ElaWidgetTools - ElaLCDNumber LCD数字显示",
                 self._demoLCDNumber,
             )
         )
@@ -86,7 +86,7 @@ class ProgressFeedbackPage(ExamplePage):
     def _demoMessageButton(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "08. PyQt5ElaWidgetTools - ElaMessageButton 消息按钮",
+                "02. PyQt5ElaWidgetTools - ElaMessageButton 消息按钮",
                 self._demoMessageButton,
             )
         )
@@ -413,7 +413,8 @@ class ProgressFeedbackPage(ExamplePage):
             )
         )
         self._addInfoText(
-            "16 种颜色（同 ElaButton 色系）+ 可关闭 / 可选择",
+            "16 种颜色（同 ElaButton 色系）+ 可关闭 / 可选择 / 胶囊 / 前置图标；"
+            "彩字按 WCAG 对比度 ≥4.5 派生，深浅主题下都清晰",
             parent_layout,
         )
         parent_layout.addSpacing(10)
@@ -466,6 +467,29 @@ class ProgressFeedbackPage(ExamplePage):
             chip.setCheckable(True)
             chip.setChecked(True)
             row.addWidget(chip)
+        row.addStretch()
+        parent_layout.addLayout(row)
+        parent_layout.addSpacing(8)
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        pill = ElaChip("胶囊", parent=self)
+        pill.setColor(ElaChip.Color.Primary)
+        pill.setPill(True)
+        row.addWidget(pill)
+        closable_pill = ElaChip("可关闭胶囊", parent=self)
+        closable_pill.setColor(ElaChip.Color.Blue)
+        closable_pill.setPill(True)
+        closable_pill.setClosable(True)
+        row.addWidget(closable_pill)
+        tag_chip = ElaChip("带前置图标", parent=self)
+        tag_chip.setColor(ElaChip.Color.Green)
+        tag_chip.setLeadingIcon(ElaIconType.IconName.Tag)
+        row.addWidget(tag_chip)
+        attach_chip = ElaChip("附件", parent=self)
+        attach_chip.setColor(ElaChip.Color.Gold)
+        attach_chip.setLeadingIcon(ElaIconType.IconName.Paperclip)
+        row.addWidget(attach_chip)
         row.addStretch()
         parent_layout.addLayout(row)
         parent_layout.addSpacing(20)

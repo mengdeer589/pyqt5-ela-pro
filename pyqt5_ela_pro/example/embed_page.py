@@ -29,7 +29,7 @@ from PyQt5ElaWidgetTools import (
     ElaThemeType,
     eTheme,
 )
-from pyqt5_ela_pro import ElaBrowserEmbedder, ElaWindowEmbedder
+from pyqt5_ela_pro import ElaBrowserEmbedder, ElaButton, ElaWindowEmbedder
 from pyqt5_ela_pro._styles import ColorText, setPlainFrame
 from pyqt5_ela_pro.window_embedder import win32gui as _win32gui
 from .base_page import ExamplePage
@@ -247,6 +247,9 @@ class EmbedPage(ExamplePage):
             self._browser_available = False
         # 缺 pywin32 时整套控件都不建，``_showStatus`` 会摸到它 —— 先置 None 并判空
         self._infoText = None
+        # 浏览器嵌入控件延后到 _addDemoContent 里建：ElaBrowserEmbedder 的构造在
+        # 依赖不全时会抛 ImportError，而示例页是被主窗口逐个构造的
+        self._browser = None
         super().__init__(parent)
 
     def _addDemoContent(self, main_layout):
@@ -483,23 +486,92 @@ class EmbedPage(ExamplePage):
             )
         )
         self._addInfoText(
-            "嵌入浏览器窗口，支持 CDP 控制。继承自 ElaWindowEmbedder，额外依赖 psutil 和 websocket-client。",
-            parent_layout,
-        )
-        self._addInfoText(
-            "提示: 请通过 'from pyqt5_ela_pro import ElaBrowserEmbedder' 导入",
+            "嵌入浏览器窗口，支持 CDP 控制。继承自 ElaWindowEmbedder，"
+            "额外依赖 psutil 和 websocket-client。点「启动浏览器」会真的拉起一个"
+            "Chrome 应用窗口并嵌进下面的框里；点「释放」会收掉浏览器进程。",
             parent_layout,
         )
 
-        info_text = (
-            "ElaBrowserEmbedder 功能:\n"
-            "  - 基于 Chrome DevTools Protocol (CDP) 控制浏览器\n"
-            "  - 支持页面加载监控 (loadStarted / loadFinished 信号)\n"
-            "  - 支持 JavaScript 执行 (runJS)\n"
-            "  - 支持页面导航 (navigate / reload)\n"
-            "  - 自动管理浏览器进程生命周期"
+        # 构造与信号接线**就地写在本方法体内**：每节标题的「</> 代码」按钮展示的
+        # 就是本方法的源码，拆进 _newBrowserEmbedder 等于把读者要学的东西藏起来。
+        # 降级分支只跳过「真的实例化」，代码本身照样完整 —— 依赖没装时读者看到的
+        # 仍然是「怎么用」，而不是一段功能罗列。
+        mode = eTheme.getThemeMode()
+        container = QFrame(self)
+        container.setFrameShape(QFrame.Shape.NoFrame)
+        setPlainFrame(
+            container,
+            eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBase),
+            eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBorder),
         )
-        self._addInfoText(info_text, parent_layout)
+        container.setFixedHeight(300)
+        parent_layout.addWidget(container)
+        container_layout = QHBoxLayout(container)
+
+        if not self._browser_available:
+            hint = ElaText(
+                "未检测到 ElaBrowserEmbedder 的可选依赖（pywin32 / psutil / "
+                "websocket-client），已跳过控件创建。\n"
+                "安装后即可运行：uv pip install pywin32 psutil websocket-client",
+                self,
+            )
+            hint.setTextPixelSize(14)
+            container_layout.addWidget(hint)
+            parent_layout.addSpacing(20)
+            return
+
+        self._browser = ElaBrowserEmbedder(container)
+        # 信号全部转成一行状态文字 —— 嵌入器本身是外部输入面（CDP），调试时能
+        # 看见事件流比什么都重要。注意错误信号有**三个**且各司其职：``embedError``
+        # 是嵌入阶段出错、``pageError`` 是页面里的 JS 异常、``consoleMessage`` 是
+        # 控制台输出，只接一个会漏。``embedCompleted`` 尤其要接：**浏览器起不来时
+        # 只发信号不抛异常**，不接就表现为「点了没反应」。
+        self._browser.loadStarted.connect(lambda: self._showStatus("loadStarted"))
+        self._browser.loadFinished.connect(lambda: self._showStatus("loadFinished"))
+        self._browser.domContentReady.connect(
+            lambda: self._showStatus("domContentReady")
+        )
+        self._browser.consoleMessage.connect(
+            lambda level, text: self._showStatus(f"console[{level}] {text[:60]}")
+        )
+        self._browser.pageError.connect(
+            lambda url, msg: self._showStatus(f"pageError {url}: {msg[:60]}")
+        )
+        self._browser.embedCompleted.connect(
+            lambda ok: self._showStatus(f"embedCompleted({ok})")
+        )
+        self._browser.embedError.connect(self._onEmbedError)
+        self._browser.embedTimeout.connect(self._onEmbedTimeout)
+        container_layout.addWidget(self._browser)
+
+        info = ColorText("浏览器嵌入区域", container)
+        info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        info.setTextPixelSize(13)
+        info.setTextColor(
+            eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextCategory)
+        )
+        info.setFixedSize(350, 30)
+
+        row = QWidget(self)
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(10)
+        launch_btn = ElaButton("启动浏览器", variant="solid", size="small", parent=row)
+        launch_btn.clicked.connect(
+            lambda: self._browser.load_url("https://example.com")
+        )
+        row_layout.addWidget(launch_btn)
+        reload_btn = ElaButton("刷新", variant="outlined", size="small", parent=row)
+        reload_btn.clicked.connect(lambda: self._browser.reload())
+        row_layout.addWidget(reload_btn)
+        back_btn = ElaButton("后退", variant="text", size="small", parent=row)
+        back_btn.clicked.connect(lambda: self._browser.runJS("history.back()"))
+        row_layout.addWidget(back_btn)
+        release_btn = ElaButton("释放", variant="text", size="small", parent=row)
+        release_btn.clicked.connect(lambda: self._browser.release())
+        row_layout.addWidget(release_btn)
+        row_layout.addStretch(1)
+        parent_layout.addWidget(row)
         parent_layout.addSpacing(20)
 
     def _demoAllUrls(self, main_layout):

@@ -215,7 +215,7 @@ class ChatPersistPage(ExamplePage):
 
         - **记录与重放共用一条路径**：``_push`` 记下事件的同时就 ``_apply`` 它，
           所以 ``message()`` 随时能给出「已收到的部分」，而不是等回合结束；
-        - 浮点在**记录端**洗掉（``_float``）—— 事后清洗��来不及，
+        - 浮点在**记录端**洗掉（``_float``）—— 事后清洗就来不及，
           ``NaN`` / ``inf`` 会破坏 ``allow_nan=False`` 的 JSON 输出；
         - ``loadsLine`` 对截断 / 非法 JSON 返回 ``None``，``fromLines`` 跳过
           未知事件、``settleOpen=True`` 结算残留（未完成工具 → ``Aborted``，
@@ -224,6 +224,12 @@ class ChatPersistPage(ExamplePage):
         失败工具的 ``part.status`` 保持 ``Done``，失败只由
         ``tool_call.status`` 承载 —— journal 必须照抄这条。
         """
+        journal = ElaChatTurnJournal(messageId=self._chat.beginAssistantMessage())
+        journal.text("增量分片")
+        journal.end("done")
+        lines = journal.dumps().splitlines()  # 一行一条，可直接落盘
+        recovered = ElaChatTurnJournal.fromLines(lines)
+        return recovered.message()
 
     def _on_replay(self):
         if self._journal is None:
@@ -320,6 +326,10 @@ class ChatPersistPage(ExamplePage):
         ``stats``）**不信存储值**，一律由 ``withParts()`` 重算 —— 否则版本升级
         改了派生规则，旧数据会显示成旧格式。
         """
+        view = self._chat.chatView()
+        bundle = view.exportSession(ElaChatSessionInfo(id="s1", title="话题"))
+        view.importSession(bundle)  # clear=True：先清空，再按原 id 恢复
+        view.restoreMessages(bundle["messages"], preserveIds=True)
 
     def _on_export(self):
         view = self._chat.chatView()
@@ -400,6 +410,14 @@ class ChatPersistPage(ExamplePage):
            挂起时 ``bubble.markdownViewer()`` 返回 ``None``，数据要用
            ``message()`` 的快照读。
         """
+        view = self._chat.chatView()
+        view.setResizeReflowDeferred(True, minMessages=50, delayMs=120)
+        view.beginBatch()
+        rows = [message.toDict() for message in view.messages()]
+        for row in rows:
+            view.addMessageFromDict(row)
+        view.endBatch()
+        view.setViewportSuspension(True)
 
     def _on_load_30(self):
         view = self._chat.chatView()
@@ -414,7 +432,7 @@ class ChatPersistPage(ExamplePage):
         view.setResizeReflowDeferred(target)
         self._say(
             "perf",
-            f"setResizeReflowDeferred({target}) —— **默认就是开**"
+            f"setResizeReflowDeferred({target}) —— 默认就是开"
             "（交互 resize 延迟重排，阈值 50 条 / 延迟 120ms 可调），"
             "点一下是关掉",
         )
@@ -437,7 +455,7 @@ class ChatPersistPage(ExamplePage):
         view.setViewportSuspension(target)
         self._say(
             "perf",
-            f"setViewportSuspension({target}) —— **默认也是开**："
+            f"setViewportSuspension({target}) —— 默认也是开："
             "视口外消息挂起重型查看器，挂起时 bubble.markdownViewer() 返回 None",
         )
 

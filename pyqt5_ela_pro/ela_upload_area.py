@@ -127,11 +127,15 @@ class ElaUploadArea(ElaThemeWidget):
         self._accepted_suffixes = list(suffixes)
 
     def acceptedSuffixes(self) -> list[str]:
-        """获取可接受的文件后缀列表。
+        """获取可接受的文件后缀列表（**副本**）。
 
         :returns: 后缀列表
         """
-        return self._accepted_suffixes
+        # 返回**副本**（与 ``selectedFiles()`` 一致）：把内部列表交出去等于
+        # 开了一条绕过 ``setAcceptedSuffixes`` 的后门，而 ``_validateFile``
+        # 直接读 ``_normalized_suffixes()`` —— 宿主 append 一下就能让任意
+        # 后缀通过校验。
+        return list(self._accepted_suffixes)
 
     def setMaxFileCount(self, n: int) -> None:
         """设置最大文件数量（0 表示不限制）。

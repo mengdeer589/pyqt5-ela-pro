@@ -25,7 +25,6 @@ from PyQt5.QtCore import (
     QRectF,
     QPoint,
     QPropertyAnimation,
-    QEasingCurve,
     QTimer,
     QAbstractAnimation,
 )
@@ -35,6 +34,8 @@ from PyQt5.QtWidgets import QWidget, QApplication
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType
 
+from ._motion import Duration, Easing, start_transition
+from ._styles import SHADOW_MARGIN, paintOverlayShadow
 from .widget_base import ElaThemeWidget
 
 #: 同一锚点（父控件，None 表示屏幕）下当前存活的 toast，按创建顺序排列。
@@ -110,7 +111,7 @@ class ElaToast(ElaThemeWidget):
         self._display_msec = display_msec
         self._toast_type = toast_type
         self._text = text
-        self._shadow_border = 4
+        self._shadow_border = SHADOW_MARGIN
 
         self.setObjectName("ElaToast")
         self.setWindowFlags(
@@ -120,6 +121,14 @@ class ElaToast(ElaThemeWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+
+        # 停留计时器必须是本控件的**子对象**：`QTimer.singleShot` 是无主定时器，
+        # 回调不随任何控件销毁，toast 被提前关掉后照样在 T+ms 触发去摸已释放的
+        # 包装器 → RuntimeError 穿过 C++ 边界 = 0xC0000409 静默终止。
+        # （PyQt5 的 singleShot(ms, ctx, callable) 重载实测也挡不住。）
+        self._dwell_timer = QTimer(self)
+        self._dwell_timer.setSingleShot(True)
+        self._dwell_timer.timeout.connect(self._startFadeOut)
 
         self._icon_font = QFont("ElaAwesome")
         self._text_font = QFont()
@@ -244,24 +253,34 @@ class ElaToast(ElaThemeWidget):
     def _run_animation(self) -> None:
         self._opacity = 0.0
         self._fade_in = QPropertyAnimation(self, b"windowOpacity")
-        self._fade_in.setDuration(200)
         self._fade_in.setStartValue(0.0)
         self._fade_in.setEndValue(1.0)
-        self._fade_in.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._fade_in.finished.connect(self._onFadeInFinished)
-        self._fade_in.start(QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
+        self._fade_in.setEasingCurve(Easing.type_name(Easing.Decelerate))
+        start_transition(
+            self._fade_in,
+            Duration.Fast,
+            on_complete=self._onFadeInFinished,
+            deletion_policy=QAbstractAnimation.DeletionPolicy.DeleteWhenStopped,
+        )
 
     def _onFadeInFinished(self) -> None:
-        QTimer.singleShot(self._display_msec, self._startFadeOut)
+        # fade-in 动画是 DeleteWhenStopped：走到这里时它的 C++ 对象已经销毁，
+        # 所以这里绝不能碰 self._fade_in（只能用自己的 _dwell_timer）。
+        if sip.isdeleted(self):
+            return
+        self._dwell_timer.start(self._display_msec)
 
     def _startFadeOut(self) -> None:
         self._fade_out = QPropertyAnimation(self, b"windowOpacity")
-        self._fade_out.setDuration(300)
         self._fade_out.setStartValue(1.0)
         self._fade_out.setEndValue(0.0)
-        self._fade_out.setEasingCurve(QEasingCurve.Type.InCubic)
-        self._fade_out.finished.connect(self.close)
-        self._fade_out.start(QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
+        self._fade_out.setEasingCurve(Easing.type_name(Easing.Accelerate))
+        start_transition(
+            self._fade_out,
+            Duration.Normal,
+            on_complete=self.close,
+            deletion_policy=QAbstractAnimation.DeletionPolicy.DeleteWhenStopped,
+        )
 
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
         self._theme_mode = mode
@@ -278,6 +297,10 @@ class ElaToast(ElaThemeWidget):
         sb = self._shadow_border
         br = self._border_radius
         fg = QRect(sb, sb, self.width() - 2 * sb, self.height() - 2 * sb)
+
+        # 阴影：边距一直留着（窗口尺寸按 _shadow_border 撑开），但阴影本身一直没画，
+        # 于是 toast 看起来比别的弹层「扁」一层。这里补上。
+        paintOverlayShadow(painter, self.rect(), margin=sb, radius=br)
 
         # Background
         painter.setPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBorder))

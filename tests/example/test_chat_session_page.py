@@ -180,10 +180,16 @@ class TestAppearance:
 
         assert page._reasoning_style == ElaChatReasoningStyle.Inline
         for topicId in (first, second):
-            assert page._pages[topicId].chat.chatView().reasoningStyle() == ElaChatReasoningStyle.Inline
+            assert (
+                page._pages[topicId].chat.chatView().reasoningStyle()
+                == ElaChatReasoningStyle.Inline
+            )
 
         third = page._createTopic(activate=True)  # 新建的页也要带上偏好
         qapp.processEvents()
-        assert page._pages[third].chat.chatView().reasoningStyle() == ElaChatReasoningStyle.Inline
+        assert (
+            page._pages[third].chat.chatView().reasoningStyle()
+            == ElaChatReasoningStyle.Inline
+        )
         page.deleteLater()
         qapp.processEvents()

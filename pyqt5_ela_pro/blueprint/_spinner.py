@@ -16,6 +16,7 @@ from PyQt5.QtCore import QRectF, Qt, QTimer
 from PyQt5.QtGui import QColor, QPainter, QPen
 from PyQt5.QtWidgets import QWidget
 
+from .._motion import start_idle_loop
 from ._tokens import T, theme_changed_slot
 
 __all__ = ["SpinnerArc"]
@@ -38,14 +39,16 @@ class SpinnerArc(QWidget):
         self._angle = 0.0
         self.setFixedSize(self._size, self._size)
         self._timer = QTimer(self)
-        self._timer.setInterval(max(5, int(interval)))
         self._timer.timeout.connect(self._advance)
         theme_changed_slot(self, self.update)
+        self._interval = max(5, int(interval))
+        # 持续动效：Reduced/Disabled 下不转。停掉时角度冻结在当前值 —— 那就是
+        # 静态基态（仍是一段可见的弧，不是空白），所以不需要额外的摆姿态钩子。
         self.start()
 
     def start(self) -> None:
-        """启动旋转。"""
-        self._timer.start()
+        """启动旋转（受全局动效策略约束；Reduced/Disabled 下不转）。"""
+        start_idle_loop(self._timer, self._interval)
 
     def stop(self) -> None:
         """停止旋转。"""

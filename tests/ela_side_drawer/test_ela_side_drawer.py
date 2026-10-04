@@ -6,6 +6,7 @@ import pytest
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QWidget
 
+from pyqt5_ela_pro._ownership import WidgetOwnership
 from pyqt5_ela_pro.ela_side_drawer import (
     ElaDrawerPosition,
     ElaDrawerPanel,
@@ -134,6 +135,58 @@ class TestElaDrawer:
 
     def test_set_content_widget(self, make, drawer):
         assert drawer.setContentWidget(make(QWidget)) is drawer
+
+    def test_content_widget_is_readable_back(self, make, drawer):
+        content = make(QWidget)
+        drawer.setContentWidget(content)
+        assert drawer.contentWidget() is content
+
+    def test_default_ownership_is_borrowed(self, make, drawer):
+        assert drawer.contentOwnership() == WidgetOwnership.Borrowed
+
+    def test_set_content_widget_accepts_ownership(self, make, drawer):
+        content = make(QWidget)
+        drawer.setContentWidget(content, WidgetOwnership.Owned)
+        assert drawer.contentOwnership() == WidgetOwnership.Owned
+
+    def test_replacing_content_removes_previous_from_layout(self, make, drawer):
+        """换内容时旧的要从布局里摘掉，否则两个内容叠在一起。"""
+        first = make(QWidget)
+        second = make(QWidget)
+        drawer.setContentWidget(first)
+        drawer.setContentWidget(second)
+        assert drawer._main_layout.count() == 1
+        assert drawer._main_layout.itemAt(0).widget() is second
+
+    def test_take_content_widget_returns_parentless(self, make, drawer):
+        content = make(QWidget)
+        drawer.setContentWidget(content, WidgetOwnership.Owned)
+        got = drawer.takeContentWidget()
+        assert got is content
+        assert got.parentWidget() is None
+        assert drawer.contentWidget() is None
+        assert drawer._main_layout.count() == 0
+
+    def test_take_content_widget_never_deletes(self, make, drawer, qapp):
+        from PyQt5 import sip
+        from PyQt5.QtCore import QCoreApplication, QEvent
+
+        content = make(QWidget)
+        drawer.setContentWidget(content, WidgetOwnership.Owned)
+        drawer.takeContentWidget()
+        QCoreApplication.sendPostedEvents(content, QEvent.Type.DeferredDelete)
+        assert sip.isdeleted(content) is False
+
+    def test_content_destroyed_externally_is_dropped(self, make, drawer, qapp):
+        """内容被外部销毁后 ``contentWidget()`` 要返回 None，不能留悬空包装器。"""
+        from PyQt5.QtCore import QCoreApplication, QEvent
+
+        content = make(QWidget)
+        drawer.setContentWidget(content)
+        content.deleteLater()
+        QCoreApplication.sendPostedEvents(content, QEvent.Type.DeferredDelete)
+        assert drawer.contentWidget() is None
+        assert drawer._main_layout.count() == 0
 
     def test_set_drawer_size(self, drawer):
         drawer.setDrawerSize(500)

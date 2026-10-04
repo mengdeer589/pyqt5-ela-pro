@@ -165,6 +165,10 @@ class ElaChatMockBackend(QObject):
         """开始一个模拟回合（已有回合在跑时先取消）。"""
         if self._running:
             self.cancel()
+            if self._running:
+                # ``cancel()`` 的 ``turnFinished`` 是同步发射的：监听者可能在
+                # 回调里又起了一个新回合，外层不能再用原参数把它覆盖掉。
+                return False
         self._question = str(text or "")
         self._events = self._build_events(self._question)
         self._running = True

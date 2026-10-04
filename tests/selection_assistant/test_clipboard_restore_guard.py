@@ -1,0 +1,212 @@
+"""B4：剪贴板取词链路与 SVG 缓存的两条契约。
+
+1. **剪贴板恢复不得覆盖用户在延时窗口里新复制的内容**。原先
+   ``_restore_clipboard`` 无条件把 ``_old_text`` 写回去，于是「取词后切到
+   资源管理器按 Ctrl+C」那一次复制**被静默丢弃** —— 用户按 Ctrl+V 拿到的是
+   几百毫秒前的旧内容。这种数据丢失比「剪贴板没还原」更糟。
+2. **SVG 渲染缓存里存的必须是 ``QImage`` 而不是 ``QPixmap``**。``QPixmap``
+   在 PyQt5 里是活对象且缓存直接把它当返回值交出去：调用方一句
+   ``svg_to_pixmap(...).fill(red)`` 就把缓存里那一份改了，**之后所有拿到该
+   缓存的调用方看到的都是被改过的图**（实测复现）。
+"""
+
+from __future__ import annotations
+
+import pytest
+from PyQt5.QtCore import QCoreApplication, Qt
+from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtWidgets import QApplication
+
+from pyqt5_ela_pro import svg_icon as svg_mod
+from pyqt5_ela_pro.selection_assistant.capture import ElaClipboardCapture
+
+SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">'
+    '<rect x="2" y="2" width="12" height="12" fill="<<<COLOR_CODE>>>"/>'
+    "</svg>"
+)
+
+
+@pytest.fixture
+def clipboard(requires_clipboard):
+    """本会话剪贴板不可用时跳过（见 conftest ``requires_clipboard``）。
+
+    ``setText`` 之后必须让事件循环跑一圈才读得回 —— Windows 会话里
+    ``QClipboard`` 的所有权交接是异步的，立刻 ``text()`` 会拿到空串。
+    **不要断言剪贴板为空**（进程级共享状态会被上个用例污染）。
+    """
+
+    class _Clipboard:
+        def __init__(self):
+            self._cb = QApplication.clipboard()
+
+        def setText(self, text: str) -> None:
+            self._cb.setText(text)
+            for _ in range(5):
+                QCoreApplication.processEvents()
+
+        def text(self) -> str:
+            return self._cb.text()
+
+        def clear(self) -> None:
+            self._cb.clear()
+            for _ in range(5):
+                QCoreApplication.processEvents()
+
+    return _Clipboard()
+
+
+def _capture_with(capture: ElaClipboardCapture, captured: str) -> None:
+    """把取词流程直接推到 ``_finish(ok=True)``（不依赖真剪贴板 / 真 Ctrl+C）。"""
+    capture._active = True
+    capture._finish(captured, ok=True)
+
+
+class TestClipboardRestoreDoesNotClobberNewerCopy:
+    def test_restores_when_clipboard_still_holds_our_copy(self, clipboard):
+        capture = ElaClipboardCapture()
+        clipboard.setText("用户原本的内容")
+        capture._old_text = "用户原本的内容"
+        _capture_with(capture, "取词拿到的文本")
+        clipboard.setText("取词拿到的文本")
+        capture._restore_clipboard()
+        assert clipboard.text() == "用户原本的内容"
+
+    def test_keeps_user_newer_copy(self, clipboard):
+        """用户在延时窗口里又复制了一次 —— 那份必须留下。"""
+        capture = ElaClipboardCapture()
+        capture._old_text = "用户原本的内容"
+        _capture_with(capture, "取词拿到的文本")
+        clipboard.setText("用户后来复制的东西")
+        capture._restore_clipboard()
+        assert clipboard.text() == "用户后来复制的东西", (
+            "用户的新复制被静默丢弃了（用户 Ctrl+V 会拿到旧内容）"
+        )
+
+    def test_emits_restore_skipped_only_when_skipped(self, clipboard):
+        capture = ElaClipboardCapture()
+        events: list[str] = []
+        capture.restoreSkipped.connect(lambda: events.append("skipped"))
+
+        capture._old_text = "A"
+        _capture_with(capture, "TAKEN")
+        clipboard.setText("TAKEN")
+        capture._restore_clipboard()
+        assert events == [], "正常还原不该发这个信号"
+
+        capture._old_text = "B"
+        _capture_with(capture, "TAKEN2")
+        clipboard.setText("USER_NEW")
+        capture._restore_clipboard()
+        assert events == ["skipped"]
+
+    def test_empty_original_is_not_cleared_when_user_copied(self, clipboard):
+        """原内容为空时走 ``clear()``；但前提同样要「剪贴板还是我们放的那份」。"""
+        capture = ElaClipboardCapture()
+        capture._old_text = ""
+        _capture_with(capture, "TAKEN")
+        clipboard.setText("USER_NEW")
+        capture._restore_clipboard()
+        assert clipboard.text() == "USER_NEW"
+
+    def test_empty_original_is_cleared_when_unchanged(self, clipboard):
+        capture = ElaClipboardCapture()
+        capture._old_text = ""
+        _capture_with(capture, "TAKEN")
+        clipboard.setText("TAKEN")
+        capture._restore_clipboard()
+        assert clipboard.text() == ""
+
+    def test_no_restore_flag_does_not_arm_the_timer(self, clipboard):
+        capture = ElaClipboardCapture()
+        capture.setRestoreClipboard(False)
+        capture._active = True
+        capture._finish("TAKEN", ok=True)
+        assert capture._need_restore is False
+
+    def test_failed_capture_does_not_arm_the_timer(self, clipboard):
+        capture = ElaClipboardCapture()
+        capture._active = True
+        capture._finish("", ok=False)
+        assert capture._need_restore is False
+
+    def test_restoring_twice_is_a_noop(self, clipboard):
+        capture = ElaClipboardCapture()
+        capture._old_text = "ORIGINAL"
+        _capture_with(capture, "TAKEN")
+        clipboard.setText("TAKEN")
+        capture._restore_clipboard()
+        clipboard.setText("TAKEN")
+        capture._restore_clipboard()  # 已结清
+        assert clipboard.text() == "TAKEN"
+
+    def test_capture_resets_the_markers(self, clipboard):
+        capture = ElaClipboardCapture()
+        capture._old_text = "OLD"
+        capture._captured_text = "STALE"
+        capture._active = False
+        clipboard.setText("SENTINEL")
+        capture.capture()
+        assert capture._old_text == ""
+        assert capture._captured_text == ""
+
+
+class TestSvgCacheIsNotHandedOutAsALivePixmap:
+    def test_cache_stores_qimage_not_qpixmap(self):
+        cached = svg_mod._render_svg_image(SVG, 16, "#ff0000")
+        assert isinstance(cached, QImage), (
+            f"缓存里存的是 {type(cached).__name__}，必须是 QImage"
+        )
+
+    def test_each_call_returns_a_fresh_pixmap(self):
+        first = svg_mod.svg_to_pixmap(SVG, 16, "#00ff00")
+        second = svg_mod.svg_to_pixmap(SVG, 16, "#00ff00")
+        assert isinstance(first, QPixmap)
+        assert first is not second, "同一参数两次调用返回同一个 QPixmap = 缓存的活对象"
+
+    def test_caller_mutation_does_not_poison_the_cache(self):
+        before = svg_mod.svg_to_pixmap(SVG, 16, "#0000ff").toImage()
+        original = before.pixelColor(8, 8)
+        svg_mod.svg_to_pixmap(SVG, 16, "#0000ff").fill(Qt.GlobalColor.red)
+        after = svg_mod.svg_to_pixmap(SVG, 16, "#0000ff").toImage().pixelColor(8, 8)
+        assert after.rgba() == original.rgba(), (
+            f"调用方 fill(red) 污染了缓存：{original.name()} -> {after.name()}"
+        )
+
+    def test_caller_mutation_is_visible_to_that_caller_only(self):
+        mine = svg_mod.svg_to_pixmap(SVG, 16, "#123456")
+        expected = mine.toImage().pixelColor(8, 8).name()
+        mine.fill(Qt.GlobalColor.green)
+        assert mine.toImage().pixelColor(8, 8).name() == "#00ff00", "fill 应生效"
+        theirs = svg_mod.svg_to_pixmap(SVG, 16, "#123456")
+        assert theirs.toImage().pixelColor(8, 8).name() == expected, (
+            "别人的那份被我的 fill 染绿了"
+        )
+
+    def test_svg_to_image_is_the_thread_safe_form(self):
+        image = svg_mod.svg_to_image(SVG, 16, "#00ffff")
+        assert isinstance(image, QImage)
+        assert not image.isNull()
+
+    def test_svg_to_image_returns_a_copy(self):
+        first = svg_mod.svg_to_image(SVG, 16, "#00ffff")
+        second = svg_mod.svg_to_image(SVG, 16, "#00ffff")
+        assert first is not second, "QImage 也是活对象，出参同样要给副本"
+
+    def test_color_placeholder_is_substituted(self):
+        image = svg_mod.svg_to_image(SVG, 16, "#00ff00")
+        centre = image.pixelColor(8, 8)
+        assert centre.green() > 200 and centre.red() < 60, (
+            f"色占位符没替换上，中心像素 {centre.name()}"
+        )
+
+    def test_render_is_cached(self):
+        svg_mod._render_svg_image.cache_clear()
+        svg_mod.svg_to_image(SVG, 16, "#010203")
+        svg_mod.svg_to_image(SVG, 16, "#010203")
+        assert svg_mod._render_svg_image.cache_info().currsize == 1
+
+    def test_icon_still_builds(self):
+        icon = svg_mod.svg_to_icon(SVG, 16, "#ff8800")
+        assert not icon.isNull()
+        assert icon.availableSizes()

@@ -51,12 +51,12 @@ class ElaChatToolButton(ElaIconButton):
 
     def __init__(
         self,
+        parent: Optional[QWidget] = None,
         icon: Optional[ElaIconType.IconName] = None,
         pixelSize: int = 16,
         size: int = _ICON_BUTTON_SIZE,
         tooltip: str = "",
         checkable: bool = False,
-        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(
             icon or ElaIconType.IconName.CircleInfo,
@@ -172,13 +172,17 @@ class ElaChatToolBar(ElaThemeWidget):
         有 ``text`` 时返回 ``ElaButton``（图标 + 文案）；无 ``text`` 时返回
         :class:`ElaChatToolButton`（``ElaIconButton``，正方形图标按钮）。
 
-        :param key: 按钮标识（默认自动生成），用于 ``toolTriggered`` 信号
+        :param key: 按钮标识（默认自动生成），用于 ``toolTriggered`` 信号；
+            **显式传重复 key 抛 ``ValueError``**（此前静默覆盖登记，旧控件留在
+            布局里但再也无法用公开 API 找到 / 移除）
         :param zone: ``"leading"``（左）或 ``"trailing"``（右）；非法值抛
             ``ValueError``（不再静默落到左侧）
         :param checkable: 是否可选中
         """
         zone = self._normalize_zone(zone)
         key = key or self._next_key("tool")
+        if key in self._items:
+            raise ValueError(f"工具栏 key 已存在：{key!r}（显式 key 不可重复）")
         if (text or "").strip():
             button = ElaButton(
                 text=text,
@@ -224,13 +228,18 @@ class ElaChatToolBar(ElaThemeWidget):
         """
         zone = self._normalize_zone(zone)
         key = key or self._next_key("widget")
+        if key in self._items:
+            raise ValueError(f"工具栏 key 已存在：{key!r}（显式 key 不可重复）")
         widget.setParent(self)
         self._items[key] = widget
         self._zone_layout(zone).addWidget(widget)
         return widget
 
     def addSeparator(self, zone: str = "leading") -> QWidget:
-        """添加分隔线（主题切换自动换色）。
+        """添加分隔线（主题切换自动换色），返回分隔线句柄。
+
+        需要**单独移除**时把返回值交给 :meth:`removeSeparator`（或通用的
+        :meth:`removeItem`）；只想整段清空用 :meth:`clear`。
 
         :param zone: ``"leading"``（左）或 ``"trailing"``（右）；非法值抛
             ``ValueError``
@@ -297,7 +306,10 @@ class ElaChatToolBar(ElaThemeWidget):
         return item
 
     def insertSeparator(self, before: Union[str, QWidget]) -> QWidget:
-        """在已有项之前插入分隔线（落在参照项所在分区）。"""
+        """在已有项之前插入分隔线（落在参照项所在分区）。
+
+        返回值同样可交给 :meth:`removeSeparator` 单独移除。
+        """
         reference = self._require_item(before)
         line = self.addSeparator(zone=self._zone_of(reference))
         self._move_before(line, reference)
@@ -354,16 +366,34 @@ class ElaChatToolBar(ElaThemeWidget):
         return len(self._items)
 
     def removeItem(self, item: Union[str, QWidget]) -> bool:
-        """移除按钮 / 控件（接受句柄或 key），返回是否移除成功。
+        """移除按钮 / 控件 / 分隔线（接受句柄或 key），返回是否移除成功。
 
         注意：会销毁控件（句柄随即失效）；只想临时隐藏请用
-        :meth:`setItemVisible`。
+        :meth:`setItemVisible`。分隔线没有 key，用句柄移除（见
+        :meth:`removeSeparator`）。
         """
-        key = item if isinstance(item, str) else self._key_of(item)
-        if key is None or key not in self._items:
+        if isinstance(item, str):
+            if item not in self._items:
+                return False
+            self._detach(self._items.pop(item))
+            return True
+        key = self._key_of(item)
+        if key is not None:
+            self._detach(self._items.pop(key))
+            return True
+        return self.removeSeparator(item)
+
+    def removeSeparator(self, separator: QWidget) -> bool:
+        """单独移除一条分隔线（接受 :meth:`addSeparator` / :meth:`insertSeparator`
+        的返回值），返回是否移除成功。
+
+        分隔线**没有 key**（不进 :meth:`keys` / :meth:`count` 的项空间），
+        所以只能用句柄；与 :meth:`clear`（按分区整段清空）相对。
+        """
+        if separator not in self._separators:
             return False
-        widget = self._items.pop(key)
-        self._detach(widget)
+        self._separators.remove(separator)
+        self._detach(separator)
         return True
 
     def clear(self, zone: Optional[str] = None) -> None:
@@ -417,10 +447,12 @@ class ElaChatToolBar(ElaThemeWidget):
         return zone
 
     def _resolve_item(self, item: Union[str, QWidget]) -> Optional[QWidget]:
-        """接受 key 或控件，返回已登记控件（未找到返回 ``None``）。"""
+        """接受 key 或控件，返回已登记控件 / 分隔线（未找到返回 ``None``）。"""
         if isinstance(item, str):
             return self._items.get(item)
-        return item if self._key_of(item) is not None else None
+        if self._key_of(item) is not None:
+            return item
+        return item if item in self._separators else None
 
     def _require_item(self, item: Union[str, QWidget]) -> QWidget:
         """同 :meth:`_resolve_item`，未找到抛 ``ValueError``。"""

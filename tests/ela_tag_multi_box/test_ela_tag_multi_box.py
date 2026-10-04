@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from PyQt5.QtCore import QPropertyAnimation
 
+from pyqt5_ela_pro._motion import Duration
 from pyqt5_ela_pro.ela_tag_combo_base import _get_target_mark_width, _pre_init_popup
 from pyqt5_ela_pro.ela_tag_multi_box import ElaTagMultiBox
 
@@ -43,8 +44,8 @@ class TestElaTagMultiBoxAnimations:
         assert hasattr(box, "_mark_animation")
         assert isinstance(box._mark_animation, QPropertyAnimation)
 
-    def test_mark_animation_duration_is_300ms(self, box):
-        assert box._mark_animation.duration() == 300
+    def test_mark_animation_duration_uses_normal_token(self, box, motion_full):
+        assert box._mark_animation.duration() == Duration.Normal
 
 
 class TestElaTagMultiBoxExpandProperties:

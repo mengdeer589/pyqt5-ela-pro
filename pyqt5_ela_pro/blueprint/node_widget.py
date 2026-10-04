@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 
 from PyQt5.QtCore import QPointF, QRectF, QSizeF, Qt, QTimer, pyqtSignal
@@ -28,10 +29,13 @@ from PyQt5.QtGui import (
 )
 from PyQt5.QtWidgets import QFrame, QVBoxLayout, QWidget
 
+from .._motion import start_idle_loop
 from ._spinner import SpinnerArc
 from ._tokens import T, theme_changed_slot
 from .model import ElaBlueprintNode, ElaPinDirection
 from .registry import ElaNodeRegistry, pin_color
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["ElaNodeWidget", "ElaPinHandle", "format_elapsed"]
 
@@ -51,19 +55,55 @@ BODY_MIN_ZOOM = 0.8
 PULSE_MS = 320
 
 
+def _finite(value) -> bool:
+    """值是否可安全转 float（挡掉 NaN / inf / 不可转对象）。"""
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def _to_int(value, default: int = 0) -> int:
+    """把外部数值安全转 int：不可转 / 非有限一律给 ``default``。
+
+    ``int(float("inf"))`` 抛的 ``OverflowError`` 继承 ``ArithmeticError``，
+    **不是** ``ValueError`` 的子类 —— 只写 ``except (TypeError, ValueError)``
+    的地方它会直接穿出去。凡是「外部数据 → int」都走这里。
+    """
+    try:
+        out = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return out
+
+
 def _transparent(widget: QWidget) -> None:
     """让控件背景真正透明（不铺底、也不走 QSS 的 styled background）。"""
     widget.setAutoFillBackground(False)
 
 
 def _resolve_color(value, fallback_key: str) -> QColor:
-    """把令牌键 / hex / None 解析为 QColor（实时取色，主题感知）。"""
+    """把令牌键 / 颜色字面量 / None 解析为 QColor（实时取色，主题感知）。
+
+    非法值**降级成 ``fallback_key``**，不抛也不返回无效色。理由与
+    ``registry.pin_color`` 同源：原先的 ``value.startswith("rgb")`` 分支
+    会把 ``rgb(1,2,3)`` 原样交给 ``QColor``，而 ``QColor`` 不解析 CSS
+    函数记法（``isValid()`` 为 ``False``），于是 accent 栏**静默变黑**。
+    """
     if not value:
         return QColor(str(T(f"color.{fallback_key}")))
     text = str(value)
-    if text.startswith("#") or text.startswith("rgb"):
-        return QColor(text)
-    return QColor(str(T(f"color.{text}")))
+    try:
+        resolved = str(T(f"color.{text}"))
+    except KeyError:
+        resolved = None
+    if resolved is not None:
+        return QColor(resolved)
+    color = QColor(text)
+    if color.isValid():
+        return color
+    logger.warning("配色 %r 无法解析，回退到 color.%s", text, fallback_key)
+    return QColor(str(T(f"color.{fallback_key}")))
 
 
 def _text_on(color: QColor) -> QColor:
@@ -148,7 +188,7 @@ class ElaNodeWidget(QFrame):
         self._proxy_state = False
         # 视图手势（平移 / 滚轮缩放）临时位图代理标记
         self._gesture_proxy = False
-        # 手势开始前的体可见性（end_gesture_proxy 恢复用）
+        # 手势前的体可见性（end_gesture_proxy 恢复用）
         self._gesture_body_visible = False
         _transparent(self)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
@@ -157,8 +197,8 @@ class ElaNodeWidget(QFrame):
         # 引脚热区（键 = (方向, 引脚 id)：输入 / 输出允许同名 id）
         for pin in node.inputs + node.outputs:
             self._handles[(pin.direction, pin.id)] = ElaPinHandle(self, pin)
-        # 节点上之后 add_input/add_output 时补建热区：此前热区只在构造时拍快照，
-        # 新引脚没有 ElaPinHandle —— 既无悬停光标/提示，也拖不出连线。
+        # ``add_input`` / ``add_output`` 后补建热区 —— 新引脚没有
+        # ``ElaPinHandle`` 就既无悬停提示也拖不出连线
         node.changed.connect(self.sync_pins)
         # 自定义体 / 缺省 properties 展示（按 owner 解析注册表，画布传入）
         spec = ElaNodeRegistry.instance().spec(node.type_name, owner=self._owner)
@@ -177,8 +217,8 @@ class ElaNodeWidget(QFrame):
 
         # running 脉冲描边定时器
         self._pulse_timer = QTimer(self)
-        self._pulse_timer.setInterval(max(16, PULSE_MS // 10))
         self._pulse_timer.timeout.connect(self._tick_pulse)
+        self._pulse_interval = max(16, PULSE_MS // 10)
 
         node.changed.connect(self._on_node_changed)
         node.status_changed.connect(self._on_status_changed)
@@ -353,15 +393,21 @@ class ElaNodeWidget(QFrame):
     # 视图放置（由画布调用）
     # ------------------------------------------------------------------
     def apply_view(self, scene_pos: QPointF, scale: float) -> None:
-        """按场景坐标与缩放系数放置控件（几何 = 逻辑矩形 × scale）。"""
-        self._scale = max(0.05, float(scale))
+        """按场景坐标与缩放系数放置控件（几何 = 逻辑矩形 × scale）。
+
+        ``int()`` 的四个实参**逐个兜底**：``int(inf)`` 抛 ``OverflowError``、
+        ``int(nan)`` 抛 ``ValueError``，而这条路径由 ``paintEvent`` 之外的
+        画布布局调用，任一异常穿出去都会让控件停在半更新状态。数据入口
+        （``ElaBlueprintNode.from_dict``）已拒收非有限值，这里是最后一道。
+        """
+        self._scale = max(0.05, float(scale)) if _finite(scale) else 1.0
         if self._body is not None and self._body.isVisible() != self._body_visible():
             self._relayout()
         self.setGeometry(
-            int(scene_pos.x()),
-            int(scene_pos.y()),
-            max(20, int(self.node.size.width() * self._scale)),
-            max(20, int(self.node.size.height() * self._scale)),
+            _to_int(scene_pos.x()),
+            _to_int(scene_pos.y()),
+            max(20, _to_int(self.node.size.width() * self._scale)),
+            max(20, _to_int(self.node.size.height() * self._scale)),
         )
         self._arrange_children()
         self.update()
@@ -498,7 +544,9 @@ class ElaNodeWidget(QFrame):
         self._spinner.setVisible(running and not self._gesture_proxy)
         if running:
             self._spinner.start()
-            self._pulse_timer.start()
+            # 持续动效：Reduced/Disabled 下不脉冲。停掉时相位冻结在当前值，
+            # 描边仍然是画出来的（只是不动），所以不需要摆姿态钩子。
+            start_idle_loop(self._pulse_timer, self._pulse_interval)
         else:
             self._spinner.stop()
             self._pulse_timer.stop()

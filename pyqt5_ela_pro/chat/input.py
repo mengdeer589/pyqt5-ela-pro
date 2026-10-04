@@ -37,9 +37,9 @@ from typing import Callable, Optional
 from PyQt5.QtCore import (
     QBuffer,
     QByteArray,
-    QEvent,
     QIODevice,
     QRectF,
+    QSize,
     Qt,
     pyqtSignal,
 )
@@ -55,6 +55,7 @@ from PyQt5.QtGui import (
 from PyQt5.QtWidgets import (
     QFileDialog,
     QFrame,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -71,6 +72,7 @@ from ..widget_base import ElaThemeWidget
 from ._mime import localFiles, mimeImage
 from ._theme import accent_color, card_border_color, card_color
 from .blocks import AttachmentStrip
+from .message import _as_int
 from .suggestions import ElaChatSuggestion, SuggestionPopup
 from .toolbar import ElaChatToolBar, ElaChatToolButton
 
@@ -88,8 +90,13 @@ _LARGE_PASTE_LINES = 120
 #: ``@`` 引用匹配
 _MENTION_RE = re.compile(r"(?:^|\s)@([^\s@]*)$")
 #: 判定「mention 仍完整存在」用的尾部：token 之后不能再跟词字符。
-#: 覆盖 ASCII 字母数字下划线、CJK、以及 ``@`` 本身（避免 "@Al@Al" 误判）。
-_MENTION_TAIL = r"(?![0-9A-Za-z_@一-鿿])"
+#: 覆盖 ASCII 字母数字下划线、CJK（基本区 + 扩展 A/B+ + 兼容区）、以及 ``@``
+#: 本身（避免 "@Al@Al" 误判）。
+_MENTION_TAIL = (
+    r"(?![0-9A-Za-z_@"
+    r"\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"
+    r"\U00020000-\U0002ee5f\U0002f800-\U0002fa1f])"
+)
 #: 发送 / 停止图标按钮边长
 _SEND_BUTTON_SIZE = 32
 #: 输入卡片圆角半径
@@ -101,7 +108,11 @@ _INPUT_CARD_SPACING = 4
 
 
 class _ChatPlainTextEdit(ElaPlainTextEdit):
-    """输入编辑器：粘贴 / 拖入的图片与文件转附件，大段文本直插避免卡顿。
+    """输入编辑器：内容自增高 + 粘贴 / 拖入转附件。
+
+    **自增高走 ``sizeHint()``**（对齐 ``_question._AutoGrowEditor``）：
+    ``textChanged`` 里只 ``updateGeometry()``，绝不在槽里 ``setFixedHeight``
+    —— 槽内重入布局在 Qt 里是 0xC0000409 无 traceback 静默终止。
 
     编辑框自己就是放置点（``setAcceptDrops(True)``）：文本拖放交给 Qt 原生
     处理（含框内选中文本的移动），文件 / 图片经 :meth:`insertFromMimeData`
@@ -112,6 +123,80 @@ class _ChatPlainTextEdit(ElaPlainTextEdit):
     imagePasted = pyqtSignal(QImage)
     #: 本地文件被粘贴 / 拖入（参数：本地文件路径列表）
     filesAdded = pyqtSignal(list)
+    #: 输入法组合文本变化（参数：preedit 串）
+    preeditChanged = pyqtSignal(str)
+    #: 焦点变化（参数：是否聚焦）
+    focusChanged = pyqtSignal(bool)
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._min_lines = 1
+        self._max_lines = 8
+        self._key_handler = None
+        # 高度跟着 sizeHint 走（Fixed）；宽度仍由卡片布局拉伸
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def setKeyHandler(self, handler) -> None:  # noqa: N802
+        """注入按键处理器（``handler(event) -> bool``，``True`` = 已消费）。
+
+        由 :class:`ElaChatInput` 提供。**刻意不用事件过滤器**：给会被随行
+        销毁的子控件 ``installEventFilter(parent)`` 在父窗口树整体析构时会踩
+        0xC0000409；处理器只在本控件自己的 ``keyPressEvent`` 里被调用，
+        生命周期天然受控。
+        """
+        self._key_handler = handler
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        if self._key_handler is not None and self._key_handler(event):
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def inputMethodEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        self.preeditChanged.emit(event.preeditString())
+        super().inputMethodEvent(event)
+
+    def focusInEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        super().focusInEvent(event)
+        self.focusChanged.emit(True)
+
+    def focusOutEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        super().focusOutEvent(event)
+        self.focusChanged.emit(False)
+
+    def setLineBudget(self, minLines: int, maxLines: int) -> None:  # noqa: N802
+        """设置可见行数预算（超过 ``maxLines`` 后内部滚动）。"""
+        self._min_lines = max(1, _as_int(minLines, 1))
+        self._max_lines = max(self._min_lines, _as_int(maxLines, self._min_lines))
+        self.updateGeometry()
+
+    def _content_height(self) -> int:
+        """按当前宽度与内容算像素高度（夹在行数预算内）。"""
+        document = self.document()
+        width = self.viewport().width()
+        if width > 0:
+            document.setTextWidth(width)
+        line = QFontMetrics(self.font()).lineSpacing()
+        min_height = line * self._min_lines
+        max_height = line * self._max_lines
+        height = 0.0
+        block = document.begin()
+        while block.isValid():
+            height += self.blockBoundingRect(block).height()
+            if height >= max_height:
+                # 已超上限：不必再数后面的块（长粘贴时 sizeHint 会被布局反复
+                # 询问，O(全部块) 没有必要）。
+                break
+            block = block.next()
+        return int(min(max(height, min_height), max_height))
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        hint = super().sizeHint()
+        return QSize(hint.width(), self._content_height())
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        hint = super().minimumSizeHint()
+        return QSize(hint.width(), self._content_height())
 
     def canInsertFromMimeData(self, source) -> bool:  # noqa: N802 (Qt 命名)
         return True
@@ -219,7 +304,6 @@ class ElaChatInput(ElaThemeWidget):
         self._stop_text = "停止"
         self._file_picker: Optional[Callable[[], list]] = None
         self._mention_provider: Optional[Callable[[str], list]] = None
-        self._popup_kind: Optional[str] = None
         self._mentions: list = []
 
         layout = QVBoxLayout(self)
@@ -257,7 +341,12 @@ class ElaChatInput(ElaThemeWidget):
         self._edit.setTabChangesFocus(True)
         # 编辑框自己处理拖放：文本走 Qt 原生，文件 / 图片经 insertFromMimeData 转附件
         self._edit.setAcceptDrops(True)
-        self._edit.installEventFilter(self)
+        # 按键走编辑框自己的 keyPressEvent → 注入的处理器；组合 / 焦点走信号。
+        # **不装事件过滤器**：给会被随行销毁的子控件 installEventFilter 在
+        # 父窗口树整体析构时会踩 0xC0000409（见 _ChatPlainTextEdit.setKeyHandler）。
+        self._edit.setKeyHandler(self._handle_edit_key)
+        self._edit.preeditChanged.connect(self._on_preedit_changed)
+        self._edit.focusChanged.connect(self._on_edit_focus_changed)
         self._edit.textChanged.connect(self._on_text_changed)
         self._edit.imagePasted.connect(self._on_image_pasted)
         self._edit.filesAdded.connect(self._on_files_added)
@@ -297,6 +386,9 @@ class ElaChatInput(ElaThemeWidget):
         self._button.setFixedSize(_SEND_BUTTON_SIZE, _SEND_BUTTON_SIZE)
         self._button.setBorderRadius(6)
         self._button.clicked.connect(self._on_button_clicked)
+        #: 已写入按钮的图标枚举 —— ``QIcon`` 没有值相等语义，
+        #: ``button.icon() != 枚举`` 恒为 True，每敲一个字都会重建一次图标。
+        self._button_icon = ElaIconType.IconName.ArrowUp
         # 工具栏控件不抢焦点：点按钮时编辑框保持聚焦（卡片维持强调色边框）
         for control in (
             self._upload_button,
@@ -329,7 +421,6 @@ class ElaChatInput(ElaThemeWidget):
         items = self._mention_provider("") or []
         if not items:
             return
-        self._popup_kind = "mention"
         self._popup.open(items)
 
     def _update_popup(self) -> None:
@@ -338,17 +429,14 @@ class ElaChatInput(ElaThemeWidget):
         if mention and self._mention_provider is not None:
             items = self._mention_provider(mention.group(1)) or []
             if items:
-                self._popup_kind = "mention"
                 self._popup.open(items)
                 return
         self._close_popup()
 
     def _close_popup(self) -> None:
         self._popup.close()
-        self._popup_kind = None
 
     def _on_suggestion_activated(self, item: ElaChatSuggestion) -> None:
-        self._popup_kind = None
         text = self._edit.toPlainText()
         token = item.insert_text or f"@{item.label} "
         match = _MENTION_RE.search(text)
@@ -405,8 +493,8 @@ class ElaChatInput(ElaThemeWidget):
         self._upload_button.setVisible(bool(on))
 
     def uploadVisible(self) -> bool:
-        """内置「上传文件」按钮是否可见。"""
-        return self._upload_button.isVisible()
+        """内置「上传文件」按钮是否可见（``isHidden`` 判据，父链未显示时也准确）。"""
+        return not self._upload_button.isHidden()
 
     def clearButton(self) -> ElaChatToolButton:
         """获取内置「清空上下文」按钮句柄。"""
@@ -417,8 +505,8 @@ class ElaChatInput(ElaThemeWidget):
         self._clear_button.setVisible(bool(on))
 
     def clearVisible(self) -> bool:
-        """内置「清空上下文」按钮是否可见。"""
-        return self._clear_button.isVisible()
+        """内置「清空上下文」按钮是否可见（``isHidden`` 判据）。"""
+        return not self._clear_button.isHidden()
 
     def newTopicButton(self) -> ElaChatToolButton:
         """获取内置「新建话题」按钮句柄。"""
@@ -429,8 +517,8 @@ class ElaChatInput(ElaThemeWidget):
         self._new_topic_button.setVisible(bool(on))
 
     def newTopicVisible(self) -> bool:
-        """内置「新建话题」按钮是否可见。"""
-        return self._new_topic_button.isVisible()
+        """内置「新建话题」按钮是否可见（``isHidden`` 判据）。"""
+        return not self._new_topic_button.isHidden()
 
     def setFilePicker(self, picker: Optional[Callable[[], list]]) -> None:
         """自定义文件选择器（返回本地路径列表；``None`` 恢复默认对话框）。"""
@@ -508,33 +596,31 @@ class ElaChatInput(ElaThemeWidget):
         """清空附件。"""
         self._attachments.clear()
 
-    def setAttachmentsVisible(self, on: bool) -> None:
-        """显示 / 隐藏附件条（隐藏不改变附件数据）。"""
-        self._attachments.setVisible(bool(on) and not self._attachments.isEmpty())
-
-    def attachmentsVisible(self) -> bool:
-        """附件条是否可见。"""
-        return self._attachments.isVisible()
-
     def _on_attachments_changed(self, attachments: list) -> None:
         self.attachmentsChanged.emit(attachments)
 
-    def _on_image_pasted(self, image: QImage) -> None:
+    def _on_image_pasted(self, image: QImage) -> bool:
         digest = self._image_digest(image)
         name = f"粘贴的图片-{datetime.now().strftime('%H%M%S')}.png"
         if self._attachments.addPastedImage(image, name, digest) is None:
-            return
+            return False
         self.imagePasted.emit(image)
+        return True
 
     def _on_files_added(self, paths: list) -> None:
         self._add_files(paths)
 
-    def _add_files(self, paths: list) -> None:
-        """本地文件进附件条 + 发 ``filesAdded``（拖放与粘贴共用一条路径）。"""
+    def _add_files(self, paths: list) -> bool:
+        """本地文件进附件条 + 发 ``filesAdded``（拖放与粘贴共用一条路径）。
+
+        信号只带**实际新增**的路径：重复项被附件条按路径去重后不再发出，
+        宿主按信号做上传时不会对同一个文件重复触发。
+        """
         added = self.addAttachments(paths)
         if not added:
-            return
-        self.filesAdded.emit(list(paths))
+            return False
+        self.filesAdded.emit([item.path for item in added if item.path])
+        return True
 
     @staticmethod
     def _image_digest(image: QImage) -> str:
@@ -634,8 +720,9 @@ class ElaChatInput(ElaThemeWidget):
         )
         color = "danger" if stopping else "primary"
         tooltip = self._stop_text if stopping else self._send_text
-        if self._button.icon() != icon:
+        if self._button_icon != icon:
             self._button.setElaIcon(icon, 16)
+            self._button_icon = icon
         if self._button.color() != color:
             self._button.setColor(color)
         if self._button.toolTip() != tooltip:
@@ -672,7 +759,7 @@ class ElaChatInput(ElaThemeWidget):
 
     def setMaxLines(self, lines: int) -> None:
         """设置最大行数（超出后输入框内部滚动）。"""
-        self._max_lines = max(self._min_lines, int(lines))
+        self._max_lines = max(self._min_lines, _as_int(lines, self._max_lines))
         self._sync_height()
 
     def maxLines(self) -> int:
@@ -681,7 +768,7 @@ class ElaChatInput(ElaThemeWidget):
 
     def setMinLines(self, lines: int) -> None:
         """设置最小行数（空输入时的可见高度，默认 3）。"""
-        self._min_lines = max(1, int(lines))
+        self._min_lines = max(1, _as_int(lines, self._min_lines))
         if self._max_lines < self._min_lines:
             self._max_lines = self._min_lines
         self._sync_height()
@@ -697,29 +784,13 @@ class ElaChatInput(ElaThemeWidget):
         return QFontMetrics(self._normal_font).lineSpacing()
 
     def _sync_height(self) -> None:
-        document = self._edit.document()
-        width = self._edit.viewport().width()
-        if width > 0:
-            # QPlainTextEdit 的 document.size() 不返回像素高度，
-            # 这里按块包围盒累加（含自动换行后的实际行高）。
-            document.setTextWidth(width)
-        height = 0.0
-        block = document.begin()
-        while block.isValid():
-            height += self._edit.blockBoundingRect(block).height()
-            block = block.next()
-        line = self._line_height()
-        # 编辑框无边框（editBorderlessStyle 去掉了原生 CE_ShapedFrame 自绘），
-        # 文字四周的留白由输入卡片内边距提供，不再预留边框宽度
-        min_height = line * self._min_lines
-        max_height = line * self._max_lines
-        target = int(min(max(height, min_height), max_height))
-        if (
-            self._edit.minimumHeight() == target
-            and self._edit.maximumHeight() == target
-        ):
-            return
-        self._edit.setFixedHeight(target)
+        """把行数预算同步给编辑框（``setLineBudget`` 内部会 ``updateGeometry``）。
+
+        **不在 ``textChanged`` 槽里改几何**：自增高由 ``_ChatPlainTextEdit``
+        的 ``sizeHint()`` 驱动（对齐 ``_question._AutoGrowEditor``），这里只
+        更新预算 —— 槽内重入布局在 Qt 里会 0xC0000409 无 traceback 静默终止。
+        """
+        self._edit.setLineBudget(self._min_lines, self._max_lines)
 
     def _on_text_changed(self) -> None:
         self._sync_height()
@@ -738,19 +809,18 @@ class ElaChatInput(ElaThemeWidget):
         return bool(localFiles(mime) or mimeImage(mime) is not None)
 
     def attachMime(self, mime) -> bool:
-        """把 mime 里的文件 / 图片收进附件；收下了返回 ``True``。
+        """把 mime 里的文件 / 图片收进附件；**实际收下了**才返回 ``True``。
 
         拖放与粘贴共用这条路径：文件走 :meth:`addAttachments` + ``filesAdded``，
-        图片走 :meth:`_on_image_pasted`（与粘贴图片同一处去重）。
+        图片走 :meth:`_on_image_pasted`（与粘贴图片同一处去重）。重复项
+        （同路径 / 同 digest）会被去重，此时返回 ``False``。
         """
         files = localFiles(mime)
         if files:
-            self._add_files(files)
-            return True
+            return self._add_files(files)
         image = mimeImage(mime)
         if image is not None:
-            self._on_image_pasted(image)
-            return True
+            return self._on_image_pasted(image)
         return False
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
@@ -773,22 +843,22 @@ class ElaChatInput(ElaThemeWidget):
 
     # -- 键盘 --------------------------------------------------------------
 
-    def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt 命名)
-        if obj is not self._edit:
-            return super().eventFilter(obj, event)
-        if event.type() == QEvent.Type.InputMethod:
-            # 跟踪输入法组合状态（Windows 下 inputMethod().isVisible()
-            # 只要焦点在输入框就恒为真，不能用于判断组合中）
-            self._preedit = event.preeditString()
-            return False
-        if event.type() == QEvent.Type.FocusIn:
-            self._surface.setFocused(True)
-            return False
-        if event.type() == QEvent.Type.FocusOut:
-            self._surface.setFocused(False)
-            return False
-        if event.type() != QEvent.Type.KeyPress:
-            return super().eventFilter(obj, event)
+    def _on_preedit_changed(self, text: str) -> None:
+        """输入法组合文本（Windows 下 ``inputMethod().isVisible()`` 焦点在框内
+        即恒真，不能用于判断组合中）。"""
+        self._preedit = text
+
+    def _on_edit_focus_changed(self, focused: bool) -> None:
+        self._surface.setFocused(focused)
+        if not focused:
+            # 失焦时系统会取消组合：清掉残留，否则之后回车会被当成组合中
+            self._preedit = ""
+
+    def _handle_edit_key(self, event) -> bool:
+        """编辑框按键处理器（由 ``_ChatPlainTextEdit.keyPressEvent`` 调用）。
+
+        返回 ``True`` 表示已消费。逻辑与旧的 ``eventFilter`` 完全一致。
+        """
         key = event.key()
         modifiers = event.modifiers()
 
@@ -835,4 +905,4 @@ class ElaChatInput(ElaThemeWidget):
                 return False
             self.submit()
             return True
-        return super().eventFilter(obj, event)
+        return False

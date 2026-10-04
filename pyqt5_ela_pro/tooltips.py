@@ -28,6 +28,8 @@ from PyQt5.QtCore import (
     QRectF,
 )
 
+from ._internal import single_shot_on
+from ._motion import Duration, start_idle_loop, start_transition
 from ._styles import setTextColor
 from .widget_base import ElaThemeWidget
 from PyQt5.QtGui import (
@@ -51,7 +53,9 @@ TOOLTIP_BORDER_RADIUS: int = 8
 TOOLTIP_SHADOW_BORDER_WIDTH: int = 3
 TOOLTIP_LIGHT_BG_COLOR: str = "#ffffff"
 TOOLTIP_DARK_BG_COLOR: str = "#202020"
-TOOLTIP_FADE_DURATION: int = 200
+#: ``Full`` 模式下的淡出时长。实际时长受全局动效策略约束
+#: （``Reduced`` 压到 ≤50ms、``Disabled`` 同步落终值，见 :mod:`._motion`）。
+TOOLTIP_FADE_DURATION: int = Duration.Fast
 TOOLTIP_AUTO_CLOSE_DELAY: int = 1000
 TOOLTIP_ROTATE_TIMER_INTERVAL: int = 50
 TOOLTIP_ROTATE_ANGLE_DELTA: int = 20
@@ -469,7 +473,6 @@ class ElaStateToolTip(ElaThemeWidget):
         self._connectSignals()
 
     def _setup_ui(self) -> None:
-        self._rotateTimer.setInterval(TOOLTIP_ROTATE_TIMER_INTERVAL)
         self._rotateTimer.timeout.connect(self._rotateTimerFlow)
 
         self._contentLabel.setMinimumWidth(STATETOOLTIP_MIN_WIDTH)
@@ -480,7 +483,9 @@ class ElaStateToolTip(ElaThemeWidget):
         self._updateSizeAndPositions()
 
     def _connectSignals(self) -> None:
-        self._rotateTimer.start()
+        # 持续动效：Reduced/Disabled 下不转。角度冻结在当前值 —— 仍是一段可见的
+        # 弧（loading 指示器还在，只是不动），所以不需要摆姿态钩子。
+        start_idle_loop(self._rotateTimer, TOOLTIP_ROTATE_TIMER_INTERVAL)
 
     def _onThemeChanged(self, mode: int) -> None:
         self._currentTheme = mode
@@ -603,7 +608,7 @@ class ElaStateToolTip(ElaThemeWidget):
         self._isDone = isDone
         self.update()
         if isDone:
-            QTimer.singleShot(TOOLTIP_AUTO_CLOSE_DELAY, self._fadeOut)
+            single_shot_on(self, TOOLTIP_AUTO_CLOSE_DELAY, self._fadeOut)
 
     def _stopTimerAndAnimation(self) -> None:
         if self._rotateTimer.isActive():
@@ -619,19 +624,21 @@ class ElaStateToolTip(ElaThemeWidget):
             return
         self._isClosing = True
         self._stopTimerAndAnimation()
-        self._animation.setDuration(TOOLTIP_FADE_DURATION)
         self._animation.setStartValue(1)
         self._animation.setEndValue(0)
-        self._animation.finished.connect(self._onFadeOutFinished)
-        self._animation.start()
+        # 收尾只有一个注册点。之前这里是裸 finished.connect（没有先断开），
+        # 叠上 close()→重新 show→再 _fadeOut 的路径就会连两遍，
+        # _onFadeOutFinished 跑两次 = deleteLater 两次。start_transition
+        # 内部保证「先断旧再连新」。
+        start_transition(
+            self._animation,
+            TOOLTIP_FADE_DURATION,
+            on_complete=self._onFadeOutFinished,
+        )
 
     def _onFadeOutFinished(self) -> None:
         if not self._checkValid():
             return
-        try:
-            self._animation.finished.disconnect(self._onFadeOutFinished)
-        except TypeError:
-            pass
         self.closed.emit()
         self.hide()
         self.deleteLater()
@@ -676,12 +683,18 @@ class ElaStateToolTip(ElaThemeWidget):
         # tooltip（hide 后再 show，是「连续提示同一个控件」的常规用法）时若不重启，
         # loading spinner 会永久停在最后一个角度。
         super().showEvent(a0)
+        # 重新展示 = 上一轮的关闭流程作废。_isClosing 只在 _fadeOut 里置位、
+        # 成功路径不复位（那里紧接着就 deleteLater 了），所以中途被 stop 掉的
+        # 淡出会把它永久留在 True：不复位的话这个 tooltip 既再也淡不出去，
+        # spinner 也永远重启不了。
+        if not self._destroyed:
+            self._isClosing = False
         if (
             not self._isClosing
             and not self._destroyed
             and not self._rotateTimer.isActive()
         ):
-            self._rotateTimer.start()
+            start_idle_loop(self._rotateTimer, TOOLTIP_ROTATE_TIMER_INTERVAL)
 
     def hideEvent(self, a0: Optional[QHideEvent]) -> None:
         if not self._isClosing:

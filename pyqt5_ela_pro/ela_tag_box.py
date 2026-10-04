@@ -74,5 +74,5 @@ class ElaTagBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaComboBox):
             self.currentIndexChanged.disconnect(self._onCurrentIndexChanged)
         except (TypeError, RuntimeError):
             pass
-        self._tag_box_delete_later()
+        self._theme_cleanup()
         super().deleteLater()

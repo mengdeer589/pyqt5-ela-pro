@@ -11,7 +11,9 @@
 
 from __future__ import annotations
 
+import functools
 import logging
+import weakref
 from typing import Optional, Any
 
 try:
@@ -27,6 +29,7 @@ except ImportError:
     win32api = None
     win32con = None
     win32gui = None
+from PyQt5 import sip
 from PyQt5.QtCore import pyqtSignal, QTimer
 from PyQt5.QtWidgets import QWidget
 
@@ -35,6 +38,43 @@ from PyQt5.QtGui import QWindow
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
+
+
+def _release_on_destroy(embedder) -> None:
+    """``destroyed`` 收尾：把外部窗口从 Qt 父 HWND 上摘下来并恢复原状。
+
+    ``weakref.proxy`` 是必须的：``destroyed`` 发出时 C++ 对象**正在析构**，
+    这里只能碰纯 Python 属性（``_embeddedInfo`` / ``_attached_tid``）与
+    Win32 API，绝不能再调任何 Qt 方法。
+    """
+    try:
+        info = embedder._embeddedInfo
+    except ReferenceError:
+        return  # proxy 已失效
+    if not info:
+        return
+    try:
+        embedder._embeddedInfo = None
+        embedder._isEmbedded = False
+        hwnd = info.get("hwnd")
+        if hwnd and win32gui.IsWindow(hwnd):
+            # 关键：解除 SetParent，否则外部窗口随 Qt 父 HWND 一起销毁
+            win32gui.SetParent(hwnd, 0)
+            win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, info.get("style", 0))
+            win32gui.SetWindowLong(
+                hwnd, win32con.GWL_EXSTYLE, info.get("exstyle", 0)
+            )
+            win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+        tid = getattr(embedder, "_attached_tid", None)
+        if tid:
+            try:
+                win32api.GetCurrentThreadId()
+                win32gui.AttachThreadInput(tid, win32api.GetCurrentThreadId(), False)
+            except Exception:  # noqa: BLE001
+                pass
+            embedder._attached_tid = None
+    except Exception:  # noqa: BLE001
+        pass
 
 
 class ElaWindowEmbedder(QWidget):
@@ -95,6 +135,7 @@ class ElaWindowEmbedder(QWidget):
         self._embedRetryCount: int = 0
         self._embedMaxRetries: int = 30
         self._attached_tid: Optional[int] = None
+        self._install_destroy_hook()
 
     def _startEmbedTimer(self, hwnd: int) -> None:
         self._embedPendingHwnd = hwnd
@@ -176,18 +217,46 @@ class ElaWindowEmbedder(QWidget):
             return False
 
         if self._embeddedInfo:
-            self.release(destroy=True)
+            # **显式基类实现，不是虚分派**：对 ``ElaBrowserEmbedder`` 而言
+            # ``self.release(destroy=True)`` 会终止整个共享浏览器进程
+            # （那是它的语义，不是「回滚一次部分嵌入」）。这里只回滚本次。
+            ElaWindowEmbedder.release(self, destroy=True)
 
+        # **两个都必须在 try 之前预置**：
+        #① ``orig_style`` 原先在下面那个**嵌套 try** 里才赋值，而它在
+        #    外层 ``except`` 里被使用 —— 182~191 之间任何一步抛异常
+        #    （``QWindow.fromWinId`` 对已销毁窗口返回 None、
+        #    ``createWindowContainer`` 对非顶层 HWND 返回 nullptr、
+        #    ``window_info`` 缺键）就变成 ``UnboundLocalError``，
+        #    而它是从 ``except`` 块里抛出的 -> 直接逃出整个函数。
+        #    两条入口都在 Qt 回调链上（``_onEmbedTimerTimeout`` 的
+        #    ``QTimer.timeout``、``embedByHwnd``）= 进程 0xC0000409 静默终止。
+        #② ``widget`` 同理：183 行创建的容器若在 194 行之后失败，
+        #    原补偿路径只把 ``self._embeddedWidget`` 置 None、**从不
+        #    deleteLater 它** —— 每次失败泄漏一个容器（重试循环最多 30 个），
+        #    且它们继续参与 resize 布局。
+        orig_style: Optional[int] = None
+        orig_exstyle: Optional[int] = None
+        widget = None
         try:
             q_window = QWindow.fromWinId(hwnd)
+            if q_window is None:
+                raise RuntimeError(f"invalid window handle: {hwnd}")
             widget = QWidget.createWindowContainer(q_window, self)
+            if widget is None:
+                raise RuntimeError(
+                    f"createWindowContainer returned null (not a top-level window?): {hwnd}"
+                )
             widget.setObjectName("embedded_window")
             widget._chrome_hwnd = hwnd
 
             widget.hwnd = hwnd
             widget.phwnd = window_info["phwnd"]
-            widget.style = window_info["style"]
-            widget.exstyle = window_info["exstyle"]
+            # 别叫 ``style``/``exstyle``：那会**遮蔽 ``QWidget.style()`` 方法**，
+            # 宿主（或 Ela 的 C++ 绑定层）任何 ``container.style()`` 都变TypeError。
+            # 改成 win_style / win_exstyle。
+            widget.win_style = window_info["style"]
+            widget.win_exstyle = window_info["exstyle"]
             widget.wrect = window_info["wrect"]
 
             # 先快照原样式：失败回滚时要靠它把外部窗口恢复原状
@@ -233,6 +302,13 @@ class ElaWindowEmbedder(QWidget):
 
         except Exception as e:
             logger.warning(f"嵌入窗口失败: {e}")
+            # 回收半成品容器：它还是 self 的 child，不删就每次失败泄漏一个
+            if widget is not None:
+                try:
+                    widget.setParent(None)
+                    widget.deleteLater()
+                except RuntimeError:
+                    pass
             # 回滚：SetParent 之后的任何一步失败都不能留下孤儿 HWND。
             # 此时 _embeddedInfo 还没赋值，release() 会在开头直接 return，
             # 于是外部窗口会一直挂在 Qt 父窗口上（父窗口销毁时连带销毁别人的
@@ -516,13 +592,29 @@ class ElaWindowEmbedder(QWidget):
         if not enabled and self._resize_debounce:
             self._resize_debounce.stop()
 
+    @catch_error
     def _apply_debounced_resize(self) -> None:
+        """把嵌入容器与外部窗口调到新尺寸（``resizeEvent`` 的节流落点）。
+
+        **必须有兜底**：``resizeEvent`` 上的 ``@catch_error`` 护不住这条 ——
+        默认开启 150ms 节流时resizeEvent 只 ``start()`` 定时器，真正干活的是
+        这里的 ``QTimer.timeout`` 槽。而外部窗口（Chrome）崩溃 / 被杀 /
+        被别的代码关掉之后 hwnd 失效，``SetWindowPos`` 抛
+        ``pywintypes.error(1400, 'Invalid window handle')``；包装器被删时
+        ``setGeometry`` 抛 ``RuntimeError``。两者都会**穿过 Qt 回调链** =
+        进程 0xC0000409 零 traceback 终止。
+        """
         if not self._embeddedInfo or not self._embeddedWidget:
+            return
+        if sip.isdeleted(self._embeddedWidget):
             return
         width = self.width()
         height = self.height()
         self._embeddedWidget.setGeometry(0, 0, width, height)
         hwnd = self._embeddedInfo.get("hwnd")
+        if hwnd and not win32gui.IsWindow(hwnd):
+            # 外部窗口已经没了：别再对着死 hwnd 发消息
+            return
         if hwnd:
             # Qt 容器用逻辑尺寸，外部窗口用原生客户区尺寸（高 DPI 下不一致）
             native_width, native_height = self._native_client_size()
@@ -545,6 +637,17 @@ class ElaWindowEmbedder(QWidget):
         if self._embeddedInfo:
             self.release()
         super().closeEvent(event)
+
+    def _install_destroy_hook(self) -> None:
+        """挂上 ``destroyed`` 收尾（构造末尾调一次）。
+
+        **必须是模块级函数 + ``functools.partial``**：PyQt5 不会调用「绑定到
+        自身」的 ``destroyed`` 槽（``self.destroyed.connect(self._x)`` 等于
+        清理从来没发生过），而这正好是这个仓库反复踩到的形状。
+        """
+        self.destroyed.connect(
+            functools.partial(_release_on_destroy, weakref.proxy(self))
+        )
 
     @property
     def embeddedWindowInfo(self) -> Optional[dict]:

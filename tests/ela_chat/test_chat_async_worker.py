@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 
 from _qthelpers import wait_until as _wait_until
 
@@ -212,28 +213,166 @@ class TestCommands:
 
 
 class TestShutdown:
-    def test_shutdown_stops_thread(self, qapp):
+    """``shutdown()`` 是**非阻塞**的：只发请求，线程在后台自己退。
+
+    超时升级（``terminate`` → 保活）由看门狗轮询完成，不再阻塞调用线程 —— 旧实现
+    在这里 ``wait(4000)``，后端初始化卡死时实测关窗冻结 4016 ms。
+    """
+
+    def test_shutdown_stops_thread_without_blocking(self, qapp):
+        worker = _FakeWorker(script=[("sleep", 5.0), ("chunk", "late")])
+        _started(qapp, worker)
+        assert worker.ask("长任务") is True
+        assert _wait_until(qapp, lambda: worker.active == 1)
+
+        worker.shutdown()
+        assert worker.isShuttingDown() is True
+        assert _wait_until(qapp, lambda: worker.isRunning() is False)
+
+        worker.deleteLater()
+        qapp.processEvents()
+
+    def test_wait_for_shutdown_blocks_and_confirms_exit(self, qapp):
+        """需要「确保线程已停」时走 ``waitForShutdown``。"""
         worker = _FakeWorker(script=[("sleep", 5.0), ("chunk", "late")])
         _started(qapp, worker)
         assert worker.ask("长任务") is True
         assert _wait_until(qapp, lambda: worker.active == 1)
         worker.shutdown()
+        assert worker.waitForShutdown() is True
         assert worker.isRunning() is False
         worker.deleteLater()
         qapp.processEvents()
 
-    def test_shutdown_terminates_stuck_thread(self, qapp, monkeypatch):
-        """线程超时未退出时 terminate 兜底，避免运行中被销毁（Qt fatal）。"""
-
+    def test_shutdown_is_non_blocking_with_a_fake_loop(self, qapp, monkeypatch):
+        """事件循环不可用时也不得抛（哨兵投不出去而已）。"""
         worker = _FakeWorker()
         worker._queue = object()
-        worker._loop = object()
+        worker._loop = object()  # 没有 run_coroutine_threadsafe 语义
+        worker.shutdown()  # 不得抛
+        assert worker.isShuttingDown() is True
+        worker._stop_watchdog()
+        worker.deleteLater()
+        qapp.processEvents()
+
+    def test_watchdog_terminates_a_stuck_thread(self, qapp, monkeypatch):
+        """看门狗到点升级成 terminate，再不退出就保活（避免运行中被销毁）。"""
+        worker = _FakeWorker()
         calls = []
-        monkeypatch.setattr(worker, "wait", lambda ms: False)
+        monkeypatch.setattr(worker, "isFinished", lambda: False)
+        monkeypatch.setattr(worker, "isRunning", lambda: True)
         monkeypatch.setattr(worker, "terminate", lambda: calls.append(True))
+
         worker.shutdown()
+        worker._watchdog_deadline = 0.0  # 预算已过
+        worker._on_watchdog()  # 第一轮：升级 terminate
         assert calls == [True]
+
+        worker._on_watchdog()  # 第二轮：terminate 过了还没退 -> 保活
         assert worker in worker_module._LINGERING_WORKERS
         worker_module._LINGERING_WORKERS.remove(worker)
+        worker._stop_watchdog()
+        worker.deleteLater()
+        qapp.processEvents()
+
+    def test_watchdog_stops_once_the_thread_is_finished(self, qapp):
+        worker = _FakeWorker()
+        _started(qapp, worker)
+        worker.shutdown()
+        assert _wait_until(qapp, lambda: worker.isFinished() is True)
+        # 线程退出后由下一个看门狗 tick 停掉自己
+        assert _wait_until(qapp, lambda: worker._watchdog.isActive() is False)
+        worker.deleteLater()
+        qapp.processEvents()
+
+
+class TestTurnCancellationEdges:
+    def test_cancel_during_rollback_skips_the_turn(self, qapp):
+        """regenerate 回滚期间按下的停止必须生效：整轮不再发起后端请求。"""
+
+        class _SlowRollback(_FakeWorker):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                self.rollback_started = threading.Event()
+
+            async def _rollback_turn(self, prompt: str) -> None:
+                self.rollback_started.set()
+                await asyncio.sleep(0.4)
+
+        worker = _SlowRollback(script=[("chunk", "x")])
+        chunks = []
+        finished = []
+        worker.chunkReceived.connect(chunks.append)
+        worker.turnFinished.connect(lambda: finished.append(True))
+        _started(qapp, worker)
+
+        assert worker.regenerate("原问题") is True
+        assert worker.rollback_started.wait(1.0)
+        worker.cancel()
+
+        assert _wait_until(qapp, lambda: bool(finished))
+        assert chunks == [], "回滚期间的取消让这一轮根本没跑"
+        assert worker.active == 0
+        _dispose(qapp, worker)
+
+
+class TestRunFailureClassification:
+    def test_post_ready_crash_emits_error_not_failed(self, qapp):
+        """ready 之后的线程异常发 ``errorOccurred``（不是初始化失败的 ``failed``）。"""
+
+        class _Boom(_FakeWorker):
+            async def _serve(self):
+                await self._setup()
+                self._queue = asyncio.Queue()
+                raise RuntimeError("boom after ready")
+
+        worker = _Boom()
+        failed, errors = [], []
+        worker.failed.connect(failed.append)
+        worker.errorOccurred.connect(lambda kind, msg: errors.append((kind, msg)))
+        worker.start()
+
+        assert _wait_until(qapp, lambda: bool(errors))
+        assert failed == []
+        assert errors[0][0] == "worker"
+        assert "boom after ready" in errors[0][1]
+        assert _wait_until(qapp, lambda: worker.isFinished() is True)
+        worker.deleteLater()
+        qapp.processEvents()
+
+
+class TestLingeringPruning:
+    def test_running_worker_is_kept_and_finished_one_is_pruned(self, qapp):
+        worker = _FakeWorker()
+        _started(qapp, worker)
+        worker_module._remember_lingering(worker)
+        assert worker in worker_module._LINGERING_WORKERS
+
+        worker.shutdown()
+        assert _wait_until(qapp, lambda: worker.isFinished() is True)
+        worker_module._remember_lingering(worker)
+        assert worker not in worker_module._LINGERING_WORKERS, "退出后不再保活"
+        worker.deleteLater()
+        qapp.processEvents()
+
+    def test_finished_worker_is_not_kept(self, qapp):
+        worker = _FakeWorker()
+        _started(qapp, worker)
+        worker.shutdown()
+        assert _wait_until(qapp, lambda: worker.isFinished() is True)
+        worker_module._remember_lingering(worker)
+        assert worker not in worker_module._LINGERING_WORKERS
+        worker.deleteLater()
+        qapp.processEvents()
+
+
+class TestWatchdogRearm:
+    def test_rearm_resets_terminate_flag(self, qapp):
+        """第二次 shutdown 重新武装时，terminate 升级必须仍然可用。"""
+        worker = _FakeWorker()
+        worker._terminated = True
+        worker._arm_watchdog()
+        assert worker._terminated is False
+        worker._stop_watchdog()
         worker.deleteLater()
         qapp.processEvents()

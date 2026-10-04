@@ -312,17 +312,30 @@ class TestBenchmarkMultiSeries:
         assert all(r.visible for r in chart.seriesRenderers), "有系列被永久隐藏"
         assert chart.benchmark(frames=1)["seriesCount"] == 4
 
-    def test_single_series_timing_matches_total(self, make):
-        """单系列时逐系列读数与总耗时同量级（验证测量口径自洽）。"""
+    def test_single_series_timing_is_self_consistent(self, make):
+        """逐系列读数的口径自洽性（不依赖墙钟）。
+
+        **不要拿 ``paintMs`` 与总耗时做比值断言**：总绘制可能因为**系列层
+        位图缓存命中**而≈0（一次 ``drawImage``），而逐系列测量走的是未命中
+        路径 —— 实测同一条数据 4 跑里挂 1 次（``st=16ms`` vs ``total≈0``）。
+        那是测试写法的问题，不是被测代码的：两条路径的缓存状态本来就不同。
+        这里改钉真正确定的性质：读数齐全、规模正确、耗时非负有限。
+        """
         n = 20_000
         chart = _ready(
             make(ElaChartWidget),
             _option([float((i * 13) % 500) for i in range(n)]),
         )
         r = chart.benchmark(frames=2)
+        assert len(r["seriesTimings"]) == r["seriesCount"] == 1
         st = r["seriesTimings"][0]
-        assert st["paintMs"] == pytest.approx(r["paintMs"], rel=1.5)
         assert st["dataPoints"] == n
+        assert 0 <= st["drawnPoints"] <= n
+        for key in ("layoutMs", "paintMs"):
+            assert isinstance(st[key], (int, float))
+            assert st[key] >= 0.0 and st[key] == st[key]  # 非负且非 NaN
+        for key in ("ingestMs", "layoutMs", "paintMs"):
+            assert r[key] >= 0.0 and r[key] == r[key], f"{key} 不是非负有限数"
 
     def test_pie_timings_reported(self, make):
         """非直角坐标系列（pie）也能报出规模，不报错。"""

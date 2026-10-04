@@ -524,6 +524,27 @@ class TestRestore:
         badge = bubble.statsBadge()
         assert badge is not None
         assert badge.isVisibleTo(bubble) is True
+        assert badge.parentWidget() is bubble._stats_host, "恢复的整轮徽标要停靠底部行"
+        chat.deleteLater()
+        qapp.processEvents()
+
+    def test_restored_message_keeps_status(self, qapp):
+        """消息级 status 也要还原：被停止 / 出错的历史不能显示成 Done。"""
+        chat = _chat(qapp)
+        view = chat.chatView()
+        mid = view.addMessageFromDict(
+            {
+                "id": 9,
+                "role": "assistant",
+                "status": "stopped",
+                "parts": [
+                    {"id": "p1", "kind": "text", "text": "半截回答", "status": "done"}
+                ],
+            }
+        )
+        qapp.processEvents()
+        assert view.message(mid).status == "stopped"
+        assert view.bubble(mid).status() == "stopped"
         chat.deleteLater()
         qapp.processEvents()
 

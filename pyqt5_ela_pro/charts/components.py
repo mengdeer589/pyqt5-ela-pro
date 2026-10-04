@@ -28,7 +28,8 @@ from PyQt5.QtCore import QPointF, QRectF, Qt
 from PyQt5.QtGui import QColor, QFontMetricsF, QPainter, QPen, QPolygonF
 
 from ._tokens import T
-from ._utils import ON_FILL_WHITE, to_float as _to_float, with_alpha
+from ._utils import ON_FILL_WHITE, parse_roam as _parse_roam
+from ._utils import to_float as _to_float, warn_once, with_alpha
 from .axes import GridCoord, chartFont, formatValue
 from .core import (
     SeriesRenderer,
@@ -376,6 +377,11 @@ class MarkAreaComponent(_SeriesMarkBase):
                               [{"yAxis": a}, {"yAxis": b}]]}
 
     填充取主题主色低透明度；category 轴向两侧各扩半个 band。
+
+    **仅在 Grid 直角坐标系下生效**（``layout`` 里 ``isinstance(coord,
+    GridCoord)`` 不成立就静默返回空）。ECharts 的 markArea 依赖轴的
+    ``coord`` 换算，polar / calendar / singleAxis 的区间语义与矩形不等价，
+    本库不做近似 —— 所以挂在饼图 / 雷达这类系列上是不画，而不是画错。
     """
 
     optionKey = "markArea"
@@ -433,6 +439,14 @@ class MarkAreaComponent(_SeriesMarkBase):
         p.restore()
 
     def hitTest(self, pos: QPointF):
+        """命中半透明背景区域。
+
+        **刻意不接进图表的命中分发**（``core._HOVERABLE_COMPONENTS`` 里没有
+        ``markArea``）：markArea 是铺在数据**底下**的大块半透明区间，接进来
+        之后「悬停区间内任何位置」都会抢走系列的悬停 —— 柱子 / 折线在区间内
+        就再也高亮不了，是明确的退化。ECharts 侧 markArea 同样不参与命中。
+        保留本方法是为了让「不参与」是**显式选择**而不是「忘了接」。
+        """
         for area in self._areas:
             if area.contains(pos):
                 r = self._renderer()
@@ -485,17 +499,39 @@ class GraphicComponent:
         self.rect = QRectF(rect)
 
     def _anchor(self, el: dict) -> QPointF:
-        left = el.get("left", 0)
-        top = el.get("top", 0)
-        if str(left) == "center":
-            x = self.rect.center().x()
-        else:
-            x = self.rect.left() + _to_float(left, 0.0)
-        if str(top) == "center":
-            y = self.rect.center().y()
-        else:
-            y = self.rect.top() + _to_float(top, 0.0)
-        return QPointF(x, y)
+        """元素锚点：``left`` / ``top`` 解析成内容区内的绝对坐标。
+
+        支持三类写法（ECharts 语义）：
+
+        * 数值 —— 相对内容区左上角的**像素**偏移；
+        * ``"center"`` —— 该轴居中；
+        * ``"middle"`` —— 垂直居中（ECharts 官方拼写；``top: "middle"`` 是
+          最常见的一处，原先只认 ``"center"`` 而静默按 0 处理 → 水印类
+          纵向居中的文字全贴到顶边）；
+        * ``"30%"`` —— 相对内容区宽 / 高的百分比。
+
+        百分比与 ``"middle"`` 原先都落进 ``_to_float`` 的兜底分支（0），
+        **不报错也不告警**，只是元素悄悄跑到左上角。
+        """
+        return QPointF(
+            self._anchor_axis(el.get("left", 0), self.rect.left(), self.rect.width()),
+            self._anchor_axis(el.get("top", 0), self.rect.top(), self.rect.height()),
+        )
+
+    def _anchor_axis(self, value, origin: float, extent: float) -> float:
+        text = str(value).strip().lower()
+        if text in ("center", "middle"):
+            return origin + extent / 2.0
+        if text.endswith("%"):
+            try:
+                return origin + extent * float(text[:-1]) / 100.0
+            except ValueError:
+                return origin
+        if text in ("left", "top"):
+            return origin
+        if text in ("right", "bottom"):
+            return origin + extent
+        return origin + _to_float(value, 0.0)
 
     def paint(self, p: QPainter, anim_t: float = 1.0) -> None:
         if not self.elements:
@@ -538,7 +574,19 @@ class GraphicComponent:
                 return
             size = int(_to_float(style.get("fontSize"), T("font.xs")))
             p.setFont(chartFont(size))
-            p.setPen(QColor(style.get("fill") or T("color.text.primary")))
+            # ``fill: "none"`` 要跟 circle / rect 一样被认出来：直接喂给
+            # ``QColor`` 会得到**无效颜色**，而无效 pen 的文字**根本不画**
+            # —— 用户写「不要文字」结果得到空白，且没有任何报错。
+            fill = style.get("fill")
+            if fill == "none" or fill is False:
+                return
+            color = QColor(fill) if isinstance(fill, str) and fill else QColor()
+            if not color.isValid():
+                warn_once(
+                    "graphic-text-fill", f"graphic text 的 fill 非法，已跳过: {fill!r}"
+                )
+                return
+            p.setPen(color or QColor(T("color.text.primary")))
             p.setBrush(Qt.BrushStyle.NoBrush)
             fm = QFontMetricsF(p.font())
             x = base.x() + _to_float(shape.get("x"), 0.0)
@@ -573,6 +621,12 @@ class GraphicComponent:
             p.setPen(Qt.PenStyle.NoPen)
 
     def hitTest(self, pos: QPointF):
+        """恒返回 None —— graphic 是**装饰元素**，不参与命中。
+
+        ECharts 的 graphic 同为纯覆盖层（要交互得自己接 ``chart.on("click")``
+        自己做坐标判定）。保留本方法只为把这个决定写成代码而不是留白：
+        ``core`` 的命中分发只问 ``_HOVERABLE_COMPONENTS``，graphic 不在其中。
+        """
         return None
 
 
@@ -608,25 +662,20 @@ class MapSeriesRenderer(SeriesRenderer):
       ``mapColor(v)``，其次 ``itemStyle.color``，否则按 primary.subtle →
       primary 色带插值；
     - ``nameProperty``：区域标签取自 data 项的该键（缺省 "name"）；
-    - ``roam``：True / "scale" / "move" 控制滚轮缩放 + 拖拽平移
-      （ECharts 语义；默认 False）；``zoom`` 初始缩放；``resetRoam()`` 复位。
+    - ``roam``：True / ``1`` / ``"true"`` / ``"scale"`` / ``"move"`` 控制滚轮
+      缩放 + 拖拽平移（ECharts 语义；默认 False）；``zoom`` 初始缩放；
+      ``resetRoam()`` 复位。**数字与布尔字符串都按 true 认** —— 从 JSON 读进
+      来的 option 里 ``roam`` 常是数字，原先落进「方向名」分支被静默关掉。
     """
 
     def __init__(self, chart, opt):
         super().__init__(chart, opt)
         self._polys = []  # [(region_name, QPolygonF, data_index)]
         self._rect = QRectF()
-        roam = self.opt.get("roam", False)
-        if roam in (None, False):
-            self._roam = (False, False)
-        elif roam is True:
-            self._roam = (True, True)
-        else:
-            text = str(roam).lower()
-            self._roam = ("scale" in text, "move" in text)
+        self._roam = _parse_roam(self.opt.get("roam", False))
         try:
             self._zoom = max(0.2, min(6.0, float(self.opt.get("zoom") or 1.0)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             self._zoom = 1.0
         self._pan = QPointF()
         self._pan_start = None
@@ -664,6 +713,17 @@ class MapSeriesRenderer(SeriesRenderer):
                     out[str(k)] = pts
             if out:
                 return out
+        if name not in ("demo", "china-simple"):
+            # **不要静默回落演示地图**。用户写了 ``map: "my-map"`` 却没给
+            # ``geo.regions``，拿到的是内置的「华北 / 东北 / …」，而他的数据
+            # 用的是真实地图的省名 —— 一个都匹配不上，整张图全是底色，且
+            # 没有任何报错。回落保留（空图更难排查），但必须喊一声。
+            warn_once(
+                "map-regions-missing",
+                f"map={name!r} 需要 option['geo']['regions'] 提供多边形顶点，"
+                f"缺省已回落到内置演示地图（{len(DEMO_MAP)} 个区块）；"
+                f"数据里的区域名多半匹配不上",
+            )
         return {k: [tuple(pt) for pt in v] for k, v in DEMO_MAP.items()}
 
     def _value_map(self) -> dict:
@@ -763,6 +823,35 @@ class MapSeriesRenderer(SeriesRenderer):
         self.chart.invalidateLayout()
         self.chart.update()
 
+    def _visual_map(self):
+        """本系列该用哪个 visualMap 组件（``None`` = 用内置色带）。
+
+        **必须按绑定挑，不能取「第一个带 mapColor 的」**：原先那条规则让多个
+        map / heatmap 系列**共用同一个** visualMap —— 给第二个系列配的独立
+        色带（``inRange.colors``）永远不生效，表现为「明明配了两套配色，
+        两张图却是同一个颜色」。
+        优先级：显式绑定本系列的 → 未绑定的通用件 → 没有。
+        """
+        idx = getattr(self, "_series_index", 0)
+        sid = str(self.opt.get("id") or "")
+        generic = None
+        for c in self.chart.components:
+            mapper = getattr(c, "mapColor", None)
+            if not callable(mapper):
+                continue
+            binds = getattr(c, "bindsTo", None)
+            if not callable(binds):
+                # 自定义组件没有绑定语义：按「第一个」处理（保持旧行为）
+                return c
+            if not binds(idx, sid):
+                continue
+            if getattr(c, "isGeneric", False):
+                if generic is None:
+                    generic = c
+                continue
+            return c
+        return generic
+
     def _fill_color(
         self, name: str, values: dict, vmin: float, vmax: float, vm
     ) -> QColor:
@@ -785,11 +874,7 @@ class MapSeriesRenderer(SeriesRenderer):
         vals = [v for v in values.values() if v is not None]
         vmin = min(vals) if vals else 0.0
         vmax = max(vals) if vals else 1.0
-        vm = None
-        for c in self.chart.components:
-            if hasattr(c, "mapColor") and callable(getattr(c, "mapColor")):
-                vm = c
-                break
+        vm = self._visual_map()
         p.save()
         font = chartFont(T("font.xs"))
         p.setFont(font)

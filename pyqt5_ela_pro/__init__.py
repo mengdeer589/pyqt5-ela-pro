@@ -43,8 +43,59 @@ from .tooltips import (
 
 from .animation import fade_in, fade_out, shake_window
 
+from ._motion import (
+    Duration,
+    Easing,
+    MotionKind,
+    MotionMode,
+    MotionPolicy,
+    idle_loop_running,
+    motion,
+    start_idle_loop,
+    start_transition,
+    start_transition_timer,
+)
+
+from ._theme import (
+    StatusRole,
+    accent,
+    border,
+    borderStrong,
+    chartPalette,
+    resetAccentColor,
+    setAccentColor,
+    statusColor,
+    surface,
+    surfaceDialog,
+    surfacePopup,
+    surfaceRaised,
+    text,
+    textDisabled,
+    textMuted,
+    textOnAccent,
+)
+
+from ._ownership import ContentSlot, WidgetOwnership
+
+# ── Fluent 风格新增组件 ──
+from .ela_shimmer import (
+    ElaShimmer,
+    ShimmerElement,
+    ShimmerPalette,
+    ShimmerShape,
+    ShimmerTemplate,
+)
+from .ela_field import ElaField, FieldStatus
+from .ela_avatar import AvatarPresence, AvatarShape, AvatarSize, ElaAvatar
+from .ela_selector_bar import (
+    ElaSelectorBar,
+    SelectorBarItem,
+    SelectorBarOverflow,
+)
+
 from .svg_icon import (
     svg_to_icon,
+    svg_to_image,
     svg_to_pixmap,
     svg_icon_loader,
 )
@@ -211,6 +262,7 @@ from .selection_assistant import (
     ElaMouseMonitor,
     ElaSelectionAssistant,
     ElaSelectionPopup,
+    ElaSelectionResultDialog,
 )
 
 from .ela_tag_box import ElaTagBox
@@ -263,6 +315,55 @@ from .blueprint import (
 
 
 __all__ = [
+    # ── 动效策略 ──
+    "motion",
+    "MotionMode",
+    "MotionKind",
+    "MotionPolicy",
+    "Duration",
+    "Easing",
+    "start_transition",
+    "start_transition_timer",
+    "start_idle_loop",
+    "idle_loop_running",
+    # ── 语义令牌 ──
+    "StatusRole",
+    "surface",
+    "surfaceRaised",
+    "surfacePopup",
+    "surfaceDialog",
+    "border",
+    "borderStrong",
+    "text",
+    "textMuted",
+    "textDisabled",
+    "textOnAccent",
+    "accent",
+    "statusColor",
+    "chartPalette",
+    "setAccentColor",
+    "resetAccentColor",
+    # ── 内容所有权 ──
+    "WidgetOwnership",
+    "ContentSlot",
+    # ── 骨架屏 ──
+    "ElaShimmer",
+    "ShimmerShape",
+    "ShimmerTemplate",
+    "ShimmerElement",
+    "ShimmerPalette",
+    # ── 表单字段 ──
+    "ElaField",
+    "FieldStatus",
+    # ── 头像 ──
+    "ElaAvatar",
+    "AvatarSize",
+    "AvatarShape",
+    "AvatarPresence",
+    # ── 分段控件 ──
+    "ElaSelectorBar",
+    "SelectorBarItem",
+    "SelectorBarOverflow",
     # ── Functions ──
     "fade_in",
     "fade_out",
@@ -270,6 +371,7 @@ __all__ = [
     "set_tooltip",
     "remove_tooltip",
     "svg_to_icon",
+    "svg_to_image",
     "svg_to_pixmap",
     "svg_icon_loader",
     "create_ela_splitter",
@@ -359,6 +461,7 @@ __all__ = [
     "ElaSearchMultiBox",
     "ElaSelectionAssistant",
     "ElaSelectionPopup",
+    "ElaSelectionResultDialog",
     "ElaSplashScreen",
     "ElaSplitButton",
     "ElaSplitter",

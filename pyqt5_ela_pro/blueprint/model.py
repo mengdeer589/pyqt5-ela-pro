@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import uuid
 from dataclasses import dataclass
 from enum import Enum
@@ -130,6 +131,21 @@ class ElaEdge:
             to_node=data["to_node"],
             to_pin=data["to_pin"],
         )
+
+
+def _finite(value, default: float = 0.0) -> float:
+    """把外部数据转成**有限** float；NaN / inf / 不可转一律归 ``default``。
+
+    序列化反序列化的边界上，非有限值只有一个正确去处：丢弃。之所以在这里
+    归零而不是让 ``int()`` 去抛 —— ``int(float("inf"))`` 抛的
+    ``OverflowError`` 继承 ``ArithmeticError``，既不是 ``ValueError`` 也不是
+    ``TypeError``，穿出 Qt 槽就是 0xC0000409 零 traceback 终止。
+    """
+    try:
+        out = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return out if math.isfinite(out) else default
 
 
 class ElaBlueprintNode(QObject):
@@ -262,10 +278,18 @@ class ElaBlueprintNode(QObject):
             "outputs": [p.to_dict() for p in self.outputs],
             "properties": dict(self.properties),
         }
-
     @classmethod
     def from_dict(cls, data: dict) -> "ElaBlueprintNode":
-        """由 ``to_dict`` 结果重建节点（运行时状态不回放，保持 idle）。"""
+        """由 ``to_dict`` 结果重建节点（运行时状态不回放，保持 idle）。
+
+        **非有限坐标直接拒收**（``ValueError``）。这不是洁癖：``json`` 接受
+        ``1e999`` 并解析成 ``inf``（``json.dumps(float("inf"))`` 还会写出
+        ``Infinity``），而 ``inf`` 一路走到 ``ElaNodeWidget.apply_view`` 的
+        ``int(scene_pos.x())`` 就抛 ``OverflowError`` —— ``OverflowError``
+        继承 ``ArithmeticError``，既不是 ``ValueError`` 也不是 ``TypeError``，
+        穿出 Qt 槽 = **进程 0xC0000409 零traceback 终止**（实测复现）。
+        ``NaN`` 同理（``int(nan)`` 抛 ``ValueError``）。
+        """
         node = cls(
             data["type_name"],
             data.get("title", data["type_name"]),
@@ -273,8 +297,8 @@ class ElaBlueprintNode(QObject):
         )
         pos = data.get("pos", [0.0, 0.0])
         size = data.get("size", [180.0, 80.0])
-        node.pos = QPointF(float(pos[0]), float(pos[1]))
-        node.size = QSizeF(float(size[0]), float(size[1]))
+        node.pos = QPointF(_finite(pos[0]), _finite(pos[1]))
+        node.size = QSizeF(_finite(size[0], 180.0), _finite(size[1], 80.0))
         node.accent = data.get("accent")
         node.inputs = [ElaPin.from_dict(p) for p in data.get("inputs", [])]
         node.outputs = [ElaPin.from_dict(p) for p in data.get("outputs", [])]
@@ -329,8 +353,19 @@ class ElaBlueprintGraph(QObject):
         return list(self._nodes.values())
 
     # -- 边 --------------------------------------------------------------
-    def add_edge(self, from_node: str, from_pin: str, to_node: str, to_pin: str):
-        """校验并建立连线，成功返回 ``ElaEdge``，失败返回 ``None``。"""
+    def add_edge(
+        self,
+        from_node: str,
+        from_pin: str,
+        to_node: str,
+        to_pin: str,
+        edge_id: str = None,
+    ):
+        """校验并建立连线，成功返回 ``ElaEdge``，失败返回 ``None``。
+
+        ``edge_id`` 仅供 ``from_dict`` 往返时保留原 id（不给则新生成）。
+        **它不跳过任何校验** —— 保留 id 不是绕过规则的理由。
+        """
         n1, n2 = self._nodes.get(from_node), self._nodes.get(to_node)
         if n1 is None or n2 is None:
             return None
@@ -354,7 +389,7 @@ class ElaBlueprintGraph(QObject):
             for edge in list(self._edges.values()):
                 if edge.to_node == to_node and edge.to_pin == to_pin:
                     self.remove_edge(edge.id)  # 单连接替换
-        edge = ElaEdge(_new_id(), from_node, from_pin, to_node, to_pin)
+        edge = ElaEdge(edge_id or _new_id(), from_node, from_pin, to_node, to_pin)
         self._edges[edge.id] = edge
         self.edge_added.emit(edge)
         return edge

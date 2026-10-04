@@ -14,7 +14,6 @@ from PyQt5.QtCore import (
     QRect,
     QRectF,
     QPropertyAnimation,
-    QEasingCurve,
     pyqtProperty,  # type: ignore[attr-defined]
 )
 from PyQt5.QtGui import (
@@ -29,6 +28,9 @@ from PyQt5.QtGui import (
 )
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIcon, ElaIconType
+
+from ._internal import connect_theme_signal, disconnect_theme
+from ._motion import Duration, Easing, start_transition
 
 
 class _TagBoxThemeMixin:
@@ -91,18 +93,20 @@ class _TagBoxAnimMixin:
         self._expand_icon_rotate: float = 0.0
 
         self._mark_animation = QPropertyAnimation(self, b"expandMarkWidth")
-        self._mark_animation.setDuration(300)
-        self._mark_animation.setEasingCurve(QEasingCurve.InOutSine)
+        self._mark_animation.setEasingCurve(Easing.type_name(Easing.Standard))
 
         self._rotate_animation = QPropertyAnimation(self, b"expandIconRotate")
-        self._rotate_animation.setDuration(300)
-        self._rotate_animation.setEasingCurve(QEasingCurve.InOutSine)
+        self._rotate_animation.setEasingCurve(Easing.type_name(Easing.Standard))
 
         self.setFixedHeight(38)  # type: ignore[attr-defined]
         self._theme_mode = eTheme.getThemeMode()
 
-        eTheme.themeModeChanged.connect(self._on_tag_theme_changed)
-        self.destroyed.connect(self._tag_box_delete_later)  # type: ignore[attr-defined]
+        # 连标准钩子名而不是自定义槽：本 mixin 在 MRO 最前，解析到的就是
+        # ``_onThemeChanged``，于是搜索框系列的 ``_ThemeAwareMixin`` 先连的那条
+        # 与这里连的是同一个 —— ``connect_theme_signal`` 的幂等守卫才正确。
+        # （曾经传的是 ``_on_tag_theme_changed``，那条连接被守卫静默吞掉，
+        #   ``_theme_mode`` 永不更新 → 深色主题下底色/边框仍是浅色。）
+        connect_theme_signal(self)
 
     @pyqtProperty(float)
     def expandMarkWidth(self) -> float:
@@ -131,18 +135,26 @@ class _TagBoxAnimMixin:
     def title(self) -> str:
         return self._title_text
 
-    def _on_tag_theme_changed(self, _mode=None) -> None:
+    def _onThemeChanged(self, _mode=None) -> None:  # type: ignore[attr-defined]
         self._theme_mode = eTheme.getThemeMode()
         self.update()  # type: ignore[attr-defined]
+        # 协作式下传：搜索框系列（``ElaTagSearchBox`` 等）的基类链上还有
+        # ``_SearchComboMixin._onThemeChanged`` 要给弹层搜索框重新调色。
+        # ``ElaTagBox`` 这条链上什么都没有，故用带默认值的 getattr 而非裸 super()。
+        parent_hook = getattr(super(), "_onThemeChanged", None)
+        if parent_hook is not None:
+            parent_hook(_mode)
 
     def _run_animations(self, mark_end: float, rotate_end: float) -> None:
+        # 无收尾路径：目标值同时也被命令式写入（见 ela_tag_multi_box 的
+        # showPopup / hidePopup），snap 落终值后画面依旧正确。
         self._mark_animation.setStartValue(self._expand_mark_width)
         self._mark_animation.setEndValue(mark_end)
-        self._mark_animation.start()
+        start_transition(self._mark_animation, Duration.Normal)
 
         self._rotate_animation.setStartValue(self._expand_icon_rotate)
         self._rotate_animation.setEndValue(rotate_end)
-        self._rotate_animation.start()
+        start_transition(self._rotate_animation, Duration.Normal)
 
     def _animate_popup_open(self) -> None:  # type: ignore[attr-defined]
         """运行展开动画（底部主题色条 + 箭头旋转），供子类 showPopup 调用。"""
@@ -154,11 +166,16 @@ class _TagBoxAnimMixin:
         """运行收起动画，供子类 hidePopup 调用。"""
         self._run_animations(0.0, 0.0)
 
-    def _tag_box_delete_later(self) -> None:
-        try:
-            eTheme.themeModeChanged.disconnect(self._on_tag_theme_changed)
-        except (TypeError, RuntimeError):
-            pass
+    def _theme_cleanup(self) -> None:
+        """断开主题单例信号（``connect_theme_signal`` 建立的连接，幂等）。
+
+        原名 ``_tag_box_delete_later`` 是误导 —— 它从不删除任何东西。
+        """
+        disconnect_theme(self)
+
+    def deleteLater(self) -> None:  # type: ignore[attr-defined]
+        self._theme_cleanup()
+        super().deleteLater()
 
 
 # ── 多选组合框共享辅助函数 ───────────────────────────────────────

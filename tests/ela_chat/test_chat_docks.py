@@ -8,8 +8,8 @@ from pyqt5_ela_pro.chat import ElaChatInputDock, ElaChatQueueDock, ElaChatWidget
 
 
 class TestQueueDock:
-    def test_messages_and_signals(self, qapp):
-        dock = ElaChatQueueDock()
+    def test_messages_and_signals(self, qapp, make):
+        dock = make(ElaChatQueueDock)
         dock.setMessages(
             [
                 {"id": "q1", "text": "第一条", "attachments": []},
@@ -41,30 +41,27 @@ class TestQueueDock:
         dock.setMessages([])
         assert dock.count() == 0
         assert dock.isHidden()
-        dock.deleteLater()
 
-    def test_expand_toggle(self, qapp):
-        dock = ElaChatQueueDock()
+    def test_expand_toggle(self, qapp, make):
+        dock = make(ElaChatQueueDock)
         dock.setMessages([{"id": "q1", "text": "x"}])
         assert dock.isExpanded() is False
         dock.setExpanded(True)
         assert dock.isExpanded() is True
         assert dock._rows.isHidden() is False
-        dock.deleteLater()
 
-    def test_row_label_uses_small_font(self, qapp):
-        dock = ElaChatQueueDock()
+    def test_row_label_uses_small_font(self, qapp, make):
+        dock = make(ElaChatQueueDock)
         dock.setMessages([{"id": "q1", "text": "你好"}])
         row = dock._rows_layout.itemAt(0).widget()
         label = row.layout().itemAt(0).widget()
         assert label.text() == "你好"
         assert label.font().pixelSize() == 12
-        dock.deleteLater()
 
 
 class TestInputDock:
-    def test_replace_and_clear(self, qapp):
-        dock = ElaChatInputDock()
+    def test_replace_and_clear(self, qapp, make):
+        dock = make(ElaChatInputDock)
         changed = []
         dock.changed.connect(changed.append)
         dock.setTitle("需要授权")
@@ -75,12 +72,11 @@ class TestInputDock:
         assert dock.replacesInput() is False
         assert dock.isHidden() is True
         assert changed == [True, False]
-        dock.deleteLater()
 
 
 class TestWidgetQueue:
-    def _generating_chat(self, qapp):
-        chat = ElaChatWidget()
+    def _generating_chat(self, qapp, make):
+        chat = make(ElaChatWidget)
         chat.resize(600, 400)
         chat.show()
         qapp.processEvents()
@@ -90,18 +86,17 @@ class TestWidgetQueue:
         qapp.processEvents()
         return chat
 
-    def test_submit_while_generating_queues(self, qapp):
-        chat = self._generating_chat(qapp)
+    def test_submit_while_generating_queues(self, qapp, make):
+        chat = self._generating_chat(qapp, make)
         chat.chatInput().setText("第二问")
         chat.chatInput()._button.click()
         assert chat.queueCount() == 1
         assert chat.queuedMessages()[0]["text"] == "第二问"
         assert len(chat.chatView().messages()) == 2  # 未直接发送
         assert chat.queueDock().isHidden() is False
-        chat.deleteLater()
 
-    def test_send_now_and_edit(self, qapp):
-        chat = self._generating_chat(qapp)
+    def test_send_now_and_edit(self, qapp, make):
+        chat = self._generating_chat(qapp, make)
         chat.chatInput().setText("第二问")
         chat.chatInput().submit()
         queueId = chat.queuedMessages()[0]["id"]
@@ -115,19 +110,17 @@ class TestWidgetQueue:
         chat.sendQueuedNow(queueId)
         assert chat.queueCount() == 0
         assert len(chat.chatView().messages()) == 3
-        chat.deleteLater()
 
-    def test_queue_disabled(self, qapp):
-        chat = self._generating_chat(qapp)
+    def test_queue_disabled(self, qapp, make):
+        chat = self._generating_chat(qapp, make)
         chat.setQueueEnabled(False)
         chat.chatInput().setText("第二问")
         chat.chatInput().submit()
         assert chat.queueCount() == 0
         assert len(chat.chatView().messages()) == 2
-        chat.deleteLater()
 
-    def test_queue_changed_signal(self, qapp):
-        chat = self._generating_chat(qapp)
+    def test_queue_changed_signal(self, qapp, make):
+        chat = self._generating_chat(qapp, make)
         changes = []
         chat.queueChanged.connect(lambda items: changes.append(len(items)))
         chat.enqueueMessage("A")
@@ -135,14 +128,20 @@ class TestWidgetQueue:
         chat.dequeueMessage(chat.queuedMessages()[0]["id"])
         chat.clearQueue()
         assert changes == [1, 2, 1, 0]
-        chat.deleteLater()
 
-    def test_input_dock_disables_composer(self, qapp):
-        chat = ElaChatWidget()
+    def test_input_dock_disables_composer(self, qapp, make):
+        chat = make(ElaChatWidget)
         chat.show()
         qapp.processEvents()
         chat.setDockWidget(QLabel("权限请求"))
         assert chat.chatInput().isEnabled() is False
         chat.clearDock()
         assert chat.chatInput().isEnabled() is True
-        chat.deleteLater()
+
+
+class TestQueueDockRobustness:
+    def test_set_messages_skips_non_dict_rows(self, qapp, make):
+        dock = make(ElaChatQueueDock)
+        dock.setMessages([None, "x", {"id": "q1", "text": "ok"}])
+        assert dock.count() == 1
+        assert "ok" in dock._preview.text()

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Optional, Union
 
-from PyQt5.QtCore import QAbstractAnimation, QTimer
+from PyQt5.QtCore import QAbstractAnimation
 from PyQt5.QtGui import QPainter, QPaintEvent
 from PyQt5.QtWidgets import QWidget
 
@@ -22,7 +22,7 @@ from .ela_tag_combo_base import (
     _get_target_mark_width,
     _paint_tag_multi,
 )
-from ._internal import _adjust_combobox_popup
+from ._internal import _adjust_combobox_popup, single_shot_on
 
 
 class ElaTagMultiBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaMultiSelectComboBox):
@@ -51,7 +51,7 @@ class ElaTagMultiBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaMultiSelectComboBox
         self._tag_box_init(title)
         self._currentSelection: list[str] = []
         self.setMaxVisibleItems(10)
-        QTimer.singleShot(0, lambda: _pre_init_popup(self))
+        single_shot_on(self, 0, lambda: _pre_init_popup(self))
 
     @property
     def items(self) -> list[str]:
@@ -84,5 +84,5 @@ class ElaTagMultiBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaMultiSelectComboBox
         _paint_tag_multi(painter, self)
 
     def deleteLater(self) -> None:
-        self._tag_box_delete_later()
+        self._theme_cleanup()
         super().deleteLater()

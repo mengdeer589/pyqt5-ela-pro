@@ -9,8 +9,11 @@ from PyQt5.QtWidgets import QApplication, QPlainTextEdit
 from PyQt5ElaWidgetTools import ElaMenu, ElaThemeType, eTheme
 
 from pyqt5_ela_pro.terminal_view import (
+    _HIGHLIGHT,
+    _HIGHLIGHT_RATIO,
     ElaTerminalView,
     TerminalStyle,
+    _blend,
     defaultTerminalTheme,
     registerTerminalTheme,
     setDefaultTerminalTheme,
@@ -241,12 +244,12 @@ class TestToPlainTextAndSave:
 
 
 class TestCopyAll:
-    def test_copy_all(self, view, qapp):
+    def test_copy_all(self, view, qapp, requires_clipboard):
         view.append(lines("a", "b"))
         view.copyAll()
         assert qapp.clipboard().text() == "a\nb"
 
-    def test_copy_all_empty(self, view, qapp):
+    def test_copy_all_empty(self, view, qapp, requires_clipboard):
         qapp.clipboard().setText("sentinel")
         view.copyAll()
         assert qapp.clipboard().text() == ""
@@ -255,14 +258,14 @@ class TestCopyAll:
         view.append("hello\n")
         assert view.selectedText() == ""
 
-    def test_copy_selection(self, view, qapp):
+    def test_copy_selection(self, view, qapp, requires_clipboard):
         view.append(lines("alpha", "beta"))
         qapp.processEvents()  # 渲染是按帧合并的，得先让事件循环跑一轮
         view.selectAll()
         assert view.copySelection() is True
         assert qapp.clipboard().text() == "alpha\nbeta"
 
-    def test_copy_selection_without_selection(self, view, qapp):
+    def test_copy_selection_without_selection(self, view, qapp, requires_clipboard):
         # 剪贴板是进程级共享状态，先写哨兵值再断言「没被动过」，
         # 不要直接断言为空（会被上一个用例的残留污染）
         qapp.clipboard().setText("sentinel")
@@ -541,9 +544,33 @@ class TestAppearance:
         assert view._highlight == QColor("#ff0000")
 
     def test_highlight_color_none_resets(self, view):
+        # 断言必须钉在「恢复成派生默认黄」上。原先写的是
+        # ``!= #ff0000``，而非法 QColor（``QColor()``）天然不等于它 ——
+        # 于是「None 置成非法色、QPainter 直接不画、搜索高亮整块消失」
+        # 这个 bug 被一条恒真断言完全盖住。
+        derived = _blend(view._palette["background"], _HIGHLIGHT, _HIGHLIGHT_RATIO)
         view.setHighlightColor(QColor("#ff0000"))
+        assert view._highlight == QColor("#ff0000")
         view.setHighlightColor(None)
-        assert view._highlight != QColor("#ff0000")
+        assert view._highlight.isValid(), "None 必须回到有效色，不能是 QColor()"
+        assert view._highlight == derived
+
+    def test_highlight_override_survives_palette_change(self, view):
+        # 覆盖值是持久的：换配色 / 切主题只重算派生默认黄
+        view.setHighlightColor(QColor("#ff0000"))
+        view.setPaletteName("classic")
+        assert view._highlight == QColor("#ff0000")
+        view.setPaletteName("default")
+        assert view._highlight == QColor("#ff0000")
+        view.setHighlightColor(None)
+        assert view._highlight == _blend(
+            view._palette["background"], _HIGHLIGHT, _HIGHLIGHT_RATIO
+        )
+
+    def test_highlight_rejects_invalid_color(self, view):
+        before = QColor(view._highlight)
+        view.setHighlightColor("not-a-color")
+        assert view._highlight == before, "非法色必须被拒，不能让高亮整块消失"
 
     def test_gutter_paints_without_lines(self, view):
         # 空内容时行号槽不应崩

@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5ElaWidgetTools import ElaIconType, ElaThemeType
+from _pixels import skip_if_no_pixels
+from PyQt5.QtCore import QEvent, Qt
+from PyQt5.QtGui import QFocusEvent
+from PyQt5.QtTest import QTest
+from PyQt5ElaWidgetTools import eApp, eTheme, ElaIconType, ElaPushButton, ElaThemeType
 
+from pyqt5_ela_pro._colors import _contrast_ratio
 from pyqt5_ela_pro.ela_button import ElaButton
 
 VARIANTS = ["solid", "dashed", "filled", "text", "link"]
@@ -28,8 +33,8 @@ COLORS = [
     "gold",
 ]
 
-# size -> (height, borderRadius)
-SIZES = {"small": (28, 4), "middle": (38, 6), "large": (46, 8)}
+# size -> (height, borderRadius)；可见面 = 高度 − 2×3 阴影边距（24/32/40）
+SIZES = {"small": (30, 4), "middle": (38, 6), "large": (46, 8)}
 
 
 @pytest.fixture
@@ -205,6 +210,139 @@ class TestElaButtonIcon:
         )
         with_text.setFixedHeight(28)
         assert with_text.sizeHint().width() > icon.sizeHint().width()
+
+
+class TestElaButtonMatchesPushButton:
+    """与上游 ``ElaPushButton`` 对齐：控件高 / 字号 / 可见按钮面。
+
+    回归：``ElaButton`` 原先画满整个控件（可见面 37px），而上游
+    ``ElaPushButton`` 的 ``_shadowBorderWidth = 3`` 让可见面只有 32px ——
+    混排时 ElaButton 高 5px。
+    """
+
+    def test_middle_widget_height_and_font_match_push_button(self, make):
+        push = make(ElaPushButton, "确定")
+        ela = make(ElaButton, "确定")
+        assert ela.height() == push.height() == 38
+        assert push.font().pixelSize() == eApp.getFontPixelSize() + 2
+        assert ela.font().pixelSize() == push.font().pixelSize()
+
+    @pytest.mark.parametrize(
+        ("size", "delta"),
+        [("small", 0), ("middle", 2), ("large", 4)],
+        ids=["small", "middle", "large"],
+    )
+    def test_font_follows_app_font_size(self, make, size, delta):
+        btn = make(ElaButton, size=size)
+        assert btn.font().pixelSize() == eApp.getFontPixelSize() + delta
+
+    def test_size_hint_reserves_shadow_margin(self, btn):
+        """控件宽 = 面宽 + 2×3：面宽最小 64 → 控件最小 70。"""
+        assert btn.sizeHint().width() == 70
+        assert btn.minimumSizeHint().width() == 54
+
+    def test_visible_face_height_matches_push_button(self, make, qapp):
+        """抓图量可见按钮面：两种按钮都应是 32px（控件 38 − 2×3 阴影边距）。
+
+        用暗色主题：浅色下 ``ElaPushButton`` 还有 1px 边框，量出来会把边框
+        算成/排除掉，让容差没有意义。
+        """
+        push = make(ElaPushButton, "确定")
+        ela = make(ElaButton, "确定", variant="solid", color="primary")
+
+        def face_rows(btn):
+            btn.setFixedWidth(120)
+            btn.show()
+            qapp.processEvents()
+            image = btn.grab().toImage()
+            x = 8
+            center = image.pixelColor(x, image.height() // 2)
+            return [
+                y
+                for y in range(image.height())
+                if image.pixelColor(x, y).alpha() > 200
+                and abs(image.pixelColor(x, y).lightness() - center.lightness()) <= 2
+            ]
+
+        previous = eTheme.getThemeMode()
+        eTheme.setThemeMode(ElaThemeType.ThemeMode.Dark)
+        try:
+            push_rows = face_rows(push)
+            ela_rows = face_rows(ela)
+        finally:
+            eTheme.setThemeMode(previous)
+
+        skip_if_no_pixels(
+            {str(y) for y in push_rows} | {str(y) for y in ela_rows},
+            "按钮面像素",
+        )
+        push_face = max(push_rows) - min(push_rows) + 1
+        ela_face = max(ela_rows) - min(ela_rows) + 1
+        assert abs(push_face - ela_face) <= 2, (push_face, ela_face)
+
+
+class TestElaButtonFocusRing:
+    """键盘聚焦才显示 focus ring（鼠标点击不显示）。"""
+
+    def test_tab_focus_shows_ring(self, make, qapp):
+        btn = make(ElaButton, "按钮")
+        qapp.sendEvent(
+            btn, QFocusEvent(QEvent.Type.FocusIn, Qt.FocusReason.TabFocusReason)
+        )
+        assert btn._focus_ring is True
+        qapp.sendEvent(
+            btn, QFocusEvent(QEvent.Type.FocusOut, Qt.FocusReason.OtherFocusReason)
+        )
+        assert btn._focus_ring is False
+
+    def test_mouse_focus_does_not_show_ring(self, make, qapp):
+        btn = make(ElaButton, "按钮")
+        qapp.sendEvent(
+            btn, QFocusEvent(QEvent.Type.FocusIn, Qt.FocusReason.MouseFocusReason)
+        )
+        assert btn._focus_ring is False
+
+
+class TestElaButtonLoading:
+    def test_loading_starts_and_stops_spinner(self, make):
+        btn = make(ElaButton, "提交")
+        assert btn.isLoading() is False
+        btn.setLoading(True)
+        assert btn.isLoading() is True
+        assert btn._spin_timer.isActive() is True
+        btn.setLoading(False)
+        assert btn.isLoading() is False
+        assert btn._spin_timer.isActive() is False
+
+    def test_loading_ignores_clicks(self, make, qapp):
+        btn = make(ElaButton, "提交")
+        seen = []
+        btn.clicked.connect(lambda: seen.append(True))
+        btn.setLoading(True)
+        QTest.mouseClick(btn, Qt.MouseButton.LeftButton)
+        qapp.processEvents()
+        assert seen == []
+
+
+class TestElaButtonAccentText:
+    """彩色变体的文字走可读档 ``accentText``（对比度 ≥ 4.5）。"""
+
+    @pytest.mark.parametrize(
+        "mode",
+        [ElaThemeType.ThemeMode.Light, ElaThemeType.ThemeMode.Dark],
+        ids=["light", "dark"],
+    )
+    def test_outlined_text_uses_readable_accent(self, make, mode):
+        previous = eTheme.getThemeMode()
+        eTheme.setThemeMode(mode)
+        try:
+            btn = make(ElaButton, "按钮", variant="outlined", color="blue")
+            scheme = btn._scheme()
+            _bg, _border, fg = btn._state_colors(scheme, False, False)
+        finally:
+            eTheme.setThemeMode(previous)
+        assert fg.name() == scheme["accentText"].name()
+        assert _contrast_ratio(fg, scheme["accentBg"]) >= 4.5
 
 
 class TestElaButtonDisabled:

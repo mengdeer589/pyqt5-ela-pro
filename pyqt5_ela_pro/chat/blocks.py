@@ -21,12 +21,11 @@
 - :class:`StatsBadge`：用量徽标；
 - :class:`MessageActions`：底部操作栏；
 - :class:`ErrorCard`：错误卡（左 danger 竖线）。
-
-命名规范与库内一致（``camelCase``）。
 """
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -65,7 +64,9 @@ from PyQt5ElaWidgetTools import (
 )
 
 from .._internal import _ThemeAwareMixin
+from .._motion import idle_loop_running, start_idle_loop
 from .._styles import BareButton, ColorText, setSolidBackground
+from .._theme import StatusRole, statusColor
 from ..ela_button import ElaButton
 from ..ela_chip import ElaChip
 from ..svg_icon import svg_to_pixmap
@@ -77,6 +78,7 @@ from ._question import (
     SEGMENT_HIT,
     QuestionOptionCard,
     QuestionSegment,
+    globalKeyAction,
     question_colors,
 )
 from ._theme import (
@@ -96,6 +98,7 @@ from .message import (
     ElaChatStatus,
     ElaChatToolCall,
     ElaChatToolStatus,
+    _as_int,
 )
 from .renderers import (
     ToolRenderContext,
@@ -197,6 +200,33 @@ CARD_V_PADDING = 9
 LAYOUT_SPACING = 6
 
 
+def _clip_detail(detail: str) -> str:
+    """截断超长单行（展开态也照截，否则点开就炸）。"""
+    out = []
+    for line in detail.split("\n"):
+        if len(line) > DETAIL_MAX_LINE_CHARS:
+            line = line[:DETAIL_MAX_LINE_CHARS] + " …（本行已截断）"
+        out.append(line)
+    return "\n".join(out)
+
+
+def _collapsed_detail(detail: str, expanded: bool) -> tuple:
+    """按「行数 + 单行长度」双上限算详情展示文本。
+
+    返回 ``(shown, overflow, total_lines)``。交互卡与记录卡共用这一份 ——
+    两处各写一份时，交互卡那版在短详情上会拼出「… 还有 -5 行」。
+    """
+    full = _clip_detail(detail)
+    lines = full.split("\n") if full else []
+    overflow = len(lines) > DETAIL_COLLAPSED_LINES
+    if expanded:
+        return full, overflow, len(lines)
+    kept = lines[:DETAIL_COLLAPSED_LINES]
+    if overflow:
+        kept.append(f"… 还有 {len(lines) - DETAIL_COLLAPSED_LINES} 行")
+    return "\n".join(kept), overflow, len(lines)
+
+
 # -- 工具卡默认展开策略 ---------------------------------------------------
 #
 # 「哪些工具默认展开」是**宿主的产品决策**，不该硬编码在库里 —— 所以默认策略
@@ -204,8 +234,11 @@ LAYOUT_SPACING = 6
 # 签名刻意做成纯函数（无副作用、可单测），形态对齐 opencode 的
 # ``partDefaultOpen``。
 
-#: shell 类工具（小写匹配）—— 命令与输出是多行文本，折叠起来几乎读不到
-_SHELL_TOOLS = ("bash", "shell", "run", "exec", "terminal")
+#: shell 类工具（小写匹配）—— 命令与输出是多行文本，折叠起来几乎读不到。
+#: **两个消费者共用这一份清单**：默认展开策略（:func:`toolDefaultOpenCoding`）
+#: 与 ``ToolCallCard`` 的「pending 时是否允许展开」（``bubble.addToolCall``），
+#: 各写一份必然漂移。
+SHELL_TOOLS = ("bash", "shell", "run", "exec", "terminal")
 
 #: 写文件类工具（小写匹配）—— 展开可能很长，改动内容需要被看到
 _WRITE_TOOLS = ("edit", "write", "patch", "apply_patch")
@@ -243,7 +276,7 @@ def toolDefaultOpenCoding(name: str, arguments=None, ok: bool = True) -> bool:
     if toolDefaultOpen(name, arguments, ok):
         return True
     key = (name or "").lower()
-    if key in _SHELL_TOOLS:
+    if key in SHELL_TOOLS:
         return True
     data = parseToolArguments(arguments) if arguments else {}
     # 只在**有证据**表明这是真实改动时才展开：参数里没有任何 diff 信息就保持
@@ -360,12 +393,35 @@ def toolSubtitle(name: str, arguments) -> str:
     return toolSubtitleParts(arguments)[1]
 
 
+#: 参数摘要里大容器的预览条数（只为看一眼「是什么形状」，不用看全）
+_PREVIEW_ITEMS = 8
+
+
+def _preview_value(value) -> str:
+    """有界地序列化一个参数值（大容器只序列化前 ``_PREVIEW_ITEMS`` 项）。"""
+    if isinstance(value, dict):
+        total = len(value)
+        head = dict(list(value.items())[:_PREVIEW_ITEMS])
+        suffix = f"…(+{total - len(head)} 键)" if total > len(head) else ""
+    elif isinstance(value, (list, tuple)):
+        total = len(value)
+        head = list(value[:_PREVIEW_ITEMS])
+        suffix = f"…(+{total - len(head)} 项)" if total > len(head) else ""
+    else:
+        return str(value)
+    try:
+        return _json.dumps(head) + suffix
+    except (TypeError, ValueError):
+        return str(head) + suffix
+
+
 def toolArgumentPairs(arguments, limit: int = 3, excludeKey: str = "") -> list:
     """提取 ``key=value`` 形式的参数摘要（最多 ``limit`` 个）。
 
     副标题已经展示过的值**不该在参数里再出现一次**（纯噪音）：
     ``read(path="a.py")`` 因此只显示一次 ``a.py``，而不是副标题 + ``path=a.py``
-    各一份。
+    各一份。大容器（长列表 / 大对象）走**有界预览**，不会为了最终只留 47 个
+    字符先把整个值全量序列化一遍。
 
     :param limit: 最多返回几条
     :param excludeKey: 要排除的键。调用方**自己**决定传什么：通用路径传
@@ -383,7 +439,7 @@ def toolArgumentPairs(arguments, limit: int = 3, excludeKey: str = "") -> list:
         elif isinstance(value, (int, float, bool)):
             text = str(value)
         else:
-            text = _json.dumps(value)
+            text = _preview_value(value)
         if len(text) > 48:
             text = text[:47] + "…"
         pairs.append(f"{key}={text}")
@@ -393,10 +449,17 @@ def toolArgumentPairs(arguments, limit: int = 3, excludeKey: str = "") -> list:
 
 
 def formatDuration(durationMs: float) -> str:
-    """耗时格式化：``3.2s`` / ``1m 20s``。"""
+    """耗时格式化：``3.2s`` / ``1m 20s``（非有限值按「未统计」返回空串）。"""
     if not durationMs:
         return ""
-    seconds = max(0.0, float(durationMs)) / 1000.0
+    try:
+        seconds = max(0.0, float(durationMs)) / 1000.0
+    except (TypeError, ValueError, OverflowError):
+        return ""
+    if not math.isfinite(seconds):
+        # inf // 60 是 nan，int(nan) 抛 ValueError —— 宿主 / 后端给个 inf 就能
+        # 在 Qt 槽链上炸掉整个进程，这里按「未统计」处理。
+        return ""
     if seconds < 60:
         return f"{seconds:.1f}s"
     minutes = int(seconds // 60)
@@ -419,18 +482,29 @@ def _clean_heading(raw: str) -> str:
     return re.sub(r"^[\-\*\d\.、\s]+", "", heading).strip()
 
 
+def _iter_heading_matches(pattern, text):
+    """按「单行上限」过滤的模式匹配（与 :class:`_HeadingScanner` 同口径）。"""
+    for match in pattern.finditer(text):
+        lines = match.group(0).replace("\r", "").split("\n")
+        if any(len(line) > _HEADING_LINE_LIMIT for line in lines):
+            continue
+        yield match
+
+
 def extractReasoningHeading(text: str) -> str:
     """从推理文本中抽取标题（ATX / 加粗行 / Setext），并清洗行内标记。
 
     按模式优先级（ATX > 加粗 > Setext）返回**首个清洗后非空**的命中；
     仅识别显式 Markdown 标题，普通正文不返回首行，避免与思考正文重复展示。
-    与 :class:`_HeadingScanner` 的增量结果保持一致（同一语义两套实现）。
+    与 :class:`_HeadingScanner` 的增量结果保持一致（同一语义两套实现）——
+    **含「单行超长视为不可能」这一条**：增量扫描器为控成本跳过超长行，
+    全量抽取此前不设上限，一行 300 字符的加粗文本会让两者给出不同结果。
     """
     if not text:
         return ""
     text = re.sub(r"\r+\n", "\n", text)
     for pattern in _HEADING_PATTERNS:
-        for match in pattern.finditer(text):
+        for match in _iter_heading_matches(pattern, text):
             heading = _clean_heading(match.group(1))
             if heading:
                 return heading
@@ -700,6 +774,10 @@ class _AvatarBadge(QWidget):
         return QPointF(round(x * dpr) / dpr, round(y * dpr) / dpr)
 
 
+#: 生成中状态点的呼吸周期（ms）。持续动效，Reduced/Disabled 下停掉（见 _motion）。
+STATUS_DOT_BREATH_MS = 600
+
+
 class _StatusDot(QWidget):
     """6px 状态点：生成中呼吸（明暗交替），其余状态静态。"""
 
@@ -711,7 +789,6 @@ class _StatusDot(QWidget):
         self._active = False
         self._phase = False
         self._timer = QTimer(self)
-        self._timer.setInterval(600)
         self._timer.timeout.connect(self._tick)
         self.hide()
 
@@ -727,7 +804,11 @@ class _StatusDot(QWidget):
             return
         self._active = on
         if on:
-            self._timer.start()
+            # 持续动效：Reduced/Disabled 下不启动（停掉，不是放慢 —— 转得更慢的
+            # 呼吸看起来像卡住而不是在忙）。停掉时 paintEvent 画满不透明度的静态点。
+            start_idle_loop(
+                self._timer, STATUS_DOT_BREATH_MS, on_stop=self._settleStaticDot
+            )
         else:
             self._timer.stop()
             self._phase = False
@@ -741,11 +822,23 @@ class _StatusDot(QWidget):
         self._phase = not self._phase
         self.update()
 
+    def _settleStaticDot(self) -> None:
+        """呼吸循环停掉 → 相位归到「亮着」并重画。
+
+        停掉时若停在低相位就是一个若隐若现的灰点，看不出「正在生成」。
+        """
+        self._phase = False
+        self.update()
+
     def paintEvent(self, _event) -> None:  # noqa: N802 (Qt 命名)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         color = QColor(self._color)
-        color.setAlpha(255 if (not self._active or self._phase) else 110)
+        # 判据是「呼吸循环有没有真的在跑」而不是 _active：动效策略可能在运行期把
+        # 循环停掉（_active 仍是 True），那时必须画**满不透明度**的静态点 ——
+        # 停在低相位就是一个若隐若现的灰点，看不出「正在生成」。
+        breathing = idle_loop_running(self._timer)
+        color.setAlpha(255 if (not breathing or self._phase) else 110)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(color)
         painter.drawEllipse(QRectF(self.rect()))
@@ -774,6 +867,9 @@ class MessageHeader(ElaThemeWidget):
         self._texts.setSpacing(1)
         self._title_label = ElaText(self)
         self._title_label.setWordWrap(False)
+        # 标题 / 时间 / 状态都可能是宿主或模型给的文本（模型名、自定义名），
+        # AutoText 会把 "<b>" / "<img src=...>" 真解析。
+        self._title_label.setTextFormat(Qt.TextFormat.PlainText)
 
         self._subtitle_row = QWidget(self)
         self._subtitle_layout = QHBoxLayout(self._subtitle_row)
@@ -781,10 +877,12 @@ class MessageHeader(ElaThemeWidget):
         self._subtitle_layout.setSpacing(4)
         self._time_label = ColorText(self._subtitle_row)
         self._time_label.setWordWrap(False)
+        self._time_label.setTextFormat(Qt.TextFormat.PlainText)
         self._sep_label = ColorText("·", self._subtitle_row)
         self._status_dot = _StatusDot(self._subtitle_row)
         self._status_label = ColorText(self._subtitle_row)
         self._status_label.setWordWrap(False)
+        self._status_label.setTextFormat(Qt.TextFormat.PlainText)
         if role == ElaChatRole.User:
             self._subtitle_layout.addStretch(1)
         self._subtitle_layout.addWidget(self._time_label)
@@ -909,9 +1007,9 @@ class MessageHeader(ElaThemeWidget):
     def _status_color(self) -> QColor:
         mode = self._theme_mode
         if self._status_kind == ElaChatStatus.Error:
-            return blend(text_color(mode), QColor("#e81123"), 0.55)
+            return blend(text_color(mode), statusColor(mode, StatusRole.Error), 0.55)
         if self._status_kind == ElaChatStatus.Stopped:
-            return blend(text_color(mode), QColor("#d97706"), 0.5)
+            return blend(text_color(mode), statusColor(mode, StatusRole.Warning), 0.5)
         return accent_color(mode)
 
     def _apply_theme(self) -> None:
@@ -942,6 +1040,7 @@ class MessageMeta(ElaThemeWidget):
         self._title = ""
         self._duration_ms = 0.0
         self._label = ColorText(self)
+        self._label.setTextFormat(Qt.TextFormat.PlainText)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -997,9 +1096,9 @@ class _CollapsibleBlock(_ThemeAwareMixin, ElaScrollPageArea):
 
     def __init__(
         self,
+        parent: Optional[QWidget] = None,
         title: str = "",
         opened: bool = True,
-        parent: Optional[QWidget] = None,
         surface: bool = True,
     ) -> None:
         super().__init__(parent)
@@ -1034,6 +1133,8 @@ class _CollapsibleBlock(_ThemeAwareMixin, ElaScrollPageArea):
         self._chevron.setBorderRadius(4)
         self._title_label = ColorText(self)
         self._title_label.setWordWrap(False)
+        # 折叠块标题含外部数据（工具名 / 审批 action）—— 一律纯文本渲染
+        self._title_label.setTextFormat(Qt.TextFormat.PlainText)
         self._busy = ElaProgressRing(self)
         self._busy.setFixedSize(14, 14)
         self._busy.setIsTransparent(True)
@@ -1236,7 +1337,7 @@ class ReasoningBlock(_CollapsibleBlock):
         # 异常穿出 Qt 回调就是 0xC0000409 静默 abort。
         try:
             millis = float(durationMs) if durationMs else 0.0
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             millis = 0.0
         if millis > 0:
             self.setTitle(f"思考完成 ({millis / 1000:.1f}s)")
@@ -1304,6 +1405,8 @@ class ThinkingRow(ElaThemeWidget):
         self._label.setWordWrap(False)
         self._heading_label = ColorText(self)
         self._heading_label.setWordWrap(False)
+        # 标题来自 extractReasoningHeading（模型推理文本），必须按纯文本渲染
+        self._heading_label.setTextFormat(Qt.TextFormat.PlainText)
         layout.addWidget(self._ring)
         layout.addWidget(self._label)
         layout.addWidget(self._heading_label, 1)
@@ -1362,11 +1465,11 @@ class ToolCallCard(_CollapsibleBlock):
 
     def __init__(
         self,
+        parent: Optional[QWidget] = None,
         tool_call: Optional[ElaChatToolCall] = None,
         name: str = "",
         arguments: str = "",
         toolCallId: str = "",
-        parent: Optional[QWidget] = None,
         allowOpenWhilePending: bool = False,
         defaultOpen: Optional[bool] = None,
     ) -> None:
@@ -1400,6 +1503,10 @@ class ToolCallCard(_CollapsibleBlock):
         self._icon.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._icon.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._icon.setBorderRadius(4)
+        # 记下默认图标色：Error -> Done 时 Q_PROPERTY 不会自动还原，得手动写回
+        # （否则命令执行成功、图标还是失败红）。
+        self._default_icon_light = self._icon.getLightIconColor()
+        self._default_icon_dark = self._icon.getDarkIconColor()
         self.insertHeaderWidget(0, self._icon)
         self._subtitle_label = ColorText(self)
         self._subtitle_label.setAttribute(
@@ -1430,6 +1537,14 @@ class ToolCallCard(_CollapsibleBlock):
         self._sync_header()
         self._apply_theme()
 
+    def showEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        # 初始展开（defaultOpen / 宿主策略）的卡：super().__init__ 先 setChecked
+        # 后连 toggled，初始展开不会再触发 _on_toggled —— 首次显示时补建正文，
+        # 否则箭头朝下却一块空白，要手动收再展开。
+        super().showEvent(event)
+        if self.isOpened() and not self._body_built:
+            self._build_body()
+
     # -- 数据 --------------------------------------------------------------
 
     def toolCall(self, callId: Optional[str] = None) -> ElaChatToolCall:
@@ -1445,8 +1560,14 @@ class ToolCallCard(_CollapsibleBlock):
         return self._call.name
 
     def setMessageId(self, messageId: int) -> None:
-        """设置所属消息 id（供渲染器上下文用，建卡后可补设）。"""
+        """设置所属消息 id（供渲染器上下文用，建卡后可补设）。
+
+        初始展开的卡在**拿到消息 id 之后**才建正文：渲染器上下文需要它，
+        构造期抢跑的话快照里的 ``messageId`` 永远是 0。
+        """
         self._message_id = int(messageId or 0)
+        if self.isOpened() and not self._body_built:
+            self._build_body()
 
     def setArguments(self, arguments: str) -> None:
         """设置调用参数文本。"""
@@ -1686,10 +1807,9 @@ class ToolCallCard(_CollapsibleBlock):
             return
         mode = self._theme_mode
         is_error = self._call.status == ElaChatToolStatus.Error
+        danger = statusColor(mode, StatusRole.Error)
         title_color = (
-            blend(text_color(mode), QColor("#e81123"), 0.45)
-            if is_error
-            else text_color(mode)
+            blend(text_color(mode), danger, 0.45) if is_error else text_color(mode)
         )
         self._title_label.setTextColor(title_color)
         self._title_label.setTextPixelSize(13)
@@ -1714,8 +1834,14 @@ class ToolCallCard(_CollapsibleBlock):
                 value.setTextPixelSize(12)
         if is_error:
             self._icon.setAwesome(ElaIconType.IconName.Ban)
-            self._icon.setLightIconColor(QColor("#e81123"))
-            self._icon.setDarkIconColor(QColor("#e81123"))
+            self._icon.setLightIconColor(danger)
+            self._icon.setDarkIconColor(danger)
+        else:
+            # Error -> Done 的重复上报要把图标字形与颜色**一起**还原，
+            # 否则命令明明成功了、图标还是失败红。
+            self._icon.setAwesome(toolIconName(self._call.name))
+            self._icon.setLightIconColor(self._default_icon_light)
+            self._icon.setDarkIconColor(self._default_icon_dark)
         self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
@@ -1725,7 +1851,7 @@ class ToolCallCard(_CollapsibleBlock):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#e81123"))
+        painter.setBrush(statusColor(self._theme_mode, StatusRole.Error))
         painter.drawRoundedRect(0, 6, 3, max(0, self.height() - 12), 1.5, 1.5)
         painter.end()
 
@@ -1989,7 +2115,8 @@ class AttachmentStrip(ElaThemeWidget):
 
     - 点击通知宿主，× / 关闭按钮移除；
     - ``setAlignment(AlignRight)`` 时自动收缩宽度并靠右（用户消息）；
-    - 图片缩略图经 :meth:`addPastedImage` 以 ``digest`` 去重。
+    - 粘贴图片的图像挂在附件的 ``image`` 字段上（运行时，**不序列化**），
+      以 ``digest`` 去重。
     """
 
     #: 附件被点击（参数：文件路径，可能为空）
@@ -2003,7 +2130,6 @@ class AttachmentStrip(ElaThemeWidget):
         super().__init__(parent)
         self._attachments: list[ElaChatAttachment] = []
         self._cards: list = []
-        self._pixmaps: dict = {}
         self._alignment = Qt.AlignmentFlag.AlignLeft
         self._layout = ElaFlowLayout(self, 0, 6, 6)
         policy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
@@ -2034,7 +2160,7 @@ class AttachmentStrip(ElaThemeWidget):
         self, name: str, path: str = "", size: int = 0
     ) -> ElaChatAttachment:
         """追加一个附件并返回快照（同路径自动去重）。"""
-        attachment = ElaChatAttachment(name=name, path=path, size=int(size))
+        attachment = ElaChatAttachment(name=name, path=path, size=_as_int(size))
         if path and any(item.path == path for item in self._attachments):
             return attachment
         self._append(attachment)
@@ -2047,7 +2173,11 @@ class AttachmentStrip(ElaThemeWidget):
         name: str = "粘贴的图片.png",
         digest: str = "",
     ) -> Optional[ElaChatAttachment]:
-        """追加剪贴板图片附件（以 digest 去重），返回快照。"""
+        """追加剪贴板图片附件（以 digest 去重），返回快照。
+
+        图像挂在附件的 ``image`` 字段上（**不序列化**）：附件对象在输入区与
+        消息之间流转，撤回回填 / 消息气泡都据此渲染缩略图。
+        """
         if digest and any(item.digest == digest for item in self._attachments):
             return None
         attachment = ElaChatAttachment(
@@ -2056,10 +2186,8 @@ class AttachmentStrip(ElaThemeWidget):
             size=0,
             digest=digest,
             mime="image/png",
+            image=image,
         )
-        pixmap = QPixmap.fromImage(image)
-        if not pixmap.isNull():
-            self._pixmaps[digest or name] = pixmap
         self._append(attachment)
         self.changed.emit(self.attachments())
         return attachment
@@ -2103,7 +2231,6 @@ class AttachmentStrip(ElaThemeWidget):
             self._drop_card(card)
         self._attachments.clear()
         self._cards.clear()
-        self._pixmaps.clear()
         self.setVisible(False)
         self.changed.emit([])
 
@@ -2194,7 +2321,7 @@ class AttachmentStrip(ElaThemeWidget):
             return ElaChatAttachment(
                 name=str(item.get("name") or "文件"),
                 path=str(item.get("path") or ""),
-                size=int(item.get("size") or 0),
+                size=_as_int(item.get("size")),
                 digest=str(item.get("digest") or ""),
                 mime=str(item.get("mime") or ""),
             )
@@ -2222,8 +2349,10 @@ class AttachmentStrip(ElaThemeWidget):
     def _create_card(self, attachment: ElaChatAttachment) -> QWidget:
         tooltip = attachment.path or attachment.name
         if attachment.isImage:
-            pixmap = self._pixmaps.get(attachment.digest or attachment.name)
-            if pixmap is None and attachment.path:
+            pixmap = None
+            if attachment.image is not None:
+                pixmap = QPixmap.fromImage(attachment.image)
+            if (pixmap is None or pixmap.isNull()) and attachment.path:
                 pixmap = QPixmap(attachment.path)
             if pixmap is not None and not pixmap.isNull():
                 card = _ImageAttachmentCard(pixmap, tooltip, self)
@@ -2249,8 +2378,8 @@ class AttachmentStrip(ElaThemeWidget):
         card.deleteLater()
 
     def _remove_at(self, index: int) -> None:
-        self._drop_card(self._cards.pop(index))
         self._attachments.pop(index)
+        self._drop_card(self._cards.pop(index))
         self.setVisible(bool(self._attachments))
         self.syncWidth()
 
@@ -2627,7 +2756,7 @@ class CompactionSeparator(_ThemeAwareMixin, ElaScrollPageArea):
         """设置被压缩的历史条数（只影响文案）。"""
         try:
             self._count = max(0, int(count))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             self._count = 0
         self._sync_label()
 
@@ -2762,6 +2891,7 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         self._answers: dict = {}  # key -> [已选 label]
         self._custom: dict = {}  # key -> 自定义答案文本
         self._custom_on: dict = {}  # key -> 自定义行是否处于「选中」
+        self._drafts: dict = {}  # key -> 未提交的自定义草稿（刷新重建后恢复）
         self._editing = ""  # 正在编辑自定义答案的 key
         self._focus_row = 0  # 键盘焦点所在行号
         self._segments: list = []  # QuestionSegment
@@ -2830,6 +2960,8 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         # 大量 diff 必须能折叠 —— 一次 ``git diff`` 动辄上千行，全量摊在卡片里会把
         # 整条消息撑到几千像素，用户连「要不要批」都来不及看。
         self._detail_expanded = False
+        #: 详情折叠态归属的请求 id（换请求才复位折叠）
+        self._detail_request = ""
         self._detail_toggle = ElaButton(
             "展开全部", variant="link", size="small", parent=self
         )
@@ -3060,6 +3192,7 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         self._answers.clear()
         self._custom.clear()
         self._custom_on.clear()
+        self._drafts.clear()
         self._editing = ""
 
     def _current_values(self, question) -> list:
@@ -3101,14 +3234,16 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         is_question = permission.isQuestion
         self._question_box.setVisible(is_question)
         self._footer.setVisible(is_question)
-        # 动作区的显隐只有 ``_sync_actions`` 一处说了算（它还要看 responding）
+        # 动作区的显隐只有 ``_sync_actions`` 一处说了算（它还要看 responding）；
+        # question 分支也必须调它 —— 否则同一张卡从批准型切到问答型时，批准三键
+        # 与已展开的拒绝理由行会留在问答卡上。
         if is_question:
             self._sync_header(permission)
             self._sync_detail(permission)
             self._sync_question()
             self._sync_segments()
             self._sync_footer()
-            self._sync_options_enabled()
+            self._sync_actions()
         else:
             self._segment_box.hide()
             self._progress.hide()
@@ -3159,7 +3294,11 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         **答案摘要不在这里渲染** —— 那是 :class:`PermissionRecord` 的活：交互卡
         落定即销毁，没必要为一闪而过的状态再写一套。
         """
-        self._detail_expanded = False
+        if permission.request_id != self._detail_request:
+            # 只在新请求时复位折叠；同一 request 的状态刷新（``setResponding``
+            # 两段式的回填）不能把用户刚展开的长 diff 折回去。
+            self._detail_expanded = False
+            self._detail_request = permission.request_id
         self._sync_detail_text(permission.detail or "")
 
     def _sync_detail_text(self, detail: str) -> None:
@@ -3174,33 +3313,15 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
             self._detail.hide()
             self._detail_toggle.hide()
             return
-        full = self._clip_detail(detail)
-        lines = full.split("\n")
-        overflow = len(lines) > DETAIL_COLLAPSED_LINES
-        if self._detail_expanded:
-            shown = full
-        else:
-            kept = lines[:DETAIL_COLLAPSED_LINES]
-            kept.append(f"… 还有 {len(lines) - DETAIL_COLLAPSED_LINES} 行")
-            shown = "\n".join(kept)
+        shown, overflow, total = _collapsed_detail(detail, self._detail_expanded)
         self._detail.setText(shown)
         self._detail.show()
         self._detail_toggle.setVisible(overflow)
         self._detail_toggle.setText(
-            f"收起（共 {len(lines)} 行）"
+            f"收起（共 {total} 行）"
             if self._detail_expanded
-            else f"展开全部（共 {len(lines)} 行）"
+            else f"展开全部（共 {total} 行）"
         )
-
-    @staticmethod
-    def _clip_detail(detail: str) -> str:
-        """截断超长单行（展开态也照截，否则点开就炸）。"""
-        out = []
-        for line in detail.split("\n"):
-            if len(line) > DETAIL_MAX_LINE_CHARS:
-                line = line[:DETAIL_MAX_LINE_CHARS] + " …（本行已截断）"
-            out.append(line)
-        return "\n".join(out)
 
     def _toggle_detail(self) -> None:
         permission = self._permission
@@ -3256,11 +3377,11 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         self, question, label: str, description: str, index: int, *, custom: bool
     ):
         row = QuestionOptionCard(
-            label,
-            description,
+            self._options_host,
+            value=label,
+            description=description,
             multi=question.isMultiple,
             isCustom=custom,
-            parent=self._options_host,
         )
         row.setRowIndex(index)
         row.activate.connect(lambda value, q=question: self._on_activate(q, value))
@@ -3274,6 +3395,12 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         return row
 
     def _clear_options(self) -> None:
+        # 正在编辑的自定义草稿要先存下来：``setPermission`` 的刷新会走到这里
+        # 销毁行控件，重建后草稿若不在 ``_drafts`` 里就永远找不回来了。
+        if self._editing:
+            row = self._custom_row(self._editing)
+            if row is not None and row.editorText():
+                self._drafts[self._editing] = row.editorText()
         for rows in self._rows.values():
             for row in rows:
                 self._options_box.removeWidget(row)
@@ -3294,7 +3421,8 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
             picked = set(self._current_values(question))
             for row in self._rows.get(question.key, ()):
                 row.setPicked(row.value() in picked)
-                if row.isCustom():
+                # 正在编辑的行不要覆盖：用户没提交的字比已提交值新（草稿优先）
+                if row.isCustom() and not row.isEditing():
                     row.setEditorText(self._custom.get(question.key, ""))
         self._sync_segments()
 
@@ -3335,6 +3463,7 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         self._custom[key] = text
         self._custom_on[key] = True
         self._answers.pop(key, None)
+        self._drafts.pop(key, None)
         self._editing = ""
         row = self._custom_row(key)
         if row is not None:
@@ -3366,8 +3495,11 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         self._editing = key
         row = self._custom_row(key)
         if row is not None:
+            # 编辑器里已有内容（Esc 保留的未提交草稿 / 行重建后恢复的草稿）就
+            # 不要用已提交值覆盖 —— 那会把用户刚敲的字抹掉。
+            if not row.editorText():
+                row.setEditorText(self._drafts.get(key) or self._custom.get(key, ""))
             row.setEditing(True)
-            row.setEditorText(self._custom.get(key, ""))
 
     def _move_focus(self, delta: int) -> None:
         """方向键 / Home / End 在当前题的候选卡之间移动焦点。"""
@@ -3403,9 +3535,9 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
             self._segments.append(segment)
         for index, segment in enumerate(self._segments):
             question = questions[index]
-            answered = bool(self._answers.get(question.key)) or bool(
-                self._custom.get(question.key)
-            )
+            # 与 ``_build_answer`` / ``answers()`` 同一口径（``_current_values``）：
+            # 只看 ``_custom`` 有没有文本会把「已取消勾选」的自定义答案判成已答。
+            answered = bool(self._current_values(question))
             segment.setState(index == self._tab, answered)
         self._segment_box.setVisible(len(questions) > 1)
 
@@ -3471,14 +3603,17 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         permission = self._permission
         if permission is None or permission.isQuestion:
             self._actions.hide()
+            # 问答型不该看到批准型的拒绝理由行（同一张卡换请求类型时尤其明显）
+            self._feedback_row.hide()
         else:
             pending = permission.isPending and not self._responding
             self._actions.setVisible(pending)
             for button in self._action_buttons():
                 button.setEnabled(pending)
             if permission.isPending:
+                # 用 isHidden 判据（isVisible 要求整条父链已显示，未 show 时恒 False）
                 self._feedback_row.setVisible(
-                    self._feedback_row.isVisible() and pending
+                    not self._feedback_row.isHidden() and pending
                 )
             else:
                 self._feedback_row.hide()
@@ -3614,29 +3749,18 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         """在卡片本体上复现同一套快捷键；返回是否已消费。"""
         if not self._live():
             return False
-        key = event.key()
-        mods = event.modifiers()
-        ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
-        alt = bool(mods & Qt.KeyboardModifier.AltModifier)
-        plain = not (
-            ctrl
-            or alt
-            or mods
-            & (Qt.KeyboardModifier.MetaModifier | Qt.KeyboardModifier.ShiftModifier)
-        )
-        if ctrl and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+        action = globalKeyAction(event.key(), event.modifiers())
+        if action is None:
+            return False
+        if action == "next":
             self._go_next()
-            return True
-        if alt and key == Qt.Key.Key_Left:
+        elif action == "back":
             self._go_back()
-            return True
-        if plain and key == Qt.Key.Key_Escape:
+        elif action == "dismiss":
             self._emit_reply(ElaChatPermissionStatus.Cancelled, "", "")
-            return True
-        if plain and Qt.Key.Key_1 <= key <= Qt.Key.Key_9:
-            self._on_global_key(f"digit:{key - Qt.Key.Key_1}")
-            return True
-        return False
+        else:
+            self._on_global_key(action)
+        return True
 
 
 class PermissionRecord(_CollapsibleBlock):
@@ -3789,23 +3913,14 @@ class PermissionRecord(_CollapsibleBlock):
             self._resources.setText("")
             self._resources.hide()
         detail = self._raw_detail(permission)
-        full = PermissionCard._clip_detail(detail)
-        lines = full.split("\n") if full else []
-        overflow = len(lines) > DETAIL_COLLAPSED_LINES
-        if self._detail_expanded:
-            shown = full
-        else:
-            kept = lines[:DETAIL_COLLAPSED_LINES]
-            if overflow:
-                kept.append(f"… 还有 {len(lines) - DETAIL_COLLAPSED_LINES} 行")
-            shown = "\n".join(kept)
+        shown, overflow, total = _collapsed_detail(detail, self._detail_expanded)
         self._detail.setText(shown)
         self._detail.setVisible(bool(shown))
         self._detail_toggle.setVisible(overflow)
         self._detail_toggle.setText(
-            f"收起（共 {len(lines)} 行）"
+            f"收起（共 {total} 行）"
             if self._detail_expanded
-            else f"展开全部（共 {len(lines)} 行）"
+            else f"展开全部（共 {total} 行）"
         )
 
     def _toggle_detail(self) -> None:
@@ -3825,9 +3940,9 @@ class PermissionRecord(_CollapsibleBlock):
         if permission is not None and permission.status == (
             ElaChatPermissionStatus.Rejected
         ):
-            accent = QColor("#e81123")
+            accent = statusColor(mode, StatusRole.Error)
         elif permission is not None and not permission.isPending:
-            accent = QColor("#16a34a")
+            accent = statusColor(mode, StatusRole.Success)
         else:
             accent = text_color(mode)
         self._title_label.setTextColor(accent)
@@ -3960,7 +4075,7 @@ class ErrorCard(_ThemeAwareMixin, ElaScrollPageArea):
 
     def _apply_theme(self) -> None:
         mode = self._theme_mode
-        danger = QColor("#e81123")
+        danger = statusColor(mode, StatusRole.Error)
         base = base_color(mode)
         text = text_color(mode)
         setSolidBackground(self._rail, danger)

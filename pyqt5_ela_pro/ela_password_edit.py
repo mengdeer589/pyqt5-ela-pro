@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import QWidget, QAction, QLineEdit
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaLineEdit, ElaIcon, ElaIconType
 
-from ._internal import disconnect_theme_signal
+from ._internal import connect_theme_signal, disconnect_theme
 
 
 class ElaPasswordEdit(ElaLineEdit):
@@ -41,15 +41,11 @@ class ElaPasswordEdit(ElaLineEdit):
         self._toggle_action.triggered.connect(self._on_toggle_visibility)
 
         self._update_eye_icon()
-        eTheme.themeModeChanged.connect(self._update_eye_icon)
-        self.destroyed.connect(self._password_theme_cleanup)
-
-    def _password_theme_cleanup(self) -> None:
-        disconnect_theme_signal(self._update_eye_icon)
+        connect_theme_signal(self, self._update_eye_icon)
 
     def deleteLater(self) -> None:
         """断开主题信号并清理资源。"""
-        self._password_theme_cleanup()
+        disconnect_theme(self)
         super().deleteLater()
 
     def set_is_password_visible(self, visible: bool) -> None:

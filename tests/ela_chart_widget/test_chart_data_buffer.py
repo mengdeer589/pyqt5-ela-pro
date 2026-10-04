@@ -19,7 +19,6 @@ from pyqt5_ela_pro.charts.core import ElaChartWidget
 from pyqt5_ela_pro.charts.data import (
     ElaNumericBuffer,
     isBufferLike,
-    normalizeOptionData,
     numpyAvailable,
     toBuffer,
     unwrapData,
@@ -172,26 +171,9 @@ class TestToBufferGating:
         assert unwrapData(None) is None
 
 
-class TestNormalizeOptionData:
-    def test_only_touches_series_data(self):
-        """只包装 series[].data；xAxis.data 必须保持 list（按类别语义读取）。"""
-        opt = {
-            "xAxis": {"type": "category", "data": ["a"] * 500},
-            "series": [{"type": "line", "data": _flat()}],
-        }
-        normalizeOptionData(opt)
-        assert isinstance(opt["series"][0]["data"], ElaNumericBuffer)
-        assert isinstance(opt["xAxis"]["data"], list), "xAxis.data 被误包装"
-
-    def test_no_series_key_is_noop(self):
-        opt = {"xAxis": {"type": "value"}}
-        assert normalizeOptionData(opt) is opt
-        assert normalizeOptionData(None) is None
-
-    def test_non_dict_series_skipped(self):
-        opt = {"series": [1, 2, "x"]}
-        normalizeOptionData(opt)
-        assert opt["series"] == [1, 2, "x"]
+# ``normalizeOptionData`` 已删除（死代码）：它只包装 series[].data，而
+# ``setOption`` 的摄入路径走 ``_copy_series_entry`` / ``_merge_option_array``
+# （同时服务 dataZoom / graphic），全库无人调用它。相关用例随函数一并删除。
 
 
 # ---------------------------------------------------------------------------

@@ -92,7 +92,7 @@ class TestMarkdownSelection:
 
 
 class TestSelectionQuoted:
-    def test_copy_emits_signal_and_clipboard(self, qapp):
+    def test_copy_emits_signal_and_clipboard(self, qapp, requires_clipboard):
         v = ElaMarkdownViewer()
         v.setMarkdown(SOURCE)
         _select_block(v, "列表项二")

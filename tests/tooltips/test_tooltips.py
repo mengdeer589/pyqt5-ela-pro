@@ -293,9 +293,14 @@ class TestToolTipTheme:
 
         tooltip = ElaToolTip("提示")
         tooltip._onThemeChanged(ElaThemeType.ThemeMode.Light)
-        assert tooltip._label.palette().color(QPalette.ColorRole.WindowText).name() == light
+        assert (
+            tooltip._label.palette().color(QPalette.ColorRole.WindowText).name()
+            == light
+        )
         tooltip._onThemeChanged(ElaThemeType.ThemeMode.Dark)
-        assert tooltip._label.palette().color(QPalette.ColorRole.WindowText).name() == dark
+        assert (
+            tooltip._label.palette().color(QPalette.ColorRole.WindowText).name() == dark
+        )
         assert tooltip._currentTheme == ElaThemeType.ThemeMode.Dark
         assert tooltip._label.font().pixelSize() == 12
         tooltip.deleteLater()

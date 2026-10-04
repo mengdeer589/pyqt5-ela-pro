@@ -22,6 +22,7 @@ from PyQt5.QtGui import QPainter, QPainterPath, QPen
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QWidget
 from PyQt5ElaWidgetTools import ElaIconButton, ElaThemeType, eTheme
 
+from .._styles import SHADOW_MARGIN, paintOverlayShadow
 from ..ela_button import ElaButton
 from ..tooltips import ElaToolTipPosition, set_tooltip
 from ..widget_base import ElaThemeWidget
@@ -62,9 +63,17 @@ class ElaSelectionPopup(ElaThemeWidget):
         self._buttons: Dict[str, QWidget] = {}
         self._compact = False
         self._offset = QPoint(_DEFAULT_OFFSET)
+        #: 最近一次 popupAt 的锚点（可见期间重建 / 改尺寸后据此重新收敛屏幕）
+        self._anchor: Optional[QPoint] = None
 
         self._layout = QHBoxLayout(self)
-        self._layout.setContentsMargins(_PADDING_H, _PADDING_V, _PADDING_H, _PADDING_V)
+        # 阴影边距统一预留（paintEvent 里 translate 同值；别各写魔数）
+        self._layout.setContentsMargins(
+            _PADDING_H + SHADOW_MARGIN,
+            _PADDING_V + SHADOW_MARGIN,
+            _PADDING_H + SHADOW_MARGIN,
+            _PADDING_V + SHADOW_MARGIN,
+        )
         self._layout.setSpacing(2)
         self.hide()
 
@@ -113,6 +122,7 @@ class ElaSelectionPopup(ElaThemeWidget):
         """在指定全局坐标附近弹出（越界翻转并收敛到屏幕工作区）。"""
         if not self.hasActions():
             return
+        self._anchor = QPoint(pos)
         self.adjustSize()
         width, height = self.width(), self.height()
         screen = QApplication.screenAt(pos) or QApplication.primaryScreen()
@@ -147,9 +157,20 @@ class ElaSelectionPopup(ElaThemeWidget):
                 continue
             button = self._build_button(action)
             self._layout.addWidget(button)
+            # 新建子控件默认是 hidden 状态，会被 QLayout 排除在 sizeHint 之外
+            # （可见期重建时拿到「只剩边距」的假尺寸，收敛算错）→ 显式 show
+            button.show()
             self._buttons[action.id] = button
+        if not self._buttons:
+            # 动作被清空 / 全部禁用：不能把没有按钮的空盒子留在屏幕上
+            if self.isVisible():
+                self.hide()
+            return
         self.adjustSize()
         self.update()
+        if self.isVisible() and self._anchor is not None:
+            # 可见期间尺寸变了（紧凑切换 / 换动作）→ 按原锚点重新收敛屏幕
+            self.popupAt(self._anchor)
 
     def _build_button(self, action: ElaMenuItem) -> QWidget:
         tooltip = action.tooltip or action.label
@@ -191,7 +212,11 @@ class ElaSelectionPopup(ElaThemeWidget):
     def paintEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        # 阴影按整窗 rect 画，盒子坐标整体 translate 一次（别逐个加偏移）
+        sm = SHADOW_MARGIN
+        paintOverlayShadow(painter, self.rect(), margin=sm, radius=_RADIUS)
+        painter.translate(sm, sm)
+        rect = QRectF(0.5, 0.5, self.width() - 2 * sm - 1, self.height() - 2 * sm - 1)
         path = QPainterPath()
         path.addRoundedRect(rect, _RADIUS, _RADIUS)
         painter.fillPath(

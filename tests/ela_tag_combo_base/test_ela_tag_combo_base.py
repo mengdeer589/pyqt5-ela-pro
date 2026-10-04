@@ -137,10 +137,10 @@ class TestTagBoxAnimMixin:
         assert host._expand_mark_width == 0.0
         host.deleteLater()
 
-    def test_tag_box_delete_later(self):
+    def test_tag_box_theme_cleanup(self):
         host = AnimMixinHost()
         host._tag_box_init()
-        host._tag_box_delete_later()
+        host._theme_cleanup()
         host.deleteLater()
 
 

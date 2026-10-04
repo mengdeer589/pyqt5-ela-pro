@@ -6,7 +6,7 @@ import os
 
 from _qthelpers import wait_until as _wait_until
 from PyQt5.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
-from PyQt5.QtGui import QDragEnterEvent, QDropEvent
+from PyQt5.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage
 
 import pyqt5_ela_pro.chat.widget as widget_mod
 from pyqt5_ela_pro.chat import (
@@ -15,11 +15,12 @@ from pyqt5_ela_pro.chat import (
     ElaChatStatus,
     ElaChatWidget,
 )
+from pyqt5_ela_pro.chat.blocks import _ImageAttachmentCard
 
 
 class TestRoundTrip:
-    def test_full_generation_flow(self, qapp):
-        chat = ElaChatWidget()
+    def test_full_generation_flow(self, qapp, make):
+        chat = make(ElaChatWidget)
         events = []
         chat.messageSubmitted.connect(lambda text: events.append(("submitted", text)))
         chat.generationStarted.connect(lambda mid: events.append(("started", mid)))
@@ -49,27 +50,24 @@ class TestRoundTrip:
             (1, ElaChatRole.User, "你好", ElaChatStatus.Done),
             (2, ElaChatRole.Assistant, "你好，世界", ElaChatStatus.Done),
         ]
-        chat.deleteLater()
 
-    def test_send_empty_ignored(self, qapp):
-        chat = ElaChatWidget()
+    def test_send_empty_ignored(self, qapp, make):
+        chat = make(ElaChatWidget)
         assert chat.sendUserMessage("   ") is None
         assert chat.chatView().messages() == []
         assert chat.isGenerating() is False
-        chat.deleteLater()
 
-    def test_input_submit_drives_widget(self, qapp):
-        chat = ElaChatWidget()
+    def test_input_submit_drives_widget(self, qapp, make):
+        chat = make(ElaChatWidget)
         submitted = []
         chat.messageSubmitted.connect(submitted.append)
         chat.chatInput().setText("来自输入框")
         chat.chatInput()._button.click()
         assert submitted == ["来自输入框"]
         assert chat.chatView().messages()[0].text == "来自输入框"
-        chat.deleteLater()
 
-    def test_append_with_explicit_id(self, qapp):
-        chat = ElaChatWidget()
+    def test_append_with_explicit_id(self, qapp, make):
+        chat = make(ElaChatWidget)
         first = chat.beginAssistantMessage()
         chat.endAssistantMessage()
         second = chat.beginAssistantMessage()
@@ -79,12 +77,11 @@ class TestRoundTrip:
         assert chat.chatView().message(first).text == "给第一条"
         assert chat.chatView().message(second).text == ""
         assert chat.chatView().bubble(second).text() == "给第二条"
-        chat.deleteLater()
 
 
 class TestStop:
-    def test_stop_marks_stopped(self, qapp):
-        chat = ElaChatWidget()
+    def test_stop_marks_stopped(self, qapp, make):
+        chat = make(ElaChatWidget)
         stops = []
         finished = []
         chat.stopRequested.connect(lambda: stops.append(1))
@@ -100,40 +97,36 @@ class TestStop:
         assert chat.chatView().message(assistant_id).status == ElaChatStatus.Stopped
         assert chat.chatView().message(assistant_id).text == "部分回答"
         assert chat.isGenerating() is False
-        chat.deleteLater()
 
-    def test_stop_without_stream(self, qapp):
-        chat = ElaChatWidget()
+    def test_stop_without_stream(self, qapp, make):
+        chat = make(ElaChatWidget)
         stops = []
         chat.stopRequested.connect(lambda: stops.append(1))
         chat.setGenerating(True)
         chat.stopGeneration()
         assert stops == [1]
         assert chat.isGenerating() is False
-        chat.deleteLater()
 
-    def test_stop_idle_noop(self, qapp):
-        chat = ElaChatWidget()
+    def test_stop_idle_noop(self, qapp, make):
+        chat = make(ElaChatWidget)
         stops = []
         chat.stopRequested.connect(lambda: stops.append(1))
         chat.stopGeneration()
         assert stops == []
-        chat.deleteLater()
 
-    def test_input_stop_button(self, qapp):
-        chat = ElaChatWidget()
+    def test_input_stop_button(self, qapp, make):
+        chat = make(ElaChatWidget)
         chat.sendUserMessage("问题")
         chat.beginAssistantMessage()
         chat.chatInput()._button.click()  # 生成中按钮为「停止」
         assert chat.isGenerating() is False
         assert chat.chatView().messages()[-1].status == ElaChatStatus.Stopped
-        chat.deleteLater()
 
 
 class TestClear:
-    def test_clear_button(self, qapp):
+    def test_clear_button(self, qapp, make):
         """输入区「清空上下文」的 widget 侧清空链路（弹框确认由 requestClear 负责）。"""
-        chat = ElaChatWidget()
+        chat = make(ElaChatWidget)
         chat.show()
         qapp.processEvents()
         cleared = []
@@ -145,7 +138,6 @@ class TestClear:
         assert chat.chatView().messages() == []
         assert chat.isGenerating() is False
         assert chat.chatView()._empty.isVisibleTo(chat.chatView())
-        chat.deleteLater()
 
 
 class TestInputBarClearButton:
@@ -163,8 +155,8 @@ class TestInputBarClearButton:
 
         monkeypatch.setattr(widget_mod, "ElaConfirmDialog", _Fake)
 
-    def test_button_exists_and_visible_by_default(self, qapp):
-        chat = ElaChatWidget()
+    def test_button_exists_and_visible_by_default(self, qapp, make):
+        chat = make(ElaChatWidget)
         chat.show()
         qapp.processEvents()
         button = chat.chatInput().clearButton()
@@ -172,12 +164,11 @@ class TestInputBarClearButton:
         assert chat.chatInput().clearVisible() is True
         chat.chatInput().setClearVisible(False)
         assert chat.chatInput().clearVisible() is False
-        chat.deleteLater()
 
-    def test_click_confirm_clears_and_emits(self, qapp, monkeypatch):
+    def test_click_confirm_clears_and_emits(self, qapp, monkeypatch, make):
         calls = []
         self._mock_confirm(monkeypatch, True, calls)
-        chat = ElaChatWidget()
+        chat = make(ElaChatWidget)
         chat.show()
         qapp.processEvents()
         cleared = []
@@ -201,12 +192,11 @@ class TestInputBarClearButton:
         assert requested == [1]
         assert cleared == [1]
         assert chat.chatView().messages() == []
-        chat.deleteLater()
 
-    def test_click_cancel_keeps_messages(self, qapp, monkeypatch):
+    def test_click_cancel_keeps_messages(self, qapp, monkeypatch, make):
         calls = []
         self._mock_confirm(monkeypatch, False, calls)
-        chat = ElaChatWidget()
+        chat = make(ElaChatWidget)
         chat.show()
         qapp.processEvents()
         cleared = []
@@ -220,11 +210,10 @@ class TestInputBarClearButton:
         assert len(calls) == 1
         assert cleared == []  # 取消 → 不清空
         assert len(chat.chatView().messages()) == 1
-        chat.deleteLater()
 
-    def test_new_topic_signal_forwarded(self, qapp):
+    def test_new_topic_signal_forwarded(self, qapp, make):
         """输入区「新建话题」→ 组件层同名信号（组件不做任何处理，宿主接管）。"""
-        chat = ElaChatWidget()
+        chat = make(ElaChatWidget)
         chat.show()
         qapp.processEvents()
         requested = []
@@ -237,13 +226,12 @@ class TestInputBarClearButton:
         assert requested == [1]
         # 组件不自己开话题：消息与草稿都原样留着
         assert len(chat.chatView().messages()) == 1
-        chat.deleteLater()
         qapp.processEvents()
 
-    def test_empty_session_skips_confirm(self, qapp, monkeypatch):
+    def test_empty_session_skips_confirm(self, qapp, monkeypatch, make):
         calls = []
         self._mock_confirm(monkeypatch, True, calls)
-        chat = ElaChatWidget()
+        chat = make(ElaChatWidget)
         chat.show()
         qapp.processEvents()
         requested = []
@@ -257,13 +245,12 @@ class TestInputBarClearButton:
         assert calls == []
         assert requested == []
         assert cleared == []
-        chat.deleteLater()
 
-    def test_queued_message_counts_as_content(self, qapp, monkeypatch):
+    def test_queued_message_counts_as_content(self, qapp, monkeypatch, make):
         """视图为空、只有排队消息也算有内容：照常确认，确认后队列一并清掉。"""
         calls = []
         self._mock_confirm(monkeypatch, True, calls)
-        chat = ElaChatWidget()
+        chat = make(ElaChatWidget)
         chat.show()
         qapp.processEvents()
         requested = []
@@ -277,7 +264,6 @@ class TestInputBarClearButton:
         assert len(calls) == 1
         assert requested == [1]
         assert chat.queueCount() == 0
-        chat.deleteLater()
 
 
 class TestWidgetDrop:
@@ -291,8 +277,8 @@ class TestWidgetDrop:
         mime.setUrls([QUrl.fromLocalFile(str(file_path))])
         return file_path, mime
 
-    def test_drop_on_message_view_reaches_input(self, qapp, tmp_path):
-        chat = ElaChatWidget()
+    def test_drop_on_message_view_reaches_input(self, qapp, tmp_path, make):
+        chat = make(ElaChatWidget)
         chat.show()
         qapp.processEvents()
         file_path, mime = self._file_mime(tmp_path)
@@ -316,11 +302,10 @@ class TestWidgetDrop:
         assert dropped and os.path.normpath(dropped[0][0]) == os.path.normpath(
             str(file_path)
         )
-        chat.deleteLater()
         qapp.processEvents()
 
-    def test_drag_enter_accepts_and_rejects(self, qapp, tmp_path):
-        chat = ElaChatWidget()
+    def test_drag_enter_accepts_and_rejects(self, qapp, tmp_path, make):
+        chat = make(ElaChatWidget)
 
         def enter(mime):
             event = QDragEnterEvent(
@@ -339,37 +324,33 @@ class TestWidgetDrop:
 
         assert enter(file_mime) is True
         assert enter(text_mime) is False
-        chat.deleteLater()
         qapp.processEvents()
 
 
 class TestPassthrough:
-    def test_suggestions(self, qapp):
-        chat = ElaChatWidget()
+    def test_suggestions(self, qapp, make):
+        chat = make(ElaChatWidget)
         chat.chatView().setSuggestions(["A", "B"])
         assert chat.chatView().suggestions() == ["A", "B"]
         clicked = []
         chat.suggestionClicked.connect(clicked.append)
         chat.chatView()._empty.suggestionClicked.emit("A")
         assert clicked == ["A"]
-        chat.deleteLater()
 
-    def test_empty_title_and_subtitle(self, qapp):
-        chat = ElaChatWidget()
+    def test_empty_title_and_subtitle(self, qapp, make):
+        chat = make(ElaChatWidget)
         chat.chatView().setEmptyTitle("有什么可以帮你？")
         chat.chatView().setEmptySubtitle("点击建议开始")
         assert chat.chatView().emptyTitle() == "有什么可以帮你？"
         assert chat.chatView().emptySubtitle() == "点击建议开始"
-        chat.deleteLater()
 
-    def test_add_system_message(self, qapp):
-        chat = ElaChatWidget()
+    def test_add_system_message(self, qapp, make):
+        chat = make(ElaChatWidget)
         messageId = chat.addMessage(ElaChatRole.System, "会话已创建")
         assert chat.chatView().message(messageId).role == ElaChatRole.System
-        chat.deleteLater()
 
-    def test_appearance_propagation(self, qapp):
-        chat = ElaChatWidget()
+    def test_appearance_propagation(self, qapp, make):
+        chat = make(ElaChatWidget)
         chat.chatView().setAvatarVisible(False)
         chat.chatView().setUserBubbleMaxWidth(0.6)
         messageId = chat.addMessage(ElaChatRole.User, "hi")
@@ -378,10 +359,9 @@ class TestPassthrough:
         assert bubble.maxWidthRatio() == 0.6
         assert chat.chatView().avatarVisible() is False
         assert chat.chatView().userBubbleMaxWidth() == 0.6
-        chat.deleteLater()
 
-    def test_scroll_to_bottom(self, qapp):
-        chat = ElaChatWidget()
+    def test_scroll_to_bottom(self, qapp, make):
+        chat = make(ElaChatWidget)
         chat.resize(420, 260)
         chat.show()
         qapp.processEvents()
@@ -396,12 +376,11 @@ class TestPassthrough:
         )
         chat.chatView().scrollToBottom()
         assert chat.chatView().stickToBottom() is True
-        chat.deleteLater()
 
 
 class TestAttachmentsFlow:
-    def test_send_with_attachments(self, qapp):
-        chat = ElaChatWidget()
+    def test_send_with_attachments(self, qapp, make):
+        chat = make(ElaChatWidget)
         chat.chatInput().setAttachments(
             [{"name": "资料.pdf", "path": "C:/tmp/资料.pdf", "size": 1024}]
         )
@@ -416,21 +395,19 @@ class TestAttachmentsFlow:
         assert len(message.attachments) == 1
         assert message.attachments[0].name == "资料.pdf"
         assert chat.chatInput().attachmentCount() == 0
-        chat.deleteLater()
 
-    def test_attachments_changed_signal(self, qapp):
-        chat = ElaChatWidget()
+    def test_attachments_changed_signal(self, qapp, make):
+        chat = make(ElaChatWidget)
         changes = []
         chat.attachmentsChanged.connect(lambda items: changes.append(len(items)))
         chat.chatInput().addAttachment("a.txt", "C:/a.txt", 1)
         chat.chatInput().clearAttachments()
         assert changes == [1, 0]
-        chat.deleteLater()
 
 
 class TestTitles:
-    def test_names_applied_to_messages(self, qapp):
-        chat = ElaChatWidget()
+    def test_names_applied_to_messages(self, qapp, make):
+        chat = make(ElaChatWidget)
         chat.setUserName("我")
         chat.setAssistantName("deepseek-v4")
         user_id = chat.sendUserMessage("你好")
@@ -444,44 +421,40 @@ class TestTitles:
         chat.setUserName("管理员")
         assert chat.chatView().message(user_id).title == "管理员"
         assert chat.chatView().bubble(user_id).title() == "管理员"
-        chat.deleteLater()
 
 
 class TestToolBarAndActions:
-    def test_custom_tool_button(self, qapp):
-        chat = ElaChatWidget()
+    def test_custom_tool_button(self, qapp, make):
+        chat = make(ElaChatWidget)
         clicks = []
         chat.toolBar().addButton(
             text="模板", key="tpl", callback=lambda: clicks.append(1)
         )
         chat.toolBar().toolButton("tpl").click()
         assert clicks == [1]
-        chat.deleteLater()
 
-    def test_action_passthrough(self, qapp):
-        chat = ElaChatWidget()
+    def test_action_passthrough(self, qapp, make):
+        chat = make(ElaChatWidget)
         messageId = chat.addMessage(ElaChatRole.User, "hi")
         events = []
         chat.messageActionTriggered.connect(lambda mid, key: events.append((mid, key)))
         chat.actions(messageId).toolButton("undo").click()
         assert events == [(messageId, "undo")]
         assert chat.actions(999) is None
-        chat.deleteLater()
 
-    def test_custom_message_action(self, qapp):
-        chat = ElaChatWidget()
+    def test_custom_message_action(self, qapp, make):
+        chat = make(ElaChatWidget)
         messageId = chat.addMessage(ElaChatRole.Assistant, "hi")
         events = []
         chat.messageActionTriggered.connect(lambda mid, key: events.append((mid, key)))
         chat.actions(messageId).addCustomAction("favorite", tooltip="收藏")
         chat.actions(messageId).toolButton("favorite").click()
         assert events == [(messageId, "favorite")]
-        chat.deleteLater()
 
 
 class TestReasoningAndTools:
-    def test_reasoning_stream(self, qapp):
-        chat = ElaChatWidget()
+    def test_reasoning_stream(self, qapp, make):
+        chat = make(ElaChatWidget)
         chat.sendUserMessage("问题")
         assistant_id = chat.beginAssistantMessage()
         chat.chatView().beginReasoning(assistant_id)
@@ -492,10 +465,9 @@ class TestReasoningAndTools:
         assert snapshot.reasoning == "先分析再回答"
         assert snapshot.reasoning_ms == 500.0
         chat.endAssistantMessage()
-        chat.deleteLater()
 
-    def test_tool_call_flow(self, qapp):
-        chat = ElaChatWidget()
+    def test_tool_call_flow(self, qapp, make):
+        chat = make(ElaChatWidget)
         assistant_id = chat.beginAssistantMessage()
         callId = chat.chatView().addToolCall(assistant_id, "search", '{"q": "x"}')
         assert callId
@@ -504,10 +476,9 @@ class TestReasoningAndTools:
         assert len(snapshot.tool_calls) == 1
         assert snapshot.tool_calls[0].isDone
         assert snapshot.tool_calls[0].result == "结果 1"
-        chat.deleteLater()
 
-    def test_stats_and_error(self, qapp):
-        chat = ElaChatWidget()
+    def test_stats_and_error(self, qapp, make):
+        chat = make(ElaChatWidget)
         assistant_id = chat.beginAssistantMessage()
         stats = ElaChatStats(
             prompt_tokens=3, completion_tokens=4, total_tokens=7, tps=8.0
@@ -523,12 +494,11 @@ class TestReasoningAndTools:
         # 流式引用已结束，后续 end 不会把错误状态覆盖为「完成」
         assert chat.endAssistantMessage() is None
         assert chat.chatView().message(assistant_id).status == ElaChatStatus.Error
-        chat.deleteLater()
 
 
 class TestMessageManagement:
-    def test_remove_update_count_and_tool_calls(self, qapp):
-        chat = ElaChatWidget()
+    def test_remove_update_count_and_tool_calls(self, qapp, make):
+        chat = make(ElaChatWidget)
         first = chat.addMessage(ElaChatRole.User, "a")
         chat.addMessage(ElaChatRole.Assistant, "b")
         assert chat.chatView().count() == 2
@@ -543,23 +513,21 @@ class TestMessageManagement:
         chat.removeMessage(first)
         assert chat.chatView().count() == 1
         assert chat.chatView().message(first) is None
-        chat.deleteLater()
 
-    def test_remove_streaming_message_ends_generation(self, qapp):
-        chat = ElaChatWidget()
+    def test_remove_streaming_message_ends_generation(self, qapp, make):
+        chat = make(ElaChatWidget)
         message_id = chat.beginAssistantMessage()
         assert chat.isGenerating() is True
         chat.removeMessage(message_id)
         assert chat.isGenerating() is False
         assert chat.chatView().count() == 0
-        chat.deleteLater()
 
 
 class TestSessionMarker:
     """会话 id 只是「本 widget 属于哪个话题」的标记（多话题归宿主，见 session.py）。"""
 
-    def test_current_session_signal(self, qapp):
-        chat = ElaChatWidget()
+    def test_current_session_signal(self, qapp, make):
+        chat = make(ElaChatWidget)
         changes = []
         chat.sessionChanged.connect(changes.append)
         chat.setCurrentSessionId("s1")
@@ -567,12 +535,11 @@ class TestSessionMarker:
         chat.setCurrentSessionId("s2")
         assert changes == ["s1", "s2"]
         assert chat.currentSessionId() == "s2"
-        chat.deleteLater()
 
 
 class TestHostActions:
-    def test_undo_message_removes_tail_and_restores_input(self, qapp):
-        chat = ElaChatWidget()
+    def test_undo_message_removes_tail_and_restores_input(self, qapp, make):
+        chat = make(ElaChatWidget)
         userId = chat.addMessage(ElaChatRole.User, "第一问")
         chat.addMessage(ElaChatRole.Assistant, "第一答")
         targetId = chat.addMessage(ElaChatRole.User, "第二问")
@@ -584,10 +551,9 @@ class TestHostActions:
         assert [message.id for message in chat.chatView().messages()] == [userId, 2]
         assert chat.chatInput().text() == "第二问"
         assert chat.undoMessage(999) is None
-        chat.deleteLater()
 
-    def test_undo_message_restores_attachments(self, qapp):
-        chat = ElaChatWidget()
+    def test_undo_message_restores_attachments(self, qapp, make):
+        chat = make(ElaChatWidget)
         chat.chatInput().addAttachment("a.txt", "C:/tmp/a.txt", 10)
         chat.chatInput().setText("带附件的提问")
         assert chat.chatInput().submit() is True
@@ -600,20 +566,76 @@ class TestHostActions:
         assert chat.undoMessage(userId) is not None
         assert [item.name for item in chat.chatInput().attachments()] == ["a.txt"]
         assert chat.isGenerating() is False
-        chat.deleteLater()
 
-    def test_undo_streaming_message_ends_generation(self, qapp):
-        chat = ElaChatWidget()
+    def test_undo_message_restores_pasted_image(self, qapp, make):
+        """粘贴图片的**图像**要跟着附件回填（不是退化成文件 chip）。"""
+        chat = make(ElaChatWidget)
+        image = QImage(24, 24, QImage.Format_ARGB32)
+        image.fill(QColor("#ff5500"))
+        assert chat.chatInput()._on_image_pasted(image) is True
+        chat.chatInput().setText("带图的问题")
+        assert chat.chatInput().submit() is True
+        userId = chat.chatView().messages()[0].id
+
+        # 消息气泡按图片缩略卡渲染（图像随附件对象流转）
+        bubble_cards = chat.chatView().bubble(userId).attachmentStrip()._cards
+        assert isinstance(bubble_cards[0], _ImageAttachmentCard)
+
+        assert chat.undoMessage(userId) is not None
+        restored = chat.chatInput().attachments()
+        assert len(restored) == 1
+        assert restored[0].isImage
+        assert restored[0].image is not None
+        # 输入框回填成图片缩略卡；图像是运行时字段，不进序列化
+        input_cards = chat.chatInput().attachmentStrip()._cards
+        assert isinstance(input_cards[0], _ImageAttachmentCard)
+        assert "image" not in restored[0].toDict()
+
+    def test_undo_streaming_message_ends_generation(self, qapp, make):
+        chat = make(ElaChatWidget)
         userId = chat.sendUserMessage("问")
         assistantId = chat.beginAssistantMessage()
         assert chat.isGenerating() is True
         assert chat.undoMessage(userId) is not None
         assert chat.isGenerating() is False
         assert chat.chatView().message(assistantId) is None
-        chat.deleteLater()
 
-    def test_regenerate_from_returns_previous_user_message(self, qapp):
-        chat = ElaChatWidget()
+    def test_undo_last_user_message_skips_assistant_reply(self, qapp, make):
+        """「撤回最后一条消息」撤回的是最后一条**用户**消息，不是助手回答。"""
+        chat = make(ElaChatWidget)
+        first_user = chat.addMessage(ElaChatRole.User, "第一条")
+        first_assistant = chat.addMessage(ElaChatRole.Assistant, "第一条回答")
+        last_user = chat.addMessage(ElaChatRole.User, "第二条")
+        chat.addMessage(ElaChatRole.Assistant, "第二条回答")
+
+        target = chat.undoLastUserMessage()
+        assert target is not None
+        assert target.id == last_user
+        assert target.text == "第二条"
+        assert chat.chatInput().text() == "第二条"
+        assert [m.id for m in chat.chatView().messages()] == [
+            first_user,
+            first_assistant,
+        ]
+
+    def test_undo_last_user_message_without_user_is_noop(self, qapp, make):
+        chat = make(ElaChatWidget)
+        chat.addMessage(ElaChatRole.Assistant, "只有回答")
+        chat.addMessage(ElaChatRole.System, "系统消息")
+        assert chat.undoLastUserMessage() is None
+        assert chat.chatView().count() == 2
+
+    def test_undo_message_rejects_assistant_target(self, qapp, make):
+        """``undoMessage`` 只对用户消息生效：传助手消息不删任何东西。"""
+        chat = make(ElaChatWidget)
+        user_id = chat.addMessage(ElaChatRole.User, "问题")
+        assistant_id = chat.addMessage(ElaChatRole.Assistant, "回答")
+        assert chat.undoMessage(assistant_id) is None
+        assert [m.id for m in chat.chatView().messages()] == [user_id, assistant_id]
+        assert chat.chatInput().text() == ""
+
+    def test_regenerate_from_returns_previous_user_message(self, qapp, make):
+        chat = make(ElaChatWidget)
         userId = chat.addMessage(ElaChatRole.User, "原始提问")
         assistantId = chat.addMessage(ElaChatRole.Assistant, "旧回答")
         chat.addMessage(ElaChatRole.User, "后续提问")
@@ -624,37 +646,33 @@ class TestHostActions:
         assert userMessage.id == userId
         assert userMessage.text == "原始提问"
         assert [message.id for message in chat.chatView().messages()] == [userId]
-        chat.deleteLater()
 
-    def test_regenerate_from_without_user_message_keeps_messages(self, qapp):
-        chat = ElaChatWidget()
+    def test_regenerate_from_without_user_message_keeps_messages(self, qapp, make):
+        chat = make(ElaChatWidget)
         assistantId = chat.addMessage(ElaChatRole.Assistant, "孤立回答")
         assert chat.regenerateFrom(assistantId) is None
         assert chat.chatView().count() == 1
         assert chat.chatView().message(assistantId) is not None
-        chat.deleteLater()
 
-    def test_regenerate_streaming_message_ends_generation(self, qapp):
-        chat = ElaChatWidget()
+    def test_regenerate_streaming_message_ends_generation(self, qapp, make):
+        chat = make(ElaChatWidget)
         chat.sendUserMessage("问")
         assistantId = chat.beginAssistantMessage()
         assert chat.isGenerating() is True
         assert chat.regenerateFrom(assistantId) is not None
         assert chat.isGenerating() is False
         assert chat.chatView().message(assistantId) is None
-        chat.deleteLater()
 
-    def test_auto_send_queue_default_and_toggle(self, qapp):
-        chat = ElaChatWidget()
+    def test_auto_send_queue_default_and_toggle(self, qapp, make):
+        chat = make(ElaChatWidget)
         assert chat.autoSendQueue() is True
         chat.setAutoSendQueue(False)
         assert chat.autoSendQueue() is False
         chat.setAutoSendQueue()
         assert chat.autoSendQueue() is True
-        chat.deleteLater()
 
-    def test_end_assistant_message_auto_sends_queue(self, qapp):
-        chat = ElaChatWidget()
+    def test_end_assistant_message_auto_sends_queue(self, qapp, make):
+        chat = make(ElaChatWidget)
         submitted = []
         chat.messageSubmitted.connect(lambda text: submitted.append(text))
         chat.sendUserMessage("第一问")
@@ -667,10 +685,9 @@ class TestHostActions:
         assert chat.queueCount() == 0
         assert chat.isGenerating() is True
         assert chat.chatView().message(assistantId).status == ElaChatStatus.Done
-        chat.deleteLater()
 
-    def test_end_assistant_message_respects_auto_send_off(self, qapp):
-        chat = ElaChatWidget()
+    def test_end_assistant_message_respects_auto_send_off(self, qapp, make):
+        chat = make(ElaChatWidget)
         submitted = []
         chat.messageSubmitted.connect(lambda text: submitted.append(text))
         chat.setAutoSendQueue(False)
@@ -685,33 +702,30 @@ class TestHostActions:
 
         assert chat.sendNextQueued() is True
         assert submitted == ["第一问", "排队问题"]
-        chat.deleteLater()
 
-    def test_send_next_queued_requires_idle(self, qapp):
-        chat = ElaChatWidget()
+    def test_send_next_queued_requires_idle(self, qapp, make):
+        chat = make(ElaChatWidget)
         chat.beginAssistantMessage()
         chat.enqueueMessage("排队问题")
         assert chat.sendNextQueued() is False
         assert chat.queueCount() == 1
         chat.endAssistantMessage()
-        chat.deleteLater()
 
-    def test_queue_changed_signal(self, qapp):
-        chat = ElaChatWidget()
+    def test_queue_changed_signal(self, qapp, make):
+        chat = make(ElaChatWidget)
         snapshots = []
         chat.queueChanged.connect(snapshots.append)
         queueId = chat.enqueueMessage("排队问题")
         assert snapshots[-1][0]["id"] == queueId
         assert chat.dequeueMessage(queueId) is True
         assert snapshots[-1] == []
-        chat.deleteLater()
 
 
 class TestConcurrentTurnSafety:
     """同一时刻只保留一个活跃流：立即发送 / 错误定向 / 双 begin 防护。"""
 
-    def test_send_queued_now_ends_active_stream(self, qapp):
-        chat = ElaChatWidget()
+    def test_send_queued_now_ends_active_stream(self, qapp, make):
+        chat = make(ElaChatWidget)
         first = chat.beginAssistantMessage()
         chat.chatView().appendText(first, "旧回答")
         chat.enqueueMessage("第二问")
@@ -734,10 +748,9 @@ class TestConcurrentTurnSafety:
         assert chat.chatView().message(first).text == "旧回答"
         assert chat.chatView().message(second).text == ""
         assert chat.chatView().bubble(second).text() == "新回答"
-        chat.deleteLater()
 
-    def test_send_queued_now_with_sync_host_finish_keeps_queue_order(self, qapp):
-        chat = ElaChatWidget()
+    def test_send_queued_now_with_sync_host_finish_keeps_queue_order(self, qapp, make):
+        chat = make(ElaChatWidget)
         submitted = []
         chat.messageSubmitted.connect(submitted.append)
 
@@ -756,10 +769,9 @@ class TestConcurrentTurnSafety:
 
         assert submitted == ["A"]
         assert chat.queueCount() == 1
-        chat.deleteLater()
 
-    def test_error_on_other_message_keeps_generating(self, qapp):
-        chat = ElaChatWidget()
+    def test_error_on_other_message_keeps_generating(self, qapp, make):
+        chat = make(ElaChatWidget)
         other = chat.addMessage(ElaChatRole.Assistant, "旧回答")
         streaming = chat.beginAssistantMessage()
         chat.chatView().appendText(streaming, "进行中")
@@ -768,10 +780,9 @@ class TestConcurrentTurnSafety:
         assert chat.chatView().message(other).status == ElaChatStatus.Error
         assert chat.isGenerating() is True
         assert chat._streaming_id == streaming
-        chat.deleteLater()
 
-    def test_begin_assistant_message_ends_previous(self, qapp):
-        chat = ElaChatWidget()
+    def test_begin_assistant_message_ends_previous(self, qapp, make):
+        chat = make(ElaChatWidget)
         first = chat.beginAssistantMessage()
         chat.chatView().appendText(first, "第一条")
         finished = []
@@ -789,10 +800,9 @@ class TestConcurrentTurnSafety:
         assert chat.chatView().bubble(second).text() == "第二条"
         chat.endAssistantMessage(second)
         assert chat.chatView().message(second).text == "第二条"
-        chat.deleteLater()
 
-    def test_clear_clears_queue_and_stops(self, qapp):
-        chat = ElaChatWidget()
+    def test_clear_clears_queue_and_stops(self, qapp, make):
+        chat = make(ElaChatWidget)
         chat.beginAssistantMessage()
         chat.enqueueMessage("排队问题")
         stopped = []
@@ -804,10 +814,9 @@ class TestConcurrentTurnSafety:
         assert chat.queueCount() == 0
         assert chat.chatView().messages() == []
         assert chat.isGenerating() is False
-        chat.deleteLater()
 
-    def test_clear_with_sync_host_finish_does_not_resend_queue(self, qapp):
-        chat = ElaChatWidget()
+    def test_clear_with_sync_host_finish_does_not_resend_queue(self, qapp, make):
+        chat = make(ElaChatWidget)
         submitted = []
         chat.messageSubmitted.connect(submitted.append)
 
@@ -824,14 +833,12 @@ class TestConcurrentTurnSafety:
         assert submitted == []
         assert chat.queueCount() == 0
         assert chat.isGenerating() is False
-        chat.deleteLater()
 
-    def test_end_explicit_id_keeps_error_status(self, qapp):
-        chat = ElaChatWidget()
+    def test_end_explicit_id_keeps_error_status(self, qapp, make):
+        chat = make(ElaChatWidget)
         messageId = chat.beginAssistantMessage()
         chat.setMessageError("失败", messageId)
 
         chat.endAssistantMessage(messageId)
 
         assert chat.chatView().message(messageId).status == ElaChatStatus.Error
-        chat.deleteLater()

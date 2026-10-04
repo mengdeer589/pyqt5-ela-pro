@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from typing import Any, Callable, Optional, Union
 
@@ -42,6 +43,27 @@ TABLE_MIN_SECTION_SIZE: int = 60
 TABLE_ROW_MIN_HEIGHT: int = 46
 # 保留常量以兼容外部引用（历史版本用于线程 quit 超时，现由轮询清理取代）
 TABLE_THREAD_QUIT_TIMEOUT: int = 1000
+
+
+def _safe_width(value) -> int:
+    """列宽 -> 合法 int（取整；非有限值落默认 100）。
+
+    ``QTableView.setColumnWidth`` 的 C++ 签名是 ``int``，PyQt5 **不做隐式
+    转换**：传 ``120.5`` 抛 ``TypeError``，传 ``float('inf')`` 抛
+    ``OverflowError``（它继承 ``ArithmeticError``，不是 ``ValueError``）。
+    宿主按文档写 ``dict[int, int]`` 却在计算列宽时自然得到浮点，是很常见的
+    形状 —— 库里统一取整，不把类型错误原样抛回去。
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError 必须显式列出：``float(10 ** 400)`` 抛的是它，
+        # 而它**不是** ValueError 的子类（全库守卫 tests/regression/
+        # test_overflow_error_guards.py 会拦）
+        return 100
+    if number != number or number in (float("inf"), float("-inf")):
+        return 100
+    return int(max(0, min(10_000, number)))
 
 
 class ElaRowColorDelegate(QStyledItemDelegate):
@@ -244,6 +266,21 @@ class ElaDataTable(ElaTableView):
             self._retired_threads.append(thread)
             self._poll_retired_threads()
 
+    def _retire_poll_timer(self) -> None:
+        """（重）起轮询定时器 —— **常驻子对象**，不用无主 ``singleShot``。
+
+        无主的 ``QTimer.singleShot(100, self._poll_retired_threads)`` 不随控件
+        销毁：表格销毁后定时器照样触发，去摸已释放的 ``_retired_threads``。
+        而这里每次都能重发，所以必须是**一个**常驻定时器而不是每次 new 一个。
+        """
+        timer = self.__dict__.get("_retire_poll")
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(self._poll_retired_threads)
+            self._retire_poll = timer
+        timer.start(100)
+
     def _poll_retired_threads(self) -> None:
         """轮询已退出的旧线程并销毁。"""
         if not self._retired_threads:
@@ -256,7 +293,7 @@ class ElaDataTable(ElaTableView):
                 t.deleteLater()
         self._retired_threads = remaining
         if remaining:
-            QTimer.singleShot(100, self._poll_retired_threads)
+            self._retire_poll_timer()
 
     def _onHeaderClicked(self, logicalIndex: int) -> None:
         """处理表头点击排序。
@@ -333,8 +370,9 @@ class ElaDataTable(ElaTableView):
         :rtype: bool
         """
         try:
-            float(text.replace(",", "").replace(" ", ""))
-            return True
+            # nan / inf 虽能被 float 解析，但不可比较（全序缺失），
+            # 当成数字列会让排序静默变成空操作，见 _sort_numeric
+            return math.isfinite(float(text.replace(",", "").replace(" ", "")))
         except ValueError:
             return False
 
@@ -392,6 +430,12 @@ class ElaDataTable(ElaTableView):
 
         # 空/非数值单元格排在最后（升序降序都一样）：此前一律当 0 处理，
         # 升序时空值会顶到最前面（"", "9", "10"），降序时又混在中间。
+        #
+        # **``nan`` / ``inf`` 必须和空值同等对待。** ``float("NaN")`` 与
+        # ``float("1e999")`` 都**成功**返回，所以会被判成数字列；可 NaN 与
+        # 任何值比较都返回 False，``list.sort`` 拿不到全序，结果取决于输入
+        # 顺序 —— 同一列连点两次表头可能给出不同顺序，也可能什么都不发生
+        # （实测 ``["3","NaN","1"]`` 升序后原样不动）。把它们归入 ``blanks``。
         numeric: list[tuple[float, int]] = []
         blanks: list[int] = []
         for row in range(row_count):
@@ -404,6 +448,9 @@ class ElaDataTable(ElaTableView):
             try:
                 value = float(raw)
             except ValueError:
+                blanks.append(row)
+                continue
+            if not math.isfinite(value):
                 blanks.append(row)
                 continue
             numeric.append((value, row))
@@ -419,7 +466,6 @@ class ElaDataTable(ElaTableView):
 
         使用 takeRow/appendRow 就地移动 QStandardItem，避免序列化再重建。
 
-        :param column: 排序列索引（保留参数，未使用）
         :param row_order: 按目标顺序排列的行索引列表
         """
         row_count = self._model.rowCount()
@@ -495,8 +541,7 @@ class ElaDataTable(ElaTableView):
         :param width: 宽度值（像素）。
         :type width: int
         """
-        self._columnWidths[column] = width
-        super().setColumnWidth(column, width)
+        self.setColumnWidths({column: width})
 
     def setColumnWidths(self, widths: dict[int | str, int]) -> None:
         """批量设置多个列的宽度。
@@ -507,8 +552,11 @@ class ElaDataTable(ElaTableView):
         :param widths: 列索引（int）或表头名称（str）到宽度（像素）的映射。
         :type widths: dict[int | str, int]
         """
-        self._columnWidths.update(widths)
-        for key, width in widths.items():
+        # **宽度必须自己取整**：`setColumnWidth` 的 C++ 签名是 int，PyQt5 不做隐式
+        # 转换，宿主传浮点时期待的是取整而不是 TypeError（inf/nan 同理）
+        safe = {key: _safe_width(width) for key, width in widths.items()}
+        self._columnWidths.update(safe)
+        for key, width in safe.items():
             col = self._resolve_column(key)
             if col is not None:
                 super().setColumnWidth(col, width)
@@ -541,6 +589,13 @@ class ElaDataTable(ElaTableView):
         """
         if not data:
             return
+
+        # **必须取消在途的 setTableDataAsync**：``on_finished`` 的守卫是
+        # ``thread is self._load_thread``，同步路径从不碰它，于是旧线程回调
+        # 照常执行，把刚同步填进去的数据顶掉且全程无报错
+        if self._load_thread is not None:
+            self._retire_thread(self._load_thread)
+            self._load_thread = None
 
         if isinstance(data, dict):
             headers = list(data.keys())

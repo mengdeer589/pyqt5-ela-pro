@@ -16,19 +16,17 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtGui import QColor
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QHBoxLayout, QWidget
 from PyQt5ElaWidgetTools import ElaProgressRing, ElaThemeType
 
 from .._styles import ColorText
+from .._theme import StatusRole, statusColor
 from ..widget_base import ElaThemeWidget
 from ._theme import accent_color, blend, muted_color, text_color
 
 #: 状态语义档位
 STATUS_LEVELS = ("info", "busy", "success", "error")
-#: 成功 / 失败强调色（与工具卡错误色一致）
-_SUCCESS_COLOR = "#16a34a"
-_ERROR_COLOR = "#e81123"
 
 
 class ElaChatStatusBar(ElaThemeWidget):
@@ -55,6 +53,9 @@ class ElaChatStatusBar(ElaThemeWidget):
         self._info_label.setWordWrap(False)
         self._status_label = ColorText(self)
         self._status_label.setWordWrap(False)
+        # 信息 / 状态都是外部数据（模型名、服务地址、后端报错），按纯文本渲染
+        self._info_label.setTextFormat(Qt.TextFormat.PlainText)
+        self._status_label.setTextFormat(Qt.TextFormat.PlainText)
 
         layout.addWidget(self._ring)
         layout.addWidget(self._info_label)
@@ -123,9 +124,9 @@ class ElaChatStatusBar(ElaThemeWidget):
         if self._level == "busy":
             color = accent_color(mode)
         elif self._level == "success":
-            color = blend(text_color(mode), QColor(_SUCCESS_COLOR), 0.35)
+            color = blend(text_color(mode), statusColor(mode, StatusRole.Success), 0.35)
         elif self._level == "error":
-            color = blend(text_color(mode), QColor(_ERROR_COLOR), 0.45)
+            color = blend(text_color(mode), statusColor(mode, StatusRole.Error), 0.45)
         else:
             color = muted_color(mode, 0.65)
         self._status_label.setTextColor(color)

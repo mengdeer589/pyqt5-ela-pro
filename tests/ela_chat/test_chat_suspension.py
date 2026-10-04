@@ -19,8 +19,8 @@ MD = (
 )
 
 
-def _build(qapp, count: int = 6, reasoning: bool = False):
-    view = ElaChatView()
+def _build(qapp, make, count: int = 6, reasoning: bool = False):
+    view = make(ElaChatView)
     view.resize(360, 160)
     view.show()
     qapp.processEvents()
@@ -36,8 +36,8 @@ def _build(qapp, count: int = 6, reasoning: bool = False):
 
 
 class TestViewportSuspension:
-    def test_offscreen_suspended_and_restored(self, qapp):
-        view, ids = _build(qapp)
+    def test_offscreen_suspended_and_restored(self, qapp, make):
+        view, ids = _build(qapp, make)
         bar = view._scroll.verticalScrollBar()
         assert _wait_until(qapp, lambda: bar.maximum() > 0)
         bar.setValue(0)
@@ -58,10 +58,9 @@ class TestViewportSuspension:
         assert _wait_until(qapp, lambda: not view.bubble(last).viewersSuspended())
         assert "标题" in view.bubble(last).markdownViewer().markdown()
         assert abs(view.bubble(last).height() - height) <= 2
-        view.deleteLater()
 
-    def test_streaming_message_never_suspended(self, qapp):
-        view, _ids = _build(qapp)
+    def test_streaming_message_never_suspended(self, qapp, make):
+        view, _ids = _build(qapp, make)
         bar = view._scroll.verticalScrollBar()
         assert _wait_until(qapp, lambda: bar.maximum() > 0)
         streaming_id = view.beginMessage(ElaChatRole.Assistant)
@@ -72,10 +71,9 @@ class TestViewportSuspension:
         view._update_suspension()
         assert view.bubble(streaming_id).viewersSuspended() is False
         assert streaming_id not in view._suspended_ids
-        view.deleteLater()
 
-    def test_toggle_off_restores_all(self, qapp):
-        view, ids = _build(qapp)
+    def test_toggle_off_restores_all(self, qapp, make):
+        view, ids = _build(qapp, make)
         bar = view._scroll.verticalScrollBar()
         assert _wait_until(qapp, lambda: bar.maximum() > 0)
         bar.setValue(0)
@@ -85,20 +83,18 @@ class TestViewportSuspension:
         assert view.viewportSuspension() is False
         assert all(not view.bubble(mid).viewersSuspended() for mid in ids)
         assert view._suspended_ids == set()
-        view.deleteLater()
 
-    def test_below_threshold_not_suspended(self, qapp):
-        view, ids = _build(qapp)
+    def test_below_threshold_not_suspended(self, qapp, make):
+        view, ids = _build(qapp, make)
         view.setViewportSuspension(True, minMessages=50)
         bar = view._scroll.verticalScrollBar()
         assert _wait_until(qapp, lambda: bar.maximum() > 0)
         bar.setValue(0)
         view._update_suspension()
         assert all(not view.bubble(mid).viewersSuspended() for mid in ids)
-        view.deleteLater()
 
-    def test_guards_dropped_and_reinstalled(self, qapp):
-        view, ids = _build(qapp)
+    def test_guards_dropped_and_reinstalled(self, qapp, make):
+        view, ids = _build(qapp, make)
         bar = view._scroll.verticalScrollBar()
         assert _wait_until(qapp, lambda: bar.maximum() > 0)
         bar.setValue(0)
@@ -109,10 +105,9 @@ class TestViewportSuspension:
         bar.setValue(bar.maximum())
         assert _wait_until(qapp, lambda: not view.bubble(last).viewersSuspended())
         assert view._guards_by_message.get(last, [])
-        view.deleteLater()
 
-    def test_style_switch_while_suspended(self, qapp):
-        view, ids = _build(qapp, reasoning=True)
+    def test_style_switch_while_suspended(self, qapp, make):
+        view, ids = _build(qapp, make, reasoning=True)
         bar = view._scroll.verticalScrollBar()
         assert _wait_until(qapp, lambda: bar.maximum() > 0)
         bar.setValue(0)
@@ -124,11 +119,9 @@ class TestViewportSuspension:
         bar.setValue(bar.maximum())
         assert _wait_until(qapp, lambda: not view.bubble(last).viewersSuspended())
         assert "推理内容" in view.bubble(last).reasoning()
-        view.deleteLater()
 
-    def test_widget_passthrough(self, qapp):
-        chat = ElaChatWidget()
+    def test_widget_passthrough(self, qapp, make):
+        chat = make(ElaChatWidget)
         assert chat.chatView().viewportSuspension() is True
         chat.chatView().setViewportSuspension(False)
         assert chat.chatView().viewportSuspension() is False
-        chat.deleteLater()

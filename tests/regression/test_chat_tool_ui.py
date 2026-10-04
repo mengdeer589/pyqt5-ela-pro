@@ -57,7 +57,7 @@ class TestSubtitleArgumentDedup:
     def test_card_does_not_repeat_subtitle_value(self, qapp):
         """卡片级：``read(path=...)`` 的 path 只出现一次。"""
         card = ToolCallCard(
-            ElaChatToolCall(
+            tool_call=ElaChatToolCall(
                 id="c1", name="read", arguments=_args(path="a.py", limit=10)
             )
         )

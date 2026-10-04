@@ -1,19 +1,14 @@
 """
 共享颜色面板，供 ElaButton / ElaChip 等组件使用。
 
-每个命名颜色定义：
-  accent         — 主色（文字/边框/填充背景）
-  accentHover    — 悬浮态
-  accentActive   — 按下态
-  accentBg       — 半透明背景色（用于 filled 变体、outlined 悬浮）
-  accentBgHover  — 背景色悬浮态
-  textColor      — 实心背景上的文字颜色（通常为白色）
-
-``get_color_scheme`` 额外派生实心按钮专用色（保证文字对比度 ≥ 4.5:1）：
-  solid / solidHover / solidActive / solidText
+每个命名颜色定义 ``accent`` / ``accentHover`` / ``accentActive`` / ``accentBg`` /
+``accentBgHover`` / ``textColor``。``get_color_scheme`` 额外派生实心按钮专用色
+``solid`` / ``solidHover`` / ``solidActive`` / ``solidText``，保证文字对比度 ≥ 4.5:1。
 """
 
 from __future__ import annotations
+
+from typing import Optional
 
 from PyQt5.QtGui import QColor
 from PyQt5ElaWidgetTools import ElaThemeType
@@ -300,6 +295,10 @@ def _resolve_color(name: str) -> str:
     return _COLOR_ALIAS.get(name, name)
 
 
+def _mode_key(mode: ElaThemeType.ThemeMode) -> str:
+    return "light" if mode == ElaThemeType.ThemeMode.Light else "dark"
+
+
 def _relative_luminance(color: QColor) -> float:
     """WCAG 相对亮度。"""
 
@@ -336,8 +335,7 @@ _BLACK_TEXT_COLORS = {"yellow", "lime", "gold"}
 def _solid_palette(accent: QColor, color_name: str) -> dict[str, QColor]:
     """派生实心按钮配色：保证 ``solidText`` 与 ``solid`` 对比度 ≥ 4.5:1。
 
-    亮黄色系（黄 / 柠檬 / 金）固定黑字且不压暗；其余颜色统一白字，
-    并按需逐步加深底色直到达标，避免霓虹色块配白字的低对比问题。
+    亮黄色系固定黑字且不压暗；其余颜色统一白字并按需逐步加深底色直到达标。
     """
     white, black = QColor("#ffffff"), QColor("#000000")
     if color_name in _BLACK_TEXT_COLORS:
@@ -365,15 +363,16 @@ def get_color_scheme(
 ) -> dict[str, QColor]:
     """获取指定颜色名称在当前主题下的完整色板（QColor 对象）。
 
-    在原始 6 个键之外，额外包含对比度达标的实心按钮色：
-    ``solid`` / ``solidHover`` / ``solidActive`` / ``solidText``。
+    在原始 6 个键之外，额外包含：
+    - ``accentText``：浅底（``accentBg``）上的**可读彩字**，对比度 ≥ 4.5；
+    - 实心按钮色 ``solid`` / ``solidHover`` / ``solidActive`` / ``solidText``。
     """
     resolved = _resolve_color(color_name)
     if resolved not in _COLOR_PALETTE:
         resolved = "blue"
-    mode_key = "light" if mode == ElaThemeType.ThemeMode.Light else "dark"
-    raw = _COLOR_PALETTE[resolved][mode_key]
+    raw = _COLOR_PALETTE[resolved][_mode_key(mode)]
     scheme = {k: QColor(v) for k, v in raw.items()}
+    scheme["accentText"] = accent_text(resolved, mode, scheme["accentBg"])
     scheme.update(_solid_palette(scheme["accent"], resolved))
     return scheme
 
@@ -383,5 +382,43 @@ def get_accent_color(color_name: str, mode: ElaThemeType.ThemeMode) -> QColor:
     resolved = _resolve_color(color_name)
     if resolved not in _COLOR_PALETTE:
         resolved = "blue"
-    mode_key = "light" if mode == ElaThemeType.ThemeMode.Light else "dark"
-    return QColor(_COLOR_PALETTE[resolved][mode_key]["accent"])
+    return QColor(_COLOR_PALETTE[resolved][_mode_key(mode)]["accent"])
+
+
+def accent_text(
+    color_name: str,
+    mode: ElaThemeType.ThemeMode,
+    background: Optional[QColor] = None,
+    target: float = 4.5,
+) -> QColor:
+    """浅底上的**可读彩字**（与实心按钮 ``solidText`` 同一套保证）。
+
+    原始 ``accent`` 是按「填充色」设计的（配白字），直接拿来当浅底上的彩字，
+    yellow / lime / cyan / green / geekblue / purple 等色系对比度只有 1.3~2.4。
+    这里从本档 ``accent`` 出发，朝本档文字色（暗色→白 / 亮色→黑）逐步混合，
+    直到与 ``background`` 的 WCAG 对比度 ≥ ``target``。
+
+    :param background: 文字所在底色；缺省用本色的 ``accentBg``。
+    """
+    resolved = _resolve_color(color_name)
+    if resolved not in _COLOR_PALETTE:
+        resolved = "blue"
+    raw = _COLOR_PALETTE[resolved][_mode_key(mode)]
+    accent = QColor(raw["accent"])
+    bg = QColor(background) if background is not None else QColor(raw["accentBg"])
+    toward = (
+        QColor("#ffffff") if mode != ElaThemeType.ThemeMode.Light else QColor("#000000")
+    )
+    if _contrast_ratio(accent, bg) >= target:
+        return accent
+    # 二分找「刚好达标」的最小混合量。**不能按固定步长循环有限次** ——
+    # 6% × 40 步只到 #efefe3（离白还差 8%），低对比底色（暗色 yellow）永远
+    # 收敛不到 4.5，最后静默返回一个不达标的值。
+    low, high = 0.0, 1.0
+    for _ in range(12):
+        mid = (low + high) / 2.0
+        if _contrast_ratio(_mix(accent, toward, mid), bg) >= target:
+            high = mid
+        else:
+            low = mid
+    return _mix(accent, toward, high)

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import re
 
-from PyQt5.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
+import pytest
+from PyQt5.QtCore import QEvent, QMimeData, QPoint, QPointF, Qt, QUrl
 from PyQt5.QtGui import QColor, QDragEnterEvent, QDropEvent, QFocusEvent, QImage
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication, QFrame
@@ -12,31 +14,30 @@ from PyQt5ElaWidgetTools import ElaIconType
 
 from pyqt5_ela_pro.chat import ElaChatInput, ElaChatToolBar
 from pyqt5_ela_pro.chat._theme import accent_color, card_border_color
+from pyqt5_ela_pro.chat.input import _MENTION_TAIL
 
 
 class TestSubmit:
-    def test_button_submit(self, qapp):
-        widget = ElaChatInput()
+    def test_button_submit(self, qapp, make):
+        widget = make(ElaChatInput)
         submitted = []
         widget.submitted.connect(submitted.append)
         widget.setText("  你好  ")
         widget._button.click()
         assert submitted == ["你好"]
         assert widget.text() == ""
-        widget.deleteLater()
 
-    def test_empty_ignored(self, qapp):
-        widget = ElaChatInput()
+    def test_empty_ignored(self, qapp, make):
+        widget = make(ElaChatInput)
         submitted = []
         widget.submitted.connect(submitted.append)
         assert widget.submit() is False
         widget.setText("   ")
         assert widget.submit() is False
         assert submitted == []
-        widget.deleteLater()
 
-    def test_enter_sends_shift_enter_newline(self, qapp):
-        widget = ElaChatInput()
+    def test_enter_sends_shift_enter_newline(self, qapp, make):
+        widget = make(ElaChatInput)
         widget.show()
         submitted = []
         widget.submitted.connect(submitted.append)
@@ -51,10 +52,9 @@ class TestSubmit:
         QTest.keyClicks(edit, "line2")
         assert submitted == ["hi"]
         assert "\n" in widget.text()
-        widget.deleteLater()
 
-    def test_send_on_enter_disabled(self, qapp):
-        widget = ElaChatInput()
+    def test_send_on_enter_disabled(self, qapp, make):
+        widget = make(ElaChatInput)
         widget.show()
         widget.setSendOnEnter(False)
         submitted = []
@@ -65,12 +65,11 @@ class TestSubmit:
         QTest.keyClick(edit, Qt.Key.Key_Return)
         assert submitted == []
         assert widget.sendOnEnter() is False
-        widget.deleteLater()
 
 
 class TestGenerating:
-    def test_button_and_enter_switch(self, qapp):
-        widget = ElaChatInput()
+    def test_button_and_enter_switch(self, qapp, make):
+        widget = make(ElaChatInput)
         widget.show()
         stops = []
         submitted = []
@@ -98,10 +97,9 @@ class TestGenerating:
 
         widget.setGenerating(False)
         assert widget._button.toolTip() == "发送"
-        widget.deleteLater()
 
-    def test_submit_queue_toggle_while_generating(self, qapp):
-        widget = ElaChatInput()
+    def test_submit_queue_toggle_while_generating(self, qapp, make):
+        widget = make(ElaChatInput)
         widget.setText("x")
         widget.setGenerating(True)
         # 默认允许排队提交
@@ -111,12 +109,11 @@ class TestGenerating:
         widget.setText("y")
         widget.setQueueEnabled(False)
         assert widget.submit() is False
-        widget.deleteLater()
 
 
 class TestHeight:
-    def test_grows_and_clamps(self, qapp):
-        widget = ElaChatInput()
+    def test_grows_and_clamps(self, qapp, make):
+        widget = make(ElaChatInput)
         widget.setMinLines(1)
         widget.setMaxLines(4)
         widget.show()
@@ -135,10 +132,9 @@ class TestHeight:
         line = widget._line_height()
         assert clamped <= line * 4 + 6
         assert widget.maxLines() == 4
-        widget.deleteLater()
 
-    def test_default_min_lines(self, qapp):
-        widget = ElaChatInput()
+    def test_default_min_lines(self, qapp, make):
+        widget = make(ElaChatInput)
         widget.show()
         qapp.processEvents()
         line = widget._line_height()
@@ -152,30 +148,27 @@ class TestHeight:
         # min 不得超过 max
         widget.setMaxLines(2)
         assert widget.maxLines() == 5
-        widget.deleteLater()
 
 
 class TestTexts:
-    def test_custom_button_texts(self, qapp):
-        widget = ElaChatInput()
+    def test_custom_button_texts(self, qapp, make):
+        widget = make(ElaChatInput)
         widget.setSendText("发送消息")
         assert widget.sendText() == "发送消息"
         assert widget._button.toolTip() == "发送消息"
         widget.setStopText("中止")
         widget.setGenerating(True)
         assert widget._button.toolTip() == "中止"
-        widget.deleteLater()
 
-    def test_placeholder_roundtrip(self, qapp):
-        widget = ElaChatInput()
+    def test_placeholder_roundtrip(self, qapp, make):
+        widget = make(ElaChatInput)
         widget.setPlaceholderText("说点什么")
         assert widget.placeholderText() == "说点什么"
-        widget.deleteLater()
 
 
 class TestLayers:
-    def test_layers_order(self, qapp):
-        widget = ElaChatInput()
+    def test_layers_order(self, qapp, make):
+        widget = make(ElaChatInput)
         layout = widget.layout()
         # 0 补全浮层 / 1 输入卡片（附件条 / 编辑框 / 工具栏都在卡片内）
         assert layout.itemAt(0).widget() is widget.popup()
@@ -184,33 +177,29 @@ class TestLayers:
         assert surface_layout.itemAt(0).widget() is widget.attachmentStrip()
         assert surface_layout.itemAt(1).widget() is widget.textEdit()
         assert surface_layout.itemAt(2).widget() is widget.toolBar()
-        widget.deleteLater()
 
-    def test_toolbar_type(self, qapp):
-        widget = ElaChatInput()
+    def test_toolbar_type(self, qapp, make):
+        widget = make(ElaChatInput)
         assert isinstance(widget.toolBar(), ElaChatToolBar)
-        widget.deleteLater()
 
-    def test_edit_is_borderless(self, qapp):
+    def test_edit_is_borderless(self, qapp, make):
         """编辑框不再自绘边框（原生 CE_ShapedFrame 被代理 style 拦掉）。"""
-        widget = ElaChatInput()
+        widget = make(ElaChatInput)
         assert widget.textEdit().frameWidth() == 0
         assert widget.textEdit().frameShape() == QFrame.Shape.NoFrame
-        widget.deleteLater()
 
-    def test_layers_inside_card(self, qapp):
+    def test_layers_inside_card(self, qapp, make):
         """附件条 / 编辑框 / 工具栏的可视父级都是输入卡片。"""
-        widget = ElaChatInput()
+        widget = make(ElaChatInput)
         surface = widget.inputSurface()
         assert widget.attachmentStrip().parentWidget() is surface
         assert widget.textEdit().parentWidget() is surface
         assert widget.toolBar().parentWidget() is surface
-        widget.deleteLater()
 
-    def test_card_focus_accent(self, qapp):
+    def test_card_focus_accent(self, qapp, make):
         """聚焦时卡片边框换强调色（跟随 Ela 主题令牌）。"""
 
-        widget = ElaChatInput()
+        widget = make(ElaChatInput)
         widget.show()
         qapp.processEvents()
         surface = widget.inputSurface()
@@ -231,11 +220,10 @@ class TestLayers:
         )
         assert surface.focused() is False
         assert surface._border.name() == card_border_color(mode).name()
-        widget.deleteLater()
 
-    def test_send_button_disabled_when_empty(self, qapp):
+    def test_send_button_disabled_when_empty(self, qapp, make):
         """opencode 同款：空草稿置灰，有草稿 / 「停止」态恢复可用。"""
-        widget = ElaChatInput()
+        widget = make(ElaChatInput)
         assert widget._button.isEnabled() is False
 
         widget.setText("你好")
@@ -248,12 +236,11 @@ class TestLayers:
         widget.setGenerating(True)
         assert widget._button.isEnabled() is True
         widget.setGenerating(False)
-        widget.deleteLater()
 
 
 class TestToolBarExtension:
-    def test_custom_tool_button(self, qapp):
-        widget = ElaChatInput()
+    def test_custom_tool_button(self, qapp, make):
+        widget = make(ElaChatInput)
         clicks = []
         button = widget.toolBar().addButton(
             icon=ElaIconType.IconName.Bolt,
@@ -271,10 +258,9 @@ class TestToolBarExtension:
             "widget-1",
             "custom",
         ]
-        widget.deleteLater()
 
-    def test_upload_button_and_picker(self, qapp, tmp_path):
-        widget = ElaChatInput()
+    def test_upload_button_and_picker(self, qapp, tmp_path, make):
+        widget = make(ElaChatInput)
         assert widget.uploadButton() is widget.toolBar().toolButton("upload")
         file_path = tmp_path / "说明.txt"
         file_path.write_text("hello", encoding="utf-8")
@@ -287,23 +273,21 @@ class TestToolBarExtension:
         assert len(attachments) == 1
         assert attachments[0].name == "说明.txt"
         assert attachments[0].size == 5
-        widget.deleteLater()
 
-    def test_upload_visibility(self, qapp):
-        widget = ElaChatInput()
+    def test_upload_visibility(self, qapp, make):
+        widget = make(ElaChatInput)
         widget.show()
         qapp.processEvents()
         assert widget.uploadVisible()
         widget.setUploadVisible(False)
         assert not widget.uploadVisible()
-        widget.deleteLater()
 
-    def test_toolbar_has_no_menu_or_shell_controls(self, qapp):
+    def test_toolbar_has_no_menu_or_shell_controls(self, qapp, make):
         """工具栏只剩「上传 / 清空上下文 / 新建话题」+ 宿主自定义：
 
         `+` 菜单与 Shell 开关已彻底移除。
         """
-        widget = ElaChatInput()
+        widget = make(ElaChatInput)
         widget.show()
         qapp.processEvents()
         assert widget.uploadVisible()
@@ -325,22 +309,20 @@ class TestToolBarExtension:
             "mode",
         ):
             assert not hasattr(widget, removed), removed
-        widget.deleteLater()
 
-    def test_bang_is_plain_text_now(self, qapp):
+    def test_bang_is_plain_text_now(self, qapp, make):
         """``!`` 不再是 Shell 模式前缀，就是普通字符。"""
-        widget = ElaChatInput()
+        widget = make(ElaChatInput)
         widget.show()
         qapp.processEvents()
         widget.textEdit().setFocus()
         QTest.keyClicks(widget.textEdit(), "!")
         qapp.processEvents()
         assert widget.text() == "!"
-        widget.deleteLater()
 
-    def test_clear_button_emits_request_only(self, qapp):
+    def test_clear_button_emits_request_only(self, qapp, make):
         """输入区只发 ``clearRequested``，**不自己清空**（清空是 widget 职责）。"""
-        widget = ElaChatInput()
+        widget = make(ElaChatInput)
         widget.show()
         qapp.processEvents()
         assert widget.clearButton() is widget.toolBar().toolButton("clear")
@@ -351,11 +333,10 @@ class TestToolBarExtension:
         assert requested == [1]
         # 输入区自身不碰消息（它也没有消息）
         widget.setText("草稿仍在")
-        widget.deleteLater()
 
-    def test_new_topic_button_emits_signal(self, qapp):
+    def test_new_topic_button_emits_signal(self, qapp, make):
         """「新建话题」按钮只发 ``newTopicRequested``，话题 / 会话由宿主创建。"""
-        widget = ElaChatInput()
+        widget = make(ElaChatInput)
         widget.show()
         qapp.processEvents()
         assert widget.newTopicButton() is widget.toolBar().toolButton("new_topic")
@@ -372,12 +353,11 @@ class TestToolBarExtension:
         assert widget.text() == "草稿仍在"
         widget.setNewTopicVisible(False)
         assert widget.newTopicVisible() is False
-        widget.deleteLater()
 
 
 class TestAttachments:
-    def test_add_and_remove(self, qapp, tmp_path):
-        widget = ElaChatInput()
+    def test_add_and_remove(self, qapp, tmp_path, make):
+        widget = make(ElaChatInput)
         first = tmp_path / "a.txt"
         second = tmp_path / "b.txt"
         first.write_text("a", encoding="utf-8")
@@ -397,20 +377,18 @@ class TestAttachments:
         widget.clearAttachments()
         assert widget.attachmentCount() == 0
         assert changes == [2, 1, 0]
-        widget.deleteLater()
 
-    def test_set_attachments_dicts(self, qapp):
-        widget = ElaChatInput()
+    def test_set_attachments_dicts(self, qapp, make):
+        widget = make(ElaChatInput)
         widget.setAttachments(
             [{"name": "报告.pdf", "path": "C:/tmp/报告.pdf", "size": 2048}]
         )
         attachment = widget.attachments()[0]
         assert attachment.name == "报告.pdf"
         assert attachment.displaySize == "2.0 KB"
-        widget.deleteLater()
 
-    def test_strip_signal(self, qapp):
-        widget = ElaChatInput()
+    def test_strip_signal(self, qapp, make):
+        widget = make(ElaChatInput)
         clicked = []
         removed = []
         widget.attachmentStrip().attachmentClicked.connect(clicked.append)
@@ -419,10 +397,9 @@ class TestAttachments:
         widget.attachmentStrip().removeAttachment(0)
         assert removed == ["C:/tmp/x.txt"]
         assert widget.attachmentCount() == 0
-        widget.deleteLater()
 
-    def test_attachment_paths(self, qapp, tmp_path):
-        widget = ElaChatInput()
+    def test_attachment_paths(self, qapp, tmp_path, make):
+        widget = make(ElaChatInput)
         first = tmp_path / "a.txt"
         second = tmp_path / "b.txt"
         first.write_text("a", encoding="utf-8")
@@ -434,12 +411,11 @@ class TestAttachments:
         widget.addAttachment("粘贴的图片.png")
         assert len(widget.attachments()) == 3
         assert widget.attachmentPaths() == [str(first), str(second)]
-        widget.deleteLater()
 
 
 class TestSubmitWithAttachments:
-    def test_submitted_full(self, qapp, tmp_path):
-        widget = ElaChatInput()
+    def test_submitted_full(self, qapp, tmp_path, make):
+        widget = make(ElaChatInput)
         file_path = tmp_path / "a.txt"
         file_path.write_text("a", encoding="utf-8")
         widget.addAttachments([str(file_path)])
@@ -455,7 +431,6 @@ class TestSubmitWithAttachments:
         assert received == [("带附件", 1)]
         assert widget.attachmentCount() == 0
         assert widget.text() == ""
-        widget.deleteLater()
 
 
 class TestDragAndDrop:
@@ -484,8 +459,8 @@ class TestDragAndDrop:
         widget.dropEvent(event)
         return event
 
-    def test_drop_files_adds_attachments(self, qapp, tmp_path):
-        widget = ElaChatInput()
+    def test_drop_files_adds_attachments(self, qapp, tmp_path, make):
+        widget = make(ElaChatInput)
         file_path = tmp_path / "拖入.txt"
         file_path.write_text("x", encoding="utf-8")
         dropped = []
@@ -497,18 +472,16 @@ class TestDragAndDrop:
         )
         assert widget.attachmentCount() == 1
         assert widget.attachments()[0].name == "拖入.txt"
-        widget.deleteLater()
 
-    def test_drop_ignores_non_files(self, qapp, tmp_path):
-        widget = ElaChatInput()
+    def test_drop_ignores_non_files(self, qapp, tmp_path, make):
+        widget = make(ElaChatInput)
         event = self._drop(widget, [str(tmp_path / "不存在.txt")])
         assert not event.isAccepted()
         assert widget.attachmentCount() == 0
-        widget.deleteLater()
 
-    def test_drop_image_adds_attachment(self, qapp):
+    def test_drop_image_adds_attachment(self, qapp, make):
         """拖进来的图片（浏览器里拖图，mime 只有图片没有文件 URL）也进附件。"""
-        widget = ElaChatInput()
+        widget = make(ElaChatInput)
         image = QImage(24, 24, QImage.Format.Format_ARGB32)
         image.fill(QColor("#123456"))
         mime = QMimeData()
@@ -522,10 +495,9 @@ class TestDragAndDrop:
         assert widget.attachmentCount() == 1
         assert widget.attachments()[0].isImage
         assert len(pasted) == 1
-        widget.deleteLater()
 
-    def test_drag_enter_accepts_files_and_images_only(self, qapp, tmp_path):
-        widget = ElaChatInput()
+    def test_drag_enter_accepts_files_and_images_only(self, qapp, tmp_path, make):
+        widget = make(ElaChatInput)
         file_path = tmp_path / "接受.txt"
         file_path.write_text("x", encoding="utf-8")
 
@@ -552,4 +524,70 @@ class TestDragAndDrop:
         assert enter(file_mime) is True
         assert enter(image_mime) is True
         assert enter(text_mime) is False  # 文字拖进编辑框走 Qt 原生，卡片不收
-        widget.deleteLater()
+
+
+class TestBuiltinButtonState:
+    def test_visible_getters_report_intent(self, qapp, make):
+        """未 show 时也要如实报告：判据是 isHidden 而非父链可见的 isVisible。"""
+        widget = make(ElaChatInput)
+        assert widget.uploadVisible() is True
+        widget.setUploadVisible(False)
+        assert widget.uploadVisible() is False
+        widget.setClearVisible(False)
+        assert widget.clearVisible() is False
+        widget.setNewTopicVisible(False)
+        assert widget.newTopicVisible() is False
+
+    def test_icon_cache_tracks_state(self, qapp, make):
+        widget = make(ElaChatInput)
+        assert widget._button_icon == ElaIconType.IconName.ArrowUp
+        widget.setGenerating(True)
+        assert widget._button_icon == ElaIconType.IconName.CircleStop
+        widget.setGenerating(False)
+        widget.setText("x")
+        assert widget._button_icon == ElaIconType.IconName.ArrowUp
+
+    def test_focus_out_clears_preedit(self, qapp, make):
+        """失焦后组合标记必须清掉，否则回车会被一直当成组合中。"""
+        widget = make(ElaChatInput)
+        widget._preedit = "组合中"
+        qapp.sendEvent(widget.textEdit(), QFocusEvent(QEvent.Type.FocusOut))
+        assert widget._preedit == ""
+
+
+class TestAttachMimeDedup:
+    def test_duplicate_files_return_false(self, qapp, make, tmp_path):
+        """重复拖同一文件：不再重复发 ``filesAdded``，返回值也是 False。"""
+        widget = make(ElaChatInput)
+        path = tmp_path / "dup.txt"
+        path.write_text("x", encoding="utf-8")
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(str(path))])
+        dropped = []
+        widget.filesAdded.connect(dropped.append)
+
+        assert widget.attachMime(mime) is True
+        assert len(dropped) == 1
+        assert os.path.normpath(dropped[0][0]) == os.path.normpath(str(path))
+
+        assert widget.attachMime(mime) is False
+        assert len(dropped) == 1
+        assert widget.attachmentCount() == 1
+
+
+class TestMentionTail:
+    @pytest.mark.parametrize(
+        "text,matched",
+        [
+            ("@Al ", True),
+            ("@Al", True),
+            ("@Al.", True),
+            ("@Al㐀", False),  # CJK 扩展 A
+            ("@Al𠀀", False),  # CJK 扩展 B
+            ("@Al@x", False),  # 后面紧跟 @：这个 token 已被改写
+            ("@Album", False),
+        ],
+    )
+    def test_tail_covers_cjk_extensions(self, text, matched):
+        found = re.search(re.escape("@Al") + _MENTION_TAIL, text) is not None
+        assert found is matched

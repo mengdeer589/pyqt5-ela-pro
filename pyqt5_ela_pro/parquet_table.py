@@ -10,8 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Union, TYPE_CHECKING
 
-from PyQt5.QtCore import pyqtSignal, QModelIndex
-from PyQt5.QtGui import QPalette
+from PyQt5.QtCore import Qt, pyqtSignal, QModelIndex
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QWidget, QHBoxLayout
 from PyQt5ElaWidgetTools import (
     ElaText,
@@ -20,6 +20,7 @@ from PyQt5ElaWidgetTools import (
 )
 
 from . import ElaThemeWidget
+from ._styles import ColorText
 from .ela_pagination import ElaPagination
 from .table_view import ElaDataTable
 
@@ -36,6 +37,25 @@ else:
 INFO_BAR_HEIGHT: int = 40
 INFO_BAR_SPACING: int = 10
 INFO_BAR_LABEL_SPACING: int = 20
+
+
+def _make_info_label(parent: QWidget, text: str) -> "ColorText":
+    """信息栏标签：``ColorText`` + 12px + **PlainText**。
+
+    三个要求各自有代价，少一个都不报错只是「看着不对」：
+
+    * ``ColorText`` 而非 ``ElaText`` —— 后者 ``paintEvent`` 会重置 palette；
+    * **必须显式 ``setTextPixelSize``** —— 不设就是 ``ElaText`` 默认的
+      28px（整条信息栏比例崩掉）；
+    * **必须 ``PlainText``** —— 这些标签显示的列名 / 数值全部来自 parquet
+      文件，是彻底不可信的外部数据，而默认 ``AutoText`` 会走
+      ``mightBeRichText()``：列名叫 ``<b>x</b>`` 的文件会被真解析成加粗。
+    """
+    label = ColorText(parent)
+    label.setText(text)
+    label.setTextPixelSize(12)
+    label.setTextFormat(Qt.TextFormat.PlainText)
+    return label
 
 
 class ElaInfoBarWidget(ElaThemeWidget):
@@ -57,25 +77,16 @@ class ElaInfoBarWidget(ElaThemeWidget):
         layout.setContentsMargins(10, 0, 10, 0)
         layout.setSpacing(INFO_BAR_SPACING)
 
-        self._col_label = ElaText(self)  # type: ignore
-        self._col_label.setText("列: -")
-        self._col_label.setTextPixelSize(12)
-
-        self._col_index_label = ElaText(self)  # type: ignore
-        self._col_index_label.setText("第 - 列")
-        self._col_index_label.setTextPixelSize(12)
-
-        self._min_label = ElaText(self)  # type: ignore
-        self._min_label.setText("最小值: -")
-        self._min_label.setTextPixelSize(12)
-
-        self._max_label = ElaText(self)  # type: ignore
-        self._max_label.setText("最大值: -")
-        self._max_label.setTextPixelSize(12)
-
-        self._last_label = ElaText(self)  # type: ignore
-        self._last_label.setText("最后一行: -")
-        self._last_label.setTextPixelSize(12)
+        # **必须用 ``ColorText`` 而不是裸 ``ElaText``**：``ElaText.paintEvent``
+        # 开头会把 palette 重置回主题 ``BasicText``，所以任何「设了但绘制时
+        # 被丢掉」的上色方式都无效（实测 5 种语义色一个都不显示）。见
+        # ``_apply_colors``。``setTextPixelSize`` 不能省 —— 不设就是
+        # ``ElaText`` 默认字号（实测 28px），整条信息栏比例就崩了。
+        self._col_label = _make_info_label(self, "列: -")
+        self._col_index_label = _make_info_label(self, "第 - 列")
+        self._min_label = _make_info_label(self, "最小值: -")
+        self._max_label = _make_info_label(self, "最大值: -")
+        self._last_label = _make_info_label(self, "最后一行: -")
 
         layout.addWidget(self._col_label)
         layout.addSpacing(INFO_BAR_LABEL_SPACING)
@@ -112,14 +123,29 @@ class ElaInfoBarWidget(ElaThemeWidget):
 
     @staticmethod
     def _set_label_color(label, color):
-        palette = label.palette()
-        palette.setColor(QPalette.WindowText, color)
-        label.setPalette(palette)
+        """给标签上色。
+
+        **必须用 ``ColorText.setTextColor``，不能给 ``ElaText`` 硬塞 palette，
+        也不能用 ``_styles.setTextColor``**（后者是给普通 ``QLabel`` 用的）。
+        ``ElaText.paintEvent`` 开头会把 palette 重置回主题 ``BasicText``，
+        所以 ``palette().setColor(...)`` 设的色在绘制时被整个丢掉 —— 实测
+        设红与设绿渲染出的 3840 个像素**一个差异都没有**（同批次的 QLabel
+        对照组差异 360 像素，证明探针有效）。五种语义色实际全都不显示。
+
+        读回也要用 ``textColor()``（意图色）而不是 ``palette()``：``ColorText``
+        是**绘制前**才把 palette 自愈回显式色，绘制之外读到的是陈旧值。
+        """
+        label.setTextColor(QColor(color))
 
     def update_info(
         self, col_name: str, col_index: int, min_val: str, max_val: str, last_val: str
     ) -> None:
         """更新列信息显示。
+
+        注意这几个值是**整列**统计（不是当前页），由
+        :meth:`ElaParquetTable._compute_column_stats` 同步算出，所以点第一下
+        会付一次整列扫描的成本 —— 实测 2,000 万行 22ms / 1 亿行 112ms /
+        5 亿行 586ms（主线程）。同一列再点为 0.0ms（按列名缓存）。
 
         :param col_name: 列名
         :param col_index: 列索引
@@ -133,6 +159,10 @@ class ElaInfoBarWidget(ElaThemeWidget):
         self._max_val = max_val
         self._last_val = last_val
 
+        # **col_name / min_val / max_val / last_val 全部来自 parquet 文件**，
+        # 是彻底不可信的外部数据。``ElaText`` 默认 ``AutoText`` 走
+        # ``mightBeRichText()``，一个列名叫 ``<b>x</b>`` 的文件会被真解析成
+        # 加粗。所以显示外部数据的标签一律显式 ``PlainText``。
         self._col_label.setText(f"列: {col_name}")
         self._col_index_label.setText(f"第 {col_index} 列")
         self._min_label.setText(f"最小值: {min_val}")
@@ -159,22 +189,29 @@ class ElaParquetTable(ElaThemeWidget):
     继承自 ``ElaThemeWidget``，数据来源为 Parquet 文件，
     通过 ``polars`` 进行高效读取，按页展示数据。
 
-    :param parquet_path: Parquet 文件路径（可选，也可后续通过 ``loadData`` 传入）
-        :param page_size: 每页记录数，默认 50，最大 5000
     :param parent: 父级 widget
+    :param parquet_path: Parquet 文件路径（可选，也可后续通过 ``loadData`` 传入）
+    :param page_size: 每页记录数，默认 50，最大 5000
+    :param show_row_index: 是否在垂直表头显示行号
 
     :raises ImportError: 当 polars 未安装时
     """
 
     pageChanged = pyqtSignal(int, int)
     loadingFinished = pyqtSignal(int)
+    #: 读取 parquet 失败（文件被移动 / 截断 / schema 不符 / 网络盘断开）。
+    #: ``str`` 是可直接展示给用户的中文说明。
+    errorOccurred = pyqtSignal(str)
+
+    #: 读文件失败的兜底文案前缀。``errorOccurred`` 带原文，这里给个统一出处。
+    _ERROR_HINT = "读取 Parquet 文件失败"
 
     def __init__(
         self,
+        parent: Optional[QWidget] = None,
         parquet_path: Union[str, Path] = "",
         page_size: int = 50,
         show_row_index: bool = True,
-        parent: Optional[QWidget] = None,
     ) -> None:
         if pl is None:
             raise ImportError(
@@ -238,12 +275,38 @@ class ElaParquetTable(ElaThemeWidget):
             pass
         super().deleteLater()
 
+    def _read_guard(self, what: str, func, default=None):
+        """跑一次 polars 读操作，失败降级 + 发 ``errorOccurred``。
+
+        **必须有这个兜底。** ``_load_data`` 与 ``_compute_column_stats`` 都是
+        直接挂在 Qt 信号槽上的（``currentPageChanged`` / ``clicked``），
+        而 PyQt5 里槽内未捕获异常 = 进程直接终止、**无traceback**
+        （``0xC0000409``）。文件被移动 / 截断 / schema 不符 / 网络盘断开都
+        只在 ``.collect()`` 时才暴露，构造时完全看不出来 ——
+        实测路径：加载成功后 ``os.remove(path)`` 再 ``goToPage(2)``。
+
+        :param what: 出错时给用户看的一句话（如「加载第 2 页」）
+        :param func: 无参可调用，出错时其返回值作废
+        :param default: 失败时的返回值
+        """
+        try:
+            return func()
+        except Exception as exc:
+            self.errorOccurred.emit(f"{self._ERROR_HINT}（{what}）：{exc}")
+            return default
+
     def _load_data(self) -> None:
         if self._lf is None:
             return
-        df = self._lf.slice(
-            (self._current_page - 1) * self._page_size, self._page_size
-        ).collect()
+
+        def read():
+            return self._lf.slice(
+                (self._current_page - 1) * self._page_size, self._page_size
+            ).collect()
+
+        df = self._read_guard(f"加载第 {self._current_page} 页", read)
+        if df is None:
+            return
         headers = df.columns
         rows = df.rows()
         data = [headers] + [list(r) for r in rows]
@@ -267,7 +330,8 @@ class ElaParquetTable(ElaThemeWidget):
     def _on_cell_clicked(self, index: QModelIndex) -> None:
         if self._lf is None:
             return
-        col_name = self._table.model().horizontalHeaderItem(index.column()).text()
+        header = self._table.model().horizontalHeaderItem(index.column())
+        col_name = header.text() if header else ""
         if not col_name:
             self._info_bar.clear_info()
             return
@@ -289,7 +353,11 @@ class ElaParquetTable(ElaThemeWidget):
             self._info_bar.clear_info()
 
     def _compute_column_stats(self, column_name: str) -> Optional[dict]:
-        schema = self._lf.collect_schema()
+        schema = self._read_guard(
+            f"读取 {column_name} 列的 schema", self._lf.collect_schema
+        )
+        if schema is None:
+            return None
 
         if column_name not in schema:
             return None
@@ -310,11 +378,42 @@ class ElaParquetTable(ElaThemeWidget):
         if not isinstance(dtype, numeric_types):
             return None
 
-        stats_df = self._lf.select(
-            pl.col(column_name).min().alias("min"),
-            pl.col(column_name).max().alias("max"),
-            pl.col(column_name).last().alias("last"),
-        ).collect()
+        def read():
+            # **这里刻意不切片**：统计口径是「整列」而 ``_load_data`` 的分页
+            # 口径是「当前页」，两者共用 ``self._lf``。这是**实测过的取舍**，
+            # 不是疏忽（4 列 Int64/Float64，本机 windows，2026-10）：
+            #
+            #   行数        文件        本列 min+max+last    loadData   翻页
+            #   2,000 万    284 MiB22.6 ms     3.9 ms   1.4 ms
+            #   1 亿        1.45 GiB   112 ms        4.8 ms   1.5 ms
+            #   5 亿        7.71 GiB   586 ms        9.3 ms   1.6 ms
+            #
+            # 即成本**严格随行数线性增长**（真扫描，不是查footer），且
+            # ``_on_cell_clicked`` 是 ``clicked`` 槽 —— 主线程会被占住。
+            # 三条已确认的事实决定了「不改」是合理选择：
+            # ① 成本全部来自 ``min`` / ``max``；``last()`` 白给
+            #    （1.4ms -> 1.7ms，与规模无关，polars 把它下推了）；
+            # ② polars 1.44 **没有便宜的 footer 统计路径** ——
+            #    ``scan_parquet(use_statistics=...)`` 开关对 min/max 毫无差别
+            #    （18~25ms），而 ``pl.read_parquet_metadata`` 只返回 Arrow
+            #    schema、不暴露 row-group 的 min/max；
+            # ③ 成本被 ``_column_stats_cache`` 按列名摊平，**每列只付一次**，
+            #    之后点同一列是 0.0ms。
+            #
+            # 所以显示的值是**精确**的（抽样会让数据工具说谎），代价是一次性
+            # 停顿：1 亿行 112ms 属可感知小卡顿，5 亿行 586ms 是真冻结但
+            # 7.7 GiB 的 parquet 拿来看表已接近场景边缘。要彻底解决只能把统计
+            # 挪到工作线程（设计级改动：线程生命周期 / sip 守卫 / 切文件取消 /
+            # 缓存线程安全）。
+            return self._lf.select(
+                pl.col(column_name).min().alias("min"),
+                pl.col(column_name).max().alias("max"),
+                pl.col(column_name).last().alias("last"),
+            ).collect()
+
+        stats_df = self._read_guard(f"统计 {column_name} 列", read)
+        if stats_df is None:
+            return None
         return {
             "min": stats_df["min"][0],
             "max": stats_df["max"][0],
@@ -356,7 +455,7 @@ class ElaParquetTable(ElaThemeWidget):
         page_size = max(50, min(page_size, 5000))
         if page_size == self._page_size:
             return
-        self._page_size = page_size
+        self._page_size = max(50, min(page_size, 5000))
         self._current_page = 1
         self._load_data()
 
@@ -391,15 +490,27 @@ class ElaParquetTable(ElaThemeWidget):
     def loadData(self, parquet_path: Union[str, Path]) -> None:
         """加载新的 parquet 文件。
 
+        **先读成功再改状态**：``scan_parquet`` 本身几乎不碰磁盘，真正的
+        ``collect()`` 在下一步。原实现先把 ``_lf`` / ``_parquet_path`` 赋上
+        再 ``collect()``，于是失败后组件进入「总数是旧的、数据源是新的」的
+        不一致态，下一次翻页再抛一次。
+
         :param parquet_path: Parquet 文件路径
         :raises FileNotFoundError: 当文件不存在时
+        :raises Exception: polars 自身的异常（文件截断 / 损坏 / schema 不符
+            / 非 parquet 内容 → ``ComputeError`` / ``ArrowInvalid`` /
+            ``OSError`` 等）。**不只``FileNotFoundError``** —— 宿主只 catch
+            前者会漏掉损坏文件。
         """
         parquet_path = str(parquet_path)
         if not Path(parquet_path).is_file():
             raise FileNotFoundError(f"Parquet file not found: {parquet_path}")
+        lf = pl.scan_parquet(parquet_path)
+        total_rows = lf.select(pl.len()).collect().item()  # type: ignore
+        # 到这里才算读成功，此刻才替换组件状态
         self._parquet_path = parquet_path
-        self._lf = pl.scan_parquet(parquet_path)
-        self._total_rows = self._lf.select(pl.len()).collect().item()  # type: ignore
+        self._lf = lf
+        self._total_rows = int(total_rows)
         self._current_page = 1
         self._column_stats_cache.clear()
         self._info_bar.clear_info()

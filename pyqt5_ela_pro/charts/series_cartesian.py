@@ -34,6 +34,7 @@ from PyQt5.QtGui import (
     QPen,
 )
 
+from .._motion import start_idle_loop
 from ._tokens import T
 from . import _downsample as _ds
 from ._symbol import drawSymbol
@@ -180,7 +181,7 @@ def _numeric_xy(data):
         if isinstance(item, (int, float)):
             continue
         if isinstance(item, (list, tuple)):
-            # 只接受长度恰为 2 的 [x, y]；[x, y, z] 等结构型退回
+            # 只接受长度恰为 2 的 [x, y]
             if len(item) == 2 and all(
                 isinstance(v, (int, float)) and not isinstance(v, bool) for v in item
             ):
@@ -189,10 +190,9 @@ def _numeric_xy(data):
         return None, None
     try:
         arr = np_.asarray(data, dtype=np_.float64)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None, None
     if arr.ndim == 1:
-        # 纯数值：x = 下标
         return np_.arange(n, dtype=np_.float64), arr
     if arr.ndim == 2 and arr.shape[1] == 2:
         return arr[:, 0], arr[:, 1]
@@ -213,6 +213,25 @@ _GRID_EXTENT_CACHE: dict = {}
 _GRID_EXTENT_CACHE_LIMIT = 32
 
 
+def _seq_len(value) -> int:
+    """序列长度，非序列 / 无长度返回 0。
+
+    **别写 ``len(v or ())``**：``v`` 是裸 ndarray 时 ``or`` 会对它求真值，
+    numpy 抛 ``ValueError: The truth value of an array with more than one
+    element is ambiguous``。这条路径的后果特别隐蔽 —— 异常被 ``_paint_series``
+    的 ``warn_once`` 吞掉（且去重后只报一次），表现为 **bar / candlestick /
+    boxplot 一根都不画、没有任何报错**。而「可直接传 numpy 数组」是本模块
+    明文承诺的用法（``data`` 模块 docstring），短数组（< 256）不包装成
+    ``ElaNumericBuffer``，所以裸 ndarray 确实会走到这里。
+    """
+    if value is None:
+        return 0
+    try:
+        return len(value)
+    except TypeError:
+        return 0
+
+
 def _grid_value_extent(chart):
     """grid 数值轴真实范围（类型感知）：stack 柱按堆叠和。返回 (dmin, dmax) 或 None。
 
@@ -220,7 +239,7 @@ def _grid_value_extent(chart):
     百万点下每次全量遍历会让布局时间放大一个数量级。
     """
     opts = _grid_series_opts(chart)
-    key = tuple((id(s), id(s.get("data")), len(s.get("data") or ())) for s in opts)
+    key = tuple((id(s), id(s.get("data")), _seq_len(s.get("data"))) for s in opts)
     hit = _GRID_EXTENT_CACHE.get(key)
     # 命中时复核 series 对象仍是同一批（key 里只有 id，靠强引用 + is 兜底）
     if hit is not None:
@@ -242,8 +261,9 @@ def _grid_value_extent_uncached(chart, opts) -> tuple:
     dmax = None
 
     def feed(v):
+        """喂一个候选极值；**非有限值必须拒收**（后果见 AGENTS.md「charts」）。"""
         nonlocal dmin, dmax
-        if v is None:
+        if v is None or not math.isfinite(v):
             return
         dmin = v if dmin is None else min(dmin, v)
         dmax = v if dmax is None else max(dmax, v)
@@ -252,7 +272,9 @@ def _grid_value_extent_uncached(chart, opts) -> tuple:
     stack_neg = {}
     for s in opts:
         stype = str(s.get("type") or "line")
-        data = s.get("data") or []
+        data = s.get("data")
+        if data is None:
+            data = []
         if stype == "bar" and s.get("stack"):
             key = str(s.get("stack"))
             for i, item in enumerate(data):
@@ -548,13 +570,30 @@ class BarSeriesRenderer(SeriesRenderer):
             return y * anim_t
         return y
 
+    def _animated_rect(self, bar, anim_t, coord):
+        """柱在给定动画进度下的矩形（``paint`` 与 ``hitTest`` 共用）。
+
+        命中必须用**画出来的那份**几何：动画期柱高还在生长，用终态矩形去
+        命中就会「点低处的柱、亮高处的柱」。
+        """
+        y_t = self._animated_value(bar, anim_t)
+        v1 = bar["v0"] + y_t
+        w = bar["w"]
+        val_axis = coord.x_axis if self._horizontal else coord.y_axis
+        if self._horizontal:
+            pa = val_axis.map(bar["v0"], coord.plot.left(), coord.plot.right())
+            pb = val_axis.map(v1, coord.plot.left(), coord.plot.right())
+            return QRectF(min(pa, pb), bar["center"] - w / 2, abs(pb - pa), w)
+        pa = val_axis.map(bar["v0"], coord.plot.bottom(), coord.plot.top())
+        pb = val_axis.map(v1, coord.plot.bottom(), coord.plot.top())
+        return QRectF(bar["center"] - w / 2, min(pa, pb), w, abs(pb - pa))
+
     def paint(self, p: QPainter, anim_t: float) -> None:
         if not self._bars:
             return
         coord = self.chart.coordFor(self.opt)
         if not isinstance(coord, GridCoord):
             return
-        val_axis = coord.x_axis if self._horizontal else coord.y_axis
         p.save()
         p.setClipRect(coord.plot)
         hover = self.chart.hoverInfo()
@@ -590,17 +629,7 @@ class BarSeriesRenderer(SeriesRenderer):
             uni_pen = None
         for bar in self._bars:
             index = bar["index"]
-            y_t = self._animated_value(bar, anim_t)
-            v1 = bar["v0"] + y_t
-            w = bar["w"]
-            if self._horizontal:
-                pa = val_axis.map(bar["v0"], coord.plot.left(), coord.plot.right())
-                pb = val_axis.map(v1, coord.plot.left(), coord.plot.right())
-                r = QRectF(min(pa, pb), bar["center"] - w / 2, abs(pb - pa), w)
-            else:
-                pa = val_axis.map(bar["v0"], coord.plot.bottom(), coord.plot.top())
-                pb = val_axis.map(v1, coord.plot.bottom(), coord.plot.top())
-                r = QRectF(bar["center"] - w / 2, min(pa, pb), w, abs(pb - pa))
+            r = self._animated_rect(bar, anim_t, coord)
             if r.width() <= 0 or r.height() <= 0:
                 continue
             if uni is not None:
@@ -704,9 +733,21 @@ class BarSeriesRenderer(SeriesRenderer):
 
         要真正优化柱命中，先用 ``benchmark()`` 确认柱数量是真实需求（见 AGENTS.md
         「大数据性能」小节）。
+
+        动画期用 ``_animated_rect`` 现算几何（与 ``paint`` 同一份公式），
+        而不是 ``bar["rect"]``（终态）—— 否则点动画中尚未长到的那根柱会
+        命中旁边的柱。
         """
+        coord = self.chart.coordFor(self.opt)
+        if not isinstance(coord, GridCoord):
+            return None
+        anim_t = self._anim_t
         for bar in self._bars:
-            if bar["rect"].adjusted(-2, -2, 2, 2).contains(pos):
+            if anim_t >= 1.0:
+                rect = bar["rect"]
+            else:
+                rect = self._animated_rect(bar, anim_t, coord)
+            if rect.adjusted(-2, -2, 2, 2).contains(pos):
                 return {
                     "name": bar["label"],
                     "value": bar["y"],
@@ -773,6 +814,10 @@ class LineSeriesRenderer(SeriesRenderer):
         self._y_vals = []  # Python 回退路径的 y 值（含 None）
         self._x_vals = []  # Python 回退路径的 x 原始值
         self._np_cache_key = None  # (id(data), len(data))
+        #: ``_stacked_data`` 的结果缓存（见该方法）。条目形如
+        #: ``(key, own, srcs, base, out)``，``own`` / ``srcs`` 是**强引用**，
+        #: 用来在复核时做 ``is`` 比较兼杜绝 id 复用。
+        self._stacked_cache = None
         # 当前缓存所依据的数据对象（**强引用**）。裸 id 单独用不可靠：对象被
         # 回收后 id 会被复用，可能把上一份数据的 numpy 视图当成当前的。持引用
         # 既保证 id 有效，也让 `data is self._data_ref` 成为精确的身份判据。
@@ -783,16 +828,21 @@ class LineSeriesRenderer(SeriesRenderer):
 
     # -- 数据解析 ---------------------------------------------------------
     def _stacked_data(self):
-        """``stack`` 模式：叠加前序同名 stack 可见系列的值（不影响原始 opt）。
+        """stack 模式：叠加前序同名 stack 可见系列的值（不影响原始 opt）。
 
         返回叠加后的 data；无 stacking 时返回 ``None``。基线存于
-        ``self._stack_base``（index → 基线值），tooltip / 标签按原始值展示。
+        ``self._stack_base``（index -> 基线值），tooltip / 标签按原始值展示。
+
+        **结果必须缓存**：本方法每次都新建一整份 list（dict 项还要 ``{**item}``
+        逐个复制），而 ``layout`` 每次 ``_layout_all`` 都会调它一次。下游的
+        采样缓存键里含 data 的**身份**，每次换一份新 list 就永不命中 ——
+        实测 stack 折线的布局耗时差 **22 倍**。
         """
         stack = self.opt.get("stack")
         if not stack:
             self._stack_base = None
             return None
-        base: dict = {}
+        contributors = []
         for r in self.chart.seriesRenderers:
             if r is self:
                 break
@@ -800,16 +850,33 @@ class LineSeriesRenderer(SeriesRenderer):
                 continue
             if str(r.opt.get("stack") or "") != str(stack):
                 continue
-            for i, item in enumerate(r.data()):
+            contributors.append(r)
+
+        own = self.dataView()
+        srcs = [r.data() for r in contributors]
+        key = (id(own), tuple((id(s), len(s)) for s in srcs))
+        hit = self._stacked_cache
+        # ``is`` 复核不能省：缓存条目**不持有**源数据（``out`` 里全是新算的
+        # 标量），而 ``setOption`` 换数据后旧对象会被释放，新对象完全可能拿到
+        # 同一个 ``id`` 且长度相同 —— 只比 key 就会把上一份叠加值当成当前的。
+        # 持强引用同时杜绝 id 复用。
+        if hit is not None and hit[0] == key and hit[1] is own and hit[2] == srcs:
+            self._stack_base = hit[3]
+            return hit[4]
+
+        base: dict = {}
+        for src in srcs:
+            for i, item in enumerate(src):
                 _, y = parseDataPoint(item, i)
                 if y is not None:
                     base[i] = base.get(i, 0.0) + y
         self._stack_base = base or None
         if not base:
+            self._stacked_cache = (key, own, srcs, self._stack_base, None)
             return None
         out = []
-        for i, item in enumerate(self.dataView()):
-            x, y = parseDataPoint(item, i)
+        for i, item in enumerate(own):
+            _x, y = parseDataPoint(item, i)
             if y is None:
                 out.append(item)
                 continue
@@ -826,6 +893,7 @@ class LineSeriesRenderer(SeriesRenderer):
                 out.append([item[0], stacked] + list(item[2:]))
             else:
                 out.append(stacked)
+        self._stacked_cache = (key, own, srcs, self._stack_base, out)
         return out
 
     def _raw_value(self, index):
@@ -847,7 +915,7 @@ class LineSeriesRenderer(SeriesRenderer):
             return None, None
         try:
             arr = _ds.np.asarray(data, dtype=_ds.np.float64)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None, None
         if arr.ndim == 1:
             return None, arr
@@ -960,7 +1028,9 @@ class LineSeriesRenderer(SeriesRenderer):
 
         if window_idx is not None:
             n_win = len(window_idx)
-            n_out = max(2, int(plot_w * ppb))
+            # 下界按算法取（``_ds.min_out_for``）：``max(2, ...)`` 造出的
+            # ``n_out == 2`` 会让 minmax / m4 / lttb 全部 Rust panic。
+            n_out = max(_ds.min_out_for(algo), int(plot_w * ppb))
             # 缓存键必须包含两项身份信息：
             # ① **数据身份** —— 否则「换成等长的另一份数据」会得到完全相同的键
             #    而跳过重算，用旧数据的采样下标去画新数据（尖峰错位 / 漏点）。
@@ -1040,7 +1110,7 @@ class LineSeriesRenderer(SeriesRenderer):
         w_idx = _ds.np.flatnonzero(mask)
         if len(w_idx) == 0:
             return
-        n_out = max(2, int(coord.plot.width() * ppb))
+        n_out = max(_ds.min_out_for(algo), int(coord.plot.width() * ppb))
         if len(w_idx) > threshold:
             idx_local = _ds.downsample_indices(px[w_idx], py[w_idx], n_out, algo)
             if idx_local is None:
@@ -1402,7 +1472,12 @@ class LineSeriesRenderer(SeriesRenderer):
     def hitTest(self, pos: QPointF):
         best = None
         best_d = 10.0  # 命中半径 px
-        for i, pt in enumerate(self._points):
+        # 动画期用「画出来的那份」折线点（与 ``paint`` 同一份插值），
+        # 否则会命中动画终点位置上的点 —— 视觉上完全对不上。
+        pts = (
+            self._points if self._anim_t >= 1.0 else self._animated_points(self._anim_t)
+        )
+        for i, pt in enumerate(pts):
             if pt is None:
                 continue
             d = math.hypot(pt.x() - pos.x(), pt.y() - pos.y())
@@ -1567,9 +1642,13 @@ class ScatterSeriesRenderer(SeriesRenderer):
     def hitTest(self, pos: QPointF):
         best = None
         best_d = 1e9
+        # 散点的入场动画只缩半径、不挪位置（见 ``paint`` 的 ``r = d["r"] * scale``），
+        # 所以命中位置始终正确；这里只把半径也按同一系数缩，让命中范围与
+        # 画出来的大小一致（否则动画中「点得到但看不见」）。
+        scale = max(0.0, self._anim_t)
         for d in self._dots:
             dist = math.hypot(d["pt"].x() - pos.x(), d["pt"].y() - pos.y())
-            if dist <= max(d["r"], 4.0) + 3 and dist < best_d:
+            if dist <= max(d["r"] * scale, 4.0) + 3 and dist < best_d:
                 best_d = dist
                 best = d
         if best is None:
@@ -1693,11 +1772,11 @@ class HeatmapSeriesRenderer(SeriesRenderer):
         series_style = self.itemStyle()
         try:
             self._cell_gap = max(0.0, float(series_style.get("borderWidth", 1.0)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             self._cell_gap = 1.0
         try:
             self._cell_radius = max(0.0, float(series_style.get("borderRadius", 2.0)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             self._cell_radius = 2.0
 
     def _calendar_cells(self, coord, data_map, colors, vmin, vmax) -> list:
@@ -1738,7 +1817,7 @@ class HeatmapSeriesRenderer(SeriesRenderer):
                 raw_border = item_style.get("borderColor")
                 try:
                     raw_width = float(item_style.get("borderWidth", 0))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError, OverflowError):
                     raw_width = 0.0
                 if isinstance(raw_border, str) and raw_border:
                     border_color = QColor(raw_border)
@@ -2022,7 +2101,9 @@ class EffectScatterSeriesRenderer(ScatterSeriesRenderer):
         # 绑定方法插槽：PyQt5 对带默认参数的闭包插槽签名处理不稳定（会触发
         # "missing 1 required positional argument" 并终止进程）
         timer.timeout.connect(self._on_timer)
-        timer.start()
+        # 持续动效：Reduced/Disabled 下不扩散。相位冻结在当前值 —— 点仍在、
+        # 只是不扩散，所以不需要摆姿态钩子。
+        start_idle_loop(timer, self._TICK_MS)
         self._timer = timer
 
     def _stop_timer(self) -> None:
@@ -2074,9 +2155,15 @@ class EffectScatterSeriesRenderer(ScatterSeriesRenderer):
         self._stop_timer()
 
     def _on_visible_changed(self):
-        """显隐变化钩子（core 内部调用）：显示恢复时重启定时器。"""
+        """显隐变化钩子（core 内部调用）：显示恢复时重启定时器。
+
+        **必须走 ``start_idle_loop`` 而不是裸 ``timer.start()``**：裸 start
+        绕过动效策略，于是「Reduced/Disabled 下持续动效停掉」被图例切换
+        重新打开 —— 无障碍用户看到涟漪照常扩散。而 ``start_idle_loop`` 是幂等的
+        （内部先查 ``isActive()``）、守策略、且无论启不启动都会写 interval。
+        """
         if self.visible and self._timer is not None and not self._timer.isActive():
-            self._timer.start()
+            start_idle_loop(self._timer, self._TICK_MS)
 
     def paint(self, p: QPainter, anim_t: float) -> None:
         super().paint(p, anim_t)
@@ -2315,7 +2402,7 @@ class BoxplotSeriesRenderer(SeriesRenderer):
         )
         try:
             stroke_w = max(0.5, float(style.get("borderWidth", 1.4)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             stroke_w = 1.4
         fill = QColor(fill_raw) if isinstance(fill_raw, str) and fill_raw else None
         if fill is not None:
@@ -2514,11 +2601,11 @@ class ParallelSeriesRenderer(SeriesRenderer):
             color = QColor(line_style["color"])
         try:
             width = max(0.5, float(line_style.get("width", 1.6)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             width = 1.6
         try:
             opacity = max(0.0, min(1.0, float(line_style.get("opacity", 110 / 255.0))))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             opacity = 110 / 255.0
         hover = self.chart.hoverInfo()
         hovered = (

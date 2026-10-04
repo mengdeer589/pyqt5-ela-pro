@@ -14,13 +14,14 @@ from typing import Optional
 
 from PyQt5.QtCore import QSize, Qt, QRect, QRectF
 from PyQt5.QtGui import (
-    QPainter,
-    QPixmap,
-    QIcon,
     QColor,
-    QPainterPath,
+    QIcon,
+    QImage,
     QPaintEvent,
+    QPainter,
+    QPainterPath,
     QPen,
+    QPixmap,
 )
 from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtWidgets import QPushButton, QWidget
@@ -30,18 +31,31 @@ from ._internal import _ThemeAwareMixin
 
 
 @lru_cache(maxsize=256)
-def _render_svg(svg_data: str, size: int, color: Optional[str] = None) -> QPixmap:
-    """将 SVG 数据渲染为 QPixmap（内部公用方法，结果按参数缓存）。"""
+def _render_svg_image(svg_data: str, size: int, color: Optional[str] = None) -> QImage:
+    """把 SVG 数据渲染成 ``QImage``（内部公用方法，结果按参数缓存）。
+
+    **缓存的是 ``QImage`` 而不是 ``QPixmap``**，两条理由：
+
+    ① ``QPixmap`` 在 PyQt5 里是**活对象**且缓存直接把它当返回值交出去 ——
+       调用方一句 ``svg_to_pixmap(...).fill(red)`` 就把缓存里那一份改了，
+       **之后所有拿到该缓存的调用方看到的都是被改过的图**（实测：
+       ``#000000`` 被就地改成 ``#ff0000`` 且持续生效）。
+    ② ``QPixmap`` 只能 GUI 线程用（Qt 文档明写非线程安全），而缓存是进程级
+       单例；``QImage`` 则是可复制的值类型，渲染与缓存都不依赖 GUI 线程。
+
+    ``QPixmap.fromImage()`` 只在**出参**那一层做一次，落在调用方自己的线程上。
+    """
     if color:
         svg_data = svg_data.replace("<<<COLOR_CODE>>>", color)
     renderer = QSvgRenderer(svg_data.encode("utf-8"))
-    pixmap = QPixmap(size, size)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.SmoothPixmapTransform)
+    image = QImage(size, size, QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
     renderer.render(painter)
     painter.end()
-    return pixmap
+    return image
 
 
 def svg_to_icon(
@@ -61,7 +75,7 @@ def svg_to_icon(
         icon = svg_to_icon(svg_data, size=24, color="#1570A5")
         button.setIcon(icon)
     """
-    return QIcon(_render_svg(svg_data, size, color))
+    return QIcon(QPixmap.fromImage(_render_svg_image(svg_data, size, color)))
 
 
 def svg_to_pixmap(
@@ -69,14 +83,27 @@ def svg_to_pixmap(
     size: int = 30,
     color: Optional[str] = None,
 ) -> QPixmap:
-    """将 SVG 数据转换为 QPixmap。
+    """将 SVG 数据转换为 QPixmap（**每次返回新对象**）。
 
     :param svg_data: SVG 字符串数据
     :param size: 图标尺寸，默认 30
     :param color: 颜色值，会替换 SVG 中的 <<<COLOR_CODE>>> 占位符
-    :return: QPixmap 对象
+    :return: QPixmap 对象（调用方可自由 ``fill`` 等，不会污染缓存）
     """
-    return _render_svg(svg_data, size, color)
+    return QPixmap.fromImage(_render_svg_image(svg_data, size, color))
+
+
+def svg_to_image(
+    svg_data: str,
+    size: int = 30,
+    color: Optional[str] = None,
+) -> QImage:
+    """将 SVG 数据转换为 QImage（**值类型**，可跨线程用）。
+
+    需要在 GUI 线程之外渲染时用它 —— ``svg_to_pixmap`` 最后一步
+    ``QPixmap.fromImage`` 要求 GUI 线程，而这一路（渲染 + 缓存）不要求。
+    """
+    return QImage(_render_svg_image(svg_data, size, color))
 
 
 class ElaSvgIconLoader:
@@ -526,6 +553,7 @@ def svg_icon_loader() -> ElaSvgIconLoader:
 __all__ = [
     "svg_to_icon",
     "svg_to_pixmap",
+    "svg_to_image",
     "ElaSvgIconLoader",
     "ElaSvgButton",
     "ElaSvgIconButton",

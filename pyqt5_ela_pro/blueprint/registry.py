@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 import logging
 from typing import Callable, Optional
 
+from PyQt5.QtGui import QColor
+
 from ._tokens import T
 from .model import ElaBlueprintNode
 
@@ -61,19 +63,67 @@ def register_pin_type(name: str, color: str) -> None:
 
     :param name: 类型名（``ElaPin.data_type`` 使用的键，如 ``"audio"``）
     :param color: 令牌键（``"success"`` 等）或 hex
+    :raises ValueError: 颜色既不是合法 ``QColor`` 字面量也不是已知令牌
+        （``name`` 不能覆盖内置的 ``"any"``，否则兜底链就断了）
+
+    **必须注册期校验**：``pin_color()`` 只在绘制期被调用（``node_widget``
+    ``_draw_pins``、``edge_widget`` ``_color`` / ``draw``，全在 ``paintEvent``
+    链上），而 ``T()`` 对未知键抛 ``KeyError`` —— 不校验就等于把「宿主填错
+    了一个词」变成**绘制时静默终止进程**。
     """
-    PIN_COLORS[str(name)] = str(color)
+    key = str(name)
+    if key == "any":
+        # ``any`` 是未知类型的兜底目标（``pin_color`` 的最后一层），
+        # 覆盖它等于剪断整条降级链
+        raise ValueError("引脚类型名 'any' 是内置兜底条目，不可覆盖")
+    value = str(color)
+    _resolve_pin_color(key, value)  # 校验：非法就地抛 ValueError
+    PIN_COLORS[key] = value
+
+
+def _resolve_pin_color(name: str, value: str) -> str:
+    """把一个引脚配色值解析成 hex 字符串；非法就地抛 ``ValueError``。
+
+    两种合法形态：``T()`` 认识的令牌键，或 ``QColor`` 认识的颜色字面量
+    （``#rrggbb`` / SVG 具名色如 ``"red"``）。
+
+    **注意 ``rgb(1,2,3)`` 不合法**：``QColor`` 只吃 ``#rrggbb`` 与具名色，
+    不解析 CSS 函数记法（实测 ``QColor("rgb(1,2,3)").isValid()`` 为
+    ``False``）。原先这里有句 ``value.startswith("rgb")`` 就原样放行，
+    结果是下游 ``QColor(...)`` 拿到**无效色静默变黑** —— 引脚看上去「没
+    上色」而零报错。
+    """
+    try:
+        return str(T(f"color.{value}"))
+    except KeyError:
+        pass
+    color = QColor(value)
+    if not color.isValid():
+        raise ValueError(
+            f"引脚类型 {name!r} 的颜色 {value!r} 既不是已知令牌，也不是合法的"
+            f"颜色字面量（QColor 只接受 #rrggbb / 具名色，不接受 rgb(...) 记法）"
+        )
+    return color.name()
 
 
 def pin_color(data_type: str) -> str:
     """取引脚类型对应的实时颜色（hex 字符串），主题感知。
 
     值若为令牌键则经 ``T("color.<key>")`` 实时解析；未知类型回退 ``any``。
+
+    **这一层仍要兜底**：``PIN_COLORS`` 是模块级 dict，宿主可以直接往里写而
+    绕过 ``register_pin_type`` 的校验 —— 而绘制期没有第二次机会，非法值
+    在这里必须降级成 ``any`` 而不是抛。
     """
     value = PIN_COLORS.get(data_type, PIN_COLORS["any"])
-    if value.startswith("#") or value.startswith("rgb"):
-        return value
-    return str(T(f"color.{value}"))
+    try:
+        return _resolve_pin_color(data_type, value)
+    except ValueError:
+        # 兜底目标是 ``PIN_COLORS["any"]`` 本身（而不是硬编码某个令牌）——
+        # 它是内置表里保证可解析的条目。用 ``T("color.any")`` 会二次失败：
+        # 内置值是 ``"text.tertiary"``，令牌键名并不是 ``any``。
+        logger.warning("引脚类型 %r 的配色 %r 非法，回退到 any", data_type, value)
+        return _resolve_pin_color(data_type, PIN_COLORS["any"])
 
 
 # ---------------------------------------------------------------------------

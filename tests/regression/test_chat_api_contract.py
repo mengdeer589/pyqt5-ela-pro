@@ -131,6 +131,7 @@ class TestNoPassThroughLayer:
             "endAssistantMessage",
             "stopGeneration",
             "undoMessage",
+            "undoLastUserMessage",
             "regenerateFrom",
             "retryMessage",
             "enqueueMessage",

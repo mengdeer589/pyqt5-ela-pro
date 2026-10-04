@@ -135,8 +135,16 @@ class TestPinColors:
 
     def test_register_pin_type(self):
         register_pin_type("audio", "#E0A030")
+        # 登记表里存原样（宿主读自己的值），但 **pin_color 一律归一成小写
+        # hex** —— 与令牌路径（``T()`` -> ``QColor.name()``）的输出统一，
+        # 上游按字符串比色时才不会被大小写咬到。
         assert PIN_COLORS["audio"] == "#E0A030"
-        assert pin_color("audio") == "#E0A030"
+        assert pin_color("audio") == "#e0a030"
+
+    def test_register_pin_type_rejects_bad_color(self):
+        with pytest.raises(ValueError):
+            register_pin_type("bad", "totally-unknown-token")
+        assert "bad" not in PIN_COLORS
 
     def test_pin_color_token_key_resolves(self):
         register_pin_type("mask", "danger")

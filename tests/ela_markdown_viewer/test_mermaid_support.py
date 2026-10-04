@@ -246,7 +246,7 @@ class TestMermaidViewerIntegration:
         v.close()
         v.deleteLater()
 
-    def test_copy_mermaid_source(self, qapp):
+    def test_copy_mermaid_source(self, qapp, requires_clipboard):
         v = ElaMarkdownViewer()
         v.resize(520, 360)
         v.setMermaidRenderer(lambda code, theme: _fake_image(theme))

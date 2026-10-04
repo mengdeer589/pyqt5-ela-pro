@@ -264,6 +264,15 @@ class ChatInputPage(ExamplePage):
         组件只管摆放与状态回传，**点了干什么归宿主**。checkable 项会发
         ``toolToggled(key, checked)``。
         """
+        toolbar = self._chat.toolBar()
+        toolbar.addButton(
+            icon=ElaIconType.IconName.Bolt,
+            tooltip="插入分析模板",
+            key="template",
+            callback=self._on_template,
+        )
+        toolbar.addWidget(self._agent_button, key="agent")
+        toolbar.toolToggled.connect(self._on_tool_toggled)
 
     def _on_add_toolbar_button(self) -> None:
         key = f"extra{len(getattr(self, '_extra_keys', ())) + 1}"
@@ -419,6 +428,11 @@ class ChatInputPage(ExamplePage):
         容易漏的一处：**复制的文件**（Explorer 里 Ctrl+C）拖进来，mime 是
         ``file://`` URL 而不是路径，各写一份判定就会漏掉这一种。
         """
+        self._chat.chatInput().addAttachment("blocks.py", "src/chat/blocks.py", 48_120)
+        self._chat.sendUserMessage(
+            "这两个文件一起看", attachments=[{"name": "notes.md", "size": 1_204}]
+        )
+        self._chat.attachmentClicked.connect(self._on_attachment_clicked)
 
     def _on_demo_attachment(self) -> None:
         name = datetime.now().strftime("示例文件_%H%M%S.txt")
@@ -460,6 +474,11 @@ class ChatInputPage(ExamplePage):
         ``[ElaChatSuggestion(id, label), ...]``。**返回空列表就关闭浮层** ——
         不要用「返回上一次结果」来保活，用户会觉得幽灵条目在乱跳。
         """
+        self._chat.setMentionProvider(self._mention_suggestions)
+        self._chat.chatInput().openMentionPopup()
+        self._chat.mentionSelected.connect(
+            lambda ref_id, label: self._status.setStatus(f"引用 {label}")
+        )
 
     def _on_context(self) -> None:
         self._chat.chatInput().openMentionPopup()
@@ -499,6 +518,9 @@ class ChatInputPage(ExamplePage):
         - **清空分两半**：组件清界面，后端会话历史归宿主 —— 在 ``cleared``
           里调 ``worker.reset()``，少这一步模型还记得上文。
         """
+        self._chat.clearRequested.connect(self._on_clear_requested)  # 确认之前
+        self._chat.cleared.connect(self._on_context_cleared)  # 确认之后
+        self._chat.requestClear()
 
     def _on_clear_requested(self):
         """确认**之前**的钩子：只埋点。"""
@@ -534,6 +556,10 @@ class ChatInputPage(ExamplePage):
 
         组件**故意不清草稿 / 附件** —— 用户正在打的那半句话不该被系统动作吃掉。
         """
+        self._chat.newTopicRequested.connect(self._on_new_topic_requested)
+        self._chat.chatView().clear()
+        self._mock.reset()
+        self._chat.setCurrentSessionId("s2")
 
     def _on_new_topic_clicked(self):
         self._on_new_topic_requested()
@@ -570,14 +596,26 @@ class ChatInputPage(ExamplePage):
 
         - ``stopGeneration()`` —— 停当前轮，**保留已输出内容**，收尾状态
           ``Stopped``；
-        - ``undoMessage(id)`` —— 删这条及其后所有消息，原文 / 附件回填输入框；
-        - ``regenerateFrom(id)`` —— **删掉**那条回答重发；
+        - ``undoLastUserMessage()`` —— 撤回**最后一条用户消息**：删该条及其后
+          所有消息，原文 / 附件回填输入框；按显式 id 撤回用 ``undoMessage(id)``，
+          它**只对用户消息生效**（传助手消息返回 ``None``）；
+        - ``regenerateFrom(id)`` —— **删掉**那条回答重发（回答侧）；
         - ``retryMessage(id)`` —— 同参数重发但**不删消息**，保留 id 与时间线
           位置（错误卡上的「重试」走这条）；
         - ``enqueueMessage()`` —— 排队，等整轮跑完自动续发。
 
         生成中再发一条消息，默认就是排队（``setAutoSendQueue(True)``）。
         """
+        self._chat.enqueueMessage("排队中的一条", messageId=42)  # 生成中提交 → 排队
+        self._chat.stopGeneration()  # 停当前轮（保留已输出内容）
+
+        # 「撤回最后一条」= 撤回最后一条用户消息（不是最后一条消息）
+        self._chat.undoLastUserMessage()
+
+        # 显式 id 的两种方向：
+        # self._chat.undoMessage(userMessageId)         # 只对用户消息生效
+        # self._chat.regenerateFrom(assistantMessageId) # 删掉这条回答重发
+        # self._chat.retryMessage(assistantMessageId)   # 原地重试（不删消息）
 
     def _on_enqueue(self) -> None:
         self._chat.enqueueMessage("（排队中）这一条等上一轮跑完再发")
@@ -586,12 +624,15 @@ class ChatInputPage(ExamplePage):
         )
 
     def _on_undo_last(self) -> None:
-        view = self._chat.chatView()
-        messages = view.messages()
-        if len(messages) < 2:
-            self._say(6, "至少要有「用户提问 + 助手回答」才能撤回")
+        # 「撤回最后一条」= 撤回最后一条**用户消息**（不是最后一条消息 ——
+        # 最后一条通常是助手回答，拿它的 id 去撤会被 undoMessage 拒绝）
+        target = self._chat.undoLastUserMessage()
+        if target is None:
+            self._say(6, "还没有用户消息可撤回")
             return
-        self._on_undo(messages[-1].id)
+        self._mock.cancel()
+        self._pending_answer = None
+        self._say(6, f"已撤回最后一条用户消息（#{target.id}），原文已回填输入框")
 
     def _on_regenerate_last(self) -> None:
         view = self._chat.chatView()

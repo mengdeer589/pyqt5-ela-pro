@@ -10,6 +10,14 @@ from __future__ import annotations
 from PyQt5.QtGui import QColor, QFont
 from PyQt5ElaWidgetTools import ElaThemeType, eTheme
 
+# ``blend`` 原为本模块私有，现已提到共享层 ``pyqt5_ela_pro._theme``（Shimmer 的
+# 骨架底色、Avatar 的派生底色都要用同一套插值）。这里再导入一次是因为 chat 内部
+# 有 6 处按 ``from ._theme import blend`` 取它 —— 那不是兼容别名，是 chat 的
+# 语义色都集中在本模块的既有约定。
+from .._theme import blend
+
+__all__ = ["MONO_FONT_STACK", "blend", "mono_font"]
+
 #: 等宽字体栈（数字 / 耗时 / 统计 / 工具参数的“代理轨迹”质感；
 #: 中文自动回退系统字体，无需 HTML 混排）
 MONO_FONT_STACK = ("Consolas", "Cascadia Mono", "Courier New")
@@ -21,17 +29,6 @@ def mono_font(size_px: int = 11) -> QFont:
     font.setFamilies(list(MONO_FONT_STACK))
     font.setPixelSize(int(size_px))
     return font
-
-
-def blend(base: QColor, other: QColor, t: float) -> QColor:
-    """按比例混合两种颜色（``t`` 为 ``other`` 的占比，0-1）。"""
-    t = max(0.0, min(1.0, float(t)))
-    return QColor(
-        round(base.red() + (other.red() - base.red()) * t),
-        round(base.green() + (other.green() - base.green()) * t),
-        round(base.blue() + (other.blue() - base.blue()) * t),
-        round(base.alpha() + (other.alpha() - base.alpha()) * t),
-    )
 
 
 def base_color(mode) -> QColor:

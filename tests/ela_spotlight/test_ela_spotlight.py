@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from PyQt5.QtWidgets import QWidget
-from PyQt5ElaWidgetTools import ElaThemeType
+from PyQt5ElaWidgetTools import ElaThemeType, eTheme
 
 from pyqt5_ela_pro.ela_spotlight import ElaSpotlight
 
@@ -119,6 +119,34 @@ class TestElaSpotlightTheme:
     def test_on_theme_changed_updates_mode(self, s):
         s._onThemeChanged(ElaThemeType.ThemeMode.Dark)
         assert s._theme_mode == ElaThemeType.ThemeMode.Dark
+
+    def test_tip_card_repaints_on_theme_switch(self, s, make, qapp):
+        """回归：卡片配色原先缓存、只在重定位时刷新，开着遮罩切主题会停在旧色。
+
+        判据读**落地像素**（重构后卡片没有内部缓存可断言）：实心圆角卡片在
+        windows / offscreen 都会真实渲染，不像文字像素那样需要 skip。
+        """
+        parent = s.parent()
+        parent.resize(800, 600)
+        target = make(QWidget, parent)
+        s.setSteps([ElaSpotlight.SpotlightStep(target, "标题", "内容")])
+        s.start()
+
+        previous = eTheme.getThemeMode()
+        try:
+            eTheme.setThemeMode(ElaThemeType.ThemeMode.Light)
+            qapp.processEvents()
+            image = s._tip_widget.grab().toImage()
+            light = image.pixelColor(image.width() // 2, 6)  # 顶边内侧，避开文字
+            eTheme.setThemeMode(ElaThemeType.ThemeMode.Dark)
+            qapp.processEvents()
+            image = s._tip_widget.grab().toImage()
+            dark = image.pixelColor(image.width() // 2, 6)
+        finally:
+            eTheme.setThemeMode(previous)
+
+        assert light.name() != dark.name(), "卡片没有跟着主题重绘"
+        assert dark.lightness() < light.lightness()
 
 
 class TestElaSpotlightDeleteLater:

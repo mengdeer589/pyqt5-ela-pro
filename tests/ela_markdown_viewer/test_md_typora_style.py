@@ -107,17 +107,26 @@ class TestTypograhySpec:
         v = _viewer(
             qapp, "# 一\n\n## 二\n\n### 三\n\n#### 四\n\n##### 五\n\n###### 六\n"
         )
-        base = v.document().defaultFont().pointSizeF()
+        # **基准取 h6 的实际字号，不取 ``defaultFont().pointSizeF()``**。
+        # 后者在字体没有显式 pointSize 时返回 Qt 的哨兵 ``-1``，于是
+        # ``base * expected`` 变成负数、断言恒假（本机实测 h1 实际21.9375pt
+        # 恰好等于 9.75 × 2.25，比例完全正确，却因为基准取错而红）。
+        # Typora 阶梯本身就是「相对基准的比例」，用 h6（比例 1.0）当基准
+        # 钉的正是同一条不变量，且与基准字号从哪来无关。
+        expected = {1: 2.25, 2: 1.75, 3: 1.5, 4: 1.25, 5: 1.0, 6: 1.0}
+        sizes: dict[int, float] = {}
         for level, needle in enumerate(("一", "二", "三", "四", "五", "六"), start=1):
             block = _find_block(v, needle)
             cursor = QTextCursor(block)
             cursor.movePosition(
                 QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor
             )
-            size = cursor.charFormat().fontPointSize()
-            expected = {1: 2.25, 2: 1.75, 3: 1.5, 4: 1.25, 5: 1.0, 6: 1.0}[level]
-            assert abs(size - base * expected) < 0.01, (level, size)
+            sizes[level] = cursor.charFormat().fontPointSize()
             assert int(cursor.charFormat().fontWeight()) == int(QFont.Weight.Bold)
+        base = sizes[6]
+        assert base > 0, sizes
+        for level, ratio in expected.items():
+            assert abs(sizes[level] - base * ratio) < 0.01, (level, sizes, base)
         v.deleteLater()
 
     def test_heading_margins_and_h6_color(self, qapp):

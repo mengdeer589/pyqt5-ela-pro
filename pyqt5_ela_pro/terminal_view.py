@@ -90,6 +90,39 @@ _DEFAULT_FONT_SIZE = 13
 #: 字号可调范围（像素）
 _MIN_FONT_SIZE = 8
 _MAX_FONT_SIZE = 32
+#: ``maxLines`` 的上限。``0`` 表示不限，而 ``inf`` 语义上就是「不限」，
+#: 但落到1,000,000 这个明确上限更好：让「上限」这个概念始终有确定值。
+_MAX_LINES_CAP = 1_000_000
+
+
+def _clamped_int(value, low: int, high: int, default: int) -> int:
+    """把可能非有限的数值夹到 ``[low, high]`` 再取整。
+
+    **必须先夹后转。** ``int(float('inf'))`` 抛的是 ``OverflowError`` ——
+    它继承 ``ArithmeticError`` 而**不是** ``ValueError``，所以
+    ``except ValueError`` 抓不到。而这些 setter 的 docstring 承诺
+    「自动夹到 8-32」/「``0`` 表示不限」，写成
+    ``max(low, min(high, int(x)))`` 时异常**先抛出、夹取根本没机会跑** ——
+    照文档传个 ``inf`` 就失败。
+
+    ``nan`` 落到 ``default``（调用方给「保持原值」或「不限」）；无法转成
+    浮点（如传了个 ``str``）同样落``default``。
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError 必须显式列出：``float(10 ** 400)``（宿主传了个巨大 int）
+        # 抛的是它，而它**不是** ValueError 的子类
+        return default
+    if number != number:  # nan
+        return default
+    if number < low:
+        return low
+    if number > high:  # inf 也落在这里
+        return high
+    return int(number)
+
+
 #: 终端卡片圆角半径
 _CARD_RADIUS = 8
 #: 行号槽左右内边距 / 最小宽度
@@ -447,6 +480,17 @@ class AnsiParser:
         """收尾：把未换行的残余内容作为最后一行吐出（无内容则空列表）。"""
         return [self._take_line()] if self._spans else []
 
+    def pendingLine(self) -> Optional[TerminalLine]:  # noqa: N802 (Qt 命名)
+        """还没收口的那一行（**不消费**；没有则 ``None``）。
+
+        与 :meth:`flush` 的区别就是不消费：终端停在 ``Password:`` 这种
+        等输入的状态时，那行既没被 ``\\n`` 收口、也不该被收走 —— 真实
+        终端就把它显示在光标处。view 层用它把「当前行」实时画出来。
+        """
+        if not self._spans:
+            return None
+        return TerminalLine(list(self._spans))
+
     def reset(self) -> None:
         """清空全部状态（样式、行缓冲、残缺序列）。"""
         self._style = TerminalStyle()
@@ -563,12 +607,24 @@ class AnsiParser:
             self._pending_cr = False
             self._erase_in_display(_first_param(params))
         elif final == "C":
+            # **Cursor movement must clear the \\r "full-line redraw"
+            # marker** -- after moving the cursor, writing is "overwrite
+            # cell by cell from that column", not "redraw the whole line".
+            # C/D/G used to leave the marker set, so
+            # "PROGRESS 50%" + \r + ESC[2C + "DONE" degraded to ["DONE"]:
+            # the offset of 2 was ignored entirely and the preceding content
+            # got wiped. (\\b already cleared it.)
+            self._pending_cr = False
             self._cursor += max(_DEFAULT_CSI_STEP, _first_param(params, 1))
         elif final == "D":
+            self._pending_cr = False
             self._cursor = max(
                 0, self._cursor - max(_DEFAULT_CSI_STEP, _first_param(params, 1))
             )
         elif final in ("G", "`"):
+            # ``CSI 1G`` is equivalent to going back to the first column, but
+            # does **not** erase -- that is exactly the difference from \\r
+            self._pending_cr = False
             self._cursor = max(0, _first_param(params, 1) - 1)
 
     def _apply_sgr(self, params: str) -> None:
@@ -657,8 +713,15 @@ class AnsiParser:
 
     def _control(self, char: str, out: list) -> None:
         if char == "\r":
-            # 只做标记，不立即清空：紧跟的 \n 是 CRLF，应保留内容正常收行
+            # 只标记「下一笔是整行重绘」，**不擦内容** —— 紧跟的 \n 是 CRLF，
+            # 应保留内容正常收行。
+            #
+            # 但**光标必须在这里就归零**：\r 是光标移动（CR = carriage return），
+            # 擦除是「下一笔写入」时才发生的事。原先归零只发生在 _write 的
+            # 整行重绘分支里，于是「\r 之后先挪光标再写」这条路走不到那个
+            # 分支，光标还停在原处 —— 光标偏移被整个忽略。
             self._pending_cr = True
+            self._cursor = _ZERO
         elif char == "\n":
             out.append(self._take_line())
         elif char == "\b":
@@ -1004,7 +1067,7 @@ class ElaTerminalView(ElaThemeWidget):
 
         self._parser = AnsiParser()
         self._lines: list = []
-        self._max_lines = max(0, int(maxLines))
+        self._max_lines = _clamped_int(maxLines, 0, _MAX_LINES_CAP, _MAX_LINES_CAP)
         self._pending_render = 0
         self._filter = ""
         self._match_index: list = []
@@ -1018,8 +1081,16 @@ class ElaTerminalView(ElaThemeWidget):
         self._palette: dict = {}
         self._format_cache: dict = {}
         self._highlight = QColor()
+        # 宿主持久覆盖的高亮色（None = 用背景派生的默认黄）。原先 ``_highlight``
+        # 一个字段同时充当「用户覆盖」和「派生缓存」，于是 ``_refresh_palette``
+        # 每次换肤都把用户设过的色冲掉。
+        self._highlight_override: Optional[QColor] = None
         self._gutter_font = QFont(_DEFAULT_FONT_FAMILY)
         self._doc_lines = 0
+        # 文档末尾是否挂着「当前行」块（未被 \n 收口的那一行，见 _rebuild_tail）
+        self._doc_tail = False
+        # 已上屏尾行的内容快照（文本 + 逐 span 样式）；只有它变了才重画尾块
+        self._doc_tail_key: Optional[tuple] = None
         self._auto_scroll = True
         self._following = True
         self._auto_scrolling = False
@@ -1183,16 +1254,26 @@ class ElaTerminalView(ElaThemeWidget):
         if self._parser.takeClear():
             self.clear()
         if not lines:
-            return
-        self._lines.extend(lines)
-        self._trim_lines()
-        self._pending_render += len(lines)
+            # 没有收口的整行，但**可能仍有「当前行」要画**：终端停在
+            # ``Password:`` 这种等输入的状态时，解析器缓冲里已经躺着内容。
+            # 原先这里直接 return，连 flush 定时器都不启动，于是那行既不
+            # 显示也不计数（``visibleLineCount()`` 是 0）。
+            #
+            # 不做「文本没变就跳过」的优化：``append("\x1b[0m")`` 这种只改
+            # 样式不带文本的片，文本没变但**必须**重画。
+            if self._filter or self._parser.pendingLine() is None:
+                return
+        else:
+            self._lines.extend(lines)
+            self._trim_lines()
+            self._pending_render += len(lines)
         if self._filter:
             # 过滤态下增量渲染没有意义，等去抖后整体重建
             self._filter_timer.start()
         else:
             self._flush_timer.start()
-        self.linesAppended.emit(len(lines))
+        if lines:
+            self.linesAppended.emit(len(lines))
 
     def appendLine(self, text: str) -> None:  # noqa: N802 (Qt 命名)
         """追加一行（自动补换行，忽略文本自带的结尾换行）。
@@ -1209,6 +1290,8 @@ class ElaTerminalView(ElaThemeWidget):
         self._lines = []
         self._pending_render = 0
         self._doc_lines = 0
+        self._doc_tail = False
+        self._doc_tail_key = None
         self._match_index = []
         self._match_pos = -1
         self._edit.clear()
@@ -1228,13 +1311,22 @@ class ElaTerminalView(ElaThemeWidget):
 
     def visibleLineCount(self) -> int:  # noqa: N802 (Qt 命名)
         """当前实际渲染的行数（过滤后可能少于 :meth:`lineCount`）。"""
-        return self._doc_lines
+        return self._doc_lines + (1 if self._doc_tail else 0)
 
     def toPlainText(self) -> str:  # noqa: N802 (Qt 命名)
-        """导出全部内容为纯文本（不含转义序列，不受过滤影响）。"""
-        if not self._lines:
+        """导出全部内容为纯文本（不含转义序列，不受过滤影响）。
+
+        含**尚未收口的那一行**（``append("Password: ")`` 之后没有换行符，
+        真实终端就把它显示在光标处）—— 不含的话口令提示这类内容既看不见
+        也导不出去。
+        """
+        texts = [line.text for line in self._lines]
+        tail = self._parser.pendingLine()
+        if tail is not None:
+            texts.append(tail.text)
+        if not texts:
             return ""
-        return "\n".join(line.text for line in self._lines)
+        return "\n".join(texts)
 
     def saveTo(self, path: str, encoding: str = "utf-8") -> bool:  # noqa: N802
         """把全部内容写入文本文件。
@@ -1287,8 +1379,13 @@ class ElaTerminalView(ElaThemeWidget):
     # ── 容量 ──────────────────────────────────────────────────────────
 
     def setMaxLines(self, count: int) -> None:  # noqa: N802 (Qt 命名)
-        """设置保留行数上限，``0`` 表示不限。调小会立即淘汰并重建。"""
-        count = max(0, int(count))
+        """设置保留行数上限，``0`` 表示不限。调小会立即淘汰并重建。
+
+        非有限值（``inf`` / ``nan``）落到 ``_MAX_LINES_CAP``（效果上等同
+        不限）—— 原先的 ``max(0, int(count))`` 会在 ``int(inf)`` 处抛
+        ``OverflowError``，让「0 表示不限」这条约定对 ``inf`` 失效。
+        """
+        count = _clamped_int(count, 0, _MAX_LINES_CAP, _MAX_LINES_CAP)
         if count == self._max_lines:
             return
         self._max_lines = count
@@ -1460,8 +1557,14 @@ class ElaTerminalView(ElaThemeWidget):
         return self._line_numbers_visible
 
     def setFontSize(self, size: int) -> None:  # noqa: N802 (Qt 命名)
-        """设置等宽字号（像素），自动夹到 8-32。"""
-        size = max(_MIN_FONT_SIZE, min(_MAX_FONT_SIZE, int(size)))
+        """设置等宽字号（像素），自动夹到 8-32。
+
+        ``inf`` / ``-inf`` 照常夹到上/下限（这才兑现本文档承诺的「自动夹到
+        8-32」）；``nan`` 无法参与比较，按「保持原值」处理 —— 原先写成
+        ``max(8, min(32, int(size)))`` 时 ``int(inf)`` 的 ``OverflowError``
+        会**先于**夹取抛出，承诺根本没机会生效。
+        """
+        size = _clamped_int(size, _MIN_FONT_SIZE, _MAX_FONT_SIZE, self._font_size)
         if size == self._font_size:
             return
         self._font_size = size
@@ -1505,7 +1608,7 @@ class ElaTerminalView(ElaThemeWidget):
             return
         self._palette_name = name
         self._refresh_palette()
-        self._rebuild_document()
+        self._rebuild_document(keep_scroll=True)
 
     def paletteName(self) -> str:  # noqa: N802 (Qt 命名)
         """获取当前调色板名称。"""
@@ -1514,14 +1617,34 @@ class ElaTerminalView(ElaThemeWidget):
     def setHighlightColor(self, color) -> None:  # noqa: N802
         """设置搜索命中高亮色（``QColor`` 或色串），并就地重渲染。
 
+        覆盖值会**跨换肤保留**（``setPaletteName`` / 主题切换只重算背景派生的
+        默认黄，不动用户设过的色）；传 ``None`` 清除覆盖、回到派生默认黄。
+
         :param color: 高亮色；传 ``None`` 恢复按背景派生的默认黄色
         """
-        new = QColor() if color is None else QColor(color)
+        if color is None:
+            self._highlight_override = None
+        else:
+            new = QColor(color)
+            if not new.isValid():
+                # 非法色存进 QTextCharFormat 后QPainter 直接不画 —— 搜索高亮
+                # 会「整块消失」而不是「显示成某个颜色」，静默且难查
+                return
+            self._highlight_override = new
+        if self._refresh_highlight():
+            if self._filter:
+                self._rebuild_document(keep_scroll=True)
+
+    def _refresh_highlight(self) -> bool:
+        """重算高亮色（用户覆盖优先）；返回是否真的变了。"""
+        if self._highlight_override is not None:
+            new = QColor(self._highlight_override)
+        else:
+            new = _blend(self._palette["background"], _HIGHLIGHT, _HIGHLIGHT_RATIO)
         if self._highlight == new:
-            return
+            return False
         self._highlight = new
-        if self._filter:
-            self._rebuild_document()
+        return True
 
     def _gutter_text_color(self) -> QColor:
         """行号文字色（前景与背景的中间调）。"""
@@ -1550,9 +1673,7 @@ class ElaTerminalView(ElaThemeWidget):
         light = self._theme_mode == ElaThemeType.ThemeMode.Light
         self._palette = _resolve_palette(self._palette_name, light)
         self._format_cache.clear()
-        self._highlight = _blend(
-            self._palette["background"], _HIGHLIGHT, _HIGHLIGHT_RATIO
-        )
+        self._refresh_highlight()
         if _alive(self._card):
             self._card.applyTheme(
                 self._palette["background"],
@@ -1561,25 +1682,96 @@ class ElaTerminalView(ElaThemeWidget):
         if _alive(self._gutter):
             self._gutter.update()
 
+    def _visible_tail(self) -> Optional[TerminalLine]:
+        """要显示的「当前行」；过滤态下不含过滤词的按未命中处理。"""
+        tail = self._parser.pendingLine()
+        if tail is not None and self._filter and self._filter not in tail.text:
+            return None
+        return tail
+
+    @staticmethod
+    def _tail_snapshot(tail: Optional[TerminalLine]) -> Optional[tuple]:
+        """尾行内容快照（文本 + 逐 span 样式），用于判断屏上那行是否过期。
+
+        **只比较「尾行有无」是不够的**：``\\r`` 重画当前行时尾行一直在，
+        内容却每帧都变 —— 按有无比较会把所有重画都当成「没变化」跳过，
+        进度条 / spinner 冻在第一帧（实测文档停在 ``' 10%'`` 而模型已到
+        ``' 90%'``）。样式同样要进快照：纯 SGR 片文本没变但必须重画。
+        """
+        if tail is None:
+            return None
+        return (tail.text, tuple((span.text, span.style) for span in tail.spans))
+
+    def _drop_tail_block(self) -> None:
+        """摘掉文档末尾的尾块（若有）。
+
+        Qt 文档恒有 ≥1 个块，所以「只剩尾块」时摘完会留一个空块 —— 正好
+        给下一行复用，与首行 ``if index or self._doc_lines`` 的判断一致。
+        """
+        if not self._doc_tail:
+            return
+        cursor = QTextCursor(self._edit.document())
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.movePosition(
+            QTextCursor.MoveOperation.StartOfBlock, QTextCursor.MoveMode.KeepAnchor
+        )
+        cursor.removeSelectedText()
+        self._doc_tail = False
+        self._doc_tail_key = None
+
+    def _render_rows(
+        self,
+        cursor: QTextCursor,
+        lines: list,
+        tail: Optional[TerminalLine],
+    ) -> None:
+        """把 ``lines`` 与可选的「当前行」按顺序写进文档。
+
+        **全程用调用方给的同一个游标。** 曾经让「当前行」那段自建游标，结果
+        外层游标停在旧位置，后面的 ``deletePreviousChar()`` 删错了地方 ——
+        实测清空过滤词后渲染出 ``'keep me\\n\\ndrop m'``：多一个空块、尾行还
+        少了最后一个字符。Qt 文档恒有 ≥1 个空块，所以第一行/尾行在
+        ``_doc_lines == 0`` 时直接复用它，不额外 ``insertBlock``。
+        """
+        first = True
+        for line in lines:
+            if not first or self._doc_lines:
+                cursor.insertBlock()
+            self._render_line(cursor, line)
+            first = False
+        if tail is not None:
+            if not first or self._doc_lines:
+                cursor.insertBlock()
+            self._render_line(cursor, tail)
+
     def _flush_render(self) -> None:
         """把待渲染的新行追加进文档（每帧一次）。"""
         if not _alive(self) or not _alive(self._edit):
             return
-        if self._filter or not self._pending_render:
+        if self._filter:
             return
-        lines = self._lines[-self._pending_render :]
+        # 没有完整行**不代表无事可做**：「当前行」（未被 \n 收口的那一行）
+        # 就靠这条路径上屏。原先这里写的是 ``not self._pending_render`` 直接
+        # return，于是尾行永远画不出来。
+        lines = self._lines[-self._pending_render :] if self._pending_render else []
         self._pending_render = 0
-        if not lines:
+        tail = self._visible_tail()
+        tail_key = self._tail_snapshot(tail)
+        # 尾行「屏上那份」是否还是最新的：比较**内容快照**，不是有无 ——
+        # \r 重画时尾行一直在、内容每帧都变，只比有无会把重画全部跳过
+        # （进度条 / spinner 冻在第一帧，实测文档停在 ' 10%' 而模型已到 ' 90%'）。
+        if not lines and tail_key == self._doc_tail_key:
             return
         self._auto_scrolling = True
         try:
+            # 先摘尾块：新行要接在它**前面**，不摘就只能往尾块后面追加
+            self._drop_tail_block()
             cursor = QTextCursor(self._edit.document())
             cursor.movePosition(QTextCursor.MoveOperation.End)
-            for index, line in enumerate(lines):
-                if index or self._doc_lines:
-                    cursor.insertBlock()
-                self._render_line(cursor, line)
+            self._render_rows(cursor, lines, tail)
             self._doc_lines += len(lines)
+            self._doc_tail = tail is not None
+            self._doc_tail_key = tail_key
             self._trim_document()
             if self._following:
                 self._scroll_to_bottom()
@@ -1602,8 +1794,16 @@ class ElaTerminalView(ElaThemeWidget):
         cursor.removeSelectedText()
         self._doc_lines -= excess
 
-    def _rebuild_document(self) -> None:
-        """按数据模型整体重建文档（过滤 / 换肤 / 改上限时走这条路）。"""
+    def _rebuild_document(self, keep_scroll: bool = False) -> None:
+        """按数据模型整体重建文档（过滤 / 换肤 / 改上限时走这条路）。
+
+        :param keep_scroll: **保持当前滚动位置与跟随状态**。换配色 / 换主题 /
+            改高亮色 / 改行数上限都不是「用户要看新内容」，原先无条件
+            ``_scroll_to_bottom()`` 会把用户上滚到的位置拽回底部、并把
+            ``_following`` 重新置 True —— 用户正在回看的那段历史被强行抢走
+            （实测：滚到顶后 ``setPaletteName()`` 直接跳到底）。
+            只有「过滤词变了」和「首次构建」才该强制回到底部。
+        """
         if not _alive(self) or not _alive(self._edit):
             return
         needle = self._filter
@@ -1615,6 +1815,7 @@ class ElaTerminalView(ElaThemeWidget):
         # -1 表示"尚未定位"：重建后第一次 findNext() 正好落在第 1 处命中上，
         # 不会因为预置游标而跳过首个命中。
         self._match_pos = -1
+        tail = self._visible_tail()
 
         self._edit.setUpdatesEnabled(False)
         try:
@@ -1622,22 +1823,30 @@ class ElaTerminalView(ElaThemeWidget):
             cursor.select(QTextCursor.SelectionType.Document)
             cursor.removeSelectedText()
             self._edit.document().clearUndoRedoStacks()
-            cursor = QTextCursor(self._edit.document())
-            for line in rendered:
-                self._render_line(cursor, line)
-                cursor.insertBlock()
-            cursor.deletePreviousChar()  # 末块是插出来的空块，删掉
+            # 归零后再渲染：_render_rows 用它判断「能否复用文档自带的那一个
+            # 空块」，带着旧值会把第一行多插一个空块出来
+            self._doc_lines = 0
+            self._doc_tail = False
+            self._render_rows(cursor, rendered, tail)
+            self._doc_lines = len(rendered)
+            self._doc_tail = tail is not None
+            self._doc_tail_key = self._tail_snapshot(tail)
         finally:
             self._edit.setUpdatesEnabled(True)
-        self._doc_lines = len(rendered)
         self._pending_render = 0
         self._update_match_label()
         # 只在过滤词**真的变了**时才发。换配色 / 改上限 / 主题切换都走同一条
         # 重建路径，无条件发会让宿主收到「词变了」却发现词没变。
-        if needle != self._emitted_filter:
+        filter_changed = needle != self._emitted_filter
+        if filter_changed:
             self._emitted_filter = needle
             self.filterChanged.emit(needle, len(self._match_index))
-        self._scroll_to_bottom()
+        if keep_scroll and self._doc_lines:
+            # 保持跟随状态：还在跟随就继续贴底（内容高度变了），已脱跟就一动不动
+            if self._following:
+                self._scroll_to_bottom()
+        else:
+            self._scroll_to_bottom()
         if _alive(self._gutter):
             self._gutter.update()
 
@@ -1819,7 +2028,7 @@ class ElaTerminalView(ElaThemeWidget):
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:  # noqa: N802
         self._theme_mode = mode
         self._refresh_palette()
-        self._rebuild_document()
+        self._rebuild_document(keep_scroll=True)
 
     def deleteLater(self) -> None:  # noqa: N802 (Qt 命名)
         self._flush_timer.stop()

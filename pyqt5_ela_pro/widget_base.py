@@ -19,21 +19,15 @@ from ._internal import _ThemeAwareMixin
 class ElaThemeWidget(_ThemeAwareMixin, QWidget):
     """自动适应主题变化的 ``QWidget`` 基类。
 
-    在构造时查询当前主题模式，并通过 ``QPalette.Window`` 应用相应的背景色。
-    同时连接到全局 ``eTheme.themeModeChanged`` 信号，
-    使用户在亮色和暗色模式之间切换时自动更新调色板。
-
     子类应调用 ``super().__init__(parent)`` 以确保主题连接被建立。
 
     :param parent: 父级 widget，为 ``None`` 时表示顶级窗口。
-    :type parent: QWidget, optional
 
     Example::
 
         class MyPanel(ElaThemeWidget):
             def __init__(self, parent=None):
                 super().__init__(parent)
-                # self 已经拥有正确的主题背景色
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -47,10 +41,9 @@ class ElaThemeWidget(_ThemeAwareMixin, QWidget):
         self._update_bg_color(mode)
 
     def _update_bg_color(self, mode: ElaThemeType.ThemeMode) -> None:
-        """根据给定的主题模式更新 widget 的背景调色板。
+        """按主题模式更新 widget 的背景调色板。
 
         :param mode: 当前主题模式（亮色或暗色）。
-        :type mode: ElaThemeType.ThemeMode
         """
         bg_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicPress)
         palette = self.palette()
@@ -62,9 +55,9 @@ class ElaThemeWidget(_ThemeAwareMixin, QWidget):
         layoutType: Literal["h", "v", "g"] = "h",
         parent: QWidget | None = None,
     ) -> QHBoxLayout | QVBoxLayout | QGridLayout:
-        """创建布局。
+        """创建布局（边距与间距均为 0）。
 
-        :param layoutType: 布局类型，``"h"`` 水平布局，``"v"`` 垂直布局，``"g"`` 网格布局
+        :param layoutType: ``"h"`` 水平，``"v"`` 垂直，``"g"`` 网格
         :param parent: 父控件，默认为 self
         :return: 创建的布局对象
         """

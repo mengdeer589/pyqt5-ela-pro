@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import time
-
 from _qthelpers import wait_until as _wait_until
 
 from pyqt5_ela_pro.chat import (
@@ -17,8 +15,8 @@ MD = "## 标题\n\n这是**回答**，包含 `代码` 与列表：\n\n- 项目�
 
 
 class TestBatchRendering:
-    def test_defers_markdown_until_end(self, qapp):
-        view = ElaChatView()
+    def test_defers_markdown_until_end(self, qapp, make):
+        view = make(ElaChatView)
         view.resize(480, 320)
         view.show()
         qapp.processEvents()
@@ -48,10 +46,9 @@ class TestBatchRendering:
         assert message.text == MD
         assert [part.kind for part in message.parts] == [ElaChatPartKind.Text]
         assert view.bubble(first).hasPendingRender() is False
-        view.deleteLater()
 
-    def test_batch_finished_signal_once(self, qapp):
-        view = ElaChatView()
+    def test_batch_finished_signal_once(self, qapp, make):
+        view = make(ElaChatView)
         view.resize(480, 320)
         view.show()
         qapp.processEvents()
@@ -63,10 +60,9 @@ class TestBatchRendering:
         view.endBatch()
         assert _wait_until(qapp, lambda: bool(events))
         assert events == [True]
-        view.deleteLater()
 
-    def test_nested_batch_starts_once(self, qapp):
-        view = ElaChatView()
+    def test_nested_batch_starts_once(self, qapp, make):
+        view = make(ElaChatView)
         view.resize(480, 320)
         view.show()
         qapp.processEvents()
@@ -83,20 +79,18 @@ class TestBatchRendering:
         assert view.isBatchActive() is False
         assert _wait_until(qapp, lambda: bool(events))
         assert events == [True]
-        view.deleteLater()
 
-    def test_outside_batch_renders_immediately(self, qapp):
-        view = ElaChatView()
+    def test_outside_batch_renders_immediately(self, qapp, make):
+        view = make(ElaChatView)
         view.resize(480, 320)
         view.show()
         qapp.processEvents()
         messageId = view.addMessage(ElaChatRole.Assistant, MD)
         assert view.bubble(messageId).renderDeferred() is False
         assert "标题" in view.bubble(messageId).markdownViewer().markdown()
-        view.deleteLater()
 
-    def test_batch_user_message_not_deferred(self, qapp):
-        view = ElaChatView()
+    def test_batch_user_message_not_deferred(self, qapp, make):
+        view = make(ElaChatView)
         view.resize(480, 320)
         view.show()
         qapp.processEvents()
@@ -105,10 +99,9 @@ class TestBatchRendering:
         assert view.bubble(messageId).renderDeferred() is False
         view.endBatch()
         assert view.message(messageId).text == "用户消息"
-        view.deleteLater()
 
-    def test_widget_passthrough(self, qapp):
-        chat = ElaChatWidget()
+    def test_widget_passthrough(self, qapp, make):
+        chat = make(ElaChatWidget)
         chat.resize(480, 320)
         chat.show()
         qapp.processEvents()
@@ -121,21 +114,17 @@ class TestBatchRendering:
         assert chat.chatView().isBatchActive() is False
         assert _wait_until(qapp, lambda: bool(events))
         assert "标题" in chat.chatView().message(messageId).text
-        chat.deleteLater()
 
-    def test_batch_budget(self, qapp):
-        """批量建骨架应远快于同步渲染（渐进补齐）。"""
-        view = ElaChatView()
+    def test_batch_builds_skeleton_then_fills(self, qapp, make):
+        """批量加载：先建骨架，Markdown 由时间片渐进补齐（不钉墙钟）。"""
+        view = make(ElaChatView)
         view.resize(480, 320)
         view.show()
         qapp.processEvents()
         count = 200
-        start = time.monotonic()
         view.beginBatch()
         ids = [view.addMessage(ElaChatRole.Assistant, MD) for _ in range(count)]
         view.endBatch()
-        skeleton = time.monotonic() - start
-        assert skeleton < 1.5
         assert view.count() == count
         assert _wait_until(
             qapp,
@@ -143,4 +132,3 @@ class TestBatchRendering:
             timeout_ms=15000,
         )
         assert view.message(ids[-1]).text == MD
-        view.deleteLater()

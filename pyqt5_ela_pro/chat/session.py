@@ -46,7 +46,7 @@ class ElaChatSessionInfo:
 
     def withMessageCount(self, count: int) -> "ElaChatSessionInfo":
         """返回替换消息条数后的新快照。"""
-        return replace(self, message_count=int(count))
+        return replace(self, message_count=_as_int(count))
 
     # -- 持久化 ------------------------------------------------------------
 

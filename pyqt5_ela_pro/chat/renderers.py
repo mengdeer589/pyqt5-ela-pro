@@ -60,7 +60,7 @@ opencode 的 ``ToolDisplay`` 用 ``<Dynamic>`` 分发**整个组件**，每个�
 
 **``subtitle`` 契约**：签名是 ``(arguments: str) -> (key, value)``，与
 :func:`~pyqt5_ela_pro.chat.blocks.toolSubtitleParts` 同形。**必须返回
-``(键, 值)`` 而不是裸字符串 —— 参数摘要的���重机制是按键排除的**
+``(键, 值)`` 而不是裸字符串 —— 参数摘要的去重机制是按键排除的**
 （``toolArgumentPairs(..., excludeKey=键)``），宿主不声明来源键，参数里
 的同一个值就会在副标题和参数摘要各出现一次。确实归因不到键时返回
 ``("", "")``。
@@ -89,7 +89,7 @@ __all__ = [
 
 #: 上下文工具（连续出现时会被折进分组卡，跳过自定义渲染）。
 #: 与 :data:`pyqt5_ela_pro.chat.blocks.CONTEXT_TOOLS` 同值；此处独立声明是
-#: 为��� ``renderers`` **不 import** ``blocks``（否则 blocks 要用它就成环）。
+#: 为了让 ``renderers`` **不 import** ``blocks``（否则 blocks 要用它就成环）。
 _CONTEXT_TOOLS = frozenset({"read", "glob", "grep", "list"})
 
 
@@ -133,9 +133,8 @@ ToolSubtitleFn = Callable[[str], Tuple[str, str]]
 
 @dataclass(frozen=True)
 class _Entry:
-    """注册表条目。"""
+    """注册表条目（名字就是 ``_REGISTRY`` 的 key，不再冗余存一份）。"""
 
-    name: str
     factory: ToolRendererFactory
     subtitle: Optional[ToolSubtitleFn]
     groupable: bool
@@ -206,7 +205,6 @@ def registerToolRenderer(
             f"registerToolRenderer: {key} 已注册（如需覆盖传 replace=True）"
         )
     _REGISTRY[key] = _Entry(
-        name=key,
         factory=factory,
         subtitle=subtitle,
         groupable=(key not in _CONTEXT_TOOLS) if groupable is None else bool(groupable),

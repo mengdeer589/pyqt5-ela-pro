@@ -42,6 +42,10 @@ RADIUS_MD = 6.0
 #: 入场 / 数据过渡动画时长（ms）与缓动（对齐源库 DURATION.slow / EASING.standard）
 ANIM_DURATION = 320
 ANIM_EASING = QEasingCurve.Type.OutCubic
+#: loading 遮罩 spinner 的推进间隔（ms）。持续动效，Reduced/Disabled 下冻结角度。
+SPINNER_TICK_MS = 40
+#: 折线 ``effect.show`` 流动高亮的推进间隔（ms）。持续动效，Reduced/Disabled 下冻结。
+EFFECT_TICK_MS = 40
 
 # ---------------------------------------------------------------------------
 # Ela 语义色映射（eTheme 实时取色，主题切换自动跟随）

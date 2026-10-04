@@ -61,7 +61,7 @@ class ChatOverviewPage(ExamplePage):
         box, self._note = replay_section(
             self,
             "01. 一条完整回合（预填 + 可重播）",
-            self._demo_full_turn,
+            self._script_full_turn,
             self._player_for(),
             self._script_full_turn,
             interval=42,
@@ -261,22 +261,6 @@ class ChatOverviewPage(ExamplePage):
         ]
         return steps
 
-    def _demo_full_turn(self) -> None:
-        """预填 / 重播一条完整回合。
-
-        对应 API：``addMessage`` / ``addMessageAttachment`` / ``beginMessage`` /
-        ``beginStep`` / ``beginReasoning`` / ``beginText`` / ``addToolCall`` /
-        ``setToolCallResult`` / ``setStepStats`` / ``endMessage``。
-
-        注意几条容易踩的：
-
-        - ``setStepStats`` 与徽标出现的时机绑定 —— **流式期间整条底部行与用量
-          徽标都不摆**，回合结束才出现（判据是消息状态，不是「流式结束」标志，
-          否则恢复出来的消息会被全藏掉）；
-        - 附件是**独立**的一行，不拼进正文文本；
-        - ``setMessageDuration`` 决定底部 meta 里的整轮耗时。
-        """
-
     # ================================================================ 02 外观
     def _section_appearance(self):
         box = QVBoxLayout()
@@ -359,6 +343,13 @@ class ChatOverviewPage(ExamplePage):
         - 「思考行」与「工具面板标题」用**同一个**纯文本色，不叠强调色 ——
           叠出来的差异在浅色下明显、在深色下几乎读不出，两头不讨好。
         """
+        view = self._chat.chatView()
+        view.setReasoningStyle(ElaChatReasoningStyle.Inline)
+        view.setToolGrouping(True)
+        view.setStatsMode("footer")
+        view.setAvatarShape("rounded")
+        view.setContentMaxWidth(720)
+        view.setStickToBottom(True)
 
     # -- 外观回调 ----------------------------------------------------------
 

@@ -1,31 +1,28 @@
 """
-图表引擎核心：ElaChartWidget 与系列/组件协议。
+图表引擎核心：``ElaChartWidget`` 与系列 / 组件协议。
 
-对外契约（ECharts 实例 API 对齐）：
+对外契约（ECharts 实例 API 对齐）见 :class:`ElaChartWidget` 的类docstring，
+此处不重复。模块层面的三件事：
 
-- ``ElaChartWidget``：``setOption(option, notMerge, lazyUpdate)``（默认合并）/
-  ``getOption`` / ``resize`` / ``dispatchAction`` / ``on``&``off`` /
-  ``convertToPixel``&``convertFromPixel``&``containPixel`` /
-  ``showLoading``&``hideLoading`` / ``getDataURL`` /
-  ``appendData({seriesIndex, data})`` / ``clear`` / ``dispose``&``isDisposed``；
-  resizeEvent 自动重排；主题感知重绘（eTheme 实时取色）。
-- 注册表：``SERIES_REGISTRY`` / ``COMPONENT_REGISTRY`` +
-  ``registerSeries(type_name, cls)`` / ``registerComponent(name, cls)``，
-  后注册覆盖先注册（同名键直接替换）。
-- 协议基类：``SeriesRenderer``（系列）、``Coord``（坐标，见 axes.py）。
-- ``ChartAnimation``：0→1 进度动画（QVariantAnimation，缓出），渲染器经
-  ``anim_t`` 插值。
-- 组件：``Title`` / ``Legend`` / ``Tooltip``。
-- ``defaultPalette()``：默认调色板（主题感知）。
+- **注册表** ``SERIES_REGISTRY`` / ``COMPONENT_REGISTRY`` + ``registerSeries`` /
+  ``registerComponent``：同名键**后注册覆盖先注册**（内置类型在包import 时
+  注册，宿主可在自己的模块里替换某个内置类型的实现）。
+- **协议基类** ``SeriesRenderer``（系列，``layout`` / ``paint(p, anim_t)`` /
+  ``hitTest``）与 ``Coord``（坐标，见 ``axes.py``）。注册进来的类只需满足
+  构造签名 ``(chart, opt)``。
+- **组件数组的实例化规则**：顶层 ``visualMap`` 是数组语义（多个 visualMap
+  各自绑定不同系列，声明 ``spawnPerItem = True`` 逐元素建实例），而
+  ``dataZoom`` / ``graphic`` 自己处理数组、整包传入。见 ``_component_inputs``。
 
-ECharts 风格 ``setOption`` API 移植自 InstructionX_UIKit.charts.core
-（PySide6 → PyQt5；主题令牌经 charts._tokens 适配到 eTheme / ElaThemeType，
-原库无 LICENSE，保留出处）。
+出处：ECharts 风格 ``setOption`` API 移植自 InstructionX_UIKit.charts.core
+（PySide6 → PyQt5；主题令牌经 ``charts._tokens`` 适配到 eTheme /
+ElaThemeType，原库无 LICENSE，保留出处）。
 """
 
 from __future__ import annotations
 
 import copy
+import math
 import time
 from collections import defaultdict
 from typing import Optional
@@ -56,12 +53,20 @@ from PyQt5.QtGui import (
 from PyQt5.QtWidgets import QFileDialog, QWidget
 from PyQt5ElaWidgetTools import eTheme
 
-from .._internal import disconnect_theme_signal
+from .._internal import connect_theme_signal, disconnect_theme
+from .._motion import MotionKind, motion, start_idle_loop
 from . import data as _cdata
 from .data import ElaNumericBuffer
-from ._tokens import ANIM_DURATION, ANIM_EASING, T, palette_for_mode
+from ._tokens import (
+    ANIM_DURATION,
+    ANIM_EASING,
+    SPINNER_TICK_MS,
+    T,
+    palette_for_mode,
+)
 from ._utils import to_float as _to_float
-from ._utils import warn_once
+from ._utils import component_opt as _component_opt
+from ._utils import warn_key, warn_once
 from .axes import (
     CalendarCoord,
     Coord,
@@ -195,21 +200,31 @@ def _needs_grid_coord(series_opts) -> bool:
     return False
 
 
-def _opt_float(value, default: float) -> float:
+def _opt_float(value, default):
     """把 option 里的取值安全转成 float，失败回退 ``default``。
+
+    ``default`` 传 ``None`` 时表示「转换失败就返回 None」而不是回退数值 ——
+    宿主的 ``dispatchAction({"type": "showTip", "x": "abc"})`` 这类要靠它
+    区分「没给坐标」与「坐标是 0」。
 
     ``fontSize`` 之类由调用方提供的值可能是 ``None``、``"14px"``、``"large"`` 等；
     裸 ``float()`` 会在 ``Title.height()`` / ``Legend._font()`` 里抛
     ``TypeError`` / ``ValueError``，而这两处由 ``resizeEvent`` / ``paintEvent``
     无保护地调用 —— 异常穿透 Qt 回调边界会让进程 0xC0000409 静默终止。
     与 ``axes.AxisModel.labelFont`` 的既有防御保持一致。
+
+    **``OverflowError`` 必须列进来**：它继承 ``ArithmeticError`` 而不是
+    ``ValueError``，而 ``int(float("inf"))`` / ``float(10**400)`` 抛的正是它
+    （option 里写 ``{"splitNumber": Infinity}`` 就可达）。漏掉它 = 一个
+    ``except (TypeError, ValueError)`` 看起来齐全、实则漏一个子类。
+    本包所有「把 option 外部值转数值」的容错点都按这条统一。
     """
     try:
         result = float(value)
-    except (TypeError, ValueError):
-        return float(default)
+    except (TypeError, ValueError, OverflowError):
+        return default
     if result != result or result in (float("inf"), float("-inf")):
-        return float(default)
+        return default
     return result
 
 
@@ -240,6 +255,11 @@ def _deep_merge(dst: dict, src: dict) -> dict:
 
 #: setOption 合并时按 ECharts 组件数组「逐项合并」的顶层键
 _MERGE_ARRAY_KEYS = frozenset({"series", "dataZoom", "graphic"})
+
+#: 参与 item 命中的组件（顶层优先于系列，因为它们画在系列之上）。
+#: **markArea / graphic 刻意不在内**：前者是半透明背景区域（接进来会让区域
+#: 内任何位置都抢走系列的悬停），后者是纯装饰（ECharts 侧也不交互）。
+_HOVERABLE_COMPONENTS = frozenset({"markPoint", "markLine"})
 
 #: animationEasing 名称 → QEasingCurve.Type（不认识的名称回退 OutCubic）
 _ANIM_EASINGS = {
@@ -308,14 +328,27 @@ def _anchor_px(value, total: float, default: float) -> float:
             return default
     try:
         return float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
 
 
 def _match_option_index(new_item, old_list: list, index: int) -> int:
     """组件 / 系列数组项匹配（ECharts 语义）：``id`` → ``name`` → 序号。
 
-    返回旧列表下标；未匹配返回 -1。
+    返回旧列表下标；未匹配返回 -1（调用方按「新增一项」处理）。
+
+    **显式给了 ``id`` 且没匹配上时必须返回 -1，不能回退到序号。** ECharts 的
+    ``mappingByIndex`` 写得很明确（``echarts/src/util/model.ts``）：
+
+        (2) If new option has id, it can only set to a hole or append to the
+            last. It should not be merged to the existings with different id.
+            Because id should not be overwritten.
+
+    回退到序号的后果是**静默毁掉一个系列**：``[a, b]`` + ``[{"id": "zzz"}]``
+    会把 ``b`` 位置上的系列替换成 ``zzz``，``a`` 整个消失且无任何告警；而
+    ECharts 期望 3 个系列。若新项只带 ``id`` 不带 ``name`` / ``type``，更糟 ——
+    幸存者保留旧系列的 ``name`` / ``type`` 却拿到新数据，图上出现一个用户
+    根本没要求过的系列。
     """
     if isinstance(new_item, dict):
         new_id = new_item.get("id")
@@ -323,6 +356,8 @@ def _match_option_index(new_item, old_list: list, index: int) -> int:
             for i, old in enumerate(old_list):
                 if isinstance(old, dict) and old.get("id") == new_id:
                     return i
+            # 显式 id 未命中 -> 只能新增，绝不按序号覆盖别人
+            return -1
         new_name = new_item.get("name")
         if new_name:
             for i, old in enumerate(old_list):
@@ -342,9 +377,7 @@ def _merge_option_array(old_list: list, new_list: list) -> list:
     old_list = list(old_list or [])
     new_list = list(new_list or [])
     if any(not isinstance(item, dict) for item in new_list):
-        # 标量数组无法逐项合并 → 整体替换。逐项按引用持有（``_hold_value``），
-        # 不用 ``normalizeOptionData``：那个函数只认 ``series`` 键，而本函数
-        # 同时服务 dataZoom / graphic。
+        # 标量数组无法逐项合并 → 整体替换（逐项按引用持有，见 ``_hold_value``）。
         return [_hold_value(i) for i in new_list]
     result = [_hold_value(i) for i in old_list]
     used = set()
@@ -377,7 +410,7 @@ def _int_attr(obj, name: str) -> int:
     """安全取整型属性；缺失 / 非法一律 0（诊断接口不因缺字段而抛异常）。"""
     try:
         return int(getattr(obj, name, 0) or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0
 
 
@@ -591,6 +624,9 @@ class SeriesRenderer:
         self.id = str(self.opt.get("id") or "")
         #: 系列显隐（legend 点击切换；初始状态由 widget 按 legend.selected 注入）
         self.visible = True
+        #: **最近一次绘制所用的动画进度**（core 在 paint / 命中分发前写入）。
+        #: ``hitTest`` 靠它判断「现在是否处于动画中」，见该方法 docstring。
+        self._anim_t = 1.0
         #: 上次 option 的旧数据（core 注入，用于动画插值）
         self.prev_data = None
         #: itemStyle 均匀性缓存 (key, {} | None)，见 ``uniformItemStyle``
@@ -605,7 +641,16 @@ class SeriesRenderer:
         raise NotImplementedError
 
     def hitTest(self, pos: QPointF):
-        """命中检测 → {"name","value","series",...} 或 None。"""
+        """命中检测 → ``{"name","value","series",...}`` 或 None。
+
+        **默认实现在动画期一律返回 None**：``anim_t`` 是绘制期变量，而子类的
+        几何来自 ``layout()``（终态），用终态几何命中会指到「动画结束后才会到
+        的位置」—— 用户看到的是高亮 / tooltip 落在错误的图元上。想支持动画期
+        命中的子类在自己的 ``hitTest`` 里用 ``self._anim_t`` 复算几何即可。
+        完整规则与已实现清单见 AGENTS.md「charts」。
+        """
+        if self._anim_t < 1.0:
+            return None
         return None
 
     # -- 辅助 ------------------------------------------------------------
@@ -631,10 +676,26 @@ class SeriesRenderer:
         与 list 比较），既有的 40 余处只读调用点无需改动。内部热路径
         （``layout`` / 采样 / 范围统计）请用 :meth:`dataView`，它不做任何
         list 化。
+
+        **裸 ndarray 会就地包成 ``ElaNumericBuffer`` 再返回**，因为 ndarray 的
+        ``__eq__`` 不返回 bool：``if renderer.data() == other:`` 会在它上面抛
+        ``ValueError: The truth value of an array ... is ambiguous``，而这行
+        常出现在 Qt 回调里 = 0xC0000409。``ElaNumericBuffer`` 的 ``__eq__``
+        走 list 比较，契约与返回值宣称的一致。短数组（< ``_BUFFER_MIN_LEN``）
+        不包装，所以裸 ndarray 确实会到这里。
         """
         d = self.opt.get("data")
-        if isinstance(d, list) or _cdata.isBufferLike(d):
+        if isinstance(d, list):
             return d
+        if isinstance(d, _cdata.ElaNumericBuffer):
+            return d
+        if _cdata.isBufferLike(d):
+            # 包一次并**写回 opt**：`_data_ref` 等调用方要求同一 data 对象
+            # 反复拿到的是同一实例（采样缓存键含 id(data)，每次新建包装件会让
+            # 键每帧变化 → 降采样缓存永不命中，布局耗时 22 倍）。
+            wrapped = _cdata.ElaNumericBuffer(d)
+            self.opt["data"] = wrapped
+            return wrapped
         return []
 
     def dataView(self):
@@ -674,27 +735,12 @@ class SeriesRenderer:
         return {}
 
     def uniformItemStyle(self):
-        """数据项级 ``itemStyle`` 的**快路径**结果。
+        """系列级统一 ``itemStyle``；``None`` = 存在逐项 itemStyle。
 
-        返回 ``{}`` 表示「全部数据项都没有自己的 itemStyle」——此时
-        ``itemColor`` / ``itemOpacity`` / ``itemBorder`` / ``_bar_radius``
-        对任意 index 都返回系列级取值，无需按下标查数据。
-
-        为什么需要：bar / scatter 的绘制路径**逐图元**调这些方法
-        「为每个图元调选样式」，而每次都要 ``self.data()`` 取长度 +
-        下标 + ``itemStyleOf``。cProfile 下 ``data()`` 是前五大 tottime 项。
-
-        返回 ``None`` 表示数据里存在 itemStyle，调用方须走按下标查找。
-
-        **必须能发现任意位置的 per-item style**：抽样会漏检（500 项里
-        只有第 10 项带 itemStyle，抽样 32 点很可能抽不到），漏检后那根柱子
-        会用系列级颜色 —— 用户明确配了颜色却没生效，且无任何报错。
-
-        代价控制：全量扫描只在「本 series 存在 dict 型数据项」时进行，而
-        dict 数据项本身就不该是百万级（那是折线/柱的数值场景）。纯数值
-        序列走 O(1) 快路径（``_UNIFORM_PROBE`` 只探前若干项即可确认），
-        dict 序列才付 O(n) 一次，且结果被 ``_uniform_style_cache`` 缓存，
-        每次绘制不重复扫描。
+        **O(1) 判据是「容器类型」而非抽样** —— 紧凑数值容器必是纯数值序列，
+        ``list`` 必须全量扫（带 dict 项的列表本就不是百万级场景）。原先的
+        32 项探窗会静默漏掉 ``[1]*500 + [{"itemStyle": …}]``，见 AGENTS.md
+        「charts」。
         """
         data = self.opt.get("data")
         try:
@@ -705,21 +751,17 @@ class SeriesRenderer:
         hit = self._uniform_style_cache
         if hit is not None and hit[0] == key:
             return hit[1]
+        # 紧凑数值容器：元素类型在包装时已校验，必定没有逐项 itemStyle
+        if n and _cdata.isBufferLike(data):
+            self._uniform_style_cache = (key, {})
+            return {}
         result = {}
         if n:
-            # 阶段一：确认是否存在 dict 型数据项（探前若干项即可，纯数值
-            # 序列的前若干项必然是数字）
-            probe = min(n, 32)
-            has_dict_item = any(isinstance(data[i], dict) for i in range(probe))
-            if has_dict_item or n <= probe:
-                # 阶段二：全量扫描找 itemStyle
-                for i in range(n):
-                    item = data[i]
-                    if isinstance(item, dict) and isinstance(
-                        item.get("itemStyle"), dict
-                    ):
-                        result = None
-                        break
+            for i in range(n):
+                item = data[i]
+                if isinstance(item, dict) and isinstance(item.get("itemStyle"), dict):
+                    result = None
+                    break
         self._uniform_style_cache = (key, result)
         return result
 
@@ -763,11 +805,11 @@ class SeriesRenderer:
                 border = c
         try:
             opacity = max(0.0, min(1.0, float(style.get("opacity", 1.0))))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             opacity = 1.0
         try:
             border_width = max(0.0, float(style.get("borderWidth", 0)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             border_width = 0.0
         raw_radius = style.get("borderRadius")
         radius = None
@@ -802,7 +844,7 @@ class SeriesRenderer:
             raw = self.itemStyle().get("opacity")
         try:
             return max(0.0, min(1.0, float(raw)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return 1.0
 
     def itemBorder(self, index=None):
@@ -818,7 +860,7 @@ class SeriesRenderer:
                 color = candidate
         try:
             width = max(0.0, float(width))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             width = 0.0
         return color, width
 
@@ -869,7 +911,7 @@ class SeriesRenderer:
             return None
         try:
             return max(0.0, min(1.0, float(raw)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None
 
     def blurOpacity(self):
@@ -879,7 +921,7 @@ class SeriesRenderer:
             return None
         try:
             return max(0.0, min(1.0, float(raw)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None
 
     def labelOption(self) -> dict:
@@ -904,7 +946,7 @@ class SeriesRenderer:
         """标签字号（``label.fontSize`` → font.xs）。"""
         try:
             return max(6.0, float(self.labelOption().get("fontSize", T("font.xs"))))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return float(T("font.xs"))
 
     def labelText(self, index, value, name=None) -> str:
@@ -998,11 +1040,28 @@ class ChartAnimation(QObject):
         self._finished_pending = True
         self._apply(1.0)
 
+    def startResolved(self, full_ms: int, easing=None) -> bool:
+        """按全局动效策略启动过渡，返回是否真的播放。
+
+        本类**不用** :func:`pyqt5_ela_pro._motion.start_transition`：它没有 Qt 属性
+        目标，收尾是在 ``_apply`` 里用 ``valueChanged`` 阈值判断的（``v >= 1.0``），
+        不挂 ``QAbstractAnimation.finished`` —— 那个 helper 挂的正是后者。所以这里
+        只借它的策略解析，落到本类自己的 ``complete()``（它本来就是正确的 snap）。
+        """
+        duration_ms, snap = motion.plan(full_ms, MotionKind.Transition)
+        self.setDuration(duration_ms)
+        self.setEasing(easing)
+        if snap:
+            self.complete()
+            return False
+        self.start()
+        return True
+
     def setDuration(self, duration: int) -> None:
         """设置动画时长（ms，ECharts ``animationDuration``）。"""
         try:
             self._anim.setDuration(max(0, int(duration)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
 
     def setEasing(self, easing) -> None:
@@ -1070,7 +1129,7 @@ class Title:
     def itemGap(self) -> float:
         try:
             return max(0.0, float(self.opt.get("itemGap", 2)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return 2.0
 
     @property
@@ -1208,19 +1267,19 @@ class Legend:
     def itemWidth(self) -> float:
         try:
             return max(2.0, float(self.opt.get("itemWidth", 9)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return 9.0
 
     def itemHeight(self) -> float:
         try:
             return max(2.0, float(self.opt.get("itemHeight", 9)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return 9.0
 
     def itemGap(self) -> float:
         try:
             return max(2.0, float(self.opt.get("itemGap", 10)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return 10.0
 
     def textStyle(self) -> dict:
@@ -1428,7 +1487,8 @@ class Tooltip:
         """命中结果 → 浮层行 ``[(color, name, value_str), ...]``。
 
         标题行走 ``(None, "", 标题)``（无圆点），内容行走 ``(color, "", 文本)``
-        （带系列色圆点）。
+        （带系列色圆点）。命中方可给 ``hit["rows"]``（``[(名称, 值), ...]``）
+        让默认排版渲染**多行**（雷达的逐维度行）；``formatter`` 输出仍然优先。
         """
         name = str(hit.get("name") or hit.get("series") or fallback_name)
         series = str(hit.get("series") or fallback_name)
@@ -1479,8 +1539,16 @@ class Tooltip:
         lines = []
         if title:
             lines.append((None, "", title))
+        rows = hit.get("rows")
         if text:
             lines.append((color, "", text))
+        elif formatted is None and isinstance(rows, (list, tuple)) and rows:
+            # 命中方提供的结构化多行（雷达的「指标: 值」逐维度行）。
+            # 有 formatter 输出时 formatter 优先（ECharts：formatter 覆盖默认排版）。
+            for row in rows:
+                if not isinstance(row, (list, tuple)) or len(row) != 2:
+                    continue
+                lines.append((color, str(row[0]), self.formatValueText(row[1])))
         elif value is not None:
             lines.append((color, name, self.formatValueText(value)))
         return lines
@@ -1563,7 +1631,7 @@ class Tooltip:
         border = self.opt.get("borderColor")
         try:
             border_w = max(0.0, float(self.opt.get("borderWidth", 1)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             border_w = 1.0
         if border_w > 0:
             p.setPen(QPen(QColor(border or T("color.border")), border_w))
@@ -1671,11 +1739,17 @@ class ElaChartWidget(QWidget):
         self._hover = None
         self._opt_version = 0  # option 版本号（setOption 递增）
         self._layout_key = None  # 布局缓存键（脏标记）
+        #: 渲染器内部几何状态的版本号（``invalidateLayout()`` 递增）。
+        #: 进 ``_series_layer_key`` —— 少了它，下钻 / roam 之后系列层位图
+        #: 会被原样贴回（见该方法 docstring）。
+        self._geometry_epoch = 0
         #: 生命周期 / ECharts 事件
         self._disposed = False
         self._event_handlers: dict = {}
         #: lazyUpdate 延迟重建标记
         self._lazy_pending = False
+        #: 宿主经 ``addComponent`` 注入的组件（跨 ``setOption`` 存活，见该方法）
+        self._host_components: list = []
         #: timeline 基线快照（``options`` 帧切换用；core 内部维护）
         self._timeline_base = None
         #: loading 遮罩（showLoading / hideLoading）
@@ -1683,7 +1757,6 @@ class ElaChartWidget(QWidget):
         self._loading_opts: dict = {}
         self._spinner_angle = 0
         self._spinner_timer = QTimer(self)
-        self._spinner_timer.setInterval(40)
         self._spinner_timer.timeout.connect(self._tick_spinner)
         self.title = Title()
         self.legend = Legend(self)
@@ -1699,18 +1772,13 @@ class ElaChartWidget(QWidget):
         self.itemClicked.connect(self._forward_click)
         self.brushChanged.connect(self._forward_brush_selected)
         self.toolboxTriggered.connect(self._forward_toolbox)
-        # 主题连接：接收者为本控件（Qt 以接收者销毁自动断连）；另在
-        # destroyed 时显式 disconnect（保守双保险，防单例信号强引用滞留）
-        self._theme_connected = True
-        self._theme_slot = self._on_theme_changed
-        eTheme.themeModeChanged.connect(self._theme_slot)
-        self.destroyed.connect(self._disconnect_theme)
+        # 主题连接走 _internal 的统一机制（两条防线：destroyed 上的模块级函数 +
+        # 槽自身 sip.isdeleted 自愈）。别在这里手写 eTheme.themeModeChanged.connect
+        connect_theme_signal(self, self._on_theme_changed)
 
     def _disconnect_theme(self, *_args) -> None:
         """销毁路径显式断开主题单例信号连接。"""
-        if self._theme_connected:
-            disconnect_theme_signal(self._theme_slot)
-            self._theme_connected = False
+        disconnect_theme(self)
 
     def deleteLater(self) -> None:
         self._disconnect_theme()
@@ -1755,7 +1823,7 @@ class ElaChartWidget(QWidget):
         self._opt_version += 1
         if lazyUpdate:
             self._lazy_pending = True
-            QTimer.singleShot(0, self._apply_lazy_option)
+            self._schedule_lazy_option()
         else:
             self._apply_option(prev_list, prev_by_name)
         return self
@@ -1777,6 +1845,21 @@ class ElaChartWidget(QWidget):
         }
         return prev_list, prev_by_name
 
+    def _schedule_lazy_option(self) -> None:
+        """排一次延迟重建 —— **常驻子定时器**，不用无主 ``singleShot``。
+
+        无主的 ``QTimer.singleShot(0, self._apply_lazy_option)`` 不随本对象
+        销毁；而 ``lazyUpdate=True`` 的 ``setOption`` 可以连着调很多次，
+        每次 new 一个子定时器会堆积，所以用同一个常驻的。
+        """
+        timer = self.__dict__.get("_lazy_timer")
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(self._apply_lazy_option)
+            self._lazy_timer = timer
+        timer.start(0)
+
     def _apply_lazy_option(self) -> None:
         """延迟重建（lazyUpdate）；对象已销毁时安全跳过。"""
         if self._disposed or sip.isdeleted(self) or not self._lazy_pending:
@@ -1786,7 +1869,14 @@ class ElaChartWidget(QWidget):
         self._apply_option(prev_list, prev_by_name)
 
     def _capture_timeline_base(self) -> None:
-        """捕获 timeline 基线：``baseOption``（优先）或除 ``options`` 外的顶层键。"""
+        """捕获 timeline 基线：``baseOption``（优先）或除 ``options`` 外的顶层键。
+
+        **整条 timeline 路径一律走 ``_copy_any``，不用 ``copy.deepcopy``。**
+        后者会把 ``series[].data`` 里的百万点数组逐元素复制一遍，把「按引用
+        摄入」的契约彻底绕过 —— 而 timeline 的基线捕获 + 每帧 apply 各来一次，
+        于是**每切一帧就深拷贝整份数据**。``_copy_any`` 是深层拷贝但**在任意
+        深度保留缓冲区**，语义相同、代价不同。
+        """
         frames = self._option.get("options")
         if not isinstance(frames, list) or not frames:
             self._timeline_base = None
@@ -1794,7 +1884,7 @@ class ElaChartWidget(QWidget):
         if self._timeline_base is None:
             base = self._option.get("baseOption")
             if isinstance(base, dict):
-                merged = copy.deepcopy(base)
+                merged = _copy_any(base)
                 extra = {
                     k: v
                     for k, v in self._option.items()
@@ -1803,9 +1893,7 @@ class ElaChartWidget(QWidget):
                 _deep_merge(merged, extra)
             else:
                 merged = {
-                    k: copy.deepcopy(v)
-                    for k, v in self._option.items()
-                    if k != "options"
+                    k: _copy_any(v) for k, v in self._option.items() if k != "options"
                 }
             self._timeline_base = merged
         # 合并语义下 baseOption 可能被增量修改：同步回基线快照
@@ -1813,14 +1901,14 @@ class ElaChartWidget(QWidget):
             if key in ("options", "baseOption"):
                 continue
             if key in ("series", "dataZoom", "graphic") and isinstance(value, list):
-                self._timeline_base[key] = copy.deepcopy(value)
+                self._timeline_base[key] = _copy_any(value)
                 continue
             if isinstance(value, dict) and isinstance(
                 self._timeline_base.get(key), dict
             ):
                 _deep_merge(self._timeline_base[key], value)
             else:
-                self._timeline_base[key] = copy.deepcopy(value)
+                self._timeline_base[key] = _copy_any(value)
 
     def _apply_timeline_frame(self) -> None:
         """把当前帧（``_timeline_index``）合并到 timeline 基线上。
@@ -1840,18 +1928,18 @@ class ElaChartWidget(QWidget):
                 timeline_opt["currentIndex"] = idx
         try:
             idx = int(idx or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             idx = 0
         idx = max(0, min(idx, len(frames) - 1))
         self._timeline_index = idx
         frame = frames[idx]
         if not isinstance(frame, dict):
             return
-        effective = copy.deepcopy(self._timeline_base)
+        effective = _copy_any(self._timeline_base)
         _deep_merge(effective, frame)
-        effective["options"] = copy.deepcopy(frames)
+        effective["options"] = _copy_any(frames)
         if isinstance(self._option.get("baseOption"), dict):
-            effective["baseOption"] = copy.deepcopy(self._option["baseOption"])
+            effective["baseOption"] = _copy_any(self._option["baseOption"])
         self._option = effective
 
     def _refresh(self) -> None:
@@ -1901,11 +1989,12 @@ class ElaChartWidget(QWidget):
         else:
             duration = opt.get("animationDuration", ANIM_DURATION)
             easing_name = opt.get("animationEasing")
-        self.anim.setDuration(duration)
-        self.anim.setEasing(_easing_from_name(easing_name))
         if enabled:
-            self.anim.start()
+            # 走策略解析：Reduced 压时长、Disabled 同步落终值（都仍会发 finished）。
+            self.anim.startResolved(duration, _easing_from_name(easing_name))
         else:
+            self.anim.setDuration(duration)
+            self.anim.setEasing(_easing_from_name(easing_name))
             self.anim.complete()
 
     def getOption(self) -> dict:
@@ -1956,7 +2045,7 @@ class ElaChartWidget(QWidget):
         if params.get("seriesIndex") is not None:
             try:
                 idx = int(params["seriesIndex"])
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return False
             if 0 <= idx < len(series_opts):
                 index = idx
@@ -2039,7 +2128,7 @@ class ElaChartWidget(QWidget):
                 return False
             try:
                 comp.goto(int(payload.get("currentIndex", 0)))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return False
             return True
         if action == "timelinePlayChange":
@@ -2188,7 +2277,13 @@ class ElaChartWidget(QWidget):
             else:  # legendToggleSelect
                 self._legendSelectToggle(name)
         if action != "legendToggleSelect":
-            self.legendToggled.emit(names[0], self._seriesVisible(names[0]))
+            # **每个名字都要发**。原先只发 ``names[0]``：动作明明应用到了
+            # 全部系列（上面的循环），宿主挂在 ``legendToggled`` 上同步自己
+            # 的状态时却只收到第一个 —— 剩下那些静默不同步，表现为「批量
+            # 取消选中后宿主 UI 只更新了一项」。
+            # ``legendToggleSelect`` 走 ``_legendSelectToggle``，它自己发。
+            for name in names:
+                self.legendToggled.emit(name, self._seriesVisible(name))
         self.update()
         return True
 
@@ -2208,8 +2303,10 @@ class ElaChartWidget(QWidget):
             return False
         if not apply_action(payload):
             return False
-        self.dataZoomChanged.emit(float(comp.start), float(comp.end))
-        self.update()
+        # **不要在这里再 emit 一次** ``dataZoomChanged`` —— ``applyAction`` 内部
+        # 末尾已经 ``_emit_changed()``，而那条信号经 ``_forward_data_zoom`` 转成
+        # ECharts ``datazoom`` 事件。在此处补发会让 dispatchAction 路径把事件发两遍
+        # （滚轮 / 拖拽路径只发一遍，两条路径行为不一致）。
         return True
 
     def _dispatch_show_tip(self, payload: dict) -> bool:
@@ -2221,16 +2318,16 @@ class ElaChartWidget(QWidget):
         if data_index is not None:
             try:
                 idx = int(data_index)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 idx = None
             if idx is not None:
                 value = renderer.valueAtIndex(idx)
                 if value is not None:
                     hit = dict(value)
                     hit.setdefault("dataIndex", idx)
-        x, y = payload.get("x"), payload.get("y")
+        x, y = _opt_float(payload.get("x"), None), _opt_float(payload.get("y"), None)
         if x is not None and y is not None:
-            pos = QPointF(float(x), float(y))
+            pos = QPointF(x, y)
         elif hit is not None and hit.get("pos") is not None:
             pos = QPointF(hit["pos"])
         else:
@@ -2280,7 +2377,7 @@ class ElaChartWidget(QWidget):
                 if value:
                     hit["value"] = value.get("value")
                     hit.setdefault("name", str(value.get("name") or ""))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 pass
         self._hover = (renderer, hit)
         params = {
@@ -2340,7 +2437,7 @@ class ElaChartWidget(QWidget):
         if index is not None:
             try:
                 idx = int(index)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 idx = -1
             if 0 <= idx < len(self._series):
                 return self._series[idx]
@@ -2389,7 +2486,7 @@ class ElaChartWidget(QWidget):
                     try:
                         if int(finder[key]) != 0:
                             return None  # 多坐标系未实现
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError, OverflowError):
                         return None
                     for c in self._coords:
                         if c.kind == kind:
@@ -2489,7 +2586,9 @@ class ElaChartWidget(QWidget):
         self._loading_type = str(type or "default")
         self._loading_opts = dict(opts or {})
         if self._loading_opts.get("showSpinner", True):
-            self._spinner_timer.start()
+            # 持续动效：Reduced/Disabled 下不转。角度冻结在当前值 —— 遮罩与文字
+            # 都照常画，只是不再转，所以看起来是「有遮罩但静止」。
+            start_idle_loop(self._spinner_timer, SPINNER_TICK_MS)
         self.update()
 
     def hideLoading(self) -> None:
@@ -2568,7 +2667,7 @@ class ElaChartWidget(QWidget):
             return ""
         try:
             ratio = float(opts.get("pixelRatio") or 1.0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             ratio = 1.0
         if ratio > 0 and abs(ratio - 1.0) > 1e-6:
             image = image.scaled(
@@ -2633,6 +2732,11 @@ class ElaChartWidget(QWidget):
         self.tooltip.hide()
         self._hover = None
         self._event_handlers.clear()
+        # 组件一并解挂：事件过滤器 / 定时器虽然 parent 在 chart 上会跟着销毁，
+        # 但组件可能持有 chart 之外的东西（宿主句柄、注册的全局回调）。
+        self._dispose_components(include_host=True)
+        self._host_components.clear()
+        self._components = []
         self._disconnect_theme()
         self.deleteLater()
 
@@ -2920,13 +3024,17 @@ class ElaChartWidget(QWidget):
             len(custom) if has_custom else 0,
         )
         hit = self._palette_cache
-        if hit is not None and hit[0] == key:
-            return [QColor(c) for c in hit[1]]
+        # ``hit[1] is custom`` 这道复核不能省：``setOption`` 换色板时旧 list
+        # 会被释放，新 list **可能拿到同一个 id**，而长度也一样 —— 只比 key
+        # 就会把上一个色板当成当前的，整张图配色错掉且零报错。持强引用
+        # （存进 cache）同时杜绝 id 复用。
+        if hit is not None and hit[0] == key and hit[1] is custom:
+            return [QColor(c) for c in hit[2]]
         if has_custom:
             pal = [QColor(c) for c in custom]
         else:
             pal = defaultPalette()
-        self._palette_cache = (key, pal)
+        self._palette_cache = (key, custom, pal)
         return [QColor(c) for c in pal]
 
     def colorForSeries(self, series) -> QColor:
@@ -3076,18 +3184,85 @@ class ElaChartWidget(QWidget):
         return result
 
     def addComponent(self, comp) -> None:
-        """挂接外部组件实例。"""
-        self._components.append(comp)
+        """挂接宿主自定义组件，**跨 ``setOption`` 存活**。
+
+        两条路，别混：
+
+        * **要跟着 option 走**（每次 ``setOption`` 按新 option 重建实例）就用
+          :func:`registerComponent` —— 把类按 ``optionKey`` 注册，再在 option 里
+          写同名键。
+        * **纯运行时挂件**（宿主自己管刷新）用这里。它进 ``_host_components``，
+          ``_rebuild`` 只重建 option 里的那些，不会丢它、也不会 ``dispose`` 它。
+
+        组件只需鸭子类型实现 ``optionKey``（可选）/ ``layout(rect)`` /
+        ``paint(painter, anim_t)`` / ``hitTest(pos)``；``onMousePress`` 等鼠标钩子
+        有则调用。摘除用 :meth:`removeComponent`。
+        """
+        if comp is None:
+            return
+        if any(comp is existing for existing in self._host_components):
+            return
+        self._host_components.append(comp)
+        if not any(comp is c for c in self._components):
+            self._components.append(comp)
+        self.invalidateLayout()
         self.update()
+
+    def removeComponent(self, comp) -> bool:
+        """摘掉宿主注入的组件（并在它实现了 ``dispose`` 时调用它）。"""
+        found = None
+        for existing in self._host_components:
+            if existing is comp:
+                found = existing
+                break
+        if found is None:
+            return False
+        self._host_components.remove(found)
+        self._components = [c for c in self._components if c is not found]
+        dispose = getattr(found, "dispose", None)
+        if callable(dispose):
+            try:
+                dispose()
+            except Exception:
+                pass
+        self.invalidateLayout()
+        self.update()
+        return True
+
+    def _dispose_components(self, include_host: bool = False) -> None:
+        """丢弃旧组件前调用其 ``dispose()``（没实现就跳过）。
+
+        组件通过 duck typing 自愿解挂：``DataZoomComponent`` 摘事件过滤器、
+        ``ChartTimeline`` 停定时器。``dispose`` 跑在 ``_rebuild`` 里，而
+        ``_rebuild`` 可能由 ``ChartTimeline.goto()`` 从定时器回调触发 ——
+        所以实现里只做「停止投递」与清 chart 上的登记，不去碰已析构的 C++ 对象。
+
+        ``include_host=False``（``_rebuild`` 路径）**跳过**宿主经 ``addComponent``
+        注入的组件 —— 它们不是被丢弃，而是被原样挂回去，由宿主自己负责刷新。
+
+        ``include_host=True``（``dispose()`` 路径）全收：图表都没了，宿主挂件
+        留着只会继续持有已失效的 chart。
+        """
+        hosts = set() if include_host else {id(c) for c in self._host_components}
+        for comp in self._components:
+            if id(comp) in hosts:
+                continue
+            dispose = getattr(comp, "dispose", None)
+            if not callable(dispose):
+                continue
+            try:
+                dispose()
+            except Exception:
+                pass
 
     # ------------------------------------------------------------- 内部构建
     def _rebuild(self) -> None:
         """按当前 option 重建组件 / 坐标系 / 系列渲染器（并使布局缓存失效）。"""
         opt = self._option
         self._layout_key = None
-        self.title.setOption(opt.get("title") or {})
-        self.legend.setOption(opt.get("legend") or {})
-        self.tooltip.setOption(opt.get("tooltip") or {})
+        self.title.setOption(_component_opt(opt.get("title"), "show"))
+        self.legend.setOption(_component_opt(opt.get("legend"), "show"))
+        self.tooltip.setOption(_component_opt(opt.get("tooltip"), "show"))
         series_opts = [s for s in (opt.get("series") or []) if isinstance(s, dict)]
 
         # 图例 selected：初始显隐状态（ECharts ``legend.selected``）
@@ -3138,7 +3313,7 @@ class ElaChartWidget(QWidget):
                 r = cls(self, s)
             except Exception as exc:
                 warn_once(
-                    f"series-ctor:{type_name}",
+                    warn_key("series-ctor", type_name, type(exc).__name__),
                     f"系列构造失败（type={type_name}）: {exc!r}",
                 )
                 continue
@@ -3151,14 +3326,20 @@ class ElaChartWidget(QWidget):
             self._series.append(r)
 
         # 组件（类属性 optionKey + 构造 (chart, opt)）
-        self._components = []
+        # **丢弃旧组件前先让它解挂在 chart 上的资源**（事件过滤器 / 定时器）。
+        # 组件可能往 chart 上装事件过滤器（``DataZoomComponent`` 的滚轮缩放）或
+        # 建定时器（``ChartTimeline``）；``_components = []`` 只丢 Python 引用，
+        # Qt 侧的挂载还在 —— 旧实例会继续拦截输入并用陈旧状态改坐标轴，而它已经
+        # 不在 ``chart.components`` 里，新组件对此一无所知。
+        self._dispose_components()
+        # option 组件全部重建；宿主注入的（``addComponent``）原样挂回去。
+        self._components = list(self._host_components)
         for key, cls in list(COMPONENT_REGISTRY.items()):
             optionKey = getattr(cls, "optionKey", key)
-            if isinstance(opt.get(optionKey), (dict, list)):
-                self._spawn_component(cls, opt[optionKey], None)
-            for s in series_opts:
-                if isinstance(s.get(optionKey), (dict, list)):
-                    self._spawn_component(cls, s[optionKey], s)
+            for value, series_opt in self._component_inputs(
+                cls, opt, optionKey, series_opts
+            ):
+                self._spawn_component(cls, value, series_opt)
 
         # 图例条目
         items = []
@@ -3174,6 +3355,44 @@ class ElaChartWidget(QWidget):
         except Exception as exc:
             warn_once(f"coord-ctor:{kind}", f"坐标构造失败（{kind}）: {exc!r}")
             return None
+
+    def _component_inputs(self, cls, opt: dict, optionKey: str, series_opts: list):
+        """列出该组件键下所有该建的实例：``(构造参数, 所属 series 或 None)``。
+
+        **数组形式的顶层键要为每个元素各建一个实例**（组件声明
+        ``spawnPerItem = True`` 时）。ECharts 的 ``visualMap`` 就是数组语义
+        —— ``visualMap: [{...}, {...}]`` 是「多个 visualMap 各自绑定不同
+        系列」的唯一写法 —— 而组件构造普遍是 ``dict(opt or {})``，收到 list
+        直接 ``ValueError``，被 ``_spawn_component`` 的 except 吞掉，结果是
+        **一个 visualMap 组件都建不起来**：色带不画、地图全部退回内置配色，
+        只有一行告警。
+
+        自己会处理数组的组件（``dataZoom`` 把 list 当多条、``graphic`` 把单个
+        dict 包成 list）保持整包传入。
+        """
+        per_item = bool(getattr(cls, "spawnPerItem", False))
+
+        def expand(value):
+            """→ 构造参数列表（空 = 不建实例）。
+
+            注意**不能**把「原样返回的 list」在下游当成多实例：那会把
+            ``dataZoom: [...]`` 拆成每个条目一个组件，整套 dataZoom 行为全废
+            （滑块不再联动、span 约束失效）。只有 ``spawnPerItem`` 为真时
+            才逐元素拆。
+            """
+            if not isinstance(value, (dict, list)):
+                return []
+            if isinstance(value, list):
+                if per_item:
+                    return [v for v in value if isinstance(v, dict)]
+                return [value]
+            return [value]
+
+        for value in expand(opt.get(optionKey)):
+            yield value, None
+        for s in series_opts:
+            for value in expand(s.get(optionKey)):
+                yield value, s
 
     def _spawn_component(self, cls, comp_opt, series_opt) -> None:
         try:
@@ -3236,8 +3455,16 @@ class ElaChartWidget(QWidget):
         return content
 
     def invalidateLayout(self) -> None:
-        """使布局缓存失效（下次绘制 / 布局时全量重排）。"""
+        """使布局缓存失效（下次绘制 / 布局时全量重排）。
+
+        同时递增 ``_geometry_epoch``（进 ``_series_layer_key``）—— 渲染器除了
+        图表级状态还有自己那份几何（下钻焦点、roam 平移缩放、treemap / sankey
+        布局），那些变更一律经本方法通知，否则系列层位图会被原样贴回
+        （实测旭日图下钻后位图逐字节不变，表现为「点了没反应」）。
+        「哪些状态必须走这里」的清单见 AGENTS.md「charts」。
+        """
         self._layout_key = None
+        self._geometry_epoch += 1
 
     def _layout_cache_key(self):
         """布局缓存键：option 版本 / 视口尺寸 / 主题 / dataZoom 窗口状态。"""
@@ -3329,7 +3556,12 @@ class ElaChartWidget(QWidget):
                 r.layout(coord_content)
             except Exception as exc:
                 warn_once(
-                    f"series-layout:{r.__class__.__name__}",
+                    warn_key(
+                        "series-layout",
+                        r.__class__.__name__,
+                        r.name,
+                        type(exc).__name__,
+                    ),
                     f"系列布局异常（{r.name}）: {exc!r}",
                 )
         for comp in self._components:
@@ -3360,24 +3592,46 @@ class ElaChartWidget(QWidget):
         try:
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
             p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-            bg = self._option.get("backgroundColor")
-            p.fillRect(self.rect(), QColor(bg) if bg else QColor(T("color.bg.base")))
+            p.fillRect(self.rect(), self._background_color())
             self._layout_all()
             self._paint_content(p)
+        except Exception as exc:  # noqa: BLE001
+            # **这里原来只有 try/finally 没有 except** —— 任何漏网的异常都会
+            # 穿过 Qt 回调边界 = 0xC0000409 静默终止（零 traceback）。
+            # 已知入口：``backgroundColor`` 传 list / dict 时 ``QColor(bg)`` 抛
+            # TypeError，而它在 ``_paint_content`` 的逐块守卫之外。
+            # 绘制失败退化成「这一帧画得不全」，不能拖垮整个进程。
+            warn_once("paint-event", f"绘制异常（已跳过本帧剩余内容）: {exc!r}")
         finally:
             # 无论任何绘制路径抛异常，QPainter 都必须收尾，
             # 否则后续绘制状态被污染会导致 Qt 崩溃
             p.end()
 
+    def _background_color(self) -> QColor:
+        """``backgroundColor`` → QColor，非法值回退主题底色。
+
+        宿主可能传 list / dict / 任何非 str 值（``QColor(list)`` 是 TypeError），
+        所以这里不能直接构造。
+        """
+        bg = self._option.get("backgroundColor")
+        if isinstance(bg, QColor):
+            return QColor(bg)
+        if isinstance(bg, str) and bg.strip():
+            color = QColor(bg)
+            if color.isValid():
+                return color
+            warn_once(
+                "background-color", f"backgroundColor 非法，已回退主题底色: {bg!r}"
+            )
+        return QColor(T("color.bg.base"))
+
     def _series_layer_key(self):
         """系列层位图缓存键（``None`` 表示本帧不缓存）。
 
-        **只包含影响系列外观的状态**：option 版本 / 视口尺寸 / 主题 /
-        dataZoom 窗口 / 逐系列可见性 / hover 命中 / 动画进度。
-
-        悬停（``_hover``）**必须**在键里：命中项走 emphasis 高亮、未命中项
-        走 blur 淡化，两者都改逐图元外观。少了它会看到「高亮还停在上一个
-        位置」——缓存把旧外观贴回来了。
+        **只包含影响系列外观的状态**：option 版本 / ``_geometry_epoch`` /
+        视口尺寸 / 主题 / dataZoom 窗口 / 逐系列可见性 / hover 命中 / 动画进度。
+        后两项（hover、几何纪元）少一个就会「贴回旧外观」，逐项理由与踩坑见
+        AGENTS.md「charts」。
         """
         if self.anim.isRunning():
             return None  # 动画每帧几何都在变，缓存无意义
@@ -3391,6 +3645,7 @@ class ElaChartWidget(QWidget):
             )
         return (
             self._opt_version,
+            self._geometry_epoch,
             self.width(),
             self.height(),
             round(self.getDevicePixelRatio(), 4),
@@ -3431,9 +3686,12 @@ class ElaChartWidget(QWidget):
             return
         w, h = max(1, self.width()), max(1, self.height())
         dpr = self.getDevicePixelRatio()
+        # 每维都要 ``max(1, ...)``：DPR < 1 时 ``int(round(1 * 0.5))`` 走银行家
+        # 舍入得 **0**，QImage(0, h) 是空图，QPainter 画上去什么都不出 ——
+        # 而外面那层 ``max(1, self.width())`` 让人以为已经防住了。
         img = QImage(
-            int(round(w * dpr)),
-            int(round(h * dpr)),
+            max(1, int(round(w * dpr))),
+            max(1, int(round(h * dpr))),
             QImage.Format.Format_ARGB32_Premultiplied,
         )
         img.setDevicePixelRatio(dpr)
@@ -3455,10 +3713,14 @@ class ElaChartWidget(QWidget):
             if not r.visible:
                 continue
             try:
-                r.paint(p, r.animProgress(t))
+                # 记下本次进度：命中分发可能发生在下一帧 paint 之前
+                r._anim_t = r.animProgress(t)
+                r.paint(p, r._anim_t)
             except Exception as exc:
                 warn_once(
-                    f"series-paint:{r.__class__.__name__}",
+                    warn_key(
+                        "series-paint", r.__class__.__name__, r.name, type(exc).__name__
+                    ),
                     f"系列绘制异常（{r.name}）: {exc!r}",
                 )
 
@@ -3532,17 +3794,9 @@ class ElaChartWidget(QWidget):
         if self._loading:
             return
         pos = event.localPos()
-        for comp in self._interactive_components():
-            hook = getattr(comp, "onMousePress", None)
-            if callable(hook) and hook(pos):
-                super().mousePressEvent(event)
-                return
-        if self._interactive:
-            for renderer in self._interactive_renderers():
-                hook = getattr(renderer, "onMousePress", None)
-                if callable(hook) and hook(pos):
-                    super().mousePressEvent(event)
-                    return
+        if self._dispatch_hook("onMousePress", pos):
+            super().mousePressEvent(event)
+            return
         if self.legend.shown and self.isInteractionEnabled("legend"):
             name = self.legend.hitTest(pos)
             if name is not None:
@@ -3567,6 +3821,12 @@ class ElaChartWidget(QWidget):
         raw_data = renderer.data()
         if isinstance(data_index, int) and 0 <= data_index < len(raw_data):
             data = raw_data[data_index]
+        # ECharts 的 params.color 是**数据项**颜色（雷达 colorBy='data'、饼图逐扇区），
+        # 命中方给了就用它，别再回落到系列色 —— 否则事件里两个数据源同色。
+        raw_color = hit.get("color")
+        item_color = QColor(raw_color) if raw_color is not None else renderer.color()
+        if not item_color.isValid():
+            item_color = renderer.color()
         params = {
             "type": event_type,
             "componentType": "series",
@@ -3580,7 +3840,7 @@ class ElaChartWidget(QWidget):
             "dataIndex": data_index,
             "data": data,
             "value": hit.get("value"),
-            "color": renderer.color().name(),
+            "color": item_color.name(),
         }
         for extra in ("title", "text"):
             if hit.get(extra) is not None:
@@ -3594,21 +3854,50 @@ class ElaChartWidget(QWidget):
             params["event"] = event
         return params
 
+    def _call_hook(self, owner, hook_name: str, *args) -> bool:
+        """调组件 / 渲染器的鼠标钩子，异常隔离并去重上报。
+
+        **所有钩子都必须走这里。** 这些钩子跑在 Qt 的事件回调链上，未捕获的
+        Python 异常会穿过 C++ 边界 → 进程直接 0xC0000409 终止、**零
+        traceback**。而钩子实现里全是坐标换算与 option 取值，宿主传进来的
+        option 一个畸形值就能让某个系列崩掉整个应用。原先只有 ``wheelEvent``
+        有这层保护，move / press / release / double-click 六处都是裸调。
+        """
+        hook = getattr(owner, hook_name, None)
+        if not callable(hook):
+            return False
+        label = getattr(owner, "name", "") or owner.__class__.__name__
+        try:
+            return bool(hook(*args))
+        except Exception as exc:
+            warn_once(
+                warn_key(
+                    f"{hook_name}",
+                    owner.__class__.__name__,
+                    label,
+                    type(exc).__name__,
+                ),
+                f"{owner.__class__.__name__}.{hook_name} 异常（{label}）: {exc!r}",
+            )
+            return False
+
+    def _dispatch_hook(self, hook_name: str, *args) -> bool:
+        """按「组件优先、系列其次」的顺序分发钩子，任一消费则返回 True。"""
+        for comp in self._interactive_components():
+            if self._call_hook(comp, hook_name, *args):
+                return True
+        if not self._interactive:
+            return False
+        for renderer in self._interactive_renderers():
+            if self._call_hook(renderer, hook_name, *args):
+                return True
+        return False
+
     def mouseMoveEvent(self, event) -> None:
         if self._loading:
             return
         pos = event.localPos()
-        consumed = False
-        for comp in self._interactive_components():
-            hook = getattr(comp, "onMouseMove", None)
-            if callable(hook) and hook(pos):
-                consumed = True
-        if not consumed and self._interactive:
-            for renderer in self._interactive_renderers():
-                hook = getattr(renderer, "onMouseMove", None)
-                if callable(hook) and hook(pos):
-                    consumed = True
-                    break
+        consumed = self._dispatch_hook("onMouseMove", pos)
         if not consumed:
             if self.isInteractionEnabled("tooltip"):
                 self._update_tooltip(pos)
@@ -3620,18 +3909,14 @@ class ElaChartWidget(QWidget):
     def mouseReleaseEvent(self, event) -> None:
         if self._loading:
             return
-        pos = event.localPos()
-        for comp in self._interactive_components():
-            hook = getattr(comp, "onMouseRelease", None)
-            if callable(hook) and hook(pos):
-                break
-        else:
-            if self._interactive:
-                for renderer in self._interactive_renderers():
-                    hook = getattr(renderer, "onMouseRelease", None)
-                    if callable(hook) and hook(pos):
-                        break
+        self._dispatch_hook("onMouseRelease", event.localPos())
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        if self._loading:
+            return
+        self._dispatch_hook("onMouseDoubleClick", event.localPos())
+        super().mouseDoubleClickEvent(event)
 
     def wheelEvent(self, event) -> None:
         """滚轮：优先交给交互组件（如 dataZoom inside）消费。
@@ -3644,33 +3929,9 @@ class ElaChartWidget(QWidget):
         """
         if self._loading:
             return
-        for comp in self._interactive_components():
-            hook = getattr(comp, "onWheel", None)
-            if not callable(hook):
-                continue
-            try:
-                if hook(event):
-                    event.accept()
-                    return
-            except Exception as exc:
-                warn_once(
-                    f"component-wheel:{comp.__class__.__name__}",
-                    f"组件滚轮处理异常（{comp.__class__.__name__}）: {exc!r}",
-                )
-        if self._interactive:
-            for renderer in self._interactive_renderers():
-                hook = getattr(renderer, "onWheel", None)
-                if not callable(hook):
-                    continue
-                try:
-                    if hook(event):
-                        event.accept()
-                        return
-                except Exception as exc:
-                    warn_once(
-                        f"series-wheel:{renderer.__class__.__name__}",
-                        f"系列滚轮处理异常（{renderer.name}）: {exc!r}",
-                    )
+        if self._dispatch_hook("onWheel", event):
+            event.accept()
+            return
         super().wheelEvent(event)
 
     def leaveEvent(self, event) -> None:
@@ -3699,12 +3960,46 @@ class ElaChartWidget(QWidget):
         return self._hover
 
     def _hitItemWithSeries(self, pos: QPointF):
-        """命中查询：返回 ``(渲染器, 命中 info)``；无命中 None（silent 系列跳过）。"""
+        """命中查询：返回 ``(渲染器, 命中 info)``；无命中 None（silent 系列跳过）。
+
+        **markPoint / markLine 优先**：它们画在系列之上，先判才符合「上层元素
+        拿走悬停」的直觉（原先它们的 ``hitTest`` 是死代码 —— 只遍历
+        ``_series``，组件层从没被问过，于是这两类标注既没 tooltip 也没
+        click）。
+
+        **markArea / graphic 不参与**：前者是半透明**背景区域**，接进来会让
+        「悬停区域内任何位置」都抢走系列的悬停（明确的退化）；后者是纯装饰，
+        ECharts 侧默认也不参与交互。两条都不实现 ``hitTest``，免得留下
+        「看着能用其实从不调」的死代码。
+        """
+        # 动画进度可能在最后一次 paint 之后又推进了（鼠标事件先到），这里
+        # 按当前进度刷新一遍，保证 hitTest 看到的动画阶段是「现在」。
+        t = self.anim.t
+        for comp in self._components:
+            if str(getattr(comp, "optionKey", "")) not in _HOVERABLE_COMPONENTS:
+                continue
+            hit = None
+            try:
+                hit = comp.hitTest(pos)
+            except Exception as exc:
+                warn_once(
+                    warn_key(
+                        "component-hit",
+                        comp.__class__.__name__,
+                        type(exc).__name__,
+                    ),
+                    f"{comp.__class__.__name__}.hitTest 异常: {exc!r}",
+                )
+                hit = None
+            if hit:
+                renderer = comp._renderer() if hasattr(comp, "_renderer") else None
+                return renderer, hit
         for r in reversed(self._series):
             if not r.visible or r.silent:
                 continue
             hit = None
             try:
+                r._anim_t = r.animProgress(t)
                 hit = r.hitTest(pos)
             except Exception:
                 hit = None
@@ -3738,9 +4033,11 @@ class ElaChartWidget(QWidget):
                 or (self._hover[1].get("dataIndex") != hit.get("dataIndex"))
             ):
                 self._hover = (renderer, hit)
-            self.tooltip.showAt(
-                pos, self.tooltip.buildLines(hit, renderer.color(), renderer.name)
-            )
+            raw_color = hit.get("color")
+            color = QColor(raw_color) if raw_color is not None else renderer.color()
+            if not color.isValid():
+                color = renderer.color()
+            self.tooltip.showAt(pos, self.tooltip.buildLines(hit, color, renderer.name))
             return
         if self._hover is not None:
             self._hover = None
@@ -3755,6 +4052,14 @@ class ElaChartWidget(QWidget):
             try:
                 anchor = coord.invertX(pos)
             except Exception:
+                anchor = None
+        if anchor is not None:
+            # **必须先判有限**。``AxisModel.invert`` 返回
+            # ``vmin + frac * (vmax - vmin)``，而 ±1e308 的轴跨度相减会溢出成
+            # inf → 结果是 inf → ``int(inf)`` 抛 ``OverflowError``。这行跑在
+            # ``mouseMoveEvent`` 里，抛出去就是 0xC0000409 静默终止。
+            # 非有限时退回 None（走 item 命中），别让一次悬停干掉进程。
+            if isinstance(anchor, (int, float)) and not math.isfinite(anchor):
                 anchor = None
         if anchor is not None:
             idx = int(anchor) if isinstance(anchor, (int, float)) else anchor

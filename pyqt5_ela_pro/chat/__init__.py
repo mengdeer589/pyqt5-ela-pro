@@ -139,7 +139,7 @@ from .blocks import (
     toolDefaultOpenCoding,
 )
 from .bubble import DISCLAIMER_TEXT, ElaChatBubble
-from .docks import ElaChatInputDock, ElaChatQueueDock
+from .docks import ElaChatInputDock, ElaChatPermissionDock, ElaChatQueueDock
 from .input import ElaChatInput
 from .message import (
     SCHEMA_VERSION,
@@ -214,6 +214,7 @@ __all__ = [
     "ElaChatStatusBar",
     "ElaChatQueueDock",
     "ElaChatInputDock",
+    "ElaChatPermissionDock",
     "ElaChatRole",
     "ElaChatStatus",
     "ElaChatReasoningStyle",

@@ -30,7 +30,7 @@ import json
 import pytest
 from PyQt5.QtCore import QEvent, QPoint, Qt
 from PyQt5.QtGui import QColor, QKeyEvent, QMouseEvent
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QWidget
 from PyQt5ElaWidgetTools import (
     ElaCheckBox,
     ElaRadioButton,
@@ -172,7 +172,9 @@ class TestWizardShape:
         card = _single(chat, _turn(chat), multiple=multi)
         assert not hasattr(card, "_question_hint")
 
-    @pytest.mark.parametrize("multi,cls", [(False, ElaRadioButton), (True, ElaCheckBox)])
+    @pytest.mark.parametrize(
+        "multi,cls", [(False, ElaRadioButton), (True, ElaCheckBox)]
+    )
     def test_mark_widget_matches_multiplicity(self, qapp, make, multi, cls):
         """单选 = ``ElaRadioButton``（圆），多选 = ``ElaCheckBox``（方）。
 
@@ -688,13 +690,12 @@ class TestKeyboard:
         custom = card._option_buttons[0]
         custom.activate.emit("")
         custom.setEditorText("typed")
-        handled = custom.eventFilter(
+        qapp.sendEvent(
             custom._editor,
             QKeyEvent(
                 QEvent.Type.KeyPress, Qt.Key.Key_Escape, Qt.KeyboardModifier.NoModifier
             ),
         )
-        assert handled, "Esc 必须被编辑器过滤器吃掉，不能冒泡成忽略"
         assert not custom.isEditing()
         assert custom.editorText() == "typed", "Esc 不能丢掉已输入的文字"
         assert seen == []
@@ -706,13 +707,12 @@ class TestKeyboard:
         custom = card._option_buttons[0]
         custom.activate.emit("")
         custom.setEditorText("this way")
-        handled = custom.eventFilter(
+        qapp.sendEvent(
             custom._editor,
             QKeyEvent(
                 QEvent.Type.KeyPress, Qt.Key.Key_Return, Qt.KeyboardModifier.NoModifier
             ),
         )
-        assert handled
         assert card.answers() == {"q0": ["this way"]}
         assert json.loads(card._build_answer()) == {"q0": "this way"}
 
@@ -725,7 +725,7 @@ class TestKeyboard:
         custom = card._option_buttons[-1]
         custom.activate.emit("")
         custom.setEditorText("typed")
-        handled = custom.eventFilter(
+        qapp.sendEvent(
             custom._editor,
             QKeyEvent(
                 QEvent.Type.KeyPress,
@@ -733,10 +733,9 @@ class TestKeyboard:
                 Qt.KeyboardModifier.ControlModifier,
             ),
         )
-        assert handled
         assert card.tabIndex() == 1
         assert seen == [], "不该在这一步就提交"
-        assert card.answers() == {"q0": []} or card.answers() == {}
+        assert card.answers() == {}
 
     def test_shift_enter_newline(self, qapp, make):
         """Shift+Enter 在编辑器里换行，不提交。"""
@@ -744,7 +743,8 @@ class TestKeyboard:
         card = _single(chat, _turn(chat), options=())
         custom = card._option_buttons[0]
         custom.activate.emit("")
-        handled = custom.eventFilter(
+        custom.setEditorText("第一行")
+        qapp.sendEvent(
             custom._editor,
             QKeyEvent(
                 QEvent.Type.KeyPress,
@@ -752,7 +752,8 @@ class TestKeyboard:
                 Qt.KeyboardModifier.ShiftModifier,
             ),
         )
-        assert not handled, "Shift+Enter 要放行给编辑器换行"
+        assert "\n" in custom.editorText(), "Shift+Enter 要放行给编辑器换行"
+        assert card.answers() == {}
 
     def test_editor_grows_with_lines(self, qapp, make):
         """自增高按行数走（**不是** ``document().size()``，那是逻辑单位）。"""
@@ -1086,13 +1087,13 @@ class TestOptionCardContract:
     """``QuestionOptionCard`` 是不开 checkable 的纯输入面。"""
 
     def test_not_checkable(self, qapp, make):
-        row = make(QuestionOptionCard, "A", "desc")
+        row = make(QuestionOptionCard, value="A", description="desc")
         assert not row.isCheckable()
         assert not row.isChecked()
 
     def test_set_picked_does_not_emit(self, qapp, make):
         """``setPicked`` 不发任何信号（否则外层状态机会自激成环）。"""
-        row = make(QuestionOptionCard, "A")
+        row = make(QuestionOptionCard, value="A")
         seen = []
         row.activate.connect(seen.append)
         row.markClicked.connect(seen.append)
@@ -1102,16 +1103,21 @@ class TestOptionCardContract:
         assert row.isPicked()
 
     def test_description_can_be_empty(self, qapp, make):
-        row = make(QuestionOptionCard, "A")
+        row = make(QuestionOptionCard, value="A")
         assert row._desc.isHidden()
 
     def test_multi_flag_reads_back(self, qapp, make):
-        assert make(QuestionOptionCard, "A", multi=True).isMulti()
-        assert not make(QuestionOptionCard, "A", multi=False).isMulti()
+        assert make(QuestionOptionCard, value="A", multi=True).isMulti()
+        assert not make(QuestionOptionCard, value="A", multi=False).isMulti()
+
+    def test_parent_is_first_positional(self, qapp, make):
+        host = make(QWidget)
+        row = make(QuestionOptionCard, host, value="A")
+        assert row.parent() is host
 
     def test_mark_click_emits_separately(self, qapp, make):
         """点左侧 16px 标记区 = 只切勾选，不当作整行激活。"""
-        row = make(QuestionOptionCard, "A")
+        row = make(QuestionOptionCard, value="A")
         row.resize(300, 44)
         marks, rows = [], []
         row.markClicked.connect(marks.append)
@@ -1131,7 +1137,7 @@ class TestOptionCardContract:
 
     def test_click_left_of_mark_is_not_mark(self, qapp, make):
         """标记左侧那 10px 内边距不算标记区（对齐 opencode 的 padding-left）。"""
-        row = make(QuestionOptionCard, "A")
+        row = make(QuestionOptionCard, value="A")
         row.resize(300, 44)
         marks = []
         row.markClicked.connect(marks.append)
@@ -1147,7 +1153,7 @@ class TestOptionCardContract:
         assert marks == []
 
     def test_body_click_emits_activate(self, qapp, make):
-        row = make(QuestionOptionCard, "A")
+        row = make(QuestionOptionCard, value="A")
         row.resize(300, 44)
         rows = []
         row.activate.connect(rows.append)
@@ -1163,10 +1169,103 @@ class TestOptionCardContract:
         assert rows == ["A"]
 
     def test_editor_grows(self, qapp, make):
-        row = make(QuestionOptionCard, "", isCustom=True)
+        row = make(QuestionOptionCard, value="", isCustom=True)
         row.resize(300, 44)
         row.setEditing(True)
         row.setEditorText("a")
         one = row._editor.sizeHint().height()
         row.setEditorText("a\nb\nc")
         assert row._editor.sizeHint().height() > one + 20
+
+    def test_full_mark_click_toggles_once(self, qapp, make):
+        """完整按下 + 松开：只切一次勾选（release 不得补发 activate 抵消）。"""
+        row = make(QuestionOptionCard, value="A")
+        row.resize(300, 44)
+        picks, acts = [], []
+        row.markClicked.connect(picks.append)
+        row.activate.connect(acts.append)
+        mark = row._mark_rect()
+        pos = QPoint(int(mark.center().x()), int(mark.center().y()))
+        row.mousePressEvent(
+            QMouseEvent(
+                QEvent.Type.MouseButtonPress,
+                pos,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        )
+        row.mouseReleaseEvent(
+            QMouseEvent(
+                QEvent.Type.MouseButtonRelease,
+                pos,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        )
+        assert picks == ["A"]
+        assert acts == []
+
+    def test_full_custom_mark_click_does_not_open_editor(self, qapp, make):
+        row = make(QuestionOptionCard, value="", isCustom=True)
+        row.resize(300, 44)
+        mark = row._mark_rect()
+        pos = QPoint(int(mark.center().x()), int(mark.center().y()))
+        row.mousePressEvent(
+            QMouseEvent(
+                QEvent.Type.MouseButtonPress,
+                pos,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        )
+        row.mouseReleaseEvent(
+            QMouseEvent(
+                QEvent.Type.MouseButtonRelease,
+                pos,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        )
+        assert not row.isEditing()
+
+
+class TestWizardDraftRetention:
+    """向导状态与提交 payload 同口径；未提交草稿不能一刷新就没。"""
+
+    def _card(self, make):
+        card = make(PermissionCard)
+        question = _q("q0", "选一个")
+        card.setPermission(
+            ElaChatPermission(
+                request_id="r1",
+                action="ask",
+                status=ElaChatPermissionStatus.Pending,
+                questions=(question,),
+            )
+        )
+        return card, question
+
+    def test_custom_uncheck_clears_answered_segment(self, qapp, make):
+        card, question = self._card(make)
+        card._on_commit(question, "自己写的")
+        assert card._segments[0]._answered is True
+
+        card._on_mark_clicked(question, "")
+
+        assert card._segments[0]._answered is False
+        assert card.answers() == {}
+
+    def test_reenter_editing_keeps_uncommitted_draft(self, qapp, make):
+        card, _question = self._card(make)
+        row = card._custom_row("q0")
+        row.setEditing(True)
+        row.setEditorText("打了一半的草稿")
+        row.setEditing(False)  # Esc：文本保留在编辑器里
+
+        card._enter_editing("q0")
+
+        assert row.editorText() == "打了一半的草稿"

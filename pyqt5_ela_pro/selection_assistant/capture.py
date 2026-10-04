@@ -49,6 +49,8 @@ class ElaClipboardCapture(QObject):
     captured = pyqtSignal(str)
     #: 取词失败 / 无选区
     failed = pyqtSignal()
+    #: 剪贴板**未被还原** —— 因为用户在延时窗口里复制了新的内容（宿主可据此提示）
+    restoreSkipped = pyqtSignal()
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -61,6 +63,8 @@ class ElaClipboardCapture(QObject):
         self._active = False
         self._need_restore = False
         self._old_text = ""
+        # 取词链路放进剪贴板的那份内容；恢复时用它判断「有没有被用户改过」
+        self._captured_text = ""
         self._deadline = 0.0
 
         self._delay_timer = QTimer(self)
@@ -136,6 +140,7 @@ class ElaClipboardCapture(QObject):
             self.cancel()
         self._active = True
         self._old_text = ""
+        self._captured_text = ""
         self._deadline = time.monotonic() + self._timeout_ms / 1000.0
         self._delay_timer.start(self._capture_delay_ms)
 
@@ -177,6 +182,8 @@ class ElaClipboardCapture(QObject):
         self._poll_timer.stop()
         if ok and self._restore:
             self._need_restore = True
+            # 记下「我们自己放进剪贴板的那份」，供恢复时判断有没有被用户改过
+            self._captured_text = text
             self._restore_timer.start(self._restore_delay_ms)
         if ok:
             self.captured.emit(text)
@@ -184,10 +191,27 @@ class ElaClipboardCapture(QObject):
             self.failed.emit()
 
     def _restore_clipboard(self) -> None:
+        """把剪贴板还原成取词**之前**的内容。
+
+        **只在剪贴板还是「我们自己放进去的那份」时才还原**。延时窗口
+        （``restoreDelayMs``，默认几百毫秒）里用户完全可能又复制了别的东西 ——
+        比如切到资源管理器按了 Ctrl+C。原先无条件写回 ``_old_text``，于是那次
+        复制**被静默丢弃**，用户按 Ctrl+V 拿到的是几百毫秒前的旧内容。
+        这种数据丢失比「剪贴板没还原」更糟，所以宁可留着用户新复制的那份。
+
+        判据用**纯文本比较**而不是序列号（Windows 剪贴板序列号要 ``user32``
+        ``GetClipboardSequenceNumber``，而本模块的平台/环境分支里刻意不引
+        win32 —— 见 AGENTS.md「Import 约定」）：取词链路本来就只看纯文本，
+        用户新复制的内容若与取词结果**文本相同**，是否还原在语义上无差别。
+        """
         if not self._need_restore:
             return
         self._need_restore = False
         clipboard = QApplication.clipboard()
+        if clipboard.text() != self._captured_text:
+            # 用户已经复制了新的东西 —— 不要覆盖
+            self.restoreSkipped.emit()
+            return
         if self._old_text:
             clipboard.setText(self._old_text)
         else:

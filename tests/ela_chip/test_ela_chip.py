@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 from PyQt5.QtGui import QColor
+from PyQt5ElaWidgetTools import ElaIconType, eTheme, ElaThemeType
 
+from pyqt5_ela_pro._colors import _contrast_ratio, get_color_scheme
+from pyqt5_ela_pro._theme import blend
 from pyqt5_ela_pro.ela_chip import ElaChip
 
 
@@ -18,7 +21,7 @@ class TestElaChipInit:
         ("attr", "expected"),
         [
             ("_text", ""),
-            ("_border_radius", 4),
+            ("_border_radius", 6),
             ("_is_closable", False),
             ("_is_checkable", False),
             ("_is_checked", False),
@@ -46,12 +49,19 @@ class TestElaChipText:
 
 class TestElaChipBorderRadius:
     def test_border_radius_default(self, chip):
-        assert chip.borderRadius() == 4
+        assert chip.borderRadius() == 6
 
     @pytest.mark.parametrize("radius", [12, 0], ids=["12", "0"])
     def test_set_border_radius(self, chip, radius):
         chip.setBorderRadius(radius)
         assert chip.borderRadius() == radius
+
+    def test_pill_roundtrip(self, chip):
+        assert chip.isPill() is False
+        chip.setPill(True)
+        assert chip.isPill() is True
+        chip.setPill(False)
+        assert chip.isPill() is False
 
 
 class TestElaChipClosable:
@@ -120,6 +130,84 @@ class TestElaChipColorHelpers:
     )
     def test_color_helper_returns_qcolor(self, chip, getter):
         assert isinstance(getter(chip), QColor)
+
+
+class TestElaChipContrast:
+    """彩字与底色对比度 ≥ 4.5（WCAG AA）。
+
+    回归：暗色下 ``_getForegroundColor`` 借的是「亮色主题」的 accent ——
+    primary / blue 拿到 #0067c0 压在暗底上只有 1.43；亮色下 yellow 1.31。
+    """
+
+    @pytest.mark.parametrize(
+        "color", list(ElaChip.Color), ids=[c.name for c in ElaChip.Color]
+    )
+    @pytest.mark.parametrize(
+        "mode",
+        [ElaThemeType.ThemeMode.Light, ElaThemeType.ThemeMode.Dark],
+        ids=["light", "dark"],
+    )
+    def test_foreground_readable_in_all_states(self, make, color, mode):
+        """半透明底要合成到主题表面后再算对比度（空闲 / hover / press 都达标）。"""
+        previous = eTheme.getThemeMode()
+        eTheme.setThemeMode(mode)
+        try:
+            chip = make(ElaChip, text="标签")
+            chip.setColor(color)
+            surface = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase)
+            samples = []
+            for hovered, pressed in ((False, False), (True, False), (True, True)):
+                bg, _border, fg = chip._resolve_colors(hovered, pressed)
+                composited = blend(
+                    surface, QColor(bg.red(), bg.green(), bg.blue()), bg.alphaF()
+                )
+                samples.append((hovered, pressed, fg, composited))
+        finally:
+            eTheme.setThemeMode(previous)
+        for hovered, pressed, fg, composited in samples:
+            assert _contrast_ratio(fg, composited) >= 4.5, (
+                color.name,
+                mode,
+                hovered,
+                pressed,
+                fg.name(),
+                composited.name(),
+            )
+
+
+class TestElaChipStates:
+    def test_selected_uses_solid_fill(self, make):
+        chip = make(ElaChip, text="标签")
+        chip.setColor(ElaChip.Color.Blue)
+        chip.setCheckable(True)
+        chip.setChecked(True)
+        scheme = get_color_scheme("blue", chip._theme_mode)
+        bg, _border, fg = chip._resolve_colors(False, False)
+        assert bg.name() == scheme["solid"].name()
+        assert fg.name() == scheme["solidText"].name()
+
+    def test_hover_tint_is_stronger(self, make):
+        chip = make(ElaChip, text="标签")
+        chip.setColor(ElaChip.Color.Blue)
+        idle, _b, fg = chip._resolve_colors(False, False)
+        hover, _b2, fg2 = chip._resolve_colors(True, False)
+        press, _b3, _fg3 = chip._resolve_colors(True, True)
+        assert idle.alpha() < hover.alpha() < press.alpha()
+        assert fg2.name() == fg.name()
+
+    def test_leading_icon_roundtrip_and_width(self, make):
+        chip = make(ElaChip, text="标签")
+        base = chip.sizeHint().width()
+        chip.setLeadingIcon(ElaIconType.IconName.Tag)
+        assert chip.leadingIcon() == ElaIconType.IconName.Tag
+        assert chip.sizeHint().width() > base
+        chip.setLeadingIcon(None)
+        assert chip.sizeHint().width() == base
+
+    def test_close_hit_area_is_wide_enough(self, make):
+        chip = make(ElaChip, text="标签")
+        chip.setClosable(True)
+        assert chip._close_rect().width() >= 20
 
 
 class TestElaChipDeleteLater:

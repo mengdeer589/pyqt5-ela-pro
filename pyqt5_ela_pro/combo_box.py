@@ -149,7 +149,11 @@ class _SearchComboMixin:
         """子类应重写此方法以响应搜索框文本变化。"""
 
     def _onThemeChanged(self, _mode=None) -> None:
+        # 本 mixin **必须**排在 ``_ThemeAwareMixin`` 之前：后者也定义了同名钩子
+        # 且是个空实现，写在它后面就会被 MRO 遮蔽成永远不被调用的死代码
+        # （后果：搜索框调色板在切深浅色后不跟随）。
         self._applySearchEditPalette()
+        super()._onThemeChanged(_mode)
 
     def _setupSearchInPopup(self, container: QWidget) -> None:
         layout = container.layout()
@@ -267,7 +271,7 @@ class ElaSearchProxyModel(QSortFilterProxyModel):
         return _match_item(text, self._tokens, self._pinyin_cache)
 
 
-class ElaSearchMultiBox(_ThemeAwareMixin, _SearchComboMixin, ElaMultiSelectComboBox):
+class ElaSearchMultiBox(_SearchComboMixin, _ThemeAwareMixin, ElaMultiSelectComboBox):
     """可搜索多选下拉框。
 
     基于 ``ElaMultiSelectComboBox`` 扩展，在弹出列表顶部增加了一个搜索框，
@@ -363,7 +367,7 @@ class ElaSearchMultiBox(_ThemeAwareMixin, _SearchComboMixin, ElaMultiSelectCombo
         self._apply_row_filter(text)
 
 
-class ElaSearchBox(_ThemeAwareMixin, _SearchComboMixin, ElaComboBox):
+class ElaSearchBox(_SearchComboMixin, _ThemeAwareMixin, ElaComboBox):
     """可搜索下拉框。
 
     基于标准 ``ElaComboBox`` 扩展，在弹出列表顶部增加了一个搜索框，

@@ -2,20 +2,14 @@
 
 from __future__ import annotations
 
-import time
+from _qthelpers import wait_until as _wait_until
 
 from pyqt5_ela_pro.chat import ElaChatMockBackend, ElaChatMockUsage
 
 
 def _drain(qapp, worker, timeout_ms: int = 3000) -> bool:
-    """跑事件循环直到回合结束。"""
-    deadline = time.monotonic() + timeout_ms / 1000.0
-    while time.monotonic() < deadline:
-        qapp.processEvents()
-        if not worker.isRunning():
-            return True
-        time.sleep(0.005)
-    return not worker.isRunning()
+    """跑事件循环直到回合结束（统一走 ``_qthelpers.wait_until``）。"""
+    return _wait_until(qapp, lambda: not worker.isRunning(), timeout_ms=timeout_ms)
 
 
 def _record(worker) -> list:

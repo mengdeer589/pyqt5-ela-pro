@@ -36,6 +36,7 @@ from PyQt5.QtGui import (
     QPen,
 )
 
+from .._motion import start_idle_loop
 from ._tokens import T
 from ._utils import clamp as _clamp
 from ._utils import to_float as _to_float
@@ -108,16 +109,33 @@ class DataZoomComponent(QObject):
         self._track = QRectF()
         self._h_start = QRectF()
         self._h_end = QRectF()
-        # 滚轮事件过滤器（core 无 wheel 钩子）；重建时移除旧过滤器防累积
+        # 滚轮事件过滤器（core 无 wheel 钩子）。
+        # **解挂旧实例必须放在 ``has_inside`` 判断之外**：只在 ``has_inside`` 为真时
+        # 清理的话，``inside -> slider`` 的切换会留下一个仍挂在 chart 上的孤儿过滤器
+        # —— 它不在 ``chart.components`` 里，UI 的滑块不知道它的存在，但它继续
+        # 拦截滚轮并用**陈旧的** ``_full_cats`` / ``_full_range`` 改坐标轴，实测
+        # 滑块显示 0-100% 而实际窗口已缩到 10-90%，此后两者每帧互相覆盖。
+        # ``dataZoom`` 整块从 option 里删掉时同样要靠 ``dispose()`` 解挂。
+        prev = getattr(chart, "_datazoom_filter", None)
+        if prev is not None and prev is not self:
+            try:
+                chart.removeEventFilter(prev)
+            except Exception:
+                pass
+        chart._datazoom_filter = None
         if self.has_inside:
-            prev = getattr(chart, "_datazoom_filter", None)
-            if prev is not None and prev is not self:
-                try:
-                    chart.removeEventFilter(prev)
-                except Exception:
-                    pass
             chart.installEventFilter(self)
             chart._datazoom_filter = self
+
+    def dispose(self) -> None:
+        """从 chart 上解挂（``core._rebuild`` 丢弃旧组件时调用）。"""
+        if getattr(self.chart, "_datazoom_filter", None) is self:
+            self.chart._datazoom_filter = None
+        try:
+            self.chart.removeEventFilter(self)
+        except Exception:
+            pass
+        self._drag = None
 
     # -- 轴窗口 ------------------------------------------------------------
     def _axis(self):
@@ -260,12 +278,31 @@ class DataZoomComponent(QObject):
 
     # -- 窗口约束 / 程序化动作 --------------------------------------------
     def _span_limits(self):
-        """``minSpan`` / ``maxSpan``（取自首个 dataZoom 条目）。"""
-        first = self.entries[0] if self.entries else {}
-        return (
-            _to_float(first.get("minSpan"), None),
-            _to_float(first.get("maxSpan"), None),
-        )
+        """``minSpan`` / ``maxSpan``：取**所有** dataZoom 条目的约束交集。
+
+        ECharts 是「每个 ``dataZoom[i]`` 各有各的 minSpan/maxSpan」，而本引擎只有
+        一个共享窗口（``self.start`` / ``self.end``，两个条目共用），所以唯一自洽的
+        语义就是取交集：``minSpan`` 取最大、``maxSpan`` 取最小。
+
+        原先只读 ``entries[0]``，于是约束挂在 slider 上而 inside 排在前面时
+        （``[{"type": "inside"}, {"type": "slider", "minSpan": 40}]``）``minSpan``
+        被整条丢掉 —— 实测滑块能一路拖到 10% 窗口；反过来的组合里 slider 自己的
+        ``maxSpan`` 也会被 inside 的 ``maxSpan`` 顶掉。两条都只影响同一条 option
+        里同时配 inside + slider 的场景（单条目时行为不变）。
+
+        约束自相矛盾（``minSpan > maxSpan``）时由 ``_clamp_span`` 的应用顺序决定：
+        先抬到 minSpan 再压到 maxSpan，即 maxSpan 胜出。
+        """
+        min_span = None
+        max_span = None
+        for e in self.entries:
+            lo = _to_float(e.get("minSpan"), None)
+            if lo is not None:
+                min_span = lo if min_span is None else max(min_span, lo)
+            hi = _to_float(e.get("maxSpan"), None)
+            if hi is not None:
+                max_span = hi if max_span is None else min(max_span, hi)
+        return min_span, max_span
 
     def _clamp_span(self, start: float, end: float):
         """按 ``minSpan`` / ``maxSpan`` 约束窗口并收敛回 [0, 100]。"""
@@ -294,7 +331,7 @@ class DataZoomComponent(QObject):
             try:
                 if int(index) != 0:
                     return False
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return False
         axis = self._axis()
         if axis is None:
@@ -761,9 +798,19 @@ class VisualMapComponent:
     ``mapColor(v)`` 为公共方法：系列（map / heatmap 等）经
     ``chart.components`` 查找本组件调用。colors 缺省为
     primary.subtle → primary（T() 实时取，主题感知）。
+
+    **绑定**：``seriesIndex``（int）或 ``seriesId``（str）把本 visualMap
+    限定给某一个系列（ECharts 语义）；两者都不给就是「通用」，任何系列都能用。
+    没有绑定语义时，多个 map / heatmap 系列会**全部拿到同一个** visualMap
+    （原先是「谁排在前面谁赢」），于是给第二个系列配的独立色带永远不生效。
     """
 
     optionKey = "visualMap"
+    #: 顶层数组要为每个元素各建一个实例（ECharts 的 visualMap 就是数组语义）。
+    #: 不声明的话 ``visualMap: [{...}, {...}]`` 会把整个 list 塞进
+    #: ``dict(opt or {})`` 抛 ``ValueError``，被 ``_spawn_component`` 吞掉 ——
+    #: **一个 visualMap 都建不起来**。
+    spawnPerItem = True
 
     def __init__(self, chart, opt):
         self.chart = chart
@@ -778,6 +825,31 @@ class VisualMapComponent:
             "horizontal" if str(self.opt.get("orient")) == "horizontal" else "vertical"
         )
         self._bar = QRectF()
+
+    # -- 绑定 ---------------------------------------------------------------
+    def bindsTo(self, series_index: int, series_id: str = "") -> bool:
+        """本 visualMap 是否服务于给定系列。
+
+        判定顺序（与 ECharts 一致）：显式绑定优先，其次「未绑定的通用
+        visualMap」，都不匹配才算不适用。**通用件必须排在显式绑定之后** ——
+        反过来的话一个都没绑定的 visualMap 会把所有系列都抢走。
+        """
+        idx = self.opt.get("seriesIndex")
+        sid = self.opt.get("seriesId")
+        if isinstance(idx, int) and not isinstance(idx, bool):
+            return idx == series_index
+        if sid is not None and str(sid):
+            return bool(series_id) and str(sid) == str(series_id)
+        return True
+
+    @property
+    def isGeneric(self) -> bool:
+        """未绑定任何系列的通用 visualMap。"""
+        idx = self.opt.get("seriesIndex")
+        sid = self.opt.get("seriesId")
+        if isinstance(idx, int) and not isinstance(idx, bool):
+            return False
+        return not (sid is not None and str(sid))
 
     # -- 公共 API ----------------------------------------------------------
     def colors(self) -> list:
@@ -946,16 +1018,34 @@ class ChartTimeline(QObject):
             except Exception:
                 pass
         self._timer = QTimer(chart)
-        self._timer.setInterval(
-            int(_to_float(self.opt.get("playInterval"), 1500) or 1500)
-        )
+        play_interval_ms = int(_to_float(self.opt.get("playInterval"), 1500) or 1500)
+        self._timer.setInterval(play_interval_ms)
         self._timer.timeout.connect(self._advance)
         chart._timeline_timer = self._timer
         if self._playing:
-            self._timer.start()
+            # 持续动效：Reduced/Disabled 下 timeline 不自动推进（当前帧照常显示，
+            # 用户仍可 goto / 点播放按钮手动切帧）。
+            start_idle_loop(self._timer, play_interval_ms)
         self._band = QRectF()
         self._play_rect = QRectF()
         self._node_pts = []  # [QPointF]
+
+    def dispose(self) -> None:
+        """停表并从 chart 上解挂（``core._rebuild`` 丢弃旧组件时调用）。
+
+        必须连 ``deleteLater()`` 一起做：定时器的 parent 是 chart，光 ``stop()``
+        会让它变成一个挂在 chart 上的停摆 QObject —— 每次 ``setOption`` 泄一个。
+        注意 ``goto()`` 是从本组件的 ``_advance``（定时器回调）里进来的，此时
+        ``_rebuild`` 会 dispose 到自己 —— ``deleteLater`` 是延迟投递，qt 派发完
+        当前事件才落地，所以不会在发射过程中析构。
+        """
+        if getattr(self.chart, "_timeline_timer", None) is self._timer:
+            self.chart._timeline_timer = None
+        try:
+            self._timer.stop()
+            self._timer.deleteLater()
+        except Exception:
+            pass
 
     # -- 帧切换 --------------------------------------------------------------
     def goto(self, index: int) -> None:

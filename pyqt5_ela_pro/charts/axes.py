@@ -62,6 +62,17 @@ __all__ = [
 # 工具：字体 / 数值格式化 / nice ticks
 # ---------------------------------------------------------------------------
 
+#: 单根轴的刻度数硬上限。超过就把 step 放大到等分（见 ``_clamp_tick_count``）。
+#: 取 2000 量级：正常图表的段数是 5，最多几百根；2000 根网格线 + 标签在
+#: 1200x700 下仍可接受，而它是「step 细到毫无意义」时的兜底。
+_MAX_TICKS = 2000
+
+#: ``niceTicks`` 的段数上限（``splitNumber`` 走同一条路）。
+_MAX_SEGMENTS = 200
+
+#: ``datetime.date`` 的 year 上限（``date(10000, ...)`` 抛 ValueError）。
+_MAX_DATE_YEAR = 9999
+
 
 def chartFont(px: int = None, weight: int = None) -> QFont:
     """构造图表用字体（FONT_FAMILIES 字族；px 默认 font.xs）。"""
@@ -85,7 +96,19 @@ def formatValue(v) -> str:
             return ""
         if float(v).is_integer() and abs(v) < 1e15:
             return str(int(v))
-        return f"{v:.2f}".rstrip("0").rstrip(".")
+        # **两位小数对小于 0.005 的量级完全不够**，而 ``rstrip("0")`` 再把
+        # "0.00" 清成 "0" —— 于是同一根轴上所有刻度标签变成同一个字符串。
+        # 实测数据在 1e-3 量级（niceTicks(0, 0.001) 的 step = 0.0002）时，
+        # 6 个刻度的标签全是 "0"，负小数还会给出 "-0"。
+        # 小数位按量级自适应，封顶 8 位（再多是浮点尾数，如 0.6000000000000001）。
+        av = abs(float(v))
+        if av == 0.0:
+            return "0"
+        decimals = min(8, max(2, -math.floor(math.log10(av)) + 2))
+        text = f"{v:.{decimals}f}"
+        if "." in text:
+            text = text.rstrip("0").rstrip(".")
+        return text or "0"
     return str(v)
 
 
@@ -110,7 +133,7 @@ def niceTicks(vmin: float, vmax: float, segments: int = 5):
             pad = abs(vmin) * 0.5
             vmin -= pad
             vmax += pad
-    segments = max(1, int(segments))
+    segments = max(1, min(int(segments), _MAX_SEGMENTS))
     span = vmax - vmin
     # 端点有限不代表差值有限：±1e308 的差会溢出成 inf，随后 log10(inf)=inf、
     # math.floor(inf) 抛 OverflowError（曾使 data:[1e308,-1e308] 直接崩掉 setOption）。
@@ -137,10 +160,40 @@ def niceTicks(vmin: float, vmax: float, segments: int = 5):
         nice_max = nice_min + step
     # 用整数计数避免浮点累积误差
     n = int(round((nice_max - nice_min) / step))
+    # **刻度数硬上限**。step 极小时（``maxInterval: 1e-9``、或 step 恰好比
+    # 浮点分辨率还细）n 会膨胀到百万 / 千万级，而下面这个循环逐个 append 到
+    # Python list、随后每根刻度都要画一条网格线 + 一个标签。实测跨度 1 的
+    # 数据配 ``maxInterval=1e-6`` → 约 200 万刻度、单帧 35 秒；1e-9 直接
+    # 挂死（一分钟无返回）。宁可少几根网格线，也不能毁掉整帧。
+    if n > _MAX_TICKS:
+        return _clamp_tick_count(nice_min, nice_max, step, _MAX_TICKS)
     ticks = []
     for i in range(n + 1):
         t = nice_min + i * step
         ticks.append(0.0 if abs(t) < step * 1e-9 else t)
+    return nice_min, nice_max, ticks
+
+
+def _clamp_tick_count(nice_min, nice_max, step, limit):
+    """刻度过多时改用放大 step 的等分刻度，并保持端点不变。
+
+    返回的刻度数 ≤ ``limit + 1``。``step`` 放大到能整除跨度为止 —— 不整除
+    时最后一根刻度会越过 ``nice_max``，宁可让 ``nice_max`` 与最后刻度略有
+    出入，也不要让坐标范围与数据脱节。
+    """
+    span = nice_max - nice_min
+    if span <= 0.0 or step <= 0.0:
+        return nice_min, nice_max, [nice_min]
+    grown = step
+    while True:
+        count = int(math.ceil(span / grown))
+        if count <= limit:
+            break
+        grown *= 10.0
+    ticks = [nice_min + i * grown for i in range(count + 1)]
+    # 末刻度与 nice_max 差得太多时，把末刻度直接钉到 nice_max
+    if ticks and abs(ticks[-1] - nice_max) > grown * 0.5:
+        ticks[-1] = nice_max
     return nice_min, nice_max, ticks
 
 
@@ -211,8 +264,16 @@ class Coord:
 
 
 def _iter_data_values(data):
-    """从系列 data 中迭代全部数值（支持 number / [x, y] / {"value": v}）。"""
-    for item in data or []:
+    """从系列 data 中迭代全部**有限**数值（支持 number / [x, y] / {"value": v}）。
+
+    滤 NaN / inf 的原因与清单见 AGENTS.md「charts」。此处除极值污染外还多一层：
+    调用方（``SingleAxisCoord.setSeries``）用 ``min()`` / ``max()`` 归约，而
+    ``min()`` 遇 NaN 的结果是**顺序相关**的 —— 实测同一份数据 ``[1, 2, nan, 5]``，
+    NaN 在首位得 0..1、在末位得 0..5。
+    """
+    if data is None:
+        return
+    for item in data:
         if item is None:
             continue
         v = item
@@ -220,9 +281,15 @@ def _iter_data_values(data):
             v = item.get("value")
         if isinstance(v, (list, tuple)):
             for sub in v:
-                if isinstance(sub, (int, float)) and not isinstance(sub, bool):
+                if (
+                    isinstance(sub, (int, float))
+                    and not isinstance(sub, bool)
+                    and math.isfinite(sub)
+                ):
                     yield float(sub)
-        elif isinstance(v, (int, float)) and not isinstance(v, bool):
+        elif (
+            isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+        ):
             yield float(v)
 
 
@@ -256,7 +323,7 @@ class AxisModel:
         self.name_location = str(opt.get("nameLocation") or "end")
         try:
             self.name_gap = float(opt.get("nameGap", 8))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             self.name_gap = 8.0
         # value 轴：布局前由 setExtent 填充
         self.vmin = 0.0
@@ -303,14 +370,29 @@ class AxisModel:
             hi = user_hi
         try:
             segments = max(1, int(self.opt.get("splitNumber", segments)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             pass
         self.vmin, self.vmax, self._ticks = niceTicks(lo, hi, segments)
         self._apply_interval_constraints()
+        # **用户边界必须自洽**，否则轴会塌掉。
+        #
+        # ``min`` 大于数据最大值时（``{"min": 100}`` 配 ``data: [1, 2]``），
+        # niceTicks 拿到的区间是退化的，覆盖后 ``vmin == vmax`` → span 为 0 →
+        # **所有刻度映射到同一像素**、标签叠成一团、数据也画在同一行。
+        # ``min > max`` 更糟：span 为负，点被画到坐标区之外。
+        # 下面两个守卫把退化区间撑开；不合法的那一侧直接忽略。
+        if user_lo is not None and user_hi is not None and user_hi <= user_lo:
+            user_hi = None  # min >= max：忽略 hi，交给下面按 lo 撑开
         if user_lo is not None:
             self.vmin = user_lo
         if user_hi is not None:
             self.vmax = user_hi
+        if self.vmax <= self.vmin:
+            pad = max(1.0, abs(self.vmin) * 0.5)
+            self.vmax = self.vmin + pad
+            self.vmin, self.vmax, self._ticks = niceTicks(
+                self.vmin, self.vmax, segments
+            )
 
     def _apply_interval_constraints(self) -> None:
         """``minInterval`` / ``maxInterval`` 约束 value 轴刻度步长。"""
@@ -332,6 +414,15 @@ class AxisModel:
         start = math.floor(self.vmin / new_step) * new_step
         end = math.ceil(self.vmax / new_step) * new_step
         count = int(round((end - start) / new_step))
+        if count > _MAX_TICKS:
+            # **maxInterval 只把 step 变小、不限制刻度总数**，所以 count 直接
+            # 等于「跨度 / maxInterval」。实测数据跨 1 配 ``maxInterval=1e-6``
+            # → 约 200 万刻度、单帧 3.5 秒；1e-9 直接挂死。宁可少一根网格线
+            # 也不能毁掉整帧，所以这里放大 step 重新等分（端点保持不变）。
+            self.vmin, self.vmax, self._ticks = _clamp_tick_count(
+                start, end, new_step, _MAX_TICKS
+            )
+            return
         self.vmin, self.vmax = start, end
         self._ticks = [
             0.0 if abs(start + i * new_step) < new_step * 1e-9 else start + i * new_step
@@ -458,11 +549,11 @@ class AxisModel:
         label = self.axisLabelOption()
         try:
             size = float(label.get("fontSize", T("font.xs")))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             size = float(T("font.xs"))
         try:
             weight = int(label.get("fontWeight", 400))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             weight = 400
         return chartFont(size, weight)
 
@@ -536,7 +627,7 @@ def _opt_bound(v):
     """解析轴 min/max 选项：合法数值返回 float，非法返回 None（视为未设置）。"""
     try:
         return _utils_to_float(v, None)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
 
 
@@ -550,23 +641,30 @@ def _parse_margin(v, default):
 
     返回 ``(is_pct, value)``：百分比在 layout 时按 rect 宽 / 高换算；
     非法输入降级为 default（default 可为 None 表示「未设置」）。
+
+    **非有限值（inf / nan）与其它非法输入同等处理。** 原先 ``float(v)`` 直接
+    放行，导致 ``{"grid": {"left": "inf"}}`` 得到 ``plot = QRectF(inf, 40, 10,
+    202)``、``mapPoint`` 返回 NaN 坐标 —— 不抛异常、不告警，整图坐标系变成
+    NaN（Qt 画不出东西，宿主任何算术都拿到 NaN）。
     """
     fallback = float(default) if default is not None else None
     if isinstance(v, str):
         s = v.strip()
         if s.endswith("%"):
             try:
-                return True, float(s[:-1])
+                pct = float(s[:-1])
             except ValueError:
                 return False, fallback
+            return (True, pct) if math.isfinite(pct) else (False, fallback)
         if not s:
             return False, fallback
     if v is None:
         return False, fallback
     try:
-        return False, float(v)
-    except (TypeError, ValueError):
+        val = float(v)
+    except (TypeError, ValueError, OverflowError):
         return False, fallback
+    return (False, val) if math.isfinite(val) else (False, fallback)
 
 
 def _margin_px(spec, total):
@@ -594,7 +692,7 @@ def _line_pen(opt: dict, default_color, default_width=1.0) -> QPen:
     color = QColor(style.get("color") or default_color)
     try:
         width = max(0.5, float(style.get("width", default_width)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         width = float(default_width)
     pen = QPen(color, width)
     pen.setStyle(
@@ -635,7 +733,7 @@ class GridCoord(Coord):
         self.grid_bg = grid.get("backgroundColor")
         try:
             self.grid_border_width = max(0.0, float(grid.get("borderWidth", 0)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             self.grid_border_width = 0.0
         self.contain_label = bool(grid.get("containLabel", False))
 
@@ -674,9 +772,9 @@ class GridCoord(Coord):
         纯数值列表：x 按下标语义（0 .. n-1）；[x, y] 列表：取两列；
         含字典 / None / 混合形式返回 None（调用方回退 Python 循环）。
 
-        走 ``nanmin`` / ``nanmax``：**必须**如此。``charts.data`` 把 list 里的
-        ``None`` 写成 NaN 存进缓冲区（间隙语义），用 ``min``/``max`` 会让
-        整个轴范围变成 NaN。
+        走 ``nanmin`` / ``nanmax``：``None`` 间隙在缓冲里是 NaN，用 ``min``/``max``
+        会让整个轴范围变成 NaN。但**它们只跳 NaN 不跳 inf**，所以先把非有限值
+        掩成 NaN —— 完整清单与后果见 AGENTS.md「charts」。
         """
         if data is None or _ds.np is None:
             return None
@@ -688,16 +786,20 @@ class GridCoord(Coord):
             return None
         try:
             arr = _ds.np.asarray(data, dtype=_ds.np.float64)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None
         np_ = _ds.np
         if arr.ndim == 1:
-            if not arr.size or not np_.isfinite(arr).any():
+            if not arr.size:
+                return None
+            arr = np_.where(np_.isfinite(arr), arr, np_.nan)
+            if not np_.isfinite(arr).any():
                 return None
             ymin, ymax = float(np_.nanmin(arr)), float(np_.nanmax(arr))
             return 0.0, float(arr.size - 1), ymin, ymax
         if arr.ndim == 2 and arr.shape[1] >= 2 and arr.shape[0]:
-            xcol, ycol = arr[:, 0], arr[:, 1]
+            xcol = np_.where(np_.isfinite(arr[:, 0]), arr[:, 0], np_.nan)
+            ycol = np_.where(np_.isfinite(arr[:, 1]), arr[:, 1], np_.nan)
             if not (np_.isfinite(ycol).any() and np_.isfinite(xcol).any()):
                 return None
             return (
@@ -717,16 +819,29 @@ class GridCoord(Coord):
             if s.get("coordinateSystem") not in (None, "cartesian2d", "grid"):
                 continue
             data = s.get("data")
+            # ``data: 5`` / ``3.5`` / ``True`` 这类**标量**不是合法序列（ECharts
+            # 也不接受），但它此前一路走到下面的 ``enumerate(data)`` 抛 TypeError，
+            # 而 ``_rebuild`` 调 ``setSeries`` 没有 try —— 异常直接冒给
+            # ``setOption`` 的调用方。降级成空数据，与「数据为空」同路径。
+            #
+            # 注意判据不能用 ``isBufferLike``：它**故意不认** list / tuple
+            # （逐元素拷贝对百万级列表是性能灾难，见 data.isBufferLike 的
+            # docstring），那样会把正常数据全清空。
             if data is None:
+                data = []
+            elif not _cdata.isBufferLike(data) and not isinstance(data, (list, tuple)):
                 data = []
             ext = self._extent(data)
             if ext is not None:
+                # ``_numpy_extent`` 已把 NaN / inf 都排除（inf 只跳 NaN 的
+                # ``nanmin`` 是不够的，见该方法 docstring）
                 x0, x1, y0, y1 = ext
                 ys.extend((y0, y1))
                 if self.x_axis.type == "value":
                     xs.extend((x0, x1))
                 continue
             for i, item in enumerate(data):
+                # ``_datum_y`` / ``_datum_x`` 在入口已滤掉 NaN / inf
                 y = _datum_y(item)
                 if y is not None:
                     ys.append(y)
@@ -879,7 +994,7 @@ class GridCoord(Coord):
             inside = bool(opt.get("inside", False))
             try:
                 length = max(1.0, float(opt.get("length", 5)))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 length = 5.0
             p.setPen(_line_pen(opt, T("color.border.strong")))
             for px, py, _label, _idx in self._axis_positions(axis, horizontal):
@@ -921,7 +1036,7 @@ class GridCoord(Coord):
         color = self.x_axis.labelColor()
         try:
             rotate = float(self.x_axis.axisLabelOption().get("rotate", 0) or 0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             rotate = 0.0
         for px, py, label, idx in self._axis_positions(self.x_axis, False):
             if not self.x_axis.labelShownAt(idx, label):
@@ -1053,28 +1168,41 @@ class GridCoord(Coord):
 
 
 def _datum_y(item):
-    """取数据项的 y 值：number / [x, y] / {"value": ...}。"""
+    """取数据项的 y 值：number / [x, y] / {"value": ...}；**非有限值返回 None**。
+
+    所有数据取 y 的入口，所以 NaN / inf 在这里滤最彻底（后果见 AGENTS.md
+    「charts」的极值一条）。
+    """
     if item is None:
         return None
     v = item.get("value") if isinstance(item, dict) else item
     if isinstance(v, (list, tuple)):
         if len(v) >= 2 and isinstance(v[1], (int, float)):
-            return float(v[1])
+            return _finite_or_none(v[1])
         if len(v) == 1 and isinstance(v[0], (int, float)):
-            return float(v[0])
+            return _finite_or_none(v[0])
         return None
     if isinstance(v, (int, float)) and not isinstance(v, bool):
-        return float(v)
+        return _finite_or_none(v)
     return None
 
 
+def _finite_or_none(v):
+    """float(v)，非有限则 None。"""
+    try:
+        f = float(v)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return f if math.isfinite(f) else None
+
+
 def _datum_x(item):
-    """取数据项的 x 值（无则 None，调用方用下标代替）。"""
+    """取数据项的 x 值（无则 None，调用方用下标代替）；非有限值返回 None。"""
     if item is None:
         return None
     v = item.get("value") if isinstance(item, dict) else item
     if isinstance(v, (list, tuple)) and v:
-        return v[0]
+        return _finite_or_none(v[0])
     return None
 
 
@@ -1474,9 +1602,25 @@ class CalendarCoord(Coord):
             return 6  # 0 = 周日（默认）
         try:
             first = int(value) % 7
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return 6
         return (first - 1) % 7
+
+    @classmethod
+    def _clamp_year(cls, year):
+        """年份夹到 ``date`` 支持的区间（1..9999），越界回退当前年。
+
+        ``{"calendar": {"range": 10000}}`` 原先让 ``date(10000, 1, 1)`` 抛
+        ``ValueError``，而 ``_make_coord`` 的兜底只是 ``coord = None`` →
+        **整张日历热力图静默空白**，看不出是年份越界。
+        """
+        try:
+            y = int(year)
+        except (TypeError, ValueError, OverflowError):
+            return date.today().year
+        if y < 1 or y > _MAX_DATE_YEAR:
+            return date.today().year
+        return y
 
     @classmethod
     def _resolve_range(cls, rng):
@@ -1490,12 +1634,12 @@ class CalendarCoord(Coord):
         if rng is None:
             return date(year, 1, 1), date(year, 12, 31)
         if isinstance(rng, (int, float)) and not isinstance(rng, bool):
-            year = int(rng)
+            year = cls._clamp_year(rng)
             return date(year, 1, 1), date(year, 12, 31)
         if isinstance(rng, str):
             text = rng.strip()
             if len(text) == 4 and text.isdigit():
-                year = int(text)
+                year = cls._clamp_year(text)
                 return date(year, 1, 1), date(year, 12, 31)
             parsed = cls._parse_date(text)
             if parsed is not None:
@@ -1508,7 +1652,7 @@ class CalendarCoord(Coord):
             start = cls._parse_date(items[0])
             end = cls._parse_date(items[1]) if len(items) > 1 else None
             if start is None and isinstance(items[0], (int, float)):
-                year = int(items[0])
+                year = cls._clamp_year(items[0])
                 return date(year, 1, 1), date(year, 12, 31)
             if start is None:
                 start = date(year, 1, 1)
@@ -1528,13 +1672,13 @@ class CalendarCoord(Coord):
         if isinstance(v, (list, tuple)) and len(v) >= 3:
             try:
                 return date(int(v[0]), int(v[1]), int(v[2]))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 return None
         if isinstance(v, str):
             try:
                 parts = v.strip().split("-")
                 return date(int(parts[0]), int(parts[1]), int(parts[2]))
-            except (TypeError, ValueError, IndexError):
+            except (TypeError, ValueError, OverflowError, IndexError):
                 return None
         return None
 
@@ -1554,6 +1698,11 @@ class CalendarCoord(Coord):
         d = date(self.start.year, self.start.month, 1)
         while d <= self.end:
             out.append(d)
+            # ``date`` 的 year 上限是 9999：range 落在 9999 年时
+            # ``date(d.year + 1, 1, 1)`` 抛 ValueError，而这里跑在
+            # ``paintAxes`` 的调用链上 → 整张日历热力图静默空白。
+            if d.year >= _MAX_DATE_YEAR:
+                break
             if d.month == 12:
                 d = date(d.year + 1, 1, 1)
             else:
@@ -1633,6 +1782,10 @@ class CalendarCoord(Coord):
         d = self.start
         while d <= self.end:
             yield d
+            # ``date`` 上限是 9999-12-31，再加一天抛 OverflowError —— 跑在
+            # heatmap 的 layout 里 → 整张日历热力图静默空白。
+            if d.year >= _MAX_DATE_YEAR:
+                break
             d += timedelta(days=1)
 
     def _weekday_label_rows(self) -> dict:
@@ -1757,7 +1910,11 @@ class CalendarCoord(Coord):
             weekday, week_index = col, row
         else:
             week_index, weekday = col, row
-        d = self._first_column_start() + timedelta(days=week_index * 7 + weekday)
+        try:
+            d = self._first_column_start() + timedelta(days=week_index * 7 + weekday)
+        except OverflowError:
+            # range 落在 9999 年末尾时，最后几列会越出 ``date`` 上限
+            return None
         if d < self.start or d > self.end:
             return None
         return d

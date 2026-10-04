@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import QWidget, QSizePolicy
 
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
-from ._internal import disconnect_theme_signal
+from ._internal import connect_theme_signal, disconnect_theme
 
 # ── Optional pyqtgraph import ──────────────────────────
 
@@ -65,9 +65,7 @@ if pg is not None:
             )
 
             self._theme_mode = eTheme.getThemeMode()
-            self._theme_connected = True
-            eTheme.themeModeChanged.connect(self._onThemeChanged)
-            self.destroyed.connect(self._theme_cleanup)
+            connect_theme_signal(self)
             self._apply_theme()
 
         # ── Public API ────────────────────────────────────
@@ -90,11 +88,6 @@ if pg is not None:
 
         # ── Internal ──────────────────────────────────────
 
-        def _theme_cleanup(self) -> None:
-            if self._theme_connected:
-                disconnect_theme_signal(self._onThemeChanged)
-                self._theme_connected = False
-
         def _apply_theme(self) -> None:
             is_dark = self._theme_mode == ElaThemeType.ThemeMode.Dark
             theme = _DARK_THEME if is_dark else _LIGHT_THEME
@@ -105,9 +98,7 @@ if pg is not None:
             self._apply_theme()
 
         def deleteLater(self) -> None:
-            if self._theme_connected:
-                disconnect_theme_signal(self._onThemeChanged)
-                self._theme_connected = False
+            disconnect_theme(self)
             super().deleteLater()
 
 else:

@@ -46,6 +46,7 @@ InstructionX_UIKit（原库无 LICENSE，思路移植并适配 PyQt5）：
 from __future__ import annotations
 
 import base64
+from urllib.parse import unquote_to_bytes
 import hashlib
 import math
 import mimetypes
@@ -55,6 +56,7 @@ from typing import Optional
 
 from PyQt5.QtCore import (
     QBuffer,
+    QByteArray,
     QElapsedTimer,
     QEvent,
     QFileInfo,
@@ -120,7 +122,8 @@ from PyQt5ElaWidgetTools import (
     ElaThemeType,
 )
 
-from ._internal import execElaMenu
+from ._internal import execElaMenu, single_shot_on
+from ._motion import start_idle_loop
 from ._styles import FlatIconButton, setTransparentTextBase
 from .math_lite import (
     MATH_ENVS,
@@ -137,10 +140,53 @@ _INLINE_CODE_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
 
 _FENCE_MARKERS = ("```", "~~~")
 
+
+def _fence_open(line: str) -> tuple[str, str]:
+    """判断一行是否开启围栏代码块。
+
+    :returns: ``(完整围栏串, 语言)``；不是围栏则 ``("", "")``。围栏串是
+        **完整**的连续标记（`` ```` `` / `` ```` ``），不是固定 3 个字符。
+    """
+    stripped = line.lstrip()
+    if not stripped.startswith(_FENCE_MARKERS):
+        return "", ""
+    i = 0
+    while i < len(stripped) and stripped[i] in "`~":
+        i += 1
+    marker = stripped[:i]
+    # 纯标记行（没有语言）时长度就是围栏长度；有语言时取标记部分
+    return marker, stripped[i:].strip().split(" ", 1)[0].lower()
+
+
+def _fence_close(line: str, fence: str) -> bool:
+    """判断一行是否闭合 ``fence`` 开启的围栏。
+
+    两条规则都必要，缺一条就会静默改坏代码内容：
+
+    * **长度必须 ≥ 开围栏且不得更长的同类串** —— CommonMark 里用 4 个反引号
+      包裹 3 个反引号是标准写法，只看前 3 字符会让内层 ``` 提前闭合围栏。
+    * **闭合行除空白外不得有其它字符** —— ```` ```not-a-close ```` 不是闭合标记。
+    """
+    if not fence:
+        return False
+    stripped = line.strip()
+    if not stripped.startswith(fence):
+        return False
+    rest = stripped[len(fence) :]
+    if rest and rest[0] == fence[0]:
+        return False
+    return not rest.strip()
+
+
 #: 围栏代码块占位符（私有区字符，正常文本不会出现）：
 #: 预处理时替换为占位符，Markdown 解析后再用真实代码内容替换
 _CODE_TOKEN_PREFIX = "\ue000elacode"
 _CODE_TOKEN_SUFFIX = "\ue001"
+
+#: 行内代码占位符。**必须用占位符而不是「渲染后按文本 find 反推位置」** ——
+#: 后者在同一串文本更早处以非代码形式出现过时会把标记打到错的地方
+#: （见 _preprocess 里 transform 的注释与 _apply_inline_code_formats）。
+_INLINE_CODE_TOKEN_PREFIX = "\ue000elainline"
 
 #: Mermaid 围栏占位符与图片资源前缀
 _MERMAID_TOKEN_PREFIX = "\ue000elamermaid"
@@ -167,6 +213,13 @@ _CONTROL_ANCHOR_PREFIXES = (
     "#fn-",
     "#fnref-",
 )
+
+#: 允许交给 ``QDesktopServices``（即系统 shell）打开的 scheme 白名单。
+#: 模型输出是不可信输入，而 ``setOpenExternalLinks`` 默认开着 —— 没有白名单
+#: 时 ``javascript:`` / ``file:`` / ``data:`` / ``ms-msdt:`` 都会被原样交给
+#: shell，Windows 上 ``file:`` 指向 exe 会被 ShellExecuteEx 直接启动。
+#: 宿主可用 ``setExternalLinkSchemes`` 收窄或放宽。
+_EXTERNAL_LINK_SCHEMES = frozenset({"http", "https", "mailto"})
 
 #: 推理块标签（默认 `` ... ``，可经 ``setReasoningTag`` 修改/关闭）
 _DEFAULT_REASONING_TAG = "think"
@@ -387,6 +440,9 @@ _STREAM_INTERVAL_MID = 150
 _STREAM_INTERVAL_LONG = 400
 _STREAM_MID_CHARS = 16000
 _STREAM_LONG_CHARS = 64000
+#: 流式打字光标的闪烁周期（ms）。持续动效 —— Reduced/Disabled 下**停闪烁但保留
+#: 光标**（停在不可见相位等于告诉用户「卡住了」），见 ``_stop_stream_caret``。
+STREAM_CARET_BLINK_MS = 500
 
 #: 超长段落流式补充提交：未稳定尾部超过该长度后在句末标点处提交
 _STREAM_SENTENCE_MIN = 4096
@@ -750,6 +806,43 @@ def _default_code_font_family() -> str:
     return fixed_font.family() or _PREFERRED_CODE_FONTS[0]
 
 
+def _decode_data_uri(url: QUrl) -> QByteArray:
+    """``data:`` URL → 原始字节（格式非法 / 体积过大返回空）。
+
+    ``data:`` 是本库自己就会生成的格式（导出 / 复制图片见
+    :meth:`_embed_image_data_uri`），所以必须能读回来。模型输出里的 base64
+    图片动辄几 MB 到几十 MB，而这份内容**未经信任** —— 不设上限就等于让
+    一行 Markdown 分配任意内存。
+    """
+    payload = url.path() or url.toString(QUrl.ComponentFormattingOption.FullyEncoded)
+    if not payload:
+        return QByteArray()
+    try:
+        header, _, encoded = payload.partition(",")
+        if not _:
+            return QByteArray()
+        if header.rstrip().lower().endswith(";base64"):
+            # validate=True：畸形 base64 直接拒绝，不让QImage 去猜
+            data = base64.b64decode(_safe_b64_text(encoded), validate=True)
+        else:
+            data = unquote_to_bytes(encoded)
+    except Exception:
+        return QByteArray()
+    if not data or len(data) > _MAX_DATA_URI_BYTES:
+        return QByteArray()
+    return QByteArray(data)
+
+
+def _safe_b64_text(text: str) -> str:
+    """容忍 base64 里的换行 / 空白（``b64decode(validate=True)`` 不接受）。"""
+    return "".join(text.split())
+
+
+#: ``data:`` 图片的字节上限（base64 解码后）。超过按「取不到」处理。
+#: 取 32 MiB：远高于任何真实内嵌图片，又不至于让一行 Markdown 把内存吃光。
+_MAX_DATA_URI_BYTES = 32 * 1024 * 1024
+
+
 #: 引用回复：源行 → 归一化文本（去 Markdown 标记，用于块级近似匹配）
 _SOURCE_DECOR_RE = re.compile(
     r"^\s*(?:>+\s*|[-+*]\s+|\d+[.)]\s+|\[[ xX]\]\s+|#{1,6}\s+)+"
@@ -760,10 +853,61 @@ _INLINE_SYMBOL_RE = re.compile(
 )
 
 
+def _strip_inline_links(text: str) -> str:
+    """``[文字](目标)`` / ``![alt](src)`` → 只留 ``文字``（去掉链接语法）。
+
+    语义与 ``_INLINE_LINK_RE.sub(lambda m: m.group(1), text)`` 一致，但
+    **必须是手写扫描而不是那条正则**：``\\([^)]*\\)`` 在「有 ``[`` 而没有
+    ``)``」的长行上是 **O(n²)** —— 每个 ``[`` 候选都要让 ``[^)]*`` 扫到
+    行尾再逐字符回溯。而它挂在 ``_normalize_text`` 上，也就是**每一次全量
+    渲染**（引用回复的源行映射每块最多调 80×40 次）：实测 8 万字符的单行
+    要 364ms，输入翻倍耗时变 4 倍，主题切换 / 勾选任务 / 展开折叠全都吃
+    这一刀。
+
+    线性靠两点：``find("](")`` 单调前进不回退；``)`` 的位置用 ``paren``
+    缓存（``op`` 递增时「下一个 ``)``」单调不减，所以缓存不会失效到重复
+    扫描），否则「N 个 ``[a](b`` 末尾只有一个 ``)``」仍然是二次的。
+
+    语义上有一处必须照抄正则的**最左匹配**优先级：``[`` 取「上一个 ``]``
+    之后的第一个 ``[``」，而不是「离``]`` 最近的 ``[``」—— ``[a[b]](c)`` 的
+    label 是 ``a[b]``，取最近的 ``[`` 会把开头的 ``[`` 漏在label 外。
+    """
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    paren = -1  # 缓存：下一个 ')' 的位置，-1 表示待求值
+    while i < n:
+        op = text.find("](", i)
+        if op < 0:
+            out.append(text[i:])
+            break
+        # label 里不得含 ']'（等价原正则的 [^\]]*）：所以 '[' 必须在最后一个
+        # ']' 之后
+        prev_close = text.rfind("]", i, op)
+        lb = text.find("[", prev_close + 1 if prev_close >= 0 else i, op)
+        if lb < 0:
+            out.append(text[i : op + 2])
+            i = op + 2
+            continue
+        if paren != -1 and paren <= op + 1:
+            paren = -1
+        if paren == -1:
+            paren = text.find(")", op + 2)
+        if paren < 0:
+            out.append(text[i:])
+            break
+        start = lb - 1 if lb > i and text[lb - 1] == "!" else lb
+        out.append(text[i:start])
+        out.append(text[lb + 1 : op])
+        i = paren + 1
+        paren = -1
+    return "".join(out)
+
+
 def _normalize_text(text: str) -> str:
     """块/行文本归一化：去装饰符、链接语法与全部空白（含任务标记）。"""
     text = text.replace("☑", "").replace("☐", "")
-    text = _INLINE_LINK_RE.sub(lambda m: m.group(1), text)
+    text = _strip_inline_links(text)
     text = _SOURCE_DECOR_RE.sub("", text)
     text = _INLINE_SYMBOL_RE.sub("", text)
     return "".join(text.split())
@@ -860,10 +1004,10 @@ def _stable_cut(text: str, committed: int = 0, allow_sentence: bool = False) -> 
     i = 0
     while i < n:
         stripped = lines[i].strip()
-        if stripped.startswith(("```", "~~~")):
-            mark = stripped[:3]
+        opened, _lang = _fence_open(lines[i])
+        if opened:
             i += 1
-            while i < n and not lines[i].strip().startswith(mark):
+            while i < n and not _fence_close(lines[i], opened):
                 i += 1
             i += 1
             continue
@@ -1212,7 +1356,6 @@ class ElaMarkdownViewer(ElaThemeWidget):
         # 流式末尾打字光标
         self._caret_visible = False
         self._caret_timer = QTimer(self)
-        self._caret_timer.setInterval(500)
         self._caret_timer.timeout.connect(self._toggle_stream_caret)
 
         # 大文档分块渲染状态
@@ -1231,6 +1374,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
         # 代码/思考折叠（#elafold- / #elacode-expand-）与内部锚点跳转全部失效。
         # 外部链接改由 _on_anchor_clicked 自行打开（见 _open_external_links）。
         self._open_external_links = True
+        # 只有白名单里的 scheme 才会真的交给系统 shell（见 _EXTERNAL_LINK_SCHEMES）
+        self._external_link_schemes = _EXTERNAL_LINK_SCHEMES
         self._text_browser.setOpenExternalLinks(False)
         self._text_browser.setWordWrapMode(
             QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere
@@ -1312,6 +1457,11 @@ class ElaMarkdownViewer(ElaThemeWidget):
         内部锚点（``#elatask-`` / ``#elafold-`` / ``#elacode-expand-`` / ``#sec``）
         始终由组件自己处理；本开关只影响**带 scheme 的外部链接**是否交给系统浏览器。
 
+        即使开关为 ``True``，**只有 :data:`_EXTERNAL_LINK_SCHEMES` 白名单里的
+        scheme 会被打开**，其余（``javascript:`` / ``file:`` / ``data:`` /
+        ``ms-msdt:`` 等）一律只发 ``linkActivated`` 而不交给系统 shell。
+        白名单可用 :meth:`setExternalLinkSchemes` 调整。
+
         :param on: ``True`` 时外部链接用系统浏览器打开
         """
         self._open_external_links = bool(on)
@@ -1319,6 +1469,19 @@ class ElaMarkdownViewer(ElaThemeWidget):
     def openExternalLinks(self) -> bool:
         """外部链接是否使用系统浏览器打开。"""
         return self._open_external_links
+
+    def setExternalLinkSchemes(self, schemes) -> None:
+        """设置允许交给系统打开的 scheme 白名单（默认 http / https / mailto）。
+
+        :param schemes: scheme 字符串的可迭代对象；元素大小写不敏感。
+        """
+        self._external_link_schemes = frozenset(
+            str(s).strip().lower() for s in schemes if str(s).strip()
+        )
+
+    def externalLinkSchemes(self) -> frozenset:
+        """当前允许交给系统打开的 scheme 白名单。"""
+        return self._external_link_schemes
 
     def scrollToAnchor(self, name: str) -> None:
         """滚动到指定锚点。
@@ -1366,7 +1529,20 @@ class ElaMarkdownViewer(ElaThemeWidget):
             return
         # 带 scheme / 绝对地址：外部链接。Qt 侧的 openExternalLinks 恒为 False
         # （否则 anchorClicked 不会发出），所以这里自己交给系统浏览器。
-        if self._open_external_links:
+        #
+        # **必须过scheme 白名单。** 模型输出属于不可信输入，而
+        # ``setOpenExternalLinks`` 默认是**开**的：没有白名单时
+        # ``[click](javascript:...)`` / ``<a href="file:///C:/.../calc.exe">``
+        # 都会原样交给 ``QDesktopServices`` → 系统 shell（Windows 上 file:
+        # 指向 exe 会被 ShellExecuteEx 直接启动）。这不是 XSS —— Qt 富文本
+        # 没有 JS 引擎，``<script>`` / ``onerror=`` 全部被忽略；问题只在
+        # 「任意 scheme 交给 shell」。被拒的链接**仍然照常发
+        # ``linkActivated``**，宿主想自己处理（弹确认框、复制到剪贴板）
+        # 都还来得及。
+        if (
+            self._open_external_links
+            and url.scheme().lower() in self._external_link_schemes
+        ):
             QDesktopServices.openUrl(url)
         self.linkActivated.emit(target)
 
@@ -1617,9 +1793,14 @@ class ElaMarkdownViewer(ElaThemeWidget):
             resource = self.document().resource(
                 QTextDocument.ResourceType.ImageResource, url
             )
+            if not isinstance(resource, QImage):
+                # ``data:`` 资源是 QByteArray（见 _load_image_resource 的说明），
+                # 这里只处理 elamath / elamermaid，但仍不能假设类型
+                converter = getattr(resource, "toImage", None)
+                resource = converter() if callable(converter) else None
             if resource is None:
                 return ""
-            image = resource if isinstance(resource, QImage) else resource.toImage()
+            image = resource
             if image.isNull():
                 return ""
             buffer = QBuffer()
@@ -1844,7 +2025,12 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._rebuild_code_buttons([])
         self._text_browser.document().clear()
         self._caret_visible = True
-        self._caret_timer.start()
+        # 持续动效：Reduced/Disabled 下不闪，但**光标必须留在可见态** ——
+        # 闪烁的静态基态是「亮着」，停在 phase 0 等于把光标删掉，用户会以为
+        # 流式卡住了。on_stop 负责摆静态基态（启动时和运行期切策略都会调）。
+        start_idle_loop(
+            self._caret_timer, STREAM_CARET_BLINK_MS, on_stop=self._stop_stream_caret
+        )
 
     def appendMarkdown(self, chunk: str) -> None:
         """流式追加 Markdown 片段（AI 逐 token 输出场景）。
@@ -1914,6 +2100,21 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 self.update()
         self._stream_active = False
 
+    def _stop_stream_caret(self) -> None:
+        """停掉闪烁但**把光标留在可见态**。
+
+        闪烁的静态基态是「亮着」。直接 ``_caret_timer.stop()`` 的话光标会停在
+        当拍的相位 —— 有 50% 概率停在「不可见」，流式输出看起来就像卡住没在动。
+        「停掉」不等于「不画」：必须显式摆好静态态。
+        """
+        if sip.isdeleted(self._caret_timer):
+            return
+        self._caret_timer.stop()
+        if not self._caret_visible:
+            self._caret_visible = True
+            if not sip.isdeleted(self):
+                self.update()
+
     def _toggle_stream_caret(self) -> None:
         """流式末尾打字光标闪烁。"""
         if sip.isdeleted(self):
@@ -1952,6 +2153,13 @@ class ElaMarkdownViewer(ElaThemeWidget):
         # 同 beginStream：清空文档前先让旧代码表引用失效（分块渲染期间
         # 事件循环仍会重绘，访问已删除表格会 PyQt abort）
         self._rebuild_code_buttons([])
+        # **同 beginStream：必须清空源行映射**。``_build_block_source_map`` 只挂在
+        # ``_render()`` 上，而超过 ``_LARGE_RENDER_CHARS`` 的文档走的是本函数 ->
+        # ``_render_large_step`` -> ``_finish_large_render`` 这条路，三个都不碰它。
+        # 于是上一份文档的行号区间被原样套到新文档上：``markdownSelection()``
+        # （引用回复的源行）会返回**别的段落**的内容。实测「先正常渲染 4 段 ->
+        # 再 setMarkdown(>64KB)」后选第 2 块，返回的是上一份文档那一行的文字。
+        self._block_source_map = {}
         self._text_browser.document().clear()
         self._large_render_timer.start(0)
 
@@ -1992,6 +2200,11 @@ class ElaMarkdownViewer(ElaThemeWidget):
     def _finish_large_render(self) -> None:
         self._large_render_chunks = []
         self._large_render_index = 0
+        # 补建源行映射：分块路径全程不调 _render()，所以这里必须自己建一次，
+        # 否则 >64KB 文档的引用回复一律退回纯文本（块已在屏上、源行却是空的）。
+        # 代价与 _render() 里那次相同（逐块双指针匹配），但只跑一次而不是
+        # 每次主题切换都跑。
+        self._block_source_map = self._build_block_source_map()
         self.renderingProgress.emit(100)
         self._sync_code_buttons()
         self._schedule_layout_refresh()
@@ -2222,7 +2435,10 @@ class ElaMarkdownViewer(ElaThemeWidget):
         else:
             try:
                 values = [float(width) for width in widths]
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
+                # ``float(10 ** 400)`` 抛OverflowError 而**不是** ValueError
+                # —— 本方法docstring 承诺「数量与列数不一致时忽略设置」，
+                # 是一条容错路径，就该把这类输入也容错掉。
                 return
             if not values or any(width <= 0 for width in values):
                 self._table_column_widths = None
@@ -2437,13 +2653,13 @@ class ElaMarkdownViewer(ElaThemeWidget):
         seen: set[str] = set()
         fence: Optional[str] = None
         for index, line in enumerate(lines):
-            stripped = line.strip()
             if fence is not None:
-                if stripped.startswith(fence):
+                if _fence_close(line, fence):
                     fence = None
                 continue
-            if not line.startswith((" ", "\t")) and stripped.startswith(_FENCE_MARKERS):
-                fence = stripped[:3]
+            opened, _lang = _fence_open(line)
+            if opened:
+                fence = opened
                 continue
             match = _FOOTNOTE_DEF_RE.match(line)
             if match and match.group(1) not in seen:
@@ -2500,15 +2716,14 @@ class ElaMarkdownViewer(ElaThemeWidget):
         while i < total:
             stripped = lines[i].strip()
             if fence is not None:
-                if stripped.startswith(fence):
+                if _fence_close(lines[i], fence):
                     fence = None
                 append(lines[i], i)
                 i += 1
                 continue
-            if not lines[i].startswith((" ", "\t")) and stripped.startswith(
-                _FENCE_MARKERS
-            ):
-                fence = stripped[:3]
+            opened, _lang = _fence_open(lines[i])
+            if opened:
+                fence = opened
                 append(lines[i], i)
                 i += 1
                 continue
@@ -2643,13 +2858,23 @@ class ElaMarkdownViewer(ElaThemeWidget):
             )
 
         def transform_line(line: str) -> str:
-            """行内语法转换（行内代码区间原样保留并记录）。"""
+            """行内语法转换（行内代码换成唯一占位符，文本另存）。"""
             pieces: list[str] = []
             last = 0
             for match in _INLINE_CODE_RE.finditer(line):
                 pieces.append(transform(line[last : match.start()]))
-                pieces.append(match.group(0))
+                # **换成唯一占位符而不是把原文留在文档里**。原先渲染后靠
+                # ``document.find(文本)`` 反推位置，只要同一串文本在更早处以
+                # 非代码形式出现过，标记就整体错位：普通文本被染成代码（等宽
+                # +圆角底），而真正的 `code` 一点样式都没有。实测
+                # 「正文先提术语、再用反引号引用」这种 AI 输出最高频的形状
+                # 必中。占位符含私有区字符，与用户文本零碰撞 —— 与
+                # ``_replace_mark_tokens`` / 脚注 / callout 同一套路子。
                 inline_codes.append(match.group(2))
+                pieces.append(
+                    f"{_INLINE_CODE_TOKEN_PREFIX}{len(inline_codes) - 1}"
+                    f"{_CODE_TOKEN_SUFFIX}"
+                )
                 last = match.end()
             pieces.append(transform(line[last:]))
             return "".join(pieces)
@@ -2658,7 +2883,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
             raw_index = index_map[line_no]
             stripped = line.strip()
             if fence is not None:
-                if stripped.startswith(fence):
+                if _fence_close(line, fence):
                     emit_closed_fence(
                         fence_lang, "\n".join(buffer), fence_start, raw_index + 1
                     )
@@ -2674,9 +2899,10 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 out.append("")
                 continue
 
-            if not line.startswith((" ", "\t")) and stripped.startswith(_FENCE_MARKERS):
-                fence = stripped[:3]
-                fence_lang = stripped[3:].strip().split(" ", 1)[0].lower()
+            opened, opened_lang = _fence_open(line)
+            if opened:
+                fence = opened
+                fence_lang = opened_lang
                 fence_start = raw_index
                 continue
 
@@ -3298,26 +3524,28 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 block = block.next()
 
     def _apply_inline_code_formats(self, document: QTextDocument) -> None:
-        """定位行内代码文本并套用等宽字体与标记属性（底色由自绘提供）。"""
+        """把行内代码占位符换回真实文本，并套用格式（等宽 + 高亮底 + 内边距）。
+
+        按**占位符**定位而不是按文本 —— 占位符含私有区字符且全文唯一，
+        与用户文本零碰撞，所以「第 N 个行内代码」永远就是「第 N 个占位符」。
+
+        原先是 ``document.find(行内代码文本)`` 顺序反推位置：只要同一串
+        文本在更早处以非代码形式出现过，标记就整体错位一位—— 普通文本被
+        染成代码（等宽 + 圆角底），而真正的 `code` 一点样式都没有。实测
+        「正文先提术语、再用反引号引用」这种 AI 输出最高频的形状必中。
+        """
         if not self._inline_codes:
             return
         fmt = self._code_format()
-        cursor = QTextCursor(document)
-        for code_text in self._inline_codes:
-            search_pos = cursor.position()
-            while True:
-                found = document.find(code_text, search_pos)
-                if found.isNull():
-                    break
-                # 已标记 / 位于围栏代码表格内的匹配无需重复处理
-                if found.charFormat().property(
-                    _INLINE_CODE_MARK
-                ) or self._in_code_table(found):
-                    search_pos = found.selectionEnd()
-                    continue
-                found.mergeCharFormat(fmt)
-                cursor.setPosition(found.selectionEnd())
-                break
+        for index, code_text in enumerate(self._inline_codes):
+            token = f"{_INLINE_CODE_TOKEN_PREFIX}{index}{_CODE_TOKEN_SUFFIX}"
+            found = document.find(token)
+            if found.isNull():
+                continue
+            found.beginEditBlock()
+            found.removeSelectedText()
+            found.insertText(code_text, fmt)
+            found.endEditBlock()
 
     # -- 表格 / 排版 -------------------------------------------------------
 
@@ -4153,6 +4381,51 @@ class ElaMarkdownViewer(ElaThemeWidget):
         QApplication.clipboard().setText(code)
         self.mermaidCopied.emit(code)
 
+    def _load_image_resource(
+        self, target_doc: QTextDocument, source: QUrl
+    ) -> Optional[QImage]:
+        """取资源里的图片；取不到 / 类型不对一律返回 ``None``（走占位符）。
+
+        **返回类型必须是真``QImage``，不能把 ``loadResource`` 的原样返回交给
+        调用方。** Qt 对 ``data:`` URL 返回**解码后的 ``QByteArray``** 而不是
+        ``QImage``，而 ``QByteArray`` 恰好也有 ``isNull()`` —— 于是原先
+        ``if image is None or image.isNull()`` 这道守卫放它过去，紧接着的
+        ``image.width()`` 抛 ``AttributeError``。那条路有两条都致命：
+        ``setMarkdown`` 直接调用时是宿主可见异常 + 文档半成品；流式路径下
+        ``_stream_flush`` 的兜底 ``_render()`` 会**再抛一次并穿出 ``QTimer``
+        槽** = ``0xC0000409`` 零 traceback 终止（实测退出码 -1073740791）。
+
+        ``data:`` 不是边缘格式：:meth:`_image_data_uri` 导出/复制图片时
+        **本库自己**就生成 ``data:image/png;base64,...``，所以往返必须成立，
+        不能只当失败处理 —— 走 ``QImage.fromData`` 真正解码。
+        """
+        if source.scheme() == "data":
+            image = QImage.fromData(_decode_data_uri(source))
+            if not image.isNull():
+                target_doc.addResource(
+                    QTextDocument.ResourceType.ImageResource, source, image
+                )
+            return None if image.isNull() else image
+
+        image = target_doc.resource(QTextDocument.ResourceType.ImageResource, source)
+        if image is not None and not isinstance(image, QImage):
+            converter = getattr(image, "toImage", None)
+            if callable(converter):
+                image = converter()
+        if not isinstance(image, QImage):
+            # QVariant / QByteArray / 任何非图片类型：视作取不到
+            image = None
+        if image is not None and not image.isNull():
+            return image
+        if source.isLocalFile():
+            loaded = QImage(source.toLocalFile())
+            if not loaded.isNull():
+                target_doc.addResource(
+                    QTextDocument.ResourceType.ImageResource, source, loaded
+                )
+                return loaded
+        return None
+
     def _image_local_path_at_cursor(self) -> str:
         """光标处本地图片的磁盘路径（远程 / 生成图片返回空串）。"""
         image_format = self._image_format_at_cursor()
@@ -4424,21 +4697,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 )
             return
 
-        image = target_doc.resource(QTextDocument.ResourceType.ImageResource, source)
-        if (
-            image is not None
-            and not isinstance(image, QImage)
-            and hasattr(image, "toImage")
-        ):
-            image = image.toImage()
-        if (image is None or image.isNull()) and source.isLocalFile():
-            loaded = QImage(source.toLocalFile())
-            if not loaded.isNull():
-                image = loaded
-                target_doc.addResource(
-                    QTextDocument.ResourceType.ImageResource, source, image
-                )
-        if image is None or image.isNull():
+        image = self._load_image_resource(target_doc, source)
+        if image is None:
             self._replace_image_with_placeholder(
                 document, fragment, placeholder_fmt, source.toString()
             )
@@ -4529,7 +4789,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 self._on_viewport_leave()
         elif obj in self._code_buttons:
             if event.type() == QEvent.Type.Leave:
-                QTimer.singleShot(0, self._hover_from_cursor)
+                single_shot_on(self, 0, self._hover_from_cursor)
         return super().eventFilter(obj, event)
 
     def _on_viewport_leave(self, global_pos=None) -> None:
@@ -5018,7 +5278,9 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._copy_text(self._code_table_text(table))
         button = self._code_buttons[index]
         button.setIcon(self._code_check_icon())
-        QTimer.singleShot(1000, lambda: self._restore_code_button_icon(button))
+        single_shot_on(
+            self, 1000, lambda: self._restore_code_button_icon(button)
+        )
 
     def _restore_code_button_icon(self, button: QToolButton) -> None:
         try:

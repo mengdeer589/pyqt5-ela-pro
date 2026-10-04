@@ -36,25 +36,52 @@ except ImportError:  # 可选依赖：未安装时降级
     _ALGORITHMS = {}
     _AVAILABLE = False
 
-__all__ = ["available", "is_sorted", "downsample_indices", "ALGORITHMS", "np"]
+__all__ = [
+    "available",
+    "is_sorted",
+    "downsample_indices",
+    "min_out_for",
+    "ALGORITHMS",
+    "np",
+]
 
 ALGORITHMS = _ALGORITHMS
+
+#: 各算法对 ``n_out`` 的下界与整除要求（越界即 Rust panic，实测）。
+#: ``minmax`` 要求 n_out >= 4 且为偶数；``m4`` 要求 n_out >= 8 且是 4 的倍数；
+#: ``lttb`` / ``minmaxLTTB`` 要求 n_out >= 3。``n_out == 2`` 会让前三个全部 panic。
+_ALGORITHM_LIMITS = {
+    "minmax": (4, 2),
+    "m4": (8, 4),
+    "lttb": (3, 1),
+    "minmaxLTTB": (3, 1),
+}
+
+
+def min_out_for(algorithm: str) -> int:
+    """该算法可用的最小 ``n_out``（调用方据此兜底，避免踩 panic）。"""
+    return _ALGORITHM_LIMITS.get(str(algorithm), (3, 1))[0]
 
 
 def available() -> bool:
     """tsdownsample 与 numpy 是否可用。"""
-    return _AVAILABLE
+    return _ALGORITHMS and _AVAILABLE and np is not None
 
 
 def is_sorted(x) -> bool:
-    """x（np 数组）是否单调不减（NaN 视为非法，返回 False）。"""
-    if not _AVAILABLE:
+    """x 是否单调**严格**递增（NaN / inf / 重复值均视为非法，返回 False）。
+
+    必须是**严格**递增而不是「不减」：tsdownsample 内部对 x 做 searchsorted，
+    遇到重复值会算出越界下标并直接 Rust panic（``index out of bounds``）。
+    """
+    if not _AVAILABLE or np is None or x is None:
         return False
+    x = np.asarray(x)
     if x.size < 2:
         return True
     if not np.all(np.isfinite(x)):
         return False
-    return bool(np.all(np.diff(x) >= 0))
+    return bool(np.all(np.diff(x) > 0))
 
 
 def downsample_indices(
@@ -62,21 +89,43 @@ def downsample_indices(
 ):
     """按算法对 (x, y) 降采样，返回采样点下标 ndarray；失败返回 None。
 
-    要求 x 单调不减（非单调由调用方先 ``is_sorted`` 判定，此处不兜底）；
-    n_out 小于数据量时直接返回全量下标（np.arange）。
+    三道闸门，任一不满足就返回 None 走全量路径（**返回 None 而不是抛**——
+    这条路走的是 Qt 回调链，抛出去就是 0xC0000409 静默终止）：
+
+    1. x 严格递增（``is_sorted``）—— 重复值 / 非单调会让 Rust 侧 searchsorted
+       越界 panic；
+    2. ``n_out`` 满足该算法的下界与整除要求；
+    3. 真正的调用再包一层 ``except BaseException``。
+
+    第 3 条的 ``BaseException`` 不是笔误：tsdownsample 的 panic 以
+    ``pyo3_runtime.PanicException`` 抛出，它**继承 BaseException 而不是
+    Exception**，``except Exception`` 接不住（实测 mro 为
+    ``[PanicException, BaseException, object]``）。
     """
-    if not _AVAILABLE or x is None or y is None:
+    if not _AVAILABLE or np is None or x is None or y is None:
         return None
-    n = len(x)
-    if n == 0:
+    x = np.asarray(x)
+    y = np.asarray(y)
+    n = x.size
+    if n == 0 or y.size != n:
         return None
-    n_out = max(2, int(n_out))
-    if n_out >= n:
-        return np.arange(n, dtype=np.uint64)
+    if not is_sorted(x):
+        return None
+
     cls = _ALGORITHMS.get(str(algorithm))
     if cls is None:
         return None
+    low, step = _ALGORITHM_LIMITS.get(str(algorithm), (3, 1))
+    try:
+        n_out = int(n_out)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    n_out = max(low, n_out)
+    if step > 1 and n_out % step:
+        n_out += step - (n_out % step)  # 向上取整到 step 的倍数
+    if n_out >= n:
+        return np.arange(n, dtype=np.uint64)
     try:
         return cls().downsample(x, y, n_out=n_out, parallel=parallel)
-    except Exception:
+    except BaseException:  # noqa: BLE001 - 含 Rust PanicException，见上文
         return None

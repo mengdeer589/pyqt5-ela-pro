@@ -1,29 +1,23 @@
 """
 聊天消息列表视图（``pyqt5_ela_pro.chat``）。
 
-:class:`ElaChatView` 把 :class:`~pyqt5_ela_pro.chat.bubble.ElaChatBubble`
-按顺序排布在外层滚动区中，提供：
+:class:`ElaChatView` 把 :class:`~pyqt5_ela_pro.chat.bubble.ElaChatBubble` 按顺序排布
+在外层滚动区中，提供：
 
-- 消息增删改与只读快照 ``messages()``（助手消息含步骤化
-  ``parts`` 时间线，派生 ``text`` / ``reasoning`` / ``tool_calls`` /
-  ``stats``）；
-- 多步骤流式 API：``beginStep`` / ``beginText`` / ``appendText`` /
-  ``endText``、思考（``beginReasoning`` / ``appendReasoning`` /
-  ``endReasoning``）、工具调用（``addToolCall`` / ``setToolCallResult``，
-  每步独立工具面板）、步骤用量（``setStepStats``）与错误
-  （``setMessageError``）；
-- 消息动作透传：``copyRequested`` / ``undoRequested`` /
-  ``regenerateRequested`` / ``attachmentClicked``（均带消息 id）；
+- 消息增删改与只读快照 ``messages()``（助手消息含步骤化 ``parts`` 时间线，派生
+  ``text`` / ``reasoning`` / ``tool_calls`` / ``stats``）；
+- 多步骤流式 API：``beginStep`` / ``beginText`` / ``appendText`` / ``endText``、
+  思考（``beginReasoning`` / ``appendReasoning`` / ``endReasoning``）、工具调用
+  （``addToolCall`` / ``setToolCallResult``，每步独立工具面板）、步骤用量
+  （``setStepStats``）与错误（``setMessageError``）；
+- 消息动作透传：``copyRequested`` / ``undoRequested`` / ``regenerateRequested`` /
+  ``attachmentClicked``（均带消息 id）；
 - 贴底自动跟随：用户上滚后暂停跟随并显示「回到底部」浮动按钮；
-- 大消息量：交互 resize 延迟重排（``setResizeReflowDeferred``）、批量
-  渐进渲染（``beginBatch`` / ``endBatch``）与视口外查看器挂起
-  （``setViewportSuspension``）；
-- 空态：标题 / 副标题 / 建议按钮列表（点击发出 ``suggestionClicked``）。
+- 大消息量：交互 resize 延迟重排（``setResizeReflowDeferred``）、批量渐进渲染
+  （``beginBatch`` / ``endBatch``）与视口外查看器挂起（``setViewportSuspension``）；
+- 空态：标题 / 副标题 / 建议按钮列表。
 
-**参数约定**：本层所有面向消息的方法以 ``messageId`` 作为**首位**参数；
-组件层（``ElaChatWidget``）对应方法把 ``messageId`` 放在**末尾可选**。
-
-命名规范与库内一致（``camelCase``）。
+**参数约定**：本层所有面向消息的方法以 ``messageId`` 作为**首位**参数。
 """
 
 from __future__ import annotations
@@ -35,7 +29,7 @@ from datetime import datetime
 from typing import Optional
 
 from PyQt5.QtCore import QElapsedTimer, QEvent, QObject, QRectF, QTimer, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QPainter, QPalette, QPen
+from PyQt5.QtGui import QFont, QPainter, QPalette, QPen
 from PyQt5.QtWidgets import (
     QAbstractScrollArea,
     QFrame,
@@ -54,6 +48,7 @@ from PyQt5ElaWidgetTools import (
 )
 
 from .._styles import setTextColor
+from .._theme import StatusRole, statusColor
 from ..ela_button import ElaButton
 from ..tooltips import ElaToolTipPosition, set_tooltip
 from ..widget_base import ElaThemeWidget
@@ -79,6 +74,8 @@ from .message import (
     ElaChatRole,
     ElaChatStats,
     ElaChatStatus,
+    _as_float,
+    _as_int,
 )
 from .session import SESSION_SCHEMA_VERSION, ElaChatSessionInfo
 
@@ -113,9 +110,6 @@ _USAGE_RING_SIZE = 22
 #: 上下文占用进入警示 / 危险配色的百分比阈值
 _USAGE_WARN_PERCENT = 60
 _USAGE_DANGER_PERCENT = 85
-#: 警示 / 危险配色（危险用固定红，与 status.py 的 _ERROR_COLOR 同源）
-_USAGE_WARN_COLOR = "#f59e0b"
-_USAGE_DANGER_COLOR = "#e81123"
 #: 圆环距右上角边距
 _USAGE_RING_MARGIN = 12
 
@@ -124,7 +118,7 @@ def _shortTokens(value) -> str:
     """词元数缩写（``187431`` -> ``187.4k``，对齐 opencode 的 compact 记法）。"""
     try:
         number = float(value or 0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return "0"
     if number < 0:
         number = 0.0
@@ -332,7 +326,7 @@ class _ContextUsageRing(ElaThemeWidget):
             self._used = max(0, int(used or 0))
             self._window = max(0, int(window or 0))
             self._cost_usd = float(costUsd or 0.0)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             self._used = self._window = 0
             self._cost_usd = 0.0
         self._sync()
@@ -387,9 +381,9 @@ class _ContextUsageRing(ElaThemeWidget):
         base = accent_color(mode)
         level = self.level()
         if level == 2:
-            return QColor(_USAGE_DANGER_COLOR)
+            return statusColor(mode, StatusRole.Error)
         if level == 1:
-            return blend(base, QColor(_USAGE_WARN_COLOR), 0.75)
+            return blend(base, statusColor(mode, StatusRole.Warning), 0.75)
         # 低占用刻意弱化：它是「状态」不是「主角」，不该在每轮回答旁边抢注意力
         return blend(muted_color(mode, 0.5), base, 0.35)
 
@@ -622,16 +616,12 @@ class ElaChatView(ElaThemeWidget):
     def setStrictIds(self, on: bool) -> None:
         """严格模式：操作**不存在的消息**时抛 :class:`KeyError` 而非静默忽略。
 
-        默认关闭 —— 流式场景下「迟到事件」是**正常**的（消息已被撤回 / 被
-        替换，后端还在发分片），静默忽略才是对的。但这也让**宿主传错 id**
-        完全隐形：``setToolCallResult(999, ...)`` 不报错、不告警，于是「工具
-        结果丢了」这种 bug 要到很久以后才被发现。
+        默认关闭 —— 流式场景下「迟到事件」是正常的（消息已被撤回 / 替换，后端还在发
+        分片）。但这让**宿主传错 id** 完全隐形：``setToolCallResult(999, ...)`` 不报错
+        不告警，「工具结果丢了」要到很久以后才被发现。
 
-        打开后，公开 mutator 遇到未知 id 立刻抛 ``KeyError``，让调用方的 bug
-        现行暴露。**只影响公开 mutator**，内部路径（滚动跟随 / 视口挂起 /
-        分段同步）在消息消失时必须继续静默，所以不走这个守卫。
-
-        建议在开发 / 调试期打开。
+        **只影响公开 mutator**；内部路径（滚动跟随 / 视口挂起 / 分段同步）在消息消失时
+        必须继续静默。建议在开发 / 调试期打开。
         """
         self._strict_ids = bool(on)
 
@@ -642,12 +632,9 @@ class ElaChatView(ElaThemeWidget):
     def _require_bubble(self, messageId: int, api: str = "") -> ElaChatBubble:
         """取气泡；非法 id **抛 TypeError**，严格模式下不存在抛 :class:`KeyError`。
 
-        非严格模式下「id 不存在」等价于 ``self._bubbles.get(messageId)``（可能
-        返回 ``None``，由调用方原有逻辑决定静默返回）。
-
-        类型错（``"1"`` / ``1.0`` / ``True``）**任何模式下都抛**：不存在的
-        整数 id 可能是合法的迟到事件，但**非整数 id 必然是调用方的笔误**，
-        静默吞掉只会让「id 传错」彻底隐形。
+        非严格模式下「id 不存在」等价于 ``self._bubbles.get(messageId)``。
+        类型错（``"1"`` / ``1.0`` / ``True``）**任何模式下都抛** —— 不存在的整数 id
+        可能是合法的迟到事件，但非整数 id 必然是调用方的笔误。
         """
         if isinstance(messageId, bool) or not isinstance(messageId, int):
             raise TypeError(
@@ -808,6 +795,15 @@ class ElaChatView(ElaThemeWidget):
         if message.created_at:
             self._update_snapshot(
                 messageId, lambda m, at=message.created_at: _with_created_at(m, at)
+            )
+        # 消息级状态也要还原：只信 parts 的派生字段而不还原 status，会把
+        # 「被停止」「出错」的历史消息显示成 Done（错误文案为空时尤其隐蔽）。
+        # 有错误文案时不覆盖 —— ``setMessageError`` 已把状态置为 Error，
+        # 存储里的 ``status`` 可能还是上一轮的 Done。
+        if message.status and not message.error:
+            bubble.setStatus(message.status)
+            self._update_snapshot(
+                messageId, lambda m, value=message.status: m.withStatus(value)
             )
 
     # -- 会话 bundle（导出 / 导入） ----------------------------------------
@@ -1221,6 +1217,12 @@ class ElaChatView(ElaThemeWidget):
 
     def removeMessage(self, messageId: int) -> None:
         """移除指定消息。"""
+        # 删消息前必须先作废未答复审批：交互卡在 dock 上，气泡删了卡还活着，
+        # 用户点一下就会走进已销毁对象（0xC0000409）。widget.removeMessage
+        # 早已这么做，这里补上让 view 层直接调用同样安全。
+        bubble = self._bubbles.get(messageId)
+        if bubble is not None:
+            bubble.cancelPendingPermissions()
         if not self._detach_message(messageId):
             return
         self._messages = [m for m in self._messages if m.id != messageId]
@@ -1241,6 +1243,13 @@ class ElaChatView(ElaThemeWidget):
         if not removed:
             return []
         removed_set = set(removed)
+        # 两趟：先作废全部待答复审批，再摘气泡。取消会同步发 ``permissionSettled``
+        # 触发 dock promote —— 边取消边摘会让 promote 取到「马上要被删」的气泡
+        # 里的交互卡，摘完就成死卡。
+        for mid in removed:
+            bubble = self._bubbles.get(mid)
+            if bubble is not None:
+                bubble.cancelPendingPermissions()
         for mid in removed:
             self._detach_message(mid)
         self._messages = [m for m in self._messages if m.id not in removed_set]
@@ -1253,7 +1262,12 @@ class ElaChatView(ElaThemeWidget):
 
     def clear(self) -> None:
         """清空全部消息（恢复空态）。"""
-        for bubble in self._bubbles.values():
+        # 同 removeMessagesFrom：先作废全部待答复审批（两趟），避免 promote
+        # 拿到马上要被销毁的气泡里的交互卡。
+        bubbles = list(self._bubbles.values())
+        for bubble in bubbles:
+            bubble.cancelPendingPermissions()
+        for bubble in bubbles:
             bubble.setParent(None)
             bubble.deleteLater()
         self._bubbles.clear()
@@ -1418,6 +1432,8 @@ class ElaChatView(ElaThemeWidget):
 
         **库不实现压缩算法**（摘要 / 收缩循环 / 词元估算都在 provider 侧），
         只在时间线上如实表达「这里发生过压缩」并接住摘要。
+
+        ``reason`` 只进 journal 原始事件（诊断用），时间线卡片不展示它。
         """
         bubble = self._require_bubble(messageId, "beginCompaction")
         if bubble is None:
@@ -1598,7 +1614,8 @@ class ElaChatView(ElaThemeWidget):
         对已有消息立即生效（思考段原位重建，内容不丢），新消息沿用。
         """
         self._reasoning_style = (
-            style if style in ElaChatReasoningStyle.All
+            style
+            if style in ElaChatReasoningStyle.All
             else ElaChatReasoningStyle.Collapse
         )
         for bubble in self._bubbles.values():
@@ -1797,14 +1814,11 @@ class ElaChatView(ElaThemeWidget):
     def _sync_parts(self, messageId: int) -> None:
         """标记助手消息的分段快照待同步（读取时统一结算）。
 
-        真正的 ``withParts`` 重算（全量文本拼接）推迟到 ``messages()`` /
-        ``message()`` / ``lastMessage()`` 读取前；宿主不读快照时零开销。
+        真正的 ``withParts`` 重算推迟到 ``messages()`` / ``message()`` /
+        ``lastMessage()`` 读取前；宿主不读快照时零开销（每次写入只有一次 ``set.add``）。
 
-        快照里的 ``text`` / ``reasoning`` 取自分段的 ``part.text``，而
-        ``part.text`` 只含**已落定**内容 —— 所以流式期间读到的是空串，
-        回合结束（``endStream`` / ``setError``）才是完整正文。这是
-        「``part`` 自足可序列化」的直接结果：快照在任意时刻都能直接落库。
-        要实时预览请读 ``bubble(messageId).text()``。
+        快照里的 ``text`` 只含**已落定**内容（``part.text`` 的语义），所以流式期间读到
+        空串、回合结束才是完整正文 —— 要实时预览请读 ``bubble(messageId).text()``。
         """
         bubble = self._bubbles.get(messageId)
         if bubble is None or bubble.role() != ElaChatRole.Assistant:
@@ -1910,9 +1924,9 @@ class ElaChatView(ElaThemeWidget):
         ``session-context-usage.tsx``）。占比 ≥ 85% 时配色转危险色并追加
         一行提示。
         """
-        self._usage_used = max(0, int(used or 0))
-        self._usage_window = max(0, int(window or 0))
-        self._usage_cost = float(costUsd or 0.0)
+        self._usage_used = max(0, _as_int(used))
+        self._usage_window = max(0, _as_int(window))
+        self._usage_cost = _as_float(costUsd)
         self._usage_ring.setUsage(
             self._usage_used, self._usage_window, self._usage_cost
         )
@@ -2005,9 +2019,9 @@ class ElaChatView(ElaThemeWidget):
         self._content.setMaximumWidth(16777215)
         self._content.updateGeometry()
         self._content_layout.activate()
-        # 冻结期间内容宽度可能已与视口脱节：滚动条出现 / 消失会改变视口宽度
-        # （ElaScrollBar 占 10px），而 setWidgetResizable 只在滚动区自身
-        # resize 时才重算子控件宽度 —— 不显式拉回，内容会溢出视口被右侧裁掉。
+        # 冻结期间内容宽度可能已与视口脱节（ElaScrollBar 占 10px，出现/消失会改变视口
+        # 宽度），而 setWidgetResizable 只在滚动区自身 resize 时才重算 —— 不显式拉回，
+        # 内容会溢出视口被右侧裁掉。
         self._sync_content_width()
         if self._stick:
             self._scroll_to_bottom()
@@ -2036,9 +2050,8 @@ class ElaChatView(ElaThemeWidget):
     def _on_range_changed(self, _minimum: int, _maximum: int) -> None:
         """滚动范围变化（Markdown / 工具卡展开等异步重排）时保持贴底。
 
-        - 正在展开 / 收起工具卡：消费本次范围变化（并延长暂停窗口），
-          视口保持不动，避免消息区跳动；
-        - 其余情况（流式输出、异步渲染）：贴底时只对齐一次，不轮询。
+        正在展开 / 收起工具卡时消费本次变化并延长暂停窗口（视口不动，避免跳动）；
+        其余情况（流式输出、异步渲染）贴底时只对齐一次，不轮询。
         """
         if self._follow_hold:
             self._hold_timer.start(_FOLLOW_HOLD_MS)
@@ -2105,6 +2118,8 @@ class ElaChatView(ElaThemeWidget):
         :meth:`stickToBottom` 置 ``False``（复用既有的 ``valueChanged`` 逻辑）。
         """
         self._scroll.setVerticalScrollBarPolicy(policy)
+        # ElaScrollBar 静止占 10px：策略变化会让视口宽度变化，内容要跟着拉回
+        self._sync_content_width()
         self._update_jump_button()
 
     def scrollBarPolicy(self):
@@ -2193,8 +2208,11 @@ class ElaChatView(ElaThemeWidget):
         """设置助手消息内容最大宽度（像素，``0`` 表示不限，默认不限）。
 
         宽窗口下可用它限制行长（如 ``860``）；对已有与后续消息立即生效
-        （用户 / 系统消息不受影响）。注意内容列与底部操作栏 / 用量行
-        不会一起限宽，限宽时布局会偏左。
+        （用户 / 系统消息不受影响）。
+
+        **限的是整列**：``_column`` 容器同时装正文、附件条与底部行，
+        ``_apply_content_max_width()`` 限 ``_column`` 而非只有正文 ——
+        只限正文的话宽窗口下底部行会往右伸出去，右边缘就参差不齐了。
         """
         self._content_max_width = max(0, int(width))
         for bubble in self._bubbles.values():

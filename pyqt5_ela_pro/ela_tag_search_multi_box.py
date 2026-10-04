@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import QTimer
 from PyQt5.QtGui import QPainter, QPaintEvent
 from PyQt5.QtWidgets import QWidget
 
@@ -21,7 +20,7 @@ from .ela_tag_combo_base import (
     _get_target_mark_width,
     _paint_tag_multi,
 )
-from ._internal import _adjust_combobox_popup
+from ._internal import _adjust_combobox_popup, single_shot_on
 
 
 class ElaTagSearchMultiBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaSearchMultiBox):
@@ -48,7 +47,7 @@ class ElaTagSearchMultiBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaSearchMultiBo
         super().__init__(parent)
         self._tag_box_init(title)
         self.setMaxVisibleItems(10)
-        QTimer.singleShot(0, lambda: _pre_init_popup(self))
+        single_shot_on(self, 0, lambda: _pre_init_popup(self))
 
     def showPopup(self) -> None:
         if self.count() == 0:
@@ -72,5 +71,5 @@ class ElaTagSearchMultiBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaSearchMultiBo
         _paint_tag_multi(painter, self)
 
     def deleteLater(self) -> None:
-        self._tag_box_delete_later()
+        self._theme_cleanup()
         super().deleteLater()

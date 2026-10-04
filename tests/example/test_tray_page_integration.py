@@ -17,8 +17,9 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5ElaWidgetTools import ElaIconType, ElaWindow
+from PyQt5ElaWidgetTools import ElaIconType, ElaText, ElaWindow
 
+from pyqt5_ela_pro import ElaButton, ElaTrayIcon
 from pyqt5_ela_pro.example.app_shell_page import AppShellPage
 from pyqt5_ela_pro.example.selection_page import SelectionAssistantPage
 
@@ -111,6 +112,20 @@ class TestSelectionToggle:
         assert sel._assistant is before
 
 
+class TestSelectionParameterLabels:
+    """回归：「启用 / 紧凑模式 / …」四个参数标签曾内联 ``ElaText(...)`` 直接交给
+    ``addWidget`` 而漏定字号 —— ``ElaText`` 默认 28px，截图里比说明文字大一号。"""
+
+    def test_parameter_labels_use_caption_size(self, env):
+        _window, _tray_page, sel = env
+        wanted = {"启用", "紧凑模式", "恢复剪贴板", "最小长度"}
+        found = [w for w in sel.findChildren(ElaText) if w.text() in wanted]
+        assert {w.text() for w in found} == wanted, [w.text() for w in found]
+        assert all(w.getTextPixelSize() <= 14 for w in found), [
+            (w.text(), w.getTextPixelSize()) for w in found
+        ]
+
+
 class TestQuitAction:
     def test_quit_requested_calls_shutdown(self, env, qapp, monkeypatch):
         """回归：点「退出」必须真调 shutdown()，不能只打日志。"""
@@ -130,3 +145,68 @@ class TestQuitAction:
     # 注意：不在这里跑 `qapp.exec_()` 验证真退出 —— 在 pytest 内重入事件循环
     # 会把整个测试进程带崩（实测 access violation，栈全在 pluggy/pytest 内）。
     # 真退出由独立进程脚本验证，本文件只守「点了退出 → shutdown() 被调用」。
+
+
+def _click_button(page, text):
+    for btn in page.findChildren(ElaButton):
+        if btn.text() == text:
+            btn.click()
+            return True
+    return False
+
+
+class TestRawTrayButtons:
+    """第 03 节裸 ``ElaTrayIcon`` 的按钮要有**可见反应**。
+
+    回归：该演示对象从未 ``show()`` —— 点 正常 / 警告 / 错误 时内部状态确实
+    在变（``setState`` 生效），但托盘里没有图标可看，症状就是「点了没反应」。
+    """
+
+    def test_tray_icons_use_bundled_fluent_pack(self, env, qapp):
+        """托盘图标走内置 Fluent 图标包（多尺寸渲染），不是手绘色点。"""
+        _window, tray_page, _sel = env
+        icon = tray_page._tray.icon()
+        assert not icon.isNull()
+        assert len(icon.availableSizes()) >= 2, icon.availableSizes()
+
+    def test_state_buttons_show_tray_and_switch_state(self, env, qapp):
+        _window, tray_page, _sel = env
+        tray = tray_page._tray
+        tray.hide()
+        qapp.processEvents()
+        tray_page._log.setPlainText("")
+        try:
+            assert _click_button(tray_page, "警告") is True
+            qapp.processEvents()
+            assert tray.state() == ElaTrayIcon.TrayState.Warning
+            assert tray.isVisible() is True, "点了状态按钮托盘图标仍未显示"
+            assert "托盘状态 -> 警告" in tray_page._log.toPlainText()
+
+            assert _click_button(tray_page, "错误") is True
+            qapp.processEvents()
+            assert tray.state() == ElaTrayIcon.TrayState.Critical
+            assert tray.isVisible() is True
+        finally:
+            tray.hide()
+            qapp.processEvents()
+
+    def test_toggle_button_toggles_tray_not_window(self, env, qapp):
+        """回归：该按钮曾切换**主窗口**显隐，与文案「显示 / 隐藏托盘」不符。"""
+        window, tray_page, _sel = env
+        tray = tray_page._tray
+        tray.hide()
+        qapp.processEvents()
+        window_visible = window.isVisible()
+        try:
+            assert _click_button(tray_page, "显示 / 隐藏托盘") is True
+            qapp.processEvents()
+            assert tray.isVisible() is True
+            assert window.isVisible() is window_visible
+
+            assert _click_button(tray_page, "显示 / 隐藏托盘") is True
+            qapp.processEvents()
+            assert tray.isVisible() is False
+            assert window.isVisible() is window_visible
+        finally:
+            tray.hide()
+            qapp.processEvents()

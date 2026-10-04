@@ -29,7 +29,6 @@ from typing import Optional, Union
 
 from PyQt5.QtCore import (
     QEvent,
-    QEasingCurve,
     QPropertyAnimation,
     QRect,
     QRectF,
@@ -59,6 +58,7 @@ from PyQt5.QtWidgets import (
 from PyQt5ElaWidgetTools import ElaIcon, ElaIconType, ElaThemeType, eTheme
 
 from ._internal import POPUP_FOOTER_OBJECT_NAME
+from ._motion import Duration, Easing, start_transition
 from .combo_box import ElaSearchBox, _match_item, _split_keyword
 
 _GROUP_HEADER_ROLE = Qt.ItemDataRole.UserRole + 100
@@ -357,9 +357,12 @@ class ElaGhostBox(ElaSearchBox):
         self.setItemDelegate(self._delegate)
         self.setFixedHeight(28)
 
-        self._expand_animation = QPropertyAnimation(self, b"expandIconRotate", self)
-        self._expand_animation.setDuration(200)
-        self._expand_animation.setEasingCurve(QEasingCurve.Type.InOutSine)
+        # 第三参（parent）**不传 self**：让动画成为「自己动的对象」的子对象，等于让
+        # 目标销毁连带销毁仍在运行的动画，针对它的 finished 发射可能还挂在队列里 ——
+        # 槽随后跑在已释放对象上（shake_window 实测 0xC0000005）。守卫见
+        # tests/regression/test_animation_parenting.py。
+        self._expand_animation = QPropertyAnimation(self, b"expandIconRotate")
+        self._expand_animation.setEasingCurve(Easing.type_name(Easing.Standard))
 
         self._container = self.findChild(QWidget, "ElaComboBoxContainer")
         view = self.view()
@@ -696,10 +699,9 @@ class ElaGhostBox(ElaSearchBox):
         return super().eventFilter(obj, event)
 
     def _animate_expand(self, expanded: bool) -> None:
-        self._expand_animation.stop()
         self._expand_animation.setStartValue(self._expand_icon_rotate)
         self._expand_animation.setEndValue(-180.0 if expanded else 0.0)
-        self._expand_animation.start()
+        start_transition(self._expand_animation, Duration.Fast)
 
     def paintEvent(self, _event: QPaintEvent) -> None:  # noqa: N802 (Qt 命名)
         painter = QPainter(self)

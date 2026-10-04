@@ -28,9 +28,11 @@ from PyQt5.QtGui import (
 )
 from PyQt5.QtWidgets import QApplication
 
-from ._tokens import T
+from .._motion import start_idle_loop
+from ._tokens import EFFECT_TICK_MS, T
 from ._utils import ON_FILL_WHITE, clamp as _clamp
 from ._utils import dist_point_segment
+from ._utils import parse_roam as _parse_roam
 from ._utils import to_float as _to_float
 from ._utils import with_alpha
 from .axes import chartFont, formatValue
@@ -60,7 +62,7 @@ def _parse_pct(v, base, default=0.0):
     if isinstance(v, str) and v.strip().endswith("%"):
         try:
             return base * float(v.strip()[:-1]) / 100.0
-        except ValueError:
+        except (TypeError, ValueError, OverflowError):
             return float(default)
     if v is None:
         return float(default)
@@ -136,6 +138,14 @@ class PieSeriesRenderer(SeriesRenderer):
         label_show = bool(label_opt.get("show", True))
         label_pos = str(label_opt.get("position") or "outside")
         center_opt = self.opt.get("center") or ["50%", "50%"]
+        if not isinstance(center_opt, (list, tuple)):
+            # **别让标量按字符下标取值**：``"50%"[0] == "5"`` → 圆心跑到左上角
+            # 5px 处（用户看到的是「饼心不见了」）；而裸数字连 ``len()`` 都
+            # 没有，直接抛 ``TypeError`` 把整张图打没（异常被 ``warn_once``
+            # 吞掉，只剩「饼不见了 + 控制台一行告警」）。
+            # ECharts 规定 ``center`` 是二元组，但单个值按「两轴同值」处理
+            # 比悄悄画错好得多。
+            center_opt = [center_opt, center_opt]
         cx = rect.left() + _parse_pct(
             center_opt[0] if len(center_opt) > 0 else "50%",
             rect.width(),
@@ -166,24 +176,10 @@ class PieSeriesRenderer(SeriesRenderer):
             return
         vmax = max(v for _, v in entries) or 1.0
         rose = str(self.opt.get("roseType") or "")
-        start = self._start_angle()
-        acc = start
-        # minAngle / padAngle（ECharts 键）：扇区最小角度与间隔角度
-        min_angle = max(0.0, _to_float(self.opt.get("minAngle"), 0.0))
-        pad_angle = max(0.0, _to_float(self.opt.get("padAngle"), 0.0))
-        spans = [max(v / self._total * 360.0, min_angle) for _, v in entries]
-        span_total = sum(spans)
-        if span_total > 360.0:
-            spans = [s * 360.0 / span_total for s in spans]
+        scale = 1.0
+        spans = self._sector_spans([v for _, v in entries])
         for i, (name, v) in enumerate(entries):
-            span = spans[i]
-            if pad_angle > 0 and span > pad_angle:
-                a0 = acc + pad_angle / 2.0
-                span_eff = span - pad_angle
-            else:
-                a0 = acc
-                span_eff = span
-            scale = 1.0
+            a0, span_eff = spans[i]
             if rose == "radius":
                 scale = _clamp(v / vmax, 0.05, 1.0)
             elif rose == "area":
@@ -202,7 +198,31 @@ class PieSeriesRenderer(SeriesRenderer):
                     "r1": r_in + (r_out - r_in) * scale,
                 }
             )
+
+    def _sector_spans(self, values):
+        """给定一组数值算出每个扇区的 ``(a0, span_eff)``（含 min/pad 角）。
+
+        ``_animated_sectors``（过渡动画）与 ``layout``（终态）**必须走同一份
+        公式**：原先过渡路径自己重算 ``v / total * 360``，把 ``minAngle``
+        与 ``padAngle`` 整个丢了 —— 于是「动画播完的那一帧」扇区突然贴到
+        一起、小值扇区缩回 0 角，视觉上是「饼图在动画结束时跳了一下」。
+        """
+        min_angle = max(0.0, _to_float(self.opt.get("minAngle"), 0.0))
+        pad_angle = max(0.0, _to_float(self.opt.get("padAngle"), 0.0))
+        total = sum(values) or 1.0
+        spans = [max(v / total * 360.0, min_angle) for v in values]
+        span_total = sum(spans)
+        if span_total > 360.0:
+            spans = [s * 360.0 / span_total for s in spans]
+        out = []
+        acc = self._start_angle()
+        for span in spans:
+            if pad_angle > 0 and span > pad_angle:
+                out.append((acc + pad_angle / 2.0, span - pad_angle))
+            else:
+                out.append((acc, span))
             acc += span
+        return out
 
     # -- 角度换算：a 为自 12 点方向顺时针度数 -------------------------------
     def _start_angle(self) -> float:
@@ -254,24 +274,22 @@ class PieSeriesRenderer(SeriesRenderer):
         values = [
             p[1] + (s["value"] - p[1]) * anim_t for p, s in zip(prev, self._sectors)
         ]
-        total = sum(values) or 1.0
         vmax = max(values) or 1.0
         rose = str(self.opt.get("roseType") or "")
-        start = self._start_angle()
-        acc = start
+        # 角度走 ``_sector_spans``：minAngle / padAngle 在过渡动画里同样生效，
+        # 否则动画结束那一帧扇区会突然贴合（见该方法 docstring）。
+        spans = self._sector_spans(values)
         rebuilt = []
-        for sec, v in zip(self._sectors, values):
-            span = v / total * 360.0
+        for sec, v, (a0, span_eff) in zip(self._sectors, values, spans):
             scale = 1.0
             if rose == "radius":
                 scale = _clamp(v / vmax, 0.05, 1.0)
             elif rose == "area":
                 scale = _clamp(math.sqrt(_clamp(v / vmax, 0.0, 1.0)), 0.05, 1.0)
             s = dict(sec)
-            s["a0"], s["a1"] = acc, acc + span
+            s["a0"], s["a1"] = a0, a0 + span_eff
             s["r1"] = self._r_in + (self._r_out - self._r_in) * scale
             rebuilt.append(s)
-            acc += span
         return rebuilt
 
     def paint(self, p: QPainter, anim_t: float) -> None:
@@ -450,10 +468,27 @@ class PieSeriesRenderer(SeriesRenderer):
         dy = pos.y() - self._center.y()
         r = math.hypot(dx, dy)
         a = math.degrees(math.atan2(dx, -dy)) % 360.0
-        for i, sec in enumerate(self._sectors):
-            a0 = sec["a0"] % 360.0
-            a1 = sec["a1"] % 360.0
-            in_angle = (a0 <= a < a1) if a0 <= a1 else (a >= a0 or a < a1)
+        # 与 ``paint`` 逐项对齐：先按进度插值出当前角度（更新动画），
+        # 再按进度缩放扫掠角宽（入场动画），见 ``_sector_path``。
+        anim_t = self._anim_t
+        sectors = self._animated_sectors(anim_t)
+        for i, sec in enumerate(sectors):
+            a0 = float(sec["a0"]) % 360.0
+            a1 = (
+                float(sec["a0"]) + (float(sec["a1"]) - float(sec["a0"])) * anim_t
+            ) % 360.0
+            # **整圆必须特判**。``a1`` 原先也取 ``% 360``，于是占满 360° 的
+            # 扇区（单个数据点、单扇区饼图）拿到 ``a0 == a1 == 0``，角度判据
+            # 变成 ``0 <= a < 0`` —— **恒不命中**。后果是这类扇区既没有
+            # tooltip 也没有 click / emphasis，用户看到的是「点不动的饼」。
+            span = (float(sec["a1"]) - float(sec["a0"])) * anim_t
+            if span >= 360.0:
+                in_angle = True
+            elif a0 <= a1:
+                in_angle = a0 <= a < a1
+            else:
+                # 跨 0° 边界（如 350° → 10°）
+                in_angle = a >= a0 or a < a1
             if in_angle and sec["r0"] - 1 <= r <= sec["r1"] + 1:
                 pct = sec["value"] / (self._total or 1.0) * 100
                 return {
@@ -462,6 +497,8 @@ class PieSeriesRenderer(SeriesRenderer):
                     "series": self.name,
                     "dataIndex": i,
                     "percent": round(pct, 2),
+                    # 数据项颜色：tooltip 圆点要跟扇区颜色一致，不能拿系列色
+                    "color": sec["color"],
                 }
         return None
 
@@ -473,6 +510,16 @@ class PieSeriesRenderer(SeriesRenderer):
 
 def _dist(a, b):
     return math.hypot(a.x() - b.x(), a.y() - b.y())
+
+
+def _dist_to_polygon_edge(p, pts) -> float:
+    """点到闭合折线（多边形边界）的最近距离（雷达命中判定用）。"""
+    n = len(pts)
+    if n == 0:
+        return float("inf")
+    if n == 1:
+        return _dist(p, pts[0])
+    return min(dist_point_segment(p, pts[i], pts[(i + 1) % n]) for i in range(n))
 
 
 # ---------------------------------------------------------------------------
@@ -649,13 +696,7 @@ class RadarSeriesRenderer(SeriesRenderer):
         )
         show_label = self.labelShown()
         for k, poly in enumerate(self._polys):
-            pts = [
-                QPointF(
-                    self._center.x() + (pt.x() - self._center.x()) * anim_t,
-                    self._center.y() + (pt.y() - self._center.y()) * anim_t,
-                )
-                for pt in poly["points"]
-            ]
+            pts = self._animated_polygon(poly, anim_t)
             qpoly = QPolygonF(pts)
             color = QColor(self.itemColor(k, default=poly["color"]))
             alpha = self.itemOpacity(k)
@@ -692,19 +733,68 @@ class RadarSeriesRenderer(SeriesRenderer):
                     )
         p.restore()
 
+    def _animated_polygon(self, poly, anim_t):
+        """多边形在给定动画进度下的顶点（``paint`` 与 ``hitTest`` 共用）。
+
+        入场动画把多边形从中心「张开」到最终形状，所以命中必须用同一份插值
+        —— 否则动画进行中命中的是还没张开的那块区域。
+        """
+        return [
+            QPointF(
+                self._center.x() + (pt.x() - self._center.x()) * anim_t,
+                self._center.y() + (pt.y() - self._center.y()) * anim_t,
+            )
+            for pt in poly["points"]
+        ]
+
+    def _hit_info(self, index: int, poly: dict) -> dict:
+        """命中信息：带逐维度行与数据项颜色（tooltip 靠它们区分数据源）。"""
+        inds = self._indicators
+        vals = poly["values"]
+        rows = [
+            (
+                inds[j]["name"] if j < len(inds) else f"dim{j + 1}",
+                vals[j] if j < len(vals) else 0.0,
+            )
+            for j in range(len(inds))
+        ]
+        name = poly["name"] or self.name
+        return {
+            "name": name,
+            "value": list(vals),
+            "series": self.name,
+            "dataIndex": index,
+            # 数据项颜色（ECharts colorBy='data'）—— tooltip 圆点 / 事件 params
+            # 都用它；拿系列色的话两条多边形会是同一个颜色，等于没区分。
+            "color": self.itemColor(index, default=poly["color"]),
+            # 标题 = 数据项名（ECharts radar formatTooltip 的 header）
+            "title": name,
+            # 逐维度 (指标名, 值)：Tooltip 渲染成多行，替代原来的 "[...]" 裸列表
+            "rows": rows,
+        }
+
     def hitTest(self, pos: QPointF):
+        anim_t = self._anim_t
+        # 多个多边形重叠时取**边界离光标最近**的那个。ECharts 是 z 序最上层，
+        # 但雷达多边形大量重叠 / 包含，z 序会让后画的那条永远抢走命中 ——
+        # 实测悬停在「预算」的边线上（离它 0.3px、离「实际」18.5px）仍报「实际」，
+        # 用户无法用鼠标区分数据源。倒序遍历 + 严格小于：距离相同仍归最上层。
+        best = None
+        best_dist = float("inf")
         for k in range(len(self._polys) - 1, -1, -1):
             poly = self._polys[k]
             if len(poly["points"]) < 3:
                 continue
-            if QPolygonF(poly["points"]).containsPoint(pos, Qt.FillRule.OddEvenFill):
-                return {
-                    "name": poly["name"] or self.name,
-                    "value": list(poly["values"]),
-                    "series": self.name,
-                    "dataIndex": k,
-                }
-        return None
+            pts = self._animated_polygon(poly, anim_t)
+            if not QPolygonF(pts).containsPoint(pos, Qt.FillRule.OddEvenFill):
+                continue
+            d = _dist_to_polygon_edge(pos, pts)
+            if d < best_dist:
+                best_dist = d
+                best = (k, poly)
+        if best is None:
+            return None
+        return self._hit_info(best[0], best[1])
 
 
 # ---------------------------------------------------------------------------
@@ -1527,9 +1617,15 @@ class SunburstSeriesRenderer(SeriesRenderer):
         a = math.degrees(math.atan2(dx, -dy)) % 360.0
         best = None
         for node in self._nodes:
-            a0 = node.a0 % 360.0
-            a1 = node.a1 % 360.0
-            in_angle = (a0 <= a < a1) if a0 <= a1 else (a >= a0 or a < a1)
+            # 整圆特判见 ``PieSeriesRenderer.hitTest``（根因完全相同）
+            a0 = float(node.a0) % 360.0
+            a1 = float(node.a1) % 360.0
+            if float(node.a1) - float(node.a0) >= 360.0:
+                in_angle = True
+            elif a0 <= a1:
+                in_angle = a0 <= a < a1
+            else:
+                in_angle = a >= a0 or a < a1
             if not in_angle:
                 continue
             r0, r1 = self._ring(node.level)
@@ -2367,24 +2463,21 @@ class GraphSeriesRenderer(SeriesRenderer):
         self._edges = []  # [(i, j)]
         self._drag_index = None
         self._fixed: dict = {}  # 拖拽后的固定位置 {节点下标: QPointF}
+        #: 力导布局记忆化（见 ``_force_positions``）。条目 ``(key, positions)``，
+        #: ``positions`` 是**归一化 [0,1] 坐标**的 list，调用方只读。
+        self._force_cache = None
         self._pan = QPointF()
         self._pan_start = None
         self._plot = QRectF()
         self._roam = self._parse_roam()
         try:
             self._zoom = max(0.2, min(5.0, float(opt.get("zoom") or 1.0)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             self._zoom = 1.0
 
     def _parse_roam(self):
-        """``roam`` → ("scale" 是否可缩放, "move" 是否可平移)。"""
-        roam = self.opt.get("roam", False)
-        if roam in (None, False):
-            return (False, False)
-        if roam is True:
-            return (True, True)
-        text = str(roam).lower()
-        return ("scale" in text or text == "true", "move" in text or text == "true")
+        """``roam`` → ``(scale 可否缩放, move 可否平移)``。共用 ``parse_roam``。"""
+        return _parse_roam(self.opt.get("roam", False))
 
     def _parse(self):
         raw_nodes = self.opt.get("data")
@@ -2481,16 +2574,23 @@ class GraphSeriesRenderer(SeriesRenderer):
                 theta = -math.pi / 2 + i / n * 2 * math.pi
                 positions.append([cx + r * math.cos(theta), cy + r * math.sin(theta)])
         else:
-            positions = self._force_layout(nodes, edges, plot, force_opt)
+            positions = self._force_positions(nodes, edges, force_opt)
         default_size = _to_float(self.opt.get("symbolSize"), 14.0)
         for i, nd in enumerate(nodes):
             size = _to_float(nd["size"], default_size)
             fixed = self._fixed.get(i)
-            pos = (
-                QPointF(fixed)
-                if fixed is not None
-                else QPointF(positions[i][0], positions[i][1])
-            )
+            if fixed is not None:
+                pos = QPointF(fixed)
+            else:
+                # 力导结果在归一化 [0,1] 空间里，缩放到绘图区（circular 分支
+                # 已经是像素坐标，故按模式区分）
+                if mode == "circular":
+                    pos = QPointF(positions[i][0], positions[i][1])
+                else:
+                    pos = QPointF(
+                        plot.left() + positions[i][0] * plot.width(),
+                        plot.top() + positions[i][1] * plot.height(),
+                    )
             category_color = self._category_color(nd["category"], categories)
             self._nodes.append(
                 {
@@ -2541,10 +2641,15 @@ class GraphSeriesRenderer(SeriesRenderer):
             layout_pos = self._inverse(pos)
             self._fixed[self._drag_index] = layout_pos
             self._nodes[self._drag_index]["pos"] = layout_pos
+            # 拖节点改的是**渲染器自己的几何**（``_nodes[i]["pos"]``），
+            # 必须走 invalidateLayout 让布局缓存与系列层位图一起失效 ——
+            # 只 update() 的话两个缓存都留着旧值，拖动看起来完全没反应。
+            self.chart.invalidateLayout()
             self.chart.update()
             return True
         if self._pan_start is not None:
             self._pan = QPointF(pos) - self._pan_start
+            self.chart.invalidateLayout()  # 同上：pan 改的是绘制变换
             self.chart.update()
             return True
         return False
@@ -2568,6 +2673,7 @@ class GraphSeriesRenderer(SeriesRenderer):
             return False
         factor = 1.15 if delta > 0 else 1 / 1.15
         self._zoom = max(0.2, min(5.0, self._zoom * factor))
+        self.chart.invalidateLayout()  # zoom 改的是绘制变换
         self.chart.update()
         return True
 
@@ -2576,6 +2682,7 @@ class GraphSeriesRenderer(SeriesRenderer):
         self._pan = QPointF()
         self._pan_start = None
         self._zoom = 1.0
+        self.chart.invalidateLayout()
         self.chart.update()
 
     def resetPositions(self) -> None:
@@ -2585,14 +2692,50 @@ class GraphSeriesRenderer(SeriesRenderer):
             self.chart.invalidateLayout()
             self.chart.update()
 
-    def _force_layout(self, nodes, edges, plot, force_opt):
-        """Fruchterman-Reingold 简化力导布局（确定性随机种子）。"""
-        n = len(nodes)
+    def _force_positions(self, nodes, edges, force_opt):
+        """力导布局结果（带记忆化）。
+
+        ``_force_layout`` 是**纯函数**：随机种子固定，且全程在归一化 [0,1]
+        空间里迭代（结果随后才按 ``plot`` 缩放），所以它的输出只取决于
+        「节点数 + 边集合 + seed / iterations / repulsion」。
+
+        而 ``layout`` 会被**每一次** ``_layout_all`` 调 —— resize、悬停引起的
+        重排、主题切换、图例显隐……每次都把 O(n² × iterations) 的纯 Python
+        双层循环重跑一遍。实测 400 节点 / 80 轮 ≈ **1.8 秒**，而这些场景
+        根本没改数据。
+
+        记忆化的键覆盖全部输入：节点数、边集合（``edges`` 是 ``(源下标, 目标下标)``
+        元组的 list，**顺序敏感**）、三个参数。
+        ``_fixed``（拖拽固定位置）在 ``_force_layout`` **之后**才应用，不进
+        布局计算，所以拖拽节点不需要让缓存失效。
+        """
         seed = int(_to_float(force_opt.get("seed"), 42))
         iterations = max(10, int(_to_float(force_opt.get("iterations"), 80)))
         repulsion = _clamp(_to_float(force_opt.get("repulsion"), 1.0), 0.1, 10.0)
+        key = (
+            len(nodes),
+            tuple(edges),
+            seed,
+            iterations,
+            repulsion,
+        )
+        hit = self._force_cache
+        if hit is not None and hit[0] == key:
+            return hit[1]
+        positions = self._force_layout(
+            nodes, edges, force_opt, seed, iterations, repulsion
+        )
+        self._force_cache = (key, positions)
+        return positions
+
+    def _force_layout(self, nodes, edges, force_opt, seed, iterations, repulsion):
+        """Fruchterman-Reingold 简化力导布局（确定性随机种子）。
+
+        在归一化 [0,1] 空间内迭代；输出与 ``plot`` 无关（缩放由调用方做），
+        这正是 :meth:`_force_positions` 能记忆化的前提。
+        """
+        n = len(nodes)
         rng = random.Random(seed)
-        w, h = plot.width(), plot.height()
         # 归一化 [0,1] 空间内迭代
         pos = [[rng.random(), rng.random()] for _ in range(n)]
         area = 1.0
@@ -2637,25 +2780,50 @@ class GraphSeriesRenderer(SeriesRenderer):
                 step = min(d, cool)
                 pos[i][0] = _clamp(pos[i][0] + disp[i][0] / d * step, 0.0, 1.0)
                 pos[i][1] = _clamp(pos[i][1] + disp[i][1] / d * step, 0.0, 1.0)
-        return [[plot.left() + px * w, plot.top() + py * h] for px, py in pos]
+        return pos
+
+    def _node_centroid(self):
+        """所有节点的质心（动画收缩的锚点）。
+
+        **必须挡空列表**：``paint`` 侧有 ``if not self._nodes: return`` 兜着，
+        而 ``hitTest`` 没有这层 —— 空节点集（data 为空 / layout 还没跑）会
+        直接 ``ZeroDivisionError``。而 ``hitTest`` 的异常被
+        ``_hitItemWithSeries`` 的 try/except 吞掉，症状是「静默命中不到任何
+        节点」，排查时完全看不出是被零除吃掉了。
+        """
+        n = len(self._nodes)
+        if not n:
+            return QPointF()
+        return QPointF(
+            sum(nd["pos"].x() for nd in self._nodes) / n,
+            sum(nd["pos"].y() for nd in self._nodes) / n,
+        )
+
+    def _animated_points(self, anim_t):
+        """动画进度下的屏幕坐标（``paint`` 与 ``hitTest`` 共用）。
+
+        入场动画把每个节点从质心处「张开」到最终位置，所以命中必须用同一
+        份插值 —— 否则动画进行中悬停命中的是还没飞到那儿的节点。
+        """
+        center = self._node_centroid()
+        out = []
+        for nd in self._nodes:
+            pt = nd["pos"]
+            out.append(
+                self._transform(
+                    QPointF(
+                        center.x() + (pt.x() - center.x()) * anim_t,
+                        center.y() + (pt.y() - center.y()) * anim_t,
+                    )
+                )
+            )
+        return out
 
     def paint(self, p: QPainter, anim_t: float) -> None:
         if not self._nodes:
             return
         p.save()
-        center = QPointF(
-            sum(nd["pos"].x() for nd in self._nodes) / len(self._nodes),
-            sum(nd["pos"].y() for nd in self._nodes) / len(self._nodes),
-        )
-
-        def anim_pos(nd):
-            pt = nd["pos"]
-            return QPointF(
-                center.x() + (pt.x() - center.x()) * anim_t,
-                center.y() + (pt.y() - center.y()) * anim_t,
-            )
-
-        pts = [self._transform(anim_pos(nd)) for nd in self._nodes]
+        pts = self._animated_points(anim_t)
         # 边
         p.setPen(QPen(with_alpha(_text_color("color.border.strong"), 160), 1.2))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -2709,8 +2877,13 @@ class GraphSeriesRenderer(SeriesRenderer):
     def hitTest(self, pos: QPointF):
         best = None
         best_d = 1e9
+        if not self._nodes:
+            return None
+        # 入场动画里节点向质心收缩（``paint`` 的 ``anim_pos``），命中必须用
+        # 同一份公式，否则动画期悬停会命中一个「还没到那儿」的节点。
+        pts = self._animated_points(self._anim_t)
         for i, nd in enumerate(self._nodes):
-            d = _dist(pos, self._transform(nd["pos"]))
+            d = _dist(pos, pts[i])
             if d <= nd["size"] / 2 + 4 and d < best_d:
                 best_d = d
                 best = (i, nd)
@@ -2746,9 +2919,12 @@ class LinesSeriesRenderer(SeriesRenderer):
         effect = self._effect_opt()
         if bool(effect.get("show", False)) and QApplication.instance() is not None:
             timer = QTimer(chart)  # 生命周期挂 ChartWidget
-            timer.setInterval(40)
             timer.timeout.connect(self._on_tick)
-            timer.start()
+            # 持续动效：Reduced/Disabled 下高亮不流动（相位冻结即静态态）。
+            # 间隔只在这里出现一次 —— ``start_idle_loop`` 无论启不启动都会写
+            # ``setInterval``，所以**不要**在前面再 ``setInterval(40)``：
+            # 那是第二处魔数，改令牌时必然漏掉其中之一。
+            start_idle_loop(timer, EFFECT_TICK_MS)
             self._timer = timer
 
     def _effect_opt(self):
@@ -2781,7 +2957,12 @@ class LinesSeriesRenderer(SeriesRenderer):
         try:
             effect = self._effect_opt()
             period = max(0.5, _to_float(effect.get("period"), 4.0))
-            self._phase = (self._phase + 0.04 / period) % 1.0
+            # 步长按**实际 tick 间隔**算，别写死 0.04：那个魔数隐含「每 40ms
+            # 走 4%」，一旦 ``start_idle_loop`` 因动效策略改了间隔（或者将来
+            # 调 EFFECT_TICK_MS），亮点速度就与配置无关地错了 —— 而
+            # ``period`` 是用户可见的 option，错的是「用户设的周期不生效」。
+            step = max(1, int(timer.interval())) / 1000.0 / period
+            self._phase = (self._phase + step) % 1.0
             self.chart.update()
         except RuntimeError:
             timer.stop()
@@ -2793,9 +2974,15 @@ class LinesSeriesRenderer(SeriesRenderer):
             self._timer = None
 
     def _on_visible_changed(self):
-        """显隐变化钩子（core 图例显隐调用）：显示恢复时重启定时器。"""
+        """显隐变化钩子（core 图例显隐调用）：显示恢复时重启定时器。
+
+        **必须走 ``start_idle_loop`` 而不是裸 ``timer.start()``**：裸 start
+        绕过动效策略，于是「Reduced/Disabled 下持续动效停掉」被图例切换重新
+        打开 —— 无障碍用户看到移动亮点照常流动。``start_idle_loop`` 幂等
+        （内部先查 ``isActive()``）、守策略、且总会重写 interval。
+        """
         if self.visible and self._timer is not None and not self._timer.isActive():
-            self._timer.start()
+            start_idle_loop(self._timer, EFFECT_TICK_MS)
 
     def layout(self, rect: QRectF) -> None:
         self._segments = []

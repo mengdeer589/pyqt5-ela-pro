@@ -19,8 +19,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 from PyQt5 import sip
 from PyQt5.QtCore import QCoreApplication, QEventLoop, QTimer
+
+from pyqt5_ela_pro.ela_tag_multi_box import ElaTagMultiBox
+from pyqt5_ela_pro.ela_tag_search_multi_box import ElaTagSearchMultiBox
 
 _PAGE = (
     Path(__file__).resolve().parents[2]
@@ -86,6 +90,30 @@ class TestNoUnparentedSingleShot:
 
 
 class TestTeardownSurvivesOldTimerWindow:
+    @pytest.mark.parametrize(
+        "factory",
+        [
+            lambda: ElaTagMultiBox(),
+            lambda: ElaTagSearchMultiBox(),
+        ],
+        ids=["tag_multi_box", "tag_search_multi_box"],
+    )
+    def test_tag_box_survives_destroy_before_deferred_init(self, qapp, factory):
+        """两个 tag box 的 ``__init__`` 都靠**延迟一事件循环**做弹层预初始化。
+
+        原先那是无主的 ``QTimer.singleShot(0, lambda: _pre_init_popup(self))``，
+        而「构造后立刻销毁」是测试里极常见的时序 —— 回调去摸已释放的包装器 →
+        ``RuntimeError`` 穿出 Qt 回调 → **进程 0xC0000409 零 traceback 终止**
+        （实测 exit=-1073740791）。现在走 ``_internal.single_shot_on``：定时器
+        是控件的子对象，控件析构时连带销毁并丢掉待触发的 timeout。
+        """
+        widget = factory()
+        sip.delete(widget)  # 同步销毁（不走事件循环）
+        assert sip.isdeleted(widget)
+        _pump(_OLD_TIMER_MS + 400)  # 跑到「旧定时器该触发」之后
+        QCoreApplication.processEvents()
+        assert True
+
     def test_page_survives_teardown_past_old_timer_delay(self, qapp):
         """建页面 → 同步销毁 → 把事件循环跑过 1.2s，进程必须还在。
 

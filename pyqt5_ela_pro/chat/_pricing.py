@@ -23,13 +23,10 @@
     # 用法 B：宿主自己算，只把结果塞进来（库不参与计算）
     binder.stats(replace(stats, cost_usd=my_own_estimate))
 
-阶梯语义对齐 opencode ``packages/core/src/session/usage.ts:calculateCost``：
-
-- ``output`` 与 ``reasoning`` **同价**计费；
-- 阶梯按「输入侧总量」（``prompt + cache_read + cache_write``）选择，
-  取**最大的满足档**（超过 200k 就用 200k 那一档的价，而不是基础档）；
-- 价格是**每百万词元**，最后统一除以 1_000_000；
-- 空定价表 / 缺字段一律按 0 计（不抛异常 —— 缺价格不该让聊天界面崩）。
+阶梯语义对齐 opencode ``packages/core/src/session/usage.ts:calculateCost``：阶梯按
+「输入侧总量」（``prompt + cache_read + cache_write``）选择，取**超过阈值**的那一档
+（判据是 ``used > threshold`` —— 恰好等于阈值仍算基础档）；价格是每百万词元，最后除以
+1e6；空定价表 / 缺字段一律按 0 计（缺价格不该让聊天界面崩）。
 """
 
 from __future__ import annotations
@@ -37,10 +34,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
+#: 与 ``chat/__init__.py`` 的导出保持一致（AGENTS.md 记载的公开 API 就是这 4 个）。
+#: ``selectPricing`` 是 :func:`cost_from_parts` 内部的选档步骤，未对外暴露 —— 别把它
+#: 列进来又不给宿主一条真实可用的路径。
 __all__ = [
     "ModelPricing",
+    "cost_from_parts",
     "formatCost",
-    "selectPricing",
     "stats_cost",
 ]
 
@@ -51,7 +51,7 @@ def _finite(value, default: float = 0.0) -> float:
         return default
     try:
         out = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
     if out != out or out in (float("inf"), float("-inf")):
         return default
@@ -60,10 +60,7 @@ def _finite(value, default: float = 0.0) -> float:
 
 @dataclass(frozen=True)
 class ModelPricing:
-    """单个模型的每百万词元价格（美元）。
-
-    缺省项按 0 计 —— 多数模型不单独收「缓存写」费用，缺失比报错合理。
-    """
+    """单个模型的每百万词元价格（美元）。缺省项按 0 计。"""
 
     #: 输入（未命中缓存）
     input_per_m: float = 0.0
@@ -77,12 +74,13 @@ class ModelPricing:
     tiers: Tuple[Tuple[int, "ModelPricing"], ...] = field(default_factory=tuple)
 
     def isFree(self) -> bool:
-        """是否全零（无定价 / 本地模型）。"""
+        """是否全零（无定价 / 本地模型；有阶梯档位时按非空处理）。"""
         return not (
             self.input_per_m
             or self.output_per_m
             or self.cache_read_per_m
             or self.cache_write_per_m
+            or self.tiers
         )
 
 
@@ -91,7 +89,9 @@ def _normalize_tiers(tiers) -> tuple:
     items = []
     try:
         source = tiers or ()
+        iter(source)
     except TypeError:
+        # ``tiers=5`` 这类不可迭代值：空阶梯，而不是把 TypeError 穿透到调用方
         return ()
     for item in source:
         if not isinstance(item, (tuple, list)) or len(item) < 2:
@@ -101,7 +101,7 @@ def _normalize_tiers(tiers) -> tuple:
             continue
         try:
             threshold = int(threshold)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
         if threshold > 0:
             items.append((threshold, price))
@@ -112,10 +112,13 @@ def _normalize_tiers(tiers) -> tuple:
 def selectPricing(
     promptTokens: int, pricing: Optional[ModelPricing]
 ) -> Optional[ModelPricing]:
-    """按输入侧总量选定价档（取**最大的满足档**）。
+    """按输入侧总量选定价档（取**超过阈值**的那一档）。
 
-    ``tiers`` 自身不再参与选档（避免递归），只用它的最外层阈值 —— 阶梯内
-    继续套阶梯没有实际意义，opencode 也是同样处理。
+    判据是 ``used > threshold``，所以**恰好等于阈值仍算基础档**（``200_000`` 用基础
+    价，``200_001`` 才进 200k 档）—— 这与本模块示例里「超过 200k 的部分按贵价计」
+    的说法一致。
+
+    ``tiers`` 自身不再参与选档（避免递归），只用最外层阈值。
 
     :param promptTokens: 输入侧总量（已含缓存读写）
     :param pricing: 基础定价；``None`` / 全零返回 ``None``
@@ -124,7 +127,7 @@ def selectPricing(
         return None
     try:
         used = int(promptTokens)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         used = 0
     if used < 0:
         used = 0
@@ -140,19 +143,13 @@ def selectPricing(
 def stats_cost(stats, pricing: Optional[ModelPricing] = None) -> float:
     """把 :class:`~pyqt5_ela_pro.chat.message.ElaChatStats` 换算成美元花费。
 
-    计费口径（对齐 opencode）：
+    计费口径（对齐 opencode）：``prompt + cached`` 决定阶梯档位；实际计费按四路分别
+    乘单价，其中 ``completion`` **已含 reasoning**（上游 usage 里 reasoning 通常是
+    completion 的子集，不重复加）；最后除以 1e6。
 
-    - 输入侧总量 ``prompt + cached`` 决定**阶梯档位**（``cached`` 含缓存读写，
-      两者都按输入侧算）；
-    - 实际计费按四路分别乘单价：``prompt × input`` +
-      ``completion × output``（**已含 reasoning**，上游 provider 的 usage 里
-      reasoning 通常是 completion 的子集，不重复加）+ 缓存读写各自单价；
-    - 统一除以 1_000_000。
-
-    ``ElaChatStats`` 本身**不区分**缓存读写（只有一个 ``cached_tokens``），
-    因此这里把 ``cached_tokens`` 全部按**缓存读**计价 —— 与
-    :attr:`ElaChatStats.cached_tokens` 的语义（缓存**命中**）一致。宿主若有
-    更细的拆分，请走 :func:`cost_from_parts` 或自己填 ``cost_usd``。
+    ``ElaChatStats`` 不区分缓存读写（只有一个 ``cached_tokens``），故全部按**缓存读**
+    计价 —— 与该字段「缓存命中」的语义一致。宿主若有更细的拆分请走
+    :func:`cost_from_parts` 或自己填 ``cost_usd``。
 
     :param stats: 用量快照；``None`` 返回 0.0
     :param pricing: 定价；``None`` 返回 0.0
@@ -179,9 +176,8 @@ def cost_from_parts(
 ) -> float:
     """按四路词元明细换算花费（``stats_cost`` 的低层入口）。
 
-    需要区分缓存读 / 写、或需要额外传入 reasoning 的宿主直接用这个。
-    ``reasoning`` 不单独计价（已含在 ``completionTokens`` 里，与 opencode 的
-    ``output + reasoning`` 同价口径一致）。
+    需要区分缓存读 / 写的宿主直接用这个。``reasoning`` 不单独计价（已含在
+    ``completionTokens`` 里）。
     """
     if pricing is None:
         return 0.0
@@ -204,9 +200,9 @@ def cost_from_parts(
 def formatCost(usd) -> str:
     """美元金额格式化（自适应精度）。
 
-    - ``$0.0142`` —— 1 美元以下给 4 位小数（便宜模型一轮也就几分钱，
-      两位小数会全显示成 ``$0.01``，看着像 bug）；
-    - ``$1.23`` / ``$12.40`` —— 常规两位小数（补零，避免 ``$12.4`` 像笔误）；
+    - ``$0.0142`` —— 1 美元以下给 4 位小数（便宜模型一轮也就几分钱，两位会全显示成
+      ``$0.01``，看着像 bug）；
+    - ``$1.23`` / ``$12.40`` —— 常规两位（补零，避免 ``$12.4`` 像笔误）；
     - ``$1234`` —— 破千不写分隔符（tooltip 空间有限）。
 
     非法值（``None`` / NaN / 负数）一律回 ``"$0.00"``。
@@ -215,7 +211,11 @@ def formatCost(usd) -> str:
     if value <= 0:
         return "$0.00"
     if value < 1:
-        return f"${value:.4f}"
+        text = f"{value:.4f}"
+        if text == "1.0000":
+            # 0.99999 这类：四位小数进位成 "1.0000"，看起来像整一美元
+            text = f"{value:.5f}"
+        return f"${text}"
     if value < 1000:
         return f"${value:.2f}"
     return f"${value:.0f}"

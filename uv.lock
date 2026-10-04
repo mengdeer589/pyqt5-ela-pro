@@ -747,6 +747,101 @@ wheels = [
 ]
 
 [[package]]
+name = "polars"
+version = "1.8.2"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+resolution-markers = [
+    "(python_full_version < '3.9' and platform_machine != 'AMD64') or (python_full_version < '3.9' and sys_platform != 'win32')",
+    "python_full_version < '3.9' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/3d/75/2196c26fe049ecce55a0fa87b22ab3d9477bc9bab38116ed04854fc65ecb/polars-1.8.2.tar.gz", hash = "sha256:42f69277d5be2833b0b826af5e75dcf430222d65c9633872856e176a0bed27a0" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/b5/8b/6829e22a0f4c6e754c2e2b5d81025ab14d7b214018119762f52bad7325aa/polars-1.8.2-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:114be1ebfb051b794fb9e1f15999430c79cc0824595e237d3f45632be3e56d73" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/8f/cd/5d6b837f42c1b6d87012beca940a075e450a352ab717a649000c2ec57d71/polars-1.8.2-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:e4fc36cfe48972d4c5be21a7cb119d6378fb7af0bb3eeb61456b66a1f43228e3" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/a7/f3/c317b1bc6759d1ec343c25d5ebd376a07a2e1fd2bd04fdc07ce6b2a855c4/polars-1.8.2-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:67c1e448d6e38697650b22dd359f13c40b567c0b66686c8602e4367400e87801" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/1d/df/5ccf44218728caecda9f555879b40fe4ab34ff629c81b9117a1107437fdc/polars-1.8.2-cp38-abi3-manylinux_2_24_aarch64.whl", hash = "sha256:570ee86b033dc5a6dbe2cb0df48522301642f304dda3da48f53d7488899a2206" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/9c/45/77e4fda23368907c06bf70fc722de28d442c5087bbc8a60c29b8396750ea/polars-1.8.2-cp38-abi3-win_amd64.whl", hash = "sha256:ce1a1c1e2150ffcc44a5f1c461d738e1dcd95abbd0f210af0271c7ac0c9f7ef9" },
+]
+
+[[package]]
+name = "polars"
+version = "1.36.1"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+resolution-markers = [
+    "(python_full_version == '3.9.*' and platform_machine != 'AMD64') or (python_full_version == '3.9.*' and sys_platform != 'win32')",
+    "python_full_version == '3.9.*' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+]
+dependencies = [
+    { name = "polars-runtime-32", version = "1.36.1", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version == '3.9.*'" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/9f/dc/56f2a90c79a2cb13f9e956eab6385effe54216ae7a2068b3a6406bae4345/polars-1.36.1.tar.gz", hash = "sha256:12c7616a2305559144711ab73eaa18814f7aa898c522e7645014b68f1432d54c" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/f6/c6/36a1b874036b49893ecae0ac44a2f63d1a76e6212631a5b2f50a86e0e8af/polars-1.36.1-py3-none-any.whl", hash = "sha256:853c1bbb237add6a5f6d133c15094a9b727d66dd6a4eb91dbb07cdb056b2b8ef" },
+]
+
+[[package]]
+name = "polars"
+version = "1.44.2"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+resolution-markers = [
+    "(python_full_version >= '3.12' and platform_machine != 'AMD64') or (python_full_version >= '3.12' and sys_platform != 'win32')",
+    "(python_full_version == '3.11.*' and platform_machine != 'AMD64') or (python_full_version == '3.11.*' and sys_platform != 'win32')",
+    "(python_full_version == '3.10.*' and platform_machine != 'AMD64') or (python_full_version == '3.10.*' and sys_platform != 'win32')",
+    "python_full_version >= '3.12' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+    "python_full_version == '3.11.*' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+    "python_full_version == '3.10.*' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+]
+dependencies = [
+    { name = "polars-runtime-32", version = "1.44.2", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.10'" },
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/a4/15/e8541eefc22fbc7ca89bcb5112298a153729f73cfbc0cf6a668e509f975c/polars-1.44.2.tar.gz", hash = "sha256:86c8e26b6c2de8c8d344bb910b74dfc47b118ac3fe0f19b44909467990a0b281" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/51/6d/3014112c7f717d1253223faa13b6db3ac3a64ed00ab2a3bc1b942bc9cdd4/polars-1.44.2-py3-none-any.whl", hash = "sha256:1bb331f17a40d9d931101533dcd33637b66edc61eb377b07020dac16a0f0377b" },
+]
+
+[[package]]
+name = "polars-runtime-32"
+version = "1.36.1"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+resolution-markers = [
+    "(python_full_version == '3.9.*' and platform_machine != 'AMD64') or (python_full_version == '3.9.*' and sys_platform != 'win32')",
+    "python_full_version == '3.9.*' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/31/df/597c0ef5eb8d761a16d72327846599b57c5d40d7f9e74306fc154aba8c37/polars_runtime_32-1.36.1.tar.gz", hash = "sha256:201c2cfd80ceb5d5cd7b63085b5fd08d6ae6554f922bcb941035e39638528a09" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/e1/ea/871129a2d296966c0925b078a9a93c6c5e7facb1c5eebfcd3d5811aeddc1/polars_runtime_32-1.36.1-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:327b621ca82594f277751f7e23d4b939ebd1be18d54b4cdf7a2f8406cecc18b2" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/d8/76/0038210ad1e526ce5bb2933b13760d6b986b3045eccc1338e661bd656f77/polars_runtime_32-1.36.1-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:ab0d1f23084afee2b97de8c37aa3e02ec3569749ae39571bd89e7a8b11ae9e83" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/54/1e/2707bee75a780a953a77a2c59829ee90ef55708f02fc4add761c579bf76e/polars_runtime_32-1.36.1-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:899b9ad2e47ceb31eb157f27a09dbc2047efbf4969a923a6b1ba7f0412c3e64c" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/11/b2/3fede95feee441be64b4bcb32444679a8fbb7a453a10251583053f6efe52/polars_runtime_32-1.36.1-cp39-abi3-manylinux_2_24_aarch64.whl", hash = "sha256:d9d077bb9df711bc635a86540df48242bb91975b353e53ef261c6fae6cb0948f" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/05/0f/e629713a72999939b7b4bfdbf030a32794db588b04fdf3dc977dd8ea6c53/polars_runtime_32-1.36.1-cp39-abi3-win_amd64.whl", hash = "sha256:cc17101f28c9a169ff8b5b8d4977a3683cd403621841623825525f440b564cf0" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/d1/d8/a12e6aa14f63784cead437083319ec7cece0d5bb9a5bfe7678cc6578b52a/polars_runtime_32-1.36.1-cp39-abi3-win_arm64.whl", hash = "sha256:809e73857be71250141225ddd5d2b30c97e6340aeaa0d445f930e01bef6888dc" },
+]
+
+[[package]]
+name = "polars-runtime-32"
+version = "1.44.2"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
+resolution-markers = [
+    "(python_full_version >= '3.12' and platform_machine != 'AMD64') or (python_full_version >= '3.12' and sys_platform != 'win32')",
+    "(python_full_version == '3.11.*' and platform_machine != 'AMD64') or (python_full_version == '3.11.*' and sys_platform != 'win32')",
+    "(python_full_version == '3.10.*' and platform_machine != 'AMD64') or (python_full_version == '3.10.*' and sys_platform != 'win32')",
+    "python_full_version >= '3.12' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+    "python_full_version == '3.11.*' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+    "python_full_version == '3.10.*' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+]
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/d4/a1/a7eace6587b56f22cf2a21ab4d5e695db372dc23fd96accb68b1ec12660b/polars_runtime_32-1.44.2.tar.gz", hash = "sha256:b84842f7d621aaca7a52e165e19a24f89db45f8aa13744941430218419a14a67" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/99/5b/a5215f82c3dd443dc5d6911b0d3e937f97056e0ef7753f7e123422481a18/polars_runtime_32-1.44.2-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:1fd536720668ba203a16a20b08cd6b23057e407a0279cf36b2f35f879d6e3208" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/c2/e0/f3dc93fce4b4e99370db6a89001a1b8d3c606e3560d0d91dda809d6c6324/polars_runtime_32-1.44.2-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:e0fd43720c8222ae39919c8ff891636d53b352706087120e62f83544dd3ff782" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/4e/4f/076626ce93ddd622203c4b27be2a96d034cf5b24110c52e96e6029f0ea33/polars_runtime_32-1.44.2-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:bbf9b45040291dc1c6c588c837019c33557bde25ec536562a9cca9e1f6dfcc45" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/e9/24/ed9982657c446dd5491b089370eea196725673570cfc61f7225a9fdd7ef0/polars_runtime_32-1.44.2-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a1bafb441e99199a62c63bf1bbdc0ea09ee9776dbac2bf31452b5000fb1df2f7" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/71/42/5490ab360aa2406119825ad82203a5e2ff27a3a5893ca8e0b93c053a59a3/polars_runtime_32-1.44.2-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:10c0c695a418407617b5159db7d9a21074a733e4c6d61275b6762f25cb31ca99" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/06/8f/d741afb1dcd1848161189e017d27972e7e78556d8dce66b94d4235093706/polars_runtime_32-1.44.2-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:c4a09fb14aad711526346efc0cb2015c2fd0555ce4118b6524e5debbaea65ff5" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/ba/e7/c61c1c7eea37705920fe7c1302d1dd80d1165db2b928f0da3eae6d1ebb75/polars_runtime_32-1.44.2-cp310-abi3-win_amd64.whl", hash = "sha256:8598e7a20efba70bb74978c7df7af7c606ff4d79b9b48fdd808250b189bc9a13" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/e7/a0/d0dd0d2ec95fa328dd47055905fae53ba3cd79f11c8973326ebe75a49e4c/polars_runtime_32-1.44.2-cp310-abi3-win_arm64.whl", hash = "sha256:d51040d3ab40157f6db3c62be59cab5b80fb3c8d158924769c4982a1c8eef730" },
+]
+
+[[package]]
 name = "pygments"
 version = "2.19.2"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
@@ -824,6 +919,9 @@ all = [
     { name = "orjson", version = "3.10.15", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version < '3.9'" },
     { name = "orjson", version = "3.11.5", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version == '3.9.*'" },
     { name = "orjson", version = "3.12.0", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.10'" },
+    { name = "polars", version = "1.8.2", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version < '3.9'" },
+    { name = "polars", version = "1.36.1", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version == '3.9.*'" },
+    { name = "polars", version = "1.44.2", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.10'" },
     { name = "pygments", version = "2.19.2", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version < '3.9'" },
     { name = "pygments", version = "2.20.0", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.9'" },
     { name = "pywin32", version = "311", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version < '3.9'" },
@@ -839,6 +937,11 @@ orjson = [
     { name = "orjson", version = "3.10.15", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version < '3.9'" },
     { name = "orjson", version = "3.11.5", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version == '3.9.*'" },
     { name = "orjson", version = "3.12.0", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.10'" },
+]
+parquet = [
+    { name = "polars", version = "1.8.2", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version < '3.9'" },
+    { name = "polars", version = "1.36.1", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version == '3.9.*'" },
+    { name = "polars", version = "1.44.2", source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }, marker = "python_full_version >= '3.10'" },
 ]
 
 [package.dev-dependencies]
@@ -862,15 +965,17 @@ requires-dist = [
     { name = "mermaidx", marker = "python_full_version >= '3.10' and extra == 'all'", specifier = ">=0.9" },
     { name = "orjson", marker = "extra == 'all'", specifier = ">=3.9" },
     { name = "orjson", marker = "extra == 'orjson'", specifier = ">=3.9" },
+    { name = "polars", marker = "extra == 'all'", specifier = ">=1.0" },
+    { name = "polars", marker = "extra == 'parquet'", specifier = ">=1.0" },
     { name = "pygments", marker = "extra == 'all'", specifier = ">=2.15" },
     { name = "pypinyin", specifier = ">=0.50.0" },
     { name = "pyqt5", specifier = ">=5.15.0" },
-    { name = "pyqt5-elawidgettools", path = "../../python_win7/PyElaWidgetTools/scripts/wheel/dist/PyQt5_ElaWidgetTools-0.11.1-cp37-abi3-win_amd64.whl" },
+    { name = "pyqt5-elawidgettools", specifier = "==0.12.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pywin32", marker = "extra == 'all'", specifier = ">=306" },
     { name = "tsdownsample", marker = "extra == 'all'", specifier = ">=0.1.5.1" },
 ]
-provides-extras = ["all", "orjson", "dev"]
+provides-extras = ["all", "orjson", "parquet", "dev"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -883,17 +988,16 @@ dev = [
 
 [[package]]
 name = "pyqt5-elawidgettools"
-version = "0.11.1"
-source = { path = "../../python_win7/PyElaWidgetTools/scripts/wheel/dist/PyQt5_ElaWidgetTools-0.11.1-cp37-abi3-win_amd64.whl" }
+version = "0.12.1"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple/" }
 dependencies = [
     { name = "pyqt5" },
 ]
 wheels = [
-    { filename = "pyqt5_elawidgettools-0.11.1-cp37-abi3-win_amd64.whl", hash = "sha256:7bc8f5b98f88e03e019986944b41f26be32be700ed878a524b08ef4b887713b9" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/21/2d/d4539c45213f7fe7ca2ccf86417134de31263dda70119533e0791174f93c/pyqt5_elawidgettools-0.12.1-cp37-abi3-manylinux1_x86_64.whl", hash = "sha256:aec798d228ba017e9ab5778a134dfc4548f680dd0eb6e956ff67528dcd727c1e" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/4f/65/107640a95d930442db116059f5c6010b703060396797ae7c98eb6b92a68d/pyqt5_elawidgettools-0.12.1-cp37-abi3-win32.whl", hash = "sha256:8a41dd5380446109302a92dd6bca94ff26752fc722b82d777300725246eaec1b" },
+    { url = "https://mirrors.aliyun.com/pypi/packages/2b/3a/5055a11d3fc2e68d16639db5dea5a2a9055b450ef27d4fc71ef822da037f/pyqt5_elawidgettools-0.12.1-cp37-abi3-win_amd64.whl", hash = "sha256:e14ed894156aa9be22ba3382cca6dfd6ee89e117211c63aa72deb8efbf281868" },
 ]
-
-[package.metadata]
-requires-dist = [{ name = "pyqt5" }]
 
 [[package]]
 name = "pyqt5-qt5"

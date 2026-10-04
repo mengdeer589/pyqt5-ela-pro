@@ -44,7 +44,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import QEvent, QRectF, QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QRectF, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QPainter
 from PyQt5.QtWidgets import (
     QAbstractButton,
@@ -133,6 +133,33 @@ def question_colors(mode) -> dict:
     }
 
 
+def globalKeyAction(key, mods) -> Optional[str]:
+    """把卡片级快捷键 ``(key, mods)`` 映射成动作串；不匹配返回 ``None``。
+
+    动作串：``"next"``（Ctrl+Enter）/ ``"back"``（Alt+←）/ ``"dismiss"``（Esc）/
+    ``"digit:N"``（1–9，按**整组候选卡**下标）。
+
+    行内分发（:class:`QuestionOptionCard` 的 ``globalKey``）与卡片本体
+    （``PermissionCard._handle_shortcut``）共用这一份 —— 两处各写一套必然漂移。
+    """
+    ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+    alt = bool(mods & Qt.KeyboardModifier.AltModifier)
+    plain = not (
+        ctrl
+        or alt
+        or mods & (Qt.KeyboardModifier.MetaModifier | Qt.KeyboardModifier.ShiftModifier)
+    )
+    if ctrl and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+        return "next"
+    if alt and key == Qt.Key.Key_Left:
+        return "back"
+    if plain and key == Qt.Key.Key_Escape:
+        return "dismiss"
+    if plain and Qt.Key.Key_1 <= key <= Qt.Key.Key_9:
+        return f"digit:{key - Qt.Key.Key_1}"
+    return None
+
+
 class _AutoGrowEditor(ElaPlainTextEdit):
     """按文档高度自增高的编辑器。
 
@@ -146,7 +173,38 @@ class _AutoGrowEditor(ElaPlainTextEdit):
     ``setFixedHeight(0)`` 再按文档高度设回去 = 重入布局失效，Qt 直接
     0xC0000409 静默终止（无 traceback）。改 ``sizeHint`` + ``updateGeometry()``
     是单向的（只发 LayoutRequest，不动几何），不会重入。
+
+    编辑器自己的按键语义（Enter / Esc / Ctrl+Enter）通过**信号**上报，
+    刻意**不装** Python 事件过滤器：这是会被随行销毁的子控件，
+    ``child.installEventFilter(parent)`` 在父窗口树整体析构时踩 0xC0000409
+    （候选行的键盘分发就是为此改成信号的，同一形状不该两套做法）。
     """
+
+    #: 按 Enter（非 Shift / Ctrl）：提交这一题
+    submitRequested = pyqtSignal()
+    #: 按 Esc：退出编辑（**保留文本**）
+    dismissRequested = pyqtSignal()
+    #: 按 Ctrl+Enter：整卡「下一步 / 提交」
+    advanceRequested = pyqtSignal()
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        key = event.key()
+        if key == Qt.Key.Key_Escape:
+            self.dismissRequested.emit()
+            event.accept()
+            return
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            mods = event.modifiers()
+            if mods & Qt.KeyboardModifier.ShiftModifier:
+                super().keyPressEvent(event)  # 换行
+                return
+            if mods & Qt.KeyboardModifier.ControlModifier:
+                self.advanceRequested.emit()
+            else:
+                self.submitRequested.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def sizeHint(self) -> QSize:  # noqa: N802
         hint = super().sizeHint()
@@ -270,12 +328,12 @@ class QuestionOptionCard(QAbstractButton):
 
     def __init__(
         self,
-        value: str,
-        description: str = "",
+        parent: Optional[QWidget] = None,
         *,
+        value: str = "",
+        description: str = "",
         multi: bool = False,
         isCustom: bool = False,
-        parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._value = value or ""
@@ -284,6 +342,8 @@ class QuestionOptionCard(QAbstractButton):
         self._is_custom = bool(isCustom)
         self._picked = False
         self._editing = False
+        #: 本次按下是否落在勾选标记区（决定 release 是否再发 activate）
+        self._press_on_mark = False
         self._row_index = 0
         self._theme_mode = eTheme.getThemeMode()
         self._colors = question_colors(self._theme_mode)
@@ -300,14 +360,10 @@ class QuestionOptionCard(QAbstractButton):
         # （一行答案的输入框实测被撑到 91px），``Fixed`` 才是「你要多高给多高」。
         # sizeHint 随内容变，``updateGeometry`` 负责通知布局重新问。
         #
-        # **已知限制（长说明会被裁）**：说明文案可换行，但 ``QAbstractButton``
-        # 不把 ``heightForWidth`` 转发给自己的布局，父布局只能按「不换行」估算。
-        # 实测：说明长到折两行时行高仍是 43px，第二行看不见（``sizeHint`` 却
-        # 报 59px）。试过覆写 ``hasHeightForWidth`` + 改 ``Preferred`` 策略 ——
-        # 布局自己算出来还是 43px（它在标签宽度还是 0 时就定了「一行」），
-        # 覆写只会让 ``heightForWidth`` 与布局自相矛盾（51 vs 43）。真正的修法是
-        # 照 ``_AutoGrowEditor.sizeHint`` 的路子自己按 ``fontMetrics`` 折行高度，
-        # 属于独立改动，未在此处做。
+        # 说明文案可换行：``QAbstractButton`` 不把 ``heightForWidth`` 转发给
+        # 自己的布局，所以 ``sizeHint`` 里按 ``fontMetrics().boundingRect``
+        # 自己折行算高度，``resizeEvent`` 里 ``updateGeometry()`` 让布局在
+        # 宽度确定后重新问一次（否则首次按「一行」定死，第二行被裁）。
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
         row = QHBoxLayout(self)
@@ -410,7 +466,11 @@ class QuestionOptionCard(QAbstractButton):
                 QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
             )
             self._editor.textChanged.connect(self._on_editor_changed)
-            self._editor.installEventFilter(self)
+            # 按键语义走编辑器自己的信号（见 _AutoGrowEditor 的说明），
+            # 不给这个会被随行销毁的子控件装 Python 事件过滤器。
+            self._editor.submitRequested.connect(self.commitEdit)
+            self._editor.dismissRequested.connect(self._on_editor_dismissed)
+            self._editor.advanceRequested.connect(self._on_editor_advance)
             self._texts_layout.addWidget(self._editor)
         self._editing = editing
         if self._editor is not None:
@@ -446,6 +506,15 @@ class QuestionOptionCard(QAbstractButton):
             return
         self.editCommitted.emit(text)
 
+    def _on_editor_dismissed(self) -> None:
+        """编辑器按 Esc：退出编辑但保留文本（不能冒泡成「忽略整个问题」）。"""
+        self.setEditing(False)
+        self.setFocus()
+
+    def _on_editor_advance(self) -> None:
+        """编辑器按 Ctrl+Enter：转成整卡的「下一步 / 提交」。"""
+        self.globalKey.emit("next")
+
     # -- 交互 --------------------------------------------------------------
 
     def _mark_rect(self) -> QRectF:
@@ -459,9 +528,11 @@ class QuestionOptionCard(QAbstractButton):
     def mousePressEvent(self, event) -> None:  # noqa: N802
         """点左侧标记 = 只切勾选；点其余 = 整行激活（自定义行即展开编辑器）。"""
         if not self._editing and self._mark_rect().contains(event.pos()):
+            self._press_on_mark = True
             self.markClicked.emit(self._value)
             event.accept()
             return
+        self._press_on_mark = False
         QAbstractButton.mousePressEvent(self, event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
@@ -469,6 +540,12 @@ class QuestionOptionCard(QAbstractButton):
         # 而且它要求 press 走过 ``super``，我们上面是**故意**不走的（标记区要
         # 截断），走 ``super().mouseReleaseEvent`` 会在没 press 过的情况下也算
         # 一次点击，白白多发一轮 activate。
+        if self._press_on_mark:
+            # 标记区的按下已经在 press 里发过 ``markClicked``，同一手势的 release
+            # 绝不能再发 ``activate``（否则普通行两次切换互相抵消、自定义行会
+            # 被连带展开编辑器）。Qt 的隐式 grab 保证 release 一定回到本控件。
+            self._press_on_mark = False
+            return
         if not self._editing and self.rect().contains(event.pos()):
             self.activate.emit(self._value)
 
@@ -515,53 +592,11 @@ class QuestionOptionCard(QAbstractButton):
 
     def _emit_global_key(self, key, mods) -> bool:
         """把卡片级快捷键转成 :attr:`globalKey`；返回是否消费。"""
-        ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
-        alt = bool(mods & Qt.KeyboardModifier.AltModifier)
-        plain = not (
-            ctrl
-            or alt
-            or mods
-            & (Qt.KeyboardModifier.MetaModifier | Qt.KeyboardModifier.ShiftModifier)
-        )
-        if ctrl and key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self.globalKey.emit("next")
-            return True
-        if alt and key == Qt.Key.Key_Left:
-            self.globalKey.emit("back")
-            return True
-        if plain and key == Qt.Key.Key_Escape:
-            self.globalKey.emit("dismiss")
-            return True
-        if plain and Qt.Key.Key_1 <= key <= Qt.Key.Key_9:
-            # 按**整组候选卡的下标**，与焦点在哪一行无关（opencode 就是这个语义）
-            self.globalKey.emit(f"digit:{key - Qt.Key.Key_1}")
-            return True
-        return False
-
-    def eventFilter(self, obj, event) -> bool:  # noqa: N802
-        """编辑器内：Enter 提交 / Shift+Enter 换行 / Esc 只退出编辑（**保留文本**）。
-
-        Esc 在这里**不能**冒泡成「忽略整个问题」—— 那会把用户已经敲的字丢掉。
-        """
-        if obj is not self._editor:
-            return super().eventFilter(obj, event)
-        if event.type() != QEvent.Type.KeyPress:
-            return super().eventFilter(obj, event)
-        key = event.key()
-        if key == Qt.Key.Key_Escape:
-            self.setEditing(False)
-            self.setFocus()
-            return True
-        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-                return False  # 换行
-            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                # Ctrl+Enter 是「下一步 / 提交」，不是「提交这一题」
-                self.globalKey.emit("next")
-                return True
-            self.commitEdit()
-            return True
-        return super().eventFilter(obj, event)
+        action = globalKeyAction(key, mods)
+        if action is None:
+            return False
+        self.globalKey.emit(action)
+        return True
 
     def _on_editor_changed(self) -> None:
         """编辑器内容变化：收起占位文案 + 请布局重新问一次高度。
@@ -701,7 +736,13 @@ class QuestionOptionCard(QAbstractButton):
         return round(fm.height() * 2.0) + CARD_PADDING[1] + CARD_PADDING[3]
 
     def sizeHint(self) -> QSize:  # noqa: N802
-        """行高 = 布局自然高（有下限保底）+ （编辑态）编辑器高度。
+        """行高 = 折行后的自然高（有下限保底）+ （编辑态）编辑器高度。
+
+        ``QAbstractButton`` 不把 ``heightForWidth`` 转发给自己的布局，光靠 Qt
+        只会在首次（行宽还是 0）按「一行」定死，说明折两行时第二行被裁 ——
+        所以 ``resizeEvent`` 里发 ``updateGeometry()``，行宽一确定就让布局
+        重新问一次（``sizeHint`` 里的自然高取自布局/子标签，此时宽度已知）。
+        高度变化不会反过来改宽度，不会震荡。
 
         **必须显式把编辑器算进来**：``QAbstractButton.sizeHint()`` 只认 Qt 自己
         的 ``text + icon`` 尺寸，完全看不见布局里那个 ``_AutoGrowEditor``，
@@ -712,6 +753,12 @@ class QuestionOptionCard(QAbstractButton):
         if self._editor is not None and self._editing:
             base += self._editor.sizeHint().height()
         return QSize(hint.width(), base)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        # 宽度变了 → 折行行数可能变 → 让布局重新问 sizeHint（单向 LayoutRequest，
+        # 不在槽里改几何）。
+        self.updateGeometry()
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802
         # 宽度给 0：候选行要能换行（说明文案长度不定），横向上不许比 sizeHint 更宽

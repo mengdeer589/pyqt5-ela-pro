@@ -27,11 +27,15 @@ from pyqt5_ela_pro import (
     svg_to_icon,
     svg_to_pixmap,
     svg_icon_loader,
+    Duration,
+    MotionMode,
+    motion,
 )
 from pyqt5_ela_pro.svg_icon import (
     ElaSvgIconLoader,
 )
 from .base_page import ExamplePage
+from ..blueprint._spinner import SpinnerArc
 from .icon_model import T_IconModel
 from .icon_delegate import T_IconDelegate
 from .es_icon_model import EsIconModel
@@ -72,6 +76,8 @@ class AnimationIconPage(ExamplePage):
 
     def __init__(self, parent=None):
         self._svg_loader = None
+        self._spinner = None
+        self._motion_state = None
         super().__init__(parent)
 
     def _addDemoContent(self, main_layout):
@@ -84,6 +90,7 @@ class AnimationIconPage(ExamplePage):
         self._demoFadeInOut(parent_layout)
         self._demoShakeWindow(parent_layout)
         self._demoAnimatedMixin(parent_layout)
+        self._demoMotionPolicy(parent_layout)
 
     def _demoIcon(self, parent_layout):
         parent_layout.addWidget(
@@ -169,6 +176,75 @@ class AnimationIconPage(ExamplePage):
     def _openAnimatedDialog(self):
         dialog = _AnimatedDemoDialog(self)
         dialog.exec_()
+
+    def _demoMotionPolicy(self, parent_layout):
+        parent_layout.addLayout(
+            self._createHeaderRow(
+                "04. ela_ext - 全局动效策略 motion", self._demoMotionPolicy
+            )
+        )
+        self._addInfoText(
+            "默认跟随系统的「关闭动画」设置（SPI_GETCLIENTAREAANIMATION）。\n"
+            "Reduced 不是关掉动画：状态过渡压到 50ms 内，只是持续动效停掉。\n"
+            "Disabled 下过渡同步落终值，收尾回调当场触发、不等下一帧。",
+            parent_layout,
+        )
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+        for mode in (MotionMode.Full, MotionMode.Reduced, MotionMode.Disabled):
+            btn = ElaPushButton(mode.name, self)
+            btn.setFixedWidth(100)
+            btn.clicked.connect(self._onModeClicked, mode)
+            btn_layout.addWidget(btn)
+        btn_layout.addSpacing(20)
+        show_btn = ElaPushButton("播放一次淡出→淡入", self)
+        show_btn.setFixedWidth(180)
+        show_btn.clicked.connect(self._onPolicyFade)
+        btn_layout.addWidget(show_btn)
+        self._spinner = SpinnerArc(size=28, interval=40)
+        btn_layout.addWidget(self._spinner)
+        btn_layout.addStretch()
+        parent_layout.addLayout(btn_layout)
+        self._motion_state = ElaText(self._motionStateText(), self)
+        self._motion_state.setTextPixelSize(14)
+        parent_layout.addWidget(self._motion_state)
+        self._note(
+            parent_layout,
+            "右侧圆弧是持续动效：Full 下转，Reduced/Disabled 下冻结在当前角度"
+            "（停掉而不是放慢 —— 转得更慢的圈看起来像卡住）。",
+        )
+        parent_layout.addSpacing(20)
+
+    def _motionStateText(self) -> str:
+        return (
+            f"当前模式：{motion.mode().name}    系统关闭动画：{motion.systemReduced()}"
+        )
+
+    def _note(self, parent_layout, text):
+        label = ElaText(text, parent_layout.parentWidget())
+        # ElaText 不设字号就用默认的 28px，整张卡的比例会直接崩掉
+        label.setTextPixelSize(14)
+        parent_layout.addWidget(label)
+
+    def _onModeClicked(self, mode):
+        # 宿主可以随时覆盖系统设置（测试也是靠它拿确定性）。
+        motion.setOverrideSystem(True)
+        motion.setMode(mode)
+        if self._motion_state is not None:
+            self._motion_state.setText(self._motionStateText())
+        # 持续动效循环由 start_idle_loop 托管：切到 Reduced/Disabled 会自动停掉并
+        # 落到静态基态，切回 Full 需要调用方自己再 start_idle_loop 一次。
+        if self._spinner is not None:
+            self._spinner.start()
+        self._onPolicyFade()
+
+    def _onPolicyFade(self):
+        w = self.window()
+        if w is None:
+            return
+        # 在 Reduced/Disabled 下这段代码完全不变：策略只改实际时长与是否同步落终值，
+        # 收尾回调照常触发。宿主不需要为动效策略写任何分支。
+        fade_out(w, on_finished=lambda: fade_in(w, duration=Duration.Normal))
 
     def _demoIconBrowser(self, parent_layout):
         parent_layout.addLayout(

@@ -26,8 +26,9 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, replace
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from ._json import loads as _loads
 from ._pricing import formatCost
@@ -44,15 +45,20 @@ def _as_str(value, default: str = "") -> str:
 
 
 def _as_int(value, default: int = 0) -> int:
-    """容错取整数（浮点截断、字符串解析、失败取默认值）。"""
+    """容错取整数（浮点截断、字符串解析、失败取默认值）。
+
+    ``OverflowError`` 必须一并捕获：``int(float('inf'))`` 抛的是它，而它**不是**
+    ``TypeError`` / ``ValueError`` 的子类 —— 漏掉会让一个 ``inf`` 词元计数直接穿透
+    ``fromDict``（本该「一律容错」）。
+    """
     if value is None or isinstance(value, bool):
         return default
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         try:
             return int(float(value))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return default
 
 
@@ -62,7 +68,7 @@ def _as_float(value, default: float = 0.0) -> float:
         return default
     try:
         out = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
     # NaN / inf 落库后会毁掉整个文档的可序列化性，直接归零
     return out if out == out and out not in (float("inf"), float("-inf")) else default
@@ -84,6 +90,26 @@ def _as_choice(value, allowed, default: str) -> str:
     """容错取枚举字符串（不在白名单内则取默认值）。"""
     text = _as_str(value)
     return text if text in allowed else default
+
+
+def _as_bool(value, default: bool = False) -> bool:
+    """容错取布尔值（``bool`` 直取，``0/1`` 与 ``"true"/"false"`` 按语义解析）。
+
+    JSON / 存储把布尔写成字符串是常见的数据错误，而 ``bool("false")`` 是
+    ``True`` —— 一个 ``"false"`` 就能把单选悄悄翻成多选。
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in ("1", "true", "yes", "on"):
+        return True
+    if text in ("0", "false", "no", "off", ""):
+        return False
+    return default
 
 
 class ElaChatRole:
@@ -177,8 +203,12 @@ def _format_size(size) -> str:
         size = value
     try:
         value = float(max(0.0, float(size)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return str(size) if size is not None else ""
+    if not math.isfinite(value):
+        # +inf（如 JSON 的 1e999）：循环会一路除到 TB 输出 "inf TB"，
+        # 按「未知大小」处理而不是显示怪值。
+        return ""
     for unit in ("B", "KB", "MB", "GB", "TB"):
         if value < 1024.0 or unit == "TB":
             if unit == "B":
@@ -202,6 +232,10 @@ class ElaChatAttachment:
     digest: str = ""
     #: MIME 类型（可选）
     mime: str = ""
+    #: 运行时图像（粘贴图片的原图；**不序列化**）—— 附件对象在输入区 ↔ 消息之间
+    #: 流转时带着它，撤回回填与消息气泡都据此渲染缩略图；落库 / 恢复历史后为
+    #: ``None``（回退为文件 chip，图片数据由宿主自行保存）
+    image: Optional[Any] = None
 
     #: 视为图片的扩展名
     ImageSuffixes = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
@@ -365,7 +399,7 @@ class ElaChatStats:
         - ``duration_ms`` 置 0（整轮耗时由消息级字段承载，避免重复计数）；
         - 仅一个非空元素时**原样返回**（保持对象身份）。
         """
-        values = [item for item in items if item is not None]
+        values = [item for item in (items or ()) if item is not None]
         if not values:
             return None
         if len(values) == 1:
@@ -392,22 +426,29 @@ class ElaChatStats:
 
         :param durationLabel: 耗时项标签（消息级端到端耗时传 ``"端到端"``）
         """
+        # 先洗一遍：后端 usage 是外部数据，``inf`` 直接进 int()/格式化会把
+        # Qt 槽链上的调用点炸掉（``int(inf)`` -> OverflowError）。
+        cost = _as_float(self.cost_usd)
+        ttft = _as_float(self.ttft_ms)
+        duration = _as_float(self.duration_ms)
+        tps = _as_float(self.tps)
+        cached = _as_int(self.cached_tokens)
         parts = []
-        if self.cost_usd:
-            parts.append(f"花费 {formatCost(self.cost_usd)}")
-        if self.ttft_ms:
-            parts.append(f"首字 {int(self.ttft_ms)} ms")
-        if self.duration_ms:
-            seconds = max(0.0, float(self.duration_ms)) / 1000.0
+        if cost:
+            parts.append(f"花费 {formatCost(cost)}")
+        if ttft:
+            parts.append(f"首字 {int(ttft)} ms")
+        if duration:
+            seconds = max(0.0, duration) / 1000.0
             if seconds < 60:
                 parts.append(f"{durationLabel} {seconds:.1f}s")
             else:
                 minutes = int(seconds // 60)
                 parts.append(f"{durationLabel} {minutes}m {int(seconds % 60)}s")
-        if self.tps:
-            parts.append(f"{self.tps:.1f} 词元/s")
-        if self.cached_tokens:
-            parts.append(f"缓存 {self.cached_tokens} 词元")
+        if tps:
+            parts.append(f"{tps:.1f} 词元/s")
+        if cached:
+            parts.append(f"缓存 {cached} 词元")
         return "  ·  ".join(parts)
 
     # -- 持久化 ------------------------------------------------------------
@@ -479,7 +520,6 @@ class ElaChatReasoningStyle:
     All = (Collapse, Inline)
 
 
-@dataclass(frozen=True)
 class ElaChatPermissionStatus:
     """工具审批状态常量。"""
 
@@ -586,9 +626,9 @@ class ElaChatQuestion:
             header=_as_str(data.get("header")),
             question=_as_str(data.get("question")),
             options=_as_tuple_of(data.get("options"), ElaChatOption.fromDict),
-            multiple=bool(data.get("multiple", False)),
+            multiple=_as_bool(data.get("multiple"), False),
             # 缺省 True：与 opencode 一致（模型无法关掉「自己写」那一行）
-            custom=bool(data.get("custom", True)),
+            custom=_as_bool(data.get("custom"), True),
         )
 
 
@@ -702,11 +742,18 @@ class ElaChatPermission:
 
     @classmethod
     def fromDict(cls, data) -> Optional["ElaChatPermission"]:
-        """从字典还原；``None`` / 非字典返回 ``None``。"""
+        """从字典还原；``None`` / 非字典 / **空 ``request_id``** 返回 ``None``。
+
+        与 :meth:`ElaChatQuestion.fromDict` 对空 ``key`` 的口径一致：``request_id``
+        是宿主与组件之间的关联键，空的没法作答 / 没法回传，宁可整条丢掉。
+        """
         if not isinstance(data, dict):
             return None
+        request_id = _as_str(data.get("request_id"))
+        if not request_id:
+            return None
         return cls(
-            request_id=_as_str(data.get("request_id")),
+            request_id=request_id,
             action=_as_str(data.get("action")),
             resources=_as_tuple_of(data.get("resources"), _as_str),
             title=_as_str(data.get("title")),
@@ -1094,5 +1141,5 @@ class ElaChatMessage:
         )
 
     def withId(self, messageId: int) -> "ElaChatMessage":
-        """返回替换消息序号后的新快照（恢复时重映射 id 用）。"""
-        return replace(self, id=int(messageId))
+        """返回替换消息序号后的新快照（恢复时重映射 id 用；非法值归 0）。"""
+        return replace(self, id=_as_int(messageId))
