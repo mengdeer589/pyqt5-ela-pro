@@ -187,9 +187,17 @@ class ElaNodeRegistry:
 
     # -- 注册 ------------------------------------------------------------
     def register(self, spec: ElaNodeSpec, owner: str = None) -> ElaNodeSpec:
-        """注册节点类型（同命名空间内同 ``type_name`` 覆盖），返回 ``spec``。"""
+        """注册节点类型（同命名空间内同 ``type_name`` 覆盖），返回 ``spec``。
+
+        注册期校验引脚定义（``inputs`` / ``outputs`` 的每项必须是带非空
+        ``id`` 的字典）：缺 id 的定义会在 ``create()`` 里抛 ``KeyError``，
+        而 ``create`` 常在菜单 / 拖线回调（Qt 槽）里被调用 —— 槽内异常 =
+        0xC0000409 零 traceback 终止。注册是唯一能给出清晰报错的时机。
+        """
         if not spec.type_name:
             raise ValueError("ElaNodeSpec.type_name 不能为空")
+        self._validate_pin_defs(spec.inputs, "输入")
+        self._validate_pin_defs(spec.outputs, "输出")
         if owner is None:
             owner = spec.owner
         spec.owner = owner
@@ -203,6 +211,13 @@ class ElaNodeRegistry:
             )
         self._specs[key] = spec
         return spec
+
+    @staticmethod
+    def _validate_pin_defs(pins, kind: str) -> None:
+        """校验引脚定义列表（供 ``register`` 与测试直接调用）。"""
+        for pd in pins or ():
+            if not isinstance(pd, dict) or not str(pd.get("id") or "").strip():
+                raise ValueError(f"{kind}引脚定义必须是带非空 id 的字典，实际 {pd!r}")
 
     @staticmethod
     def _same_definition(a: ElaNodeSpec, b: ElaNodeSpec) -> bool:

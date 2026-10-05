@@ -92,17 +92,24 @@ class ElaBlueprintCanvas(QWidget):
 
     信号:
         node_moved(str, QPointF): 节点拖动结束（节点 id + 新场景坐标）。
+        node_rename_requested(str): 右键菜单「重命名」（画布本身不实现，
+            由宿主接住）。
+        node_properties_requested(str): 右键菜单「属性…」（同上）。
         edge_created(object): 新边建立（``ElaEdge``，含菜单自动连接产生的）。
         edge_removed(str): 边被移除（边 id）。
         selection_changed(list): 选中节点 id 列表变化。
 
-    交互注记：``body_builder`` 注入的节点体容器被画布整体置为鼠标透明
-    （``WA_TransparentForMouseEvents``），保证节点体区域按下仍能拖动
-    节点 / 框选；需要可交互节点体的开发者可自行清除该属性或改用外部
-    属性面板编辑 ``node.properties``。
+    交互注记（节点体是可交互的）：``body_builder`` 注入的节点体容器不会被
+    置为鼠标透明 —— 体里的控件（输入框 / 按钮…）正常接收自己的鼠标事件；
+    体空白处按下会冒泡到节点控件，照常选中 / 拖动节点；标题栏、引脚行与
+    体空白处都是拖动区。也就是说「控件吃掉自己的事件、其余区域拖动节点」，
+    不需要也不能靠 ``WA_TransparentForMouseEvents`` 换取拖动能力（置透明
+    等于把体里的控件全部变成装饰）。
     """
 
     node_moved = pyqtSignal(str, QPointF)
+    node_rename_requested = pyqtSignal(str)
+    node_properties_requested = pyqtSignal(str)
     edge_created = pyqtSignal(object)
     edge_removed = pyqtSignal(str)
     selection_changed = pyqtSignal(list)
@@ -307,14 +314,17 @@ class ElaBlueprintCanvas(QWidget):
     def from_dict(self, data: dict) -> None:
         """从 ``to_dict`` 结果恢复：重建节点 / 边并还原 zoom 与 offset。
 
-        两条不能省的：
+        **整体容错**（与 chat 的序列化契约一致）：这是宿主「加载文件」
+        这类 Qt 槽里最常见的入口，脏数据 / 旧版格式抛出去 = 槽内异常 =
+        0xC0000409 零 traceback 终止。所以坏节点 / 坏边**逐条跳过并记
+        WARNING**，而不是让整张图载入失败：
 
         1. **边必须走 ``graph.add_edge()``**。直接往 ``graph._edges`` 里塞
            会跳过 ``add_edge`` 的全量校验（方向 / 类型兼容 / 存在性 /
-           单连接替换），于是「文件里引脚已经被改名」这类脏数据会还原成一批
-           **指向幽灵引脚的边** —— 它们照样进 ``_edge_widgets``、照样被绘制
-           与命中，只是两端都退化成默认点，表现为「有根看不见的线」，
-           而且删不掉（``delete_selection`` 只按 id 删边）。
+           单连接替换 / id 冲突），于是「文件里引脚已经被改名」这类脏数据
+           会还原成一批**指向幽灵引脚的边** —— 它们照样进 ``_edge_widgets``、
+           照样被绘制与命中，只是两端都退化成默认点，表现为「有根看不见
+           的线」，而且删不掉（``delete_selection`` 只按 id 删边）。
         2. **必须复位执行态**。``graph.clear()`` 只发移除信号，不碰节点的
            ``status`` / ``elapsed_ms`` / ``error_message``；而 ``to_dict``
            并不序列化这三项，所以复用同一批节点对象时上一轮的「运行中」
@@ -324,11 +334,28 @@ class ElaBlueprintCanvas(QWidget):
         self._cancel_gestures()
         self.clear_selection()
         self.graph.clear()
-        gdata = data.get("graph", data)
-        for nd in gdata.get("nodes", []):
-            self.graph.add_node(ElaBlueprintNode.from_dict(nd))
-        for ed in gdata.get("edges", []):
-            raw = ElaEdge.from_dict(ed)
+        gdata = data.get("graph", data) if isinstance(data, dict) else {}
+        if not isinstance(gdata, dict):
+            gdata = {}
+        raw_nodes = gdata.get("nodes", [])
+        if not isinstance(raw_nodes, list):
+            logger.warning("nodes 不是列表（%r），按空处理", type(raw_nodes).__name__)
+            raw_nodes = []
+        for nd in raw_nodes:
+            try:
+                self.graph.add_node(ElaBlueprintNode.from_dict(nd))
+            except (TypeError, ValueError, KeyError) as exc:
+                logger.warning("跳过非法节点 %r（%s）", nd, exc)
+        raw_edges = gdata.get("edges", [])
+        if not isinstance(raw_edges, list):
+            logger.warning("edges 不是列表（%r），按空处理", type(raw_edges).__name__)
+            raw_edges = []
+        for ed in raw_edges:
+            try:
+                raw = ElaEdge.from_dict(ed)
+            except (TypeError, ValueError, KeyError) as exc:
+                logger.warning("跳过非法连线 %r（%s）", ed, exc)
+                continue
             # 走 add_edge 校验（保留原 id 以便往返），不过就丢弃：
             # 一条坏边不该让整张图载入失败
             added = self.graph.add_edge(
@@ -339,11 +366,18 @@ class ElaBlueprintCanvas(QWidget):
                 edge_id=raw.id,
             )
             if added is None:
-                logger.warning("跳过非法连线 %r（引脚缺失或类型不兼容）", raw.id)
+                logger.warning(
+                    "跳过非法连线 %r（引脚缺失 / 类型不兼容 / id 冲突）", raw.id
+                )
         self._execution.reset()
-        view = data.get("view", {})
-        self._zoom = max(ZOOM_MIN, min(ZOOM_MAX, _finite(view.get("zoom", 1.0), 1.0)))
+        view = data.get("view", {}) if isinstance(data, dict) else {}
+        if not isinstance(view, dict):
+            view = {}
+        zoom = _finite(view.get("zoom", 1.0), 1.0)
         off = view.get("offset", [0.0, 0.0])
+        if not (isinstance(off, (list, tuple)) and len(off) >= 2):
+            off = [0.0, 0.0]
+        self._zoom = max(ZOOM_MIN, min(ZOOM_MAX, zoom))
         self._offset = QPointF(_finite(off[0]), _finite(off[1]))
         self._update_view()
 
@@ -360,10 +394,9 @@ class ElaBlueprintCanvas(QWidget):
             handle = widget.pin_widget(pin.id, pin.direction)
             if handle is not None:
                 handle.installEventFilter(self)
-        if widget._body is not None:
-            widget._body.setAttribute(
-                Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
-            )
+        # 节点体保持可交互：体里的控件收自己的事件，体空白处按下会冒泡到
+        # 节点控件（事件过滤器照常收到）→ 照常选中 / 拖动节点。**不要**
+        # 给体置 WA_TransparentForMouseEvents —— 那会把体里的控件全变成装饰。
         widget._spinner.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
         )
@@ -524,11 +557,33 @@ class ElaBlueprintCanvas(QWidget):
             QEvent.Type.MouseMove,
         ):
             return False
+        # 平移进行中：事件此时可能落在节点 / 引脚热区上（中键或空格+左键
+        # 从它们上面起手，隐式 grab 留在子控件），统一在这里推进 / 收尾。
+        if self._panning:
+            if etype == QEvent.Type.MouseMove:
+                self._offset = self._offset_start + (
+                    self.view_pos_of_event(obj, event) - self._pan_start
+                )
+                self._view_changed(gesture=True)
+                return True
+            if (
+                etype == QEvent.Type.MouseButtonRelease
+                and event.button() == Qt.MouseButton.LeftButton
+            ):
+                self._panning = False
+                self.unsetCursor()
+                self._settle_view_gesture()
+                return True
+            return False
         if isinstance(obj, ElaPinHandle):
             if (
                 etype == QEvent.Type.MouseButtonPress
                 and event.button() == Qt.MouseButton.LeftButton
             ):
+                if self._space_down:
+                    # 空格 = 强制平移：按在引脚上也不起拖线
+                    self._start_pan(self.view_pos_of_event(obj, event))
+                    return True
                 self._begin_wire(obj)
                 return True
             if self._wire is not None:
@@ -546,6 +601,10 @@ class ElaBlueprintCanvas(QWidget):
             if etype == QEvent.Type.MouseButtonPress:
                 view_pos = self.view_pos_of_event(obj, event)
                 if event.button() == Qt.MouseButton.LeftButton:
+                    if self._space_down:
+                        # 空格 = 强制平移：按在节点上也不拖节点
+                        self._start_pan(view_pos)
+                        return True
                     self._node_press(obj, view_pos, event.modifiers())
                     return True
                 if event.button() == Qt.MouseButton.RightButton:
@@ -971,17 +1030,29 @@ class ElaBlueprintCanvas(QWidget):
 
         顺带把 ``_rpress`` / ``_wire`` 一起清掉：它们会与 ``_band`` 并存
         （框选中按下右键时两者同时非None），松右键会弹创建菜单而框选状态
-        继续挂着。
+        继续挂着。临时线要**回收对象**（``deleteLater``）并清掉端点邻居
+        状态 —— 只把 ``_wire`` 置 None 会让 ``ElaTempWire`` 永久挂在画布
+        底下，``_wire_src`` / ``_wire_target`` 也停在上一笔上。
         """
         self._space_down = False
         self._band = None
         self._band_additive = False
         self._rpress = None
         self._rpan = False
+        if self._wire is not None:
+            self._wire.deleteLater()
         self._wire = None
+        self._wire_src = None
+        self._wire_target = None
+        self._pending_wire = None
         if self._panning:
             self._panning = False
             self.unsetCursor()
+
+    def leaveEvent(self, event) -> None:
+        """鼠标离开画布：清掉边 hover（否则最后一次悬停的边一直保持加粗）。"""
+        self._clear_edge_hover()
+        super().leaveEvent(event)
 
     def focusOutEvent(self, event) -> None:
         self._cancel_gestures()
@@ -1041,6 +1112,16 @@ class ElaBlueprintCanvas(QWidget):
         if rects:
             self._update_scene_rects(rects)
 
+    def _clear_edge_hover(self) -> None:
+        """清除全部边的 hover 态（鼠标离开画布时调用）。"""
+        rects = []
+        for ew in self._edge_widgets.values():
+            if ew.hovered:
+                ew.hovered = False
+                rects.append(ew.bounding_rect())
+        if rects:
+            self._update_scene_rects(rects)
+
     # -- 节点右键菜单 ------------------------------------------------------
     def _open_node_menu(self, widget: ElaNodeWidget, global_pos: QPoint) -> None:
         nid = widget.node.id
@@ -1050,6 +1131,10 @@ class ElaBlueprintCanvas(QWidget):
             lambda i: [self.graph.remove_edge(e.id) for e in self.graph.edges_of(i)]
         )
         menu.delete_requested.connect(lambda i: self.graph.remove_node(i))
+        # 菜单在 ``_open_node_menu`` 里创建并随 exec 结束销毁，宿主没有
+        # 句柄可连「重命名 / 属性」—— 画布转发出同名信号（自身不实现行为）
+        menu.rename_requested.connect(self.node_rename_requested)
+        menu.properties_requested.connect(self.node_properties_requested)
         # 走 ``execElaMenu``：它在 ``exec_`` 前 ``setMinimumSize(sizeHint())``，
         # 兜住「非主屏上 ElaMenu 偶发只显示第一项」，返回后再回收
         execElaMenu(menu, global_pos)

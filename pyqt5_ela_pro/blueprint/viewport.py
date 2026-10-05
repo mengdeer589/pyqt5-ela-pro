@@ -124,6 +124,9 @@ class _ViewportMixin:
     def wheelEvent(self, event) -> None:  # noqa: N802
         self._canvas.wheelEvent(event)
 
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self._canvas.leaveEvent(event)
+
     def keyPressEvent(self, event) -> None:  # noqa: N802
         self._canvas.keyPressEvent(event)
 

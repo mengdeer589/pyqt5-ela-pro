@@ -106,12 +106,43 @@ def _resolve_color(value, fallback_key: str) -> QColor:
     return QColor(str(T(f"color.{fallback_key}")))
 
 
+def _relative_luminance(color: QColor) -> float:
+    """WCAG 相对亮度（sRGB 线性化）。"""
+
+    def _linear(channel: int) -> float:
+        v = channel / 255.0
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+
+    return (
+        0.2126 * _linear(color.red())
+        + 0.7152 * _linear(color.green())
+        + 0.0722 * _linear(color.blue())
+    )
+
+
+def _contrast_ratio(a: QColor, b: QColor) -> float:
+    """两色 WCAG 对比度（1–21）。"""
+    la, lb = _relative_luminance(a), _relative_luminance(b)
+    hi, lo = (la, lb) if la >= lb else (lb, la)
+    return (hi + 0.05) / (lo + 0.05)
+
+
 def _text_on(color: QColor) -> QColor:
-    """按底色亮度选择前景色（亮底用正文色，暗底用彩色底前景色）。"""
-    lum = 0.299 * color.red() + 0.587 * color.green() + 0.114 * color.blue()
-    if lum > 150:
-        return QColor(str(T("color.text.primary")))
-    return QColor(str(T("color.on.primary")))
+    """按**实际对比度**在主题的「正文色 / 强调前景色」之间选更可读的一档。
+
+    两个候选 token 的语义随主题翻转：亮色主题 ``text.primary``=黑、
+    ``on.primary``=白；深色主题恰好相反（``text.primary``=白、
+    ``on.primary``≈黑）。所以这里不按亮度分档写死哪一支 —— 直接比较
+    两候选与底色 ``color`` 的 WCAG 对比度取大者，深浅主题同时正确。
+
+    前一版按 YIQ 150 分档挑 token，在深色主题下整支取反：亮色 accent
+    （``#d2a668`` / ``#4cc2ff``）拿到白字，对比度只有 ~1.6–2.0:1，
+    标题基本糊在色带上（浅色主题的琥珀 ``#c08a3e`` 配白字同样只有
+    ~2.4:1，其实黑字有 ~7:1）。
+    """
+    c1 = QColor(str(T("color.text.primary")))
+    c2 = QColor(str(T("color.on.primary")))
+    return c1 if _contrast_ratio(color, c1) >= _contrast_ratio(color, c2) else c2
 
 
 def format_elapsed(ms) -> str:
@@ -188,8 +219,10 @@ class ElaNodeWidget(QFrame):
         self._proxy_state = False
         # 视图手势（平移 / 滚轮缩放）临时位图代理标记
         self._gesture_proxy = False
-        # 手势前的体可见性（end_gesture_proxy 恢复用）
-        self._gesture_body_visible = False
+        # 体「期望可见性」（按缩放算）：不要用 isVisible() 代替 —— 父链
+        # 未显示时 isVisible() 恒为 False，会把「没显示」误判成「体该隐藏」
+        # 而每次 apply_view 都触发一次全量重排。
+        self._body_shown = False
         _transparent(self)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
         self.setMouseTracking(True)
@@ -270,6 +303,7 @@ class ElaNodeWidget(QFrame):
         self._body_h = 0.0
         if self._body is not None:
             visible = self._body_visible()
+            self._body_shown = visible
             # 手势代理期间体控件由 begin_gesture_proxy 隐藏，此处不得恢复显示；
             # 但尺寸仍按「体可见」计算，避免手势中节点逻辑尺寸抖动
             if not self._gesture_proxy and self._body.isVisible() != visible:
@@ -401,7 +435,7 @@ class ElaNodeWidget(QFrame):
         （``ElaBlueprintNode.from_dict``）已拒收非有限值，这里是最后一道。
         """
         self._scale = max(0.05, float(scale)) if _finite(scale) else 1.0
-        if self._body is not None and self._body.isVisible() != self._body_visible():
+        if self._body is not None and self._body_shown != self._body_visible():
             self._relayout()
         self.setGeometry(
             _to_int(scene_pos.x()),
@@ -430,7 +464,6 @@ class ElaNodeWidget(QFrame):
             return
         pm = self.grab()
         self._gesture_proxy = True
-        self._gesture_body_visible = self._body is not None and self._body.isVisible()
         self._cache_pm = pm
         self._cache_scale = self._scale
         self._cache_dirty = False
@@ -444,7 +477,8 @@ class ElaNodeWidget(QFrame):
             return
         self._gesture_proxy = False
         if self._body is not None:
-            self._body.setVisible(self._gesture_body_visible)
+            # 恢复到「按缩放应该有的」可见性（isVisible 在父链隐藏时不可信）
+            self._body.setVisible(self._body_shown)
         self._spinner.setVisible(self.node.status == "running")
         self._invalidate_cache()
         self.update()
@@ -647,12 +681,15 @@ class ElaNodeWidget(QFrame):
             cx = w - 6.0 - SPINNER_SIZE / 2
             cy = TITLE_H / 2
             r = SPINNER_SIZE / 2
+            danger = QColor(str(T("color.danger")))
             p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(QColor(str(T("color.danger"))))
+            p.setBrush(danger)
             p.drawEllipse(QPointF(cx, cy), r, r)
+            # 叉号前景按实际对比度选（深色主题里 on.primary 近黑，压红底只有
+            # 3.7:1；白色有 4.7:1）
             p.setPen(
                 QPen(
-                    QColor(str(T("color.on.primary"))),
+                    _text_on(danger),
                     1.8,
                     Qt.PenStyle.SolidLine,
                     Qt.PenCapStyle.RoundCap,

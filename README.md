@@ -782,7 +782,7 @@ pyqt5_ela_pro/              # 核心组件包
 | **ElaParquetTable** | 数据展示 | Parquet 文件分页查看 |
 | **ElaInfoBarWidget** | 数据展示 | Parquet 查看器的错误 / 统计信息条 |
 | **ElaChartWidget** | 数据展示 | 类 ECharts 引擎：21 系列 + 交互组件（含日历热力） |
-| **ElaBlueprintCanvas** | 数据展示 | 蓝图节点图编辑器画布（节点 / 连线 / 框选 / 平移缩放 / 执行高亮） |
+| **ElaBlueprintCanvas** | 数据展示 | 蓝图节点图编辑器画布（节点 / 连线 / 框选 / 平移缩放 / 执行高亮；节点体控件可交互、拖动走标题栏与体空白处；重命名 / 属性经 `node_rename_requested` / `node_properties_requested` 信号交给宿主；`from_dict` 整体容错） |
 | **ElaNodeRegistry / ElaNodeSpec / ElaPin / ElaPinDirection** | 数据展示 · 注册表 | 蓝图节点类型注册表与其描述数据（引脚字典、强调色令牌键、自定义节点体构建器）；`register_node_type(...)` 是便捷入口 |
 | **ElaNumericBuffer** | 数据展示 · 数据 | charts 的大数组**按引用**包装（百万点不深拷贝）；**传入后不得原地修改** |
 | **ElaDashboardGauge** | 数据展示 | 仪表盘（全自绘，指针动画，颜色分段） |

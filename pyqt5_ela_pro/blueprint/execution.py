@@ -74,47 +74,63 @@ class ElaExecutionController(QObject):
 
         :param elapsed_ms: 耗时毫秒；缺省自动计时（自 ``start`` 起算，
             未 ``start`` 过则为 0）。
+
+        ``finished`` 只在**确有 running 节点被这次调用结束**时检查 ——
+        对从未 ``start`` 的节点调用 ``finish`` 属于「补一个状态」而不是
+        「一轮执行结束」，不发 ``finished``（原先空集合也发，宿主每收一次
+        就误判一轮结束）。
         """
         node = self._canvas.graph.node(node_id)
         if node is None:
             return
+        was_active = node_id in self._active
+        t0 = self._t0.pop(node_id, None)  # 显式耗时同样要清掉计时起点
         if elapsed_ms is None:
-            t0 = self._t0.pop(node_id, None)
             elapsed_ms = (time.perf_counter() - t0) * 1000.0 if t0 is not None else 0.0
         self._active.discard(node_id)
         node.set_elapsed_ms(elapsed_ms)
         node.set_status("done")
         self.node_finished.emit(node_id, float(elapsed_ms))
-        self._maybe_finished()
+        if was_active:
+            self._maybe_finished()
 
     def fail(self, node_id: str, message: str = "") -> None:
         """标记节点 error：danger 描边 + 错误图标，tooltip 显示 ``message``。"""
         node = self._canvas.graph.node(node_id)
         if node is None:
             return
+        was_active = node_id in self._active
         self._active.discard(node_id)
         self._t0.pop(node_id, None)
         node.error_message = str(message)
         node.set_status("error")
-        self._maybe_finished()
+        if was_active:
+            self._maybe_finished()
 
     # -- 路径高亮 ----------------------------------------------------------
     def set_path(self, node_ids) -> None:
         """高亮执行路径上的边（流动虚线动画）。
 
-        :param node_ids: 按执行顺序排列的节点 id 序列；相邻两节点之间
-            已存在的边将被标记为 flowing。
+        :param node_ids: 按执行顺序排列的节点 id 序列。**序列中从前到后
+            存在的每一条边**都会被标记为 flowing：只要一条边的两个端点
+            都在序列里、且方向与序列顺序一致（``from`` 在前）。相邻节点
+            之间的边是最常见的一档；分支 DAG（一个节点扇出到多个下游）
+            给出的序列也能把两条分支边都点亮 —— 只认「相邻两节点」的
+            旧实现会把它们漏掉。
         """
         self._clear_path()
         graph = self._canvas.graph
-        ids = list(node_ids)
-        for a, b in zip(ids, ids[1:]):
-            for edge in graph.edges():
-                if edge.from_node == a and edge.to_node == b:
-                    widget = self._canvas.edge_widget(edge.id)
-                    if widget is not None:
-                        widget.set_flowing(True)
-                        self._path_edges.append(widget)
+        order = {}
+        for index, nid in enumerate(node_ids):
+            order.setdefault(nid, index)
+        for edge in graph.edges():
+            a, b = order.get(edge.from_node), order.get(edge.to_node)
+            if a is None or b is None or a >= b:
+                continue
+            widget = self._canvas.edge_widget(edge.id)
+            if widget is not None:
+                widget.set_flowing(True)
+                self._path_edges.append(widget)
         if self._path_edges:
             self._canvas._ensure_flow_timer()
 

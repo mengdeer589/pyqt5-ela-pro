@@ -52,6 +52,38 @@ def types_compatible(out_type: str, in_type: str) -> bool:
     return out_type == in_type
 
 
+def _finite_pair(value, default) -> tuple:
+    """把外部 ``[x, y]`` 数据转成**有限**二元组；非法一律回退 ``default``。
+
+    与 ``_finite`` 同源：JSON 里的 ``1e999`` 会解析成 ``inf``，而
+    ``int(inf)`` 抛的 ``OverflowError`` 穿出 Qt 槽就是 0xC0000409 零
+    traceback 终止（见 ``_finite`` 的注释）。
+    """
+    if isinstance(value, (list, tuple)) and len(value) >= 2:
+        return _finite(value[0], default[0]), _finite(value[1], default[1])
+    return float(default[0]), float(default[1])
+
+
+def _as_bool(value, default: bool = False) -> bool:
+    """把外部布尔字段转成 bool：字符串只认显式真 / 假。
+
+    ``bool("false")`` 是 True —— 直接把 JSON 里的字符串塞给 ``bool()``
+    会把明确的「关」读成「开」。无法判断时回退 ``default``。
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("1", "true", "yes", "on"):
+            return True
+        if text in ("0", "false", "no", "off", ""):
+            return False
+        return default
+    if isinstance(value, (int, float)):
+        return value != 0
+    return default
+
+
 @dataclass
 class ElaPin:
     """引脚描述。
@@ -83,7 +115,19 @@ class ElaPin:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ElaPin":
-        """由 ``to_dict`` 结果重建引脚（未知方向回退 Input 并记 WARNING）。"""
+        """由 ``to_dict`` 结果重建引脚。
+
+        容错契约（与 chat 的 ``fromDict`` 一致）：缺字段取默认、方向未知
+        回退 Input 并记 WARNING；但**没有 id 的引脚**没有存在意义（连线
+        找不到它），抛 ``ValueError`` 由上层（``ElaBlueprintNode.from_dict``）
+        跳过 —— 上层不会因为这个抛异常。
+        """
+        if not isinstance(data, dict):
+            raise ValueError(f"引脚数据不是字典: {data!r}")
+        pin_id = data.get("id")
+        if not pin_id:
+            raise ValueError("引脚定义缺少 id")
+        pin_id = str(pin_id)
         raw_dir = data.get("direction", "input")
         try:
             direction = ElaPinDirection(raw_dir)
@@ -91,15 +135,15 @@ class ElaPin:
             logger.warning(
                 "未知引脚方向 %r（引脚 %r），回退 input",
                 raw_dir,
-                data.get("id"),
+                pin_id,
             )
             direction = ElaPinDirection.Input
         return cls(
-            id=data["id"],
-            name=data.get("name", data["id"]),
+            id=pin_id,
+            name=str(data.get("name") or pin_id),
             direction=direction,
-            data_type=data.get("data_type", "any"),
-            multi=bool(data.get("multi", False)),
+            data_type=str(data.get("data_type", "any") or "any"),
+            multi=_as_bool(data.get("multi", False)),
         )
 
 
@@ -124,13 +168,23 @@ class ElaEdge:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ElaEdge":
-        return cls(
-            id=data["id"],
-            from_node=data["from_node"],
-            from_pin=data["from_pin"],
-            to_node=data["to_node"],
-            to_pin=data["to_pin"],
-        )
+        """由 ``to_dict`` 结果重建连线；字段缺失 / 非法抛 ``ValueError``。
+
+        有效性（引脚存在 / 方向 / 类型兼容）不在这里判断 —— 那是
+        ``ElaBlueprintGraph.add_edge`` 的职责，``from_dict`` 只保证数据
+        形状可用。
+        """
+        if not isinstance(data, dict):
+            raise ValueError(f"连线数据不是字典: {data!r}")
+        try:
+            edge_id = str(data["id"])
+            from_node = str(data["from_node"])
+            from_pin = str(data["from_pin"])
+            to_node = str(data["to_node"])
+            to_pin = str(data["to_pin"])
+        except KeyError as exc:
+            raise ValueError(f"连线定义缺少字段 {exc.args[0]!r}: {data!r}") from None
+        return cls(edge_id, from_node, from_pin, to_node, to_pin)
 
 
 def _finite(value, default: float = 0.0) -> float:
@@ -146,6 +200,23 @@ def _finite(value, default: float = 0.0) -> float:
     except (TypeError, ValueError, OverflowError):
         return default
     return out if math.isfinite(out) else default
+
+
+def _pins_from_dicts(raw) -> list:
+    """把外部引脚列表解析成 ``ElaPin`` 列表：非法条目跳过并记 WARNING。
+
+    一条坏引脚定义不应该毁掉整个节点的恢复（连线本来就会按引脚缺失被
+    ``add_edge`` 拒掉）。
+    """
+    if not isinstance(raw, list):
+        return []
+    pins = []
+    for item in raw:
+        try:
+            pins.append(ElaPin.from_dict(item))
+        except (TypeError, ValueError, KeyError, AttributeError) as exc:
+            logger.warning("跳过非法引脚定义 %r（%s）", item, exc)
+    return pins
 
 
 class ElaBlueprintNode(QObject):
@@ -278,11 +349,17 @@ class ElaBlueprintNode(QObject):
             "outputs": [p.to_dict() for p in self.outputs],
             "properties": dict(self.properties),
         }
+
     @classmethod
     def from_dict(cls, data: dict) -> "ElaBlueprintNode":
         """由 ``to_dict`` 结果重建节点（运行时状态不回放，保持 idle）。
 
-        **非有限坐标直接拒收**（``ValueError``）。这不是洁癖：``json`` 接受
+        容错契约：非有限坐标 / 尺寸归默认、非法引脚定义**跳过并记
+        WARNING**、``properties`` 非字典归空；但缺 ``type_name`` 抛
+        ``ValueError``（没有类型的节点无法解析注册表，交给上层决定是否
+        跳过），``id`` 缺失 / 非法则自动生成。
+
+        **非有限坐标必须在这里拒收**（归默认值）。这不是洁癖：``json`` 接受
         ``1e999`` 并解析成 ``inf``（``json.dumps(float("inf"))`` 还会写出
         ``Infinity``），而 ``inf`` 一路走到 ``ElaNodeWidget.apply_view`` 的
         ``int(scene_pos.x())`` 就抛 ``OverflowError`` —— ``OverflowError``
@@ -290,19 +367,27 @@ class ElaBlueprintNode(QObject):
         穿出 Qt 槽 = **进程 0xC0000409 零traceback 终止**（实测复现）。
         ``NaN`` 同理（``int(nan)`` 抛 ``ValueError``）。
         """
+        if not isinstance(data, dict):
+            raise ValueError(f"节点数据不是字典: {data!r}")
+        type_name = str(data.get("type_name") or "").strip()
+        if not type_name:
+            raise ValueError(f"节点定义缺少 type_name: {data!r}")
+        node_id = data.get("id")
         node = cls(
-            data["type_name"],
-            data.get("title", data["type_name"]),
-            node_id=data.get("id"),
+            type_name,
+            data.get("title") or type_name,
+            node_id=str(node_id) if node_id else None,
         )
-        pos = data.get("pos", [0.0, 0.0])
-        size = data.get("size", [180.0, 80.0])
-        node.pos = QPointF(_finite(pos[0]), _finite(pos[1]))
-        node.size = QSizeF(_finite(size[0], 180.0), _finite(size[1], 80.0))
-        node.accent = data.get("accent")
-        node.inputs = [ElaPin.from_dict(p) for p in data.get("inputs", [])]
-        node.outputs = [ElaPin.from_dict(p) for p in data.get("outputs", [])]
-        node.properties = dict(data.get("properties", {}))
+        x, y = _finite_pair(data.get("pos"), (0.0, 0.0))
+        w, h = _finite_pair(data.get("size"), (180.0, 80.0))
+        node.pos = QPointF(x, y)
+        node.size = QSizeF(w, h)
+        accent = data.get("accent")
+        node.accent = accent if isinstance(accent, str) else None
+        node.inputs = _pins_from_dicts(data.get("inputs"))
+        node.outputs = _pins_from_dicts(data.get("outputs"))
+        properties = data.get("properties")
+        node.properties = dict(properties) if isinstance(properties, dict) else {}
         return node
 
 
@@ -364,11 +449,17 @@ class ElaBlueprintGraph(QObject):
         """校验并建立连线，成功返回 ``ElaEdge``，失败返回 ``None``。
 
         ``edge_id`` 仅供 ``from_dict`` 往返时保留原 id（不给则新生成）。
-        **它不跳过任何校验** —— 保留 id 不是绕过规则的理由。
+        **它不跳过任何校验**（方向 / 类型 / 存在性 / 单连接替换都要过）；
+        与既有边 id 冲突同样拒绝，不允许「同 id 覆盖」这种静默丢边的
+        行为（被覆盖的旧边不会发 ``edge_removed``，画布会把旧部件泄漏在
+        ``_edge_widgets`` 之外）。
         """
         n1, n2 = self._nodes.get(from_node), self._nodes.get(to_node)
         if n1 is None or n2 is None:
             return None
+        edge_id = str(edge_id) if edge_id else None
+        if edge_id is not None and edge_id in self._edges:
+            return None  # id 冲突：拒绝而不是覆盖
         p_out = next((p for p in n1.outputs if p.id == from_pin), None)
         p_in = next((p for p in n2.inputs if p.id == to_pin), None)
         if p_out is None or p_in is None:
@@ -435,12 +526,41 @@ class ElaBlueprintGraph(QObject):
 
     @classmethod
     def from_dict(cls, data: dict) -> "ElaBlueprintGraph":
-        """由 ``to_dict`` 结果重建整张图（节点 / 边顺序保持）。"""
+        """由 ``to_dict`` 结果重建整张图（节点 / 边顺序保持）。
+
+        与 ``canvas.from_dict`` 同一条契约：**边必须走 ``add_edge()``**
+        校验（方向 / 类型兼容 / 存在性 / 单连接替换 / id 冲突），不过的
+        丢弃并记 WARNING —— 直接往 ``_edges`` 里塞会把「文件里引脚已改名」
+        这类脏数据还原成指向幽灵引脚的边；坏节点同样跳过而不是中断整张
+        图的载入。
+        """
         graph = cls()
-        for nd in data.get("nodes", []):
-            graph.add_node(ElaBlueprintNode.from_dict(nd))
-        for ed in data.get("edges", []):
-            edge = ElaEdge.from_dict(ed)
-            graph._edges[edge.id] = edge
-            graph.edge_added.emit(edge)
+        raw_nodes = data.get("nodes", []) if isinstance(data, dict) else []
+        if not isinstance(raw_nodes, list):
+            raw_nodes = []
+        for nd in raw_nodes:
+            try:
+                graph.add_node(ElaBlueprintNode.from_dict(nd))
+            except (TypeError, ValueError, KeyError) as exc:
+                logger.warning("跳过非法节点 %r（%s）", nd, exc)
+        raw_edges = data.get("edges", []) if isinstance(data, dict) else []
+        if not isinstance(raw_edges, list):
+            raw_edges = []
+        for ed in raw_edges:
+            try:
+                raw = ElaEdge.from_dict(ed)
+            except (TypeError, ValueError, KeyError) as exc:
+                logger.warning("跳过非法连线 %r（%s）", ed, exc)
+                continue
+            added = graph.add_edge(
+                raw.from_node,
+                raw.from_pin,
+                raw.to_node,
+                raw.to_pin,
+                edge_id=raw.id,
+            )
+            if added is None:
+                logger.warning(
+                    "跳过非法连线 %r（引脚缺失 / 类型不兼容 / id 冲突）", raw.id
+                )
         return graph

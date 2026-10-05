@@ -13,6 +13,8 @@ import os
 from PyQt5.QtCore import QPointF, QTimer
 from PyQt5.QtWidgets import QHBoxLayout
 from PyQt5ElaWidgetTools import (
+    ElaContentDialog,
+    ElaLineEdit,
     ElaPushButton,
     ElaSpinBox,
     ElaMessageBar,
@@ -89,7 +91,8 @@ def _ensure_demo_types():
         "blur",
         "高斯模糊",
         "处理",
-        inputs=[{"id": "img", "name": "图像", "data_type": "image"}],
+        # multi：演示图有两路汇入（噪点 / 缩放），单连接会被后到的边静默替换
+        inputs=[{"id": "img", "name": "图像", "data_type": "image", "multi": True}],
         outputs=[{"id": "img", "name": "图像", "data_type": "image"}],
         accent="warning",
         body_builder=build_blur_body,
@@ -119,12 +122,18 @@ class BlueprintPage(ExamplePage):
         _ensure_demo_types()
         self._canvas = ElaBlueprintCanvas(ElaBlueprintGraph(), owner=DEMO_OWNER)
         self._canvas.setMinimumHeight(440)
+        self._sim_timer = None
+        self._rename_dialog = None
+        # 画布把右键菜单里「重命名 / 属性」转成信号（行为归宿主）；示例
+        # 给出最小实现，说明这两个入口该怎么接
+        self._canvas.node_rename_requested.connect(self._rename_node)
+        self._canvas.node_properties_requested.connect(self._show_node_properties)
         self._demo_scene()
         self._canvas.fit_view()
 
         self._addInfoText(
             "操作：右键空白创建节点 · 拖引脚连线（磁吸高亮）· 拖节点 / 框选 / Ctrl 多选 · "
-            "Delete 删除 · 滚轮缩放 · 右键节点打开菜单",
+            "Delete 删除 · 滚轮缩放 · 右键节点打开菜单（重命名 / 属性由宿主实现）",
             main_layout,
         )
         main_layout.addWidget(self._canvas, 1)
@@ -138,7 +147,7 @@ class BlueprintPage(ExamplePage):
         run_btn = ElaPushButton("执行模拟", self)
         run_btn.clicked.connect(self._run_simulation)
         reset_btn = ElaPushButton("重置状态", self)
-        reset_btn.clicked.connect(lambda: self._canvas.execution().reset())
+        reset_btn.clicked.connect(self._reset_states)
         fit_btn = ElaPushButton("适应视图", self)
         fit_btn.clicked.connect(self._canvas.fit_view)
         save_btn = ElaPushButton("保存 JSON", self)
@@ -146,7 +155,7 @@ class BlueprintPage(ExamplePage):
         load_btn = ElaPushButton("加载 JSON", self)
         load_btn.clicked.connect(self._load_json)
         clear_btn = ElaPushButton("清空画布", self)
-        clear_btn.clicked.connect(self._canvas.graph.clear)
+        clear_btn.clicked.connect(self._clear_canvas)
         for btn in (run_btn, reset_btn, fit_btn, save_btn, load_btn, clear_btn):
             row.addWidget(btn)
         row.addStretch()
@@ -170,38 +179,140 @@ class BlueprintPage(ExamplePage):
     # ── 执行模拟（QTimer 顺序推进，纯 UI 状态）──────────────────────────
 
     def _run_simulation(self):
+        """启动演示执行链：每个节点先 running 一个节拍，再 done / error。
+
+        先 ``start``、隔一拍才 ``finish`` —— 同一回调里连着调两者的话
+        running 状态在事件循环回到重绘之前就被覆盖，旋转圈 / 脉冲描边
+        永远不可见（这个演示的一半意义就是看到它）。
+        """
+        self._stop_simulation()
         self._canvas.execution().reset()
         graph = self._canvas.graph
         nodes = graph.nodes()
         if not nodes:
             return
-        # 按创建序简单模拟一条执行链
+        # 有连边的节点按创建序排前，孤立节点排最后
         chain = [n.id for n in nodes if graph.edges_of(n.id)]
         chain += [n.id for n in nodes if not graph.edges_of(n.id)]
         chain = list(dict.fromkeys(chain))  # 去重保序
         self._canvas.execution().set_path(chain)
         self._sim_chain = chain
         self._sim_index = 0
-        timer = QTimer(self)
-        timer.setSingleShot(True)
-        timer.timeout.connect(lambda: self._sim_step(timer))
-        timer.start(200)
+        self._sim_phase = "start"
+        self._sim_timer = QTimer(self)
+        self._sim_timer.setSingleShot(True)
+        self._sim_timer.timeout.connect(lambda: self._sim_step(self._sim_timer))
+        # 首节点同步起步：点完按钮立即能看到 running
+        self._sim_step(self._sim_timer)
+
+    def _stop_simulation(self):
+        """停止在途的演示执行链（重置 / 清空 / 重跑时调用）。"""
+        timer = getattr(self, "_sim_timer", None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+        self._sim_timer = None
 
     def _sim_step(self, timer):
+        """单步推进（槽内异常兜底：Qt 回调抛异常 = 进程静默终止）。"""
+        try:
+            self._sim_step_impl(timer)
+        except Exception as exc:  # noqa: BLE001
+            self._stop_simulation()
+            ElaMessageBar.error(
+                ElaMessageBarType.PositionPolicy.TopRight,
+                "",
+                f"模拟中断：{exc}",
+                2000,
+                self.window(),
+            )
+
+    def _sim_step_impl(self, timer):
         chain = self._sim_chain
         if self._sim_index >= len(chain):
             return
+        ex = self._canvas.execution()
         nid = chain[self._sim_index]
-        self._sim_index += 1
-        if self._sim_index % 4 == 0:
-            # 每 4 步失败一次演示 error 状态
-            node = self._canvas.graph.node(nid)
-            self._canvas.execution().fail(nid, f"模拟失败：{node.title}")
+        if self._sim_phase == "start":
+            ex.start(nid)
+            self._sim_phase = "end"
         else:
-            self._canvas.execution().start(nid)
-            self._canvas.execution().finish(nid, 20 + self._sim_index * 17)
+            node = self._canvas.graph.node(nid)
+            if node is None:
+                # 模拟途中节点被删：跳过而不是拿 None.title 抛异常
+                self._sim_index += 1
+                self._sim_phase = "start"
+            else:
+                if (self._sim_index + 1) % 4 == 0:
+                    # 每 4 个节点失败一次演示 error 状态
+                    ex.fail(nid, f"模拟失败：{node.title}")
+                else:
+                    ex.finish(nid, 20 + self._sim_index * 17)
+                self._sim_index += 1
+                self._sim_phase = "start"
         if self._sim_index < len(chain):
-            timer.start(200)
+            timer.start(160)
+
+    def _reset_states(self):
+        """停止执行链并复位全部节点状态（控制栏按钮）。"""
+        self._stop_simulation()
+        self._canvas.execution().reset()
+
+    def _clear_canvas(self):
+        """停止执行链并清空画布。"""
+        self._stop_simulation()
+        self._canvas.graph.clear()
+
+    # ── 节点菜单：重命名 / 属性（画布只发信号，行为由宿主实现）──────────
+
+    def _rename_node(self, node_id):
+        """右键「重命名」：非模态小对话框改标题（示例接法）。
+
+        用 ``show()`` 而不是 ``exec()``：模态会把测试与其它宿主回调阻塞住
+        （AGENTS 对模态对话框的通用约定）。
+        """
+        node = self._canvas.graph.node(node_id)
+        if node is None:
+            return
+        old = getattr(self, "_rename_dialog", None)
+        if old is not None:
+            old.close()
+        dialog = ElaContentDialog(self)
+        dialog.setWindowTitle("重命名节点")
+        edit = ElaLineEdit(dialog)
+        edit.setText(node.title)
+        edit.setBorderRadius(6)
+        dialog.setCentralWidget(edit)
+        dialog.setLeftButtonText("取消")
+        dialog.setRightButtonText("确定")
+
+        def _apply() -> None:
+            text = edit.text().strip()
+            if text:
+                node.set_title(text)
+            dialog.close()
+
+        dialog.rightButtonClicked.connect(_apply)
+        dialog.leftButtonClicked.connect(dialog.close)
+        self._rename_dialog = dialog
+        dialog.show()
+        edit.setFocus()
+
+    def _show_node_properties(self, node_id):
+        """右键「属性…」：示例用信息条展示（真实属性面板由宿主实现）。"""
+        node = self._canvas.graph.node(node_id)
+        if node is None:
+            return
+        parts = [f"类型 {node.type_name}", f"状态 {node.status}"]
+        for key, value in node.properties.items():
+            parts.append(f"{key} = {value}")
+        ElaMessageBar.information(
+            ElaMessageBarType.PositionPolicy.TopRight,
+            "节点属性",
+            " · ".join(parts),
+            2600,
+            self.window(),
+        )
 
     # ── JSON 保存 / 加载 ────────────────────────────────────────────────
 
@@ -227,6 +338,7 @@ class BlueprintPage(ExamplePage):
         )
 
     def _load_json(self):
+        self._stop_simulation()
         try:
             with open(_DEMO_JSON, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -239,7 +351,19 @@ class BlueprintPage(ExamplePage):
                 self.window(),
             )
             return
-        self._canvas.from_dict(data)
+        # from_dict 自身已整体容错（坏节点 / 坏边逐条跳过）；这里再兜一道
+        # 是槽内异常 = 进程终止的通用防线
+        try:
+            self._canvas.from_dict(data)
+        except Exception as exc:  # noqa: BLE001
+            ElaMessageBar.error(
+                ElaMessageBarType.PositionPolicy.TopRight,
+                "",
+                f"加载失败：{exc}",
+                2000,
+                self.window(),
+            )
+            return
         self._canvas.fit_view()
         ElaMessageBar.success(
             ElaMessageBarType.PositionPolicy.TopRight,

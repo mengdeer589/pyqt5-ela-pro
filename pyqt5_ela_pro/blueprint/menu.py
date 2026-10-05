@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from PyQt5.QtCore import QPoint, QRectF, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QPainter, QStandardItem, QStandardItemModel
+from PyQt5.QtGui import QColor, QFont, QPainter, QPen, QStandardItem, QStandardItemModel
 from PyQt5.QtWidgets import QAction, QDialog, QLineEdit, QVBoxLayout
 from PyQt5ElaWidgetTools import (
     ElaIcon,
@@ -28,7 +28,6 @@ from PyQt5ElaWidgetTools import (
     eTheme,
 )
 
-from .._styles import paintRoundedCard
 from ._tokens import theme_changed_slot
 from .model import ElaPinDirection, types_compatible
 from .registry import ElaNodeRegistry
@@ -107,12 +106,17 @@ class ElaNodeCreationMenu(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        # 半透明窗口：四角由自绘圆角裁出（否则先铺满矩形底色，圆角描边
+        # 只是画在矩形里的一圈线，窗口本身还是方的）
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setMinimumWidth(280)
         self._compatible = None
         self._owner = owner
         # _rebuild 才赋值；keyPressEvent 的 returnPressed 分支会读它，
         # 首帧之前按 Enter 会 AttributeError（抛进 Qt 回调 = 进程 abort）。
         self._first_item = None
+        # 双击 / 回车可能让 clicked 与 activated 同时到达；首个 _pick 生效
+        self._picked = None
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 8, 8, 8)
@@ -149,15 +153,21 @@ class ElaNodeCreationMenu(QDialog):
         self._retheme()
 
     def paintEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
-        """自绘外框（弹层底色铺满 + 圆角 1px 边）—— 禁 QSS 后由这里接管。"""
+        """自绘圆角外框（弹层底色 + 1px 边）—— 禁 QSS 后由这里接管。
+
+        窗口带 ``WA_TranslucentBackground``，只有圆角盒内被填充，四角
+        真正透明（窗口本身是方的，不铺满看不出圆角）。
+        """
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(_theme_color(_TC_POPUP_BASE)))
-        paintRoundedCard(
-            painter,
-            QRectF(self.rect()),
-            border=QColor(_theme_color(_TC_POPUP_BORDER)),
-            radius=6.0,
-        )
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(_theme_color(_TC_POPUP_BASE)))
+        painter.drawRoundedRect(rect, 6.0, 6.0)
+        painter.setPen(QPen(QColor(_theme_color(_TC_POPUP_BORDER)), 1.0))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(rect, 6.0, 6.0)
+        painter.end()
 
     def _retheme(self) -> None:
         """主题感知的外框重绘与搜索图标色（内容控件自绘随主题）。"""
@@ -257,7 +267,14 @@ class ElaNodeCreationMenu(QDialog):
         self._pick(type_name)
 
     def _pick(self, type_name) -> None:
-        """选定类型：关闭并发射信号（close + WA_DeleteOnClose 自毁）。"""
+        """选定类型：关闭并发射信号（close + WA_DeleteOnClose 自毁）。
+
+        幂等：``clicked`` 与 ``activated`` 可能对同一次交互都到达
+        （双击 / 某些平台样式），首个生效，之后忽略 —— 否则建两个节点。
+        """
+        if self._picked is not None:
+            return
+        self._picked = type_name
         self.close()
         self.type_chosen.emit(type_name)
 
