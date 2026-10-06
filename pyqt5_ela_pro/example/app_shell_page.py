@@ -14,7 +14,9 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QTimer, Qt
+import re
+
+from PyQt5.QtCore import QRectF, QTimer, Qt
 from PyQt5.QtWidgets import QHBoxLayout, QWidget
 from PyQt5ElaWidgetTools import (
     ElaIconType,
@@ -29,48 +31,122 @@ from pyqt5_ela_pro import (
     ElaSplashScreen,
     ElaTaskbarProgress,
     ElaTrayIcon,
-    svg_icon_loader,
 )
 from .base_page import ExamplePage
 from datetime import datetime
-from PyQt5.QtGui import QColor, QIcon, QPainter, QPixmap
+from PyQt5.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from .selection_page import SelectionAssistantPage
 from .tray_host import ElaTrayHost, QUIT_ID, SEPARATOR, TOGGLE_WINDOW_ID
 
 
-def _dot(color: str) -> QIcon:
-    """画一个纯色圆点当托盘图标（示例不依赖外部资源文件）。"""
-    pixmap = QPixmap(32, 32)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    painter.setPen(Qt.PenStyle.NoPen)
-    painter.setBrush(QColor(color))
-    painter.drawEllipse(2, 2, 28, 28)
-    painter.end()
-    return QIcon(pixmap)
+#: 托盘三态的形状，坐标按 24x24 坐标系给、渲染时按目标尺寸缩放。
+#: 元素是 ``("path", d)``（只支持 M / L / Z 绝对指令）或 ``("circle", cx, cy, r)``。
+#: 用绝对指令而不是 SVG 那套 ``h`` / ``v`` 相对简写：少一套语法要解析。
+_TRAY_SHAPES = {
+    # 九宫格式方块
+    "normal": [
+        ("path", "M4 5 L11 5 L11 12 L4 12 Z"),
+        ("path", "M13 5 L20 5 L20 9 L13 9 Z"),
+        ("path", "M4 14 L11 14 L11 19 L4 19 Z"),
+        ("path", "M13 11 L20 11 L20 19 L13 19 Z"),
+    ],
+    # 三角警告 + 感叹号（零长度线段配圆头笔帽 = 一个点）
+    "warning": [
+        ("path", "M12 3 L22 20 L2 20 Z"),
+        ("path", "M12 10 L12 15"),
+        ("path", "M12 17.2 L12 17.5"),
+    ],
+    "critical": [
+        ("circle", 12, 12, 9),
+        ("path", "M12 8 L12 13"),
+        ("path", "M12 16 L12 16.3"),
+    ],
+    "host": [
+        ("path", "M3 5 L21 5 L21 17 L3 17 Z"),
+        ("path", "M8 21 L16 21"),
+        ("path", "M12 17 L12 21"),
+    ],
+}
+
+_TRAY_ICON_NORMAL = "normal"
+_TRAY_ICON_WARNING = "warning"
+_TRAY_ICON_CRITICAL = "critical"
+_TRAY_ICON_HOST = "host"
+
+#: 托盘图标名 → 演示色（托盘由 Explorer 绘制，``QIcon`` 不吃 ``eTheme``）
+_TRAY_COLORS = {
+    "normal": "#4f9dff",
+    "warning": "#f0a13a",
+    "critical": "#e5484d",
+    "host": "#8a8f99",
+}
 
 
-#: 托盘图标用的内置 Fluent 图标名（与全库 SVG 图标同一套风格）
-_TRAY_ICON_NORMAL = "ic_fluent_apps_regular"
-_TRAY_ICON_WARNING = "ic_fluent_warning_regular"
-_TRAY_ICON_CRITICAL = "ic_fluent_error_circle_regular"
-_TRAY_ICON_HOST = "ic_fluent_window_regular"
+def _scaled_path(d: str, scale: float) -> QPainterPath:
+    """把 24x24 坐标系的 ``M`` / ``L`` / ``Z`` 绝对路径按 ``scale`` 放大。
 
+    刻意不实现 SVG 的相对指令（``h`` / ``v`` / ``a`` …）—— 那些是弧线与相对
+    偏移，手写解析器在缩放下容易走样，而示例只需要直线段。
 
-def _tray_icon(name: str, color: str) -> QIcon:
-    """用内置 Fluent 图标包渲染托盘图标。
-
-    托盘由 Explorer 绘制、``QIcon`` 不吃 ``eTheme``，所以颜色由宿主显式给；
-    图标本身走 ``svg_icon_loader()``（与页面 / 按钮上的 SVG 图标同一套资源）。
-    多尺寸渲染（16~64）适配不同 DPI 与任务栏缩放，只给一个尺寸会发虚。
+    词法切分必须把「指令字母」与「紧跟的数字」分开（``"M4 5"`` → ``M`` / ``4``
+    / ``5``），直接 ``str.split()`` 会拿到 ``"M4"`` 这种粘连 token。
     """
-    loader = svg_icon_loader()
-    if not loader.hasIcon(name):
-        return _dot(color)  # 图标包缺失时降级为色点，不空白也不报错
+    tokens = re.findall(r"[MLZ]|-?\d+(?:\.\d+)?", d)
+    path = QPainterPath()
+    i = 0
+    while i < len(tokens):
+        cmd = tokens[i]
+        if cmd in ("M", "L"):
+            x, y = float(tokens[i + 1]) * scale, float(tokens[i + 2]) * scale
+            if cmd == "M":
+                path.moveTo(x, y)
+            else:
+                path.lineTo(x, y)
+            i += 3
+        elif cmd == "Z":
+            path.closeSubpath()
+            i += 1
+        else:  # pragma: no cover —— _TRAY_SHAPES 里只有上面三种
+            raise ValueError(f"未支持的路径指令: {cmd}")
+    return path
+
+
+def _tray_icon(name: str, color: str | None = None) -> QIcon:
+    """按名字画托盘图标（示例不依赖外部资源文件）。
+
+    托盘由 Explorer 绘制、``QIcon`` 不吃 ``eTheme``，所以颜色由宿主显式给。
+    **多尺寸渲染（16~64）适配不同 DPI 与任务栏缩放** —— 只给一个尺寸，
+    Explorer 按 2x 缩放时会插值发虚。
+
+    这里用 ``QPainterPath`` 自绘而不是图标包：托盘图标属于**宿主资产**，示例
+    该证明的是「多尺寸 + 显式配色」这两条契约，而不是自带一套图标集。
+    """
+    shapes = _TRAY_SHAPES[name]
+    color = color or _TRAY_COLORS[name]
     icon = QIcon()
     for size in (16, 20, 24, 32, 48, 64):
-        icon.addPixmap(loader.getPixmap(name, size, color))
+        scale = size / 24.0
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor(color))
+        pen.setWidthF(max(1.0, 1.8 * scale))
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        for shape in shapes:
+            if shape[0] == "circle":
+                _, cx, cy, r = shape
+                painter.drawEllipse(
+                    QRectF(
+                        (cx - r) * scale, (cy - r) * scale, 2 * r * scale, 2 * r * scale
+                    )
+                )
+            else:
+                painter.drawPath(_scaled_path(shape[1], scale))
+        painter.end()
+        icon.addPixmap(pixmap)
     return icon
 
 
@@ -327,8 +403,9 @@ class AppShellPage(ExamplePage):
     def _demoTray(self, main_layout):
         info = ElaText(
             "托盘由 Explorer 绘制，QIcon 不吃 eTheme，组件不做主题自动适配——"
-            "深浅两版图标需宿主自行准备。图标来自内置 Fluent 图标包"
-            "（svg_icon_loader，与全库 SVG 图标同源），也可换成任意 QIcon。"
+            "深浅两版图标需宿主自行准备。图标是 QPainterPath 自绘的"
+            "（托盘图标属于宿主资产，示例不自带图标集），关键是"
+            "**多尺寸渲染**：16~64 各来一份，Explorer 按 2x 缩放时才不会发虚。"
             "Win7 等环境可能不支持气泡通知，notify() 会降级为发 errorOccurred "
             "而不崩。演示对象默认不占系统托盘（避免与下方宿主演示重复），"
             "点击任一托盘按钮会先把它显示出来。",

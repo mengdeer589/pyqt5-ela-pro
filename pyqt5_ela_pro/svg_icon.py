@@ -1,33 +1,31 @@
 """
 SVG 图标转换模块。
 
-从 PyQt-SiliconUI 的 .icons 文件加载 SVG 图标并转换为 QIcon，
-与 ela 组件的 setIcon() 方法配合使用。
+把 SVG 字符串渲染成 ``QIcon`` / ``QPixmap`` / ``QImage``，并提供一个可选的
+图标包加载器（``.icons`` 文本包）。
+
+**本模块不提供按钮。** 「带第三方 SVG 图标的按钮」是 :meth:`ElaButton.setSvgIcon`
+的职责，不要在这里另起一个平行按钮类 —— 那样会拿不到 ``ElaButton`` 的
+6 变体 × 16 色 × 3 尺寸、focus ring、loading 指示器与动效策略。
+
+渲染结果按 ``(svg_data, size, color)`` 缓存，**缓存里存的是 ``QImage``**
+（值类型、可跨线程），只在出参那一层做一次 ``QPixmap.fromImage``。
 """
 
 from __future__ import annotations
 
 import os
-import warnings
 from functools import lru_cache
 from typing import Optional
 
-from PyQt5.QtCore import QSize, Qt, QRect, QRectF
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import (
-    QColor,
     QIcon,
     QImage,
-    QPaintEvent,
     QPainter,
-    QPainterPath,
-    QPen,
     QPixmap,
 )
 from PyQt5.QtSvg import QSvgRenderer
-from PyQt5.QtWidgets import QPushButton, QWidget
-from PyQt5ElaWidgetTools import eTheme, ElaThemeType
-
-from ._internal import _ThemeAwareMixin
 
 
 @lru_cache(maxsize=256)
@@ -73,7 +71,6 @@ def svg_to_icon(
     Example::
 
         icon = svg_to_icon(svg_data, size=24, color="#1570A5")
-        button.setIcon(icon)
     """
     return QIcon(QPixmap.fromImage(_render_svg_image(svg_data, size, color)))
 
@@ -107,18 +104,23 @@ def svg_to_image(
 
 
 class ElaSvgIconLoader:
-    """SVG 图标加载器。
+    """SVG 图标包加载器（``.icons`` 文本包）。
 
-    从 .icons 文件包加载图标，支持颜色替换。
+    ``.icons`` 是一行一条的文本包：``##`` 开头是注释，其余每行形如
+    ``图标名////<svg .../>``。**本库不再自带图标包**（曾随包分发 3.66 MB /
+    2604 个 Fluent UI 图标，那是替宿主选了一套设计语言），要用请让宿主自己
+    提供：
 
     Example::
 
         loader = ElaSvgIconLoader()
-        loader.loadFromPackage("fluent_ui_icon_regular.icons")
+        # ① 自带图标包文件（推荐：路径由宿主决定）
+        loader.loadFromFile(r"D:/assets/my_icons.icons")
+        # ② 或指定一个图标包目录，之后按文件名取
+        loader.setPackageDirectory(r"D:/assets/icons")
+        loader.loadFromPackage("my_icons.icons")
 
-        # 获取图标
-        icon = loader.getIcon("ic_fluent_zoom_out_regular", size=24, color="#1570A5")
-        button.setIcon(icon)
+        loader.getIcon("ic_save_regular", size=24, color="#1570A5")
     """
 
     _instance: Optional["ElaSvgIconLoader"] = None
@@ -126,6 +128,7 @@ class ElaSvgIconLoader:
     def __init__(self) -> None:
         self._icons: dict[str, str] = {}
         self._default_color: Optional[str] = None
+        self._package_dir: Optional[str] = None
 
     @classmethod
     def getInstance(cls) -> "ElaSvgIconLoader":
@@ -142,21 +145,33 @@ class ElaSvgIconLoader:
     def defaultColor(self) -> Optional[str]:
         return self._default_color
 
+    def setPackageDirectory(self, directory: str) -> None:
+        """指定 :meth:`loadFromPackage` 查找图标包的目录。
+
+        不设时用库自身的 ``icons/packages``（那里现在通常什么都没有）。
+        **宿主应当显式设成自己的资源目录** —— 往 site-packages 里写文件既
+        脆弱（pip 可能覆盖）又需要管理员权限。
+        """
+        self._package_dir = directory
+
+    def packageDirectory(self) -> Optional[str]:
+        """当前图标包目录（``None`` 表示用库内置目录）。"""
+        return self._package_dir
+
     def _getColor(self, color: Optional[str]) -> Optional[str]:
         return color if color is not None else self._default_color
 
     def loadFromPackage(self, package_name: str) -> None:
         """从图标包文件加载图标。
 
-        :param package_name: 图标包文件名（如 "fluent_ui_icon_regular.icons"）
+        :param package_name: 图标包文件名（如 "my_icons.icons"）
+        :raises FileNotFoundError: 文件不存在（先 :meth:`setPackageDirectory`）
         """
-        package_path = os.path.join(
-            os.path.dirname(__file__),
-            "icons",
-            "packages",
-            package_name,
-        )
-        self.loadFromFile(package_path)
+        if self._package_dir:
+            base = self._package_dir
+        else:
+            base = os.path.join(os.path.dirname(__file__), "icons", "packages")
+        self.loadFromFile(os.path.join(base, package_name))
 
     def loadFromFile(self, path: str) -> None:
         """从文件加载图标。
@@ -189,9 +204,12 @@ class ElaSvgIconLoader:
         """图标包中是否存在该图标名。
 
         绘制路径（``paintEvent``）必须先问一句：图标名拼错、或图标包缺失
-        （``svg_icon_loader`` 会吞掉 ``FileNotFoundError``，此时 ``_icons`` 为空）时，
-        降级为「只画文字」而不是让 ``getSvgData`` 的 ``KeyError`` 抛进 Qt 回调
-        ——那会造成 0xC0000409 静默进程终止。
+        （宿主还没 ``loadFromFile``）时，降级为「不画图标」而不是让
+        ``getSvgData`` 的 ``KeyError`` 抛进 Qt 回调 —— 那会造成 0xC0000409
+        静默进程终止。
+
+        调用方（:meth:`ElaButton.setSvgIcon`）还应当据此 ``warnings.warn``
+        一次：静默少一个图标，用户会去查图标名而不是查「图标包没加载」。
         """
         return name in self._icons
 
@@ -255,298 +273,23 @@ class ElaSvgIconLoader:
 _svg_icon_loader: Optional[ElaSvgIconLoader] = None
 
 
-class _ElaSvgButtonBase(_ThemeAwareMixin, QPushButton):
-    """SVG 图标按钮基类，包含共用绘制逻辑"""
-
-    _iconName: Optional[str] = None
-    _svg_icon_loader: ElaSvgIconLoader
-    _themeColor: Optional[ElaThemeType.ThemeColor] = None
-    _iconSize: int
-    _borderRadius: int
-    _shadowBorderWidth: int = 3
-
-    def __init__(
-        self,
-        text: str,
-        icon_name: Optional[str] = None,
-        theme_color: Optional[ElaThemeType.ThemeColor] = None,
-        size: int = 20,
-        parent=None,
-    ):
-        super().__init__(text, parent)
-        self._iconName = icon_name
-        self._svg_icon_loader = svg_icon_loader()
-        self._themeColor = theme_color
-        self._iconSize = size
-        self._borderRadius = 3
-        self._theme_mode = eTheme.getThemeMode()
-
-    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
-        self._theme_mode = mode
-        self.update()
-
-    def _drawEffectShadow(self, painter: QPainter, widgetRect: QRect) -> None:
-        shadow_color = (
-            QColor(0x70, 0x70, 0x70)
-            if self._theme_mode == ElaThemeType.ThemeMode.Light
-            else QColor(0x9C, 0x9B, 0x9E)
-        )
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        for i in range(self._shadowBorderWidth):
-            x = widgetRect.x() + self._shadowBorderWidth - i
-            y = widgetRect.y() + self._shadowBorderWidth - i
-            w = widgetRect.width() - (self._shadowBorderWidth - i) * 2
-            h = widgetRect.height() - (self._shadowBorderWidth - i) * 2
-            r = self._borderRadius + i
-
-            path = QPainterPath()
-            path.addRoundedRect(x, y, w, h, r, r)
-            alpha = self._shadowBorderWidth - i + 1
-            shadow_color.setAlpha(alpha)
-            painter.setPen(shadow_color)
-            painter.drawPath(path)
-
-        painter.restore()
-
-    def _getCurrentTextColor(self) -> QColor:
-        mode = eTheme.getThemeMode()
-        if not self.isEnabled():
-            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicTextDisable)
-        theme_color = (
-            self._themeColor
-            if self._themeColor is not None
-            else ElaThemeType.ThemeColor.BasicText
-        )
-        return eTheme.getThemeColor(mode, theme_color)
-
-    def _getIconColorStr(self, text_color: QColor) -> str:
-        return text_color.name()
-
-    def paintEvent(self, _event: QPaintEvent) -> None:
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-
-        shadow_border = 3
-        rect = QRect(
-            shadow_border,
-            shadow_border,
-            self.width() - 2 * shadow_border,
-            self.height() - 2 * shadow_border,
-        )
-
-        self._drawEffectShadow(painter, rect)
-
-        bg_color = self._getCurrentBgColor()
-        text_color = self._getCurrentTextColor()
-
-        path = QPainterPath()
-        path.addRoundedRect(QRectF(rect), self._borderRadius, self._borderRadius)
-
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(bg_color)
-        painter.drawPath(path)
-
-        border_color = eTheme.getThemeColor(
-            eTheme.getThemeMode(), ElaThemeType.ThemeColor.BasicBaseLine
-        )
-        border_pen = QPen(border_color, 1)
-        painter.setPen(border_pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawPath(path)
-
-        fm = self.fontMetrics()
-        text_width = fm.horizontalAdvance(self.text())
-        icon_size = QSize(self._iconSize, self._iconSize)
-        spacing = 4
-        content_height = self.height() - 2 * shadow_border
-        text_y = shadow_border
-
-        # 图标名可能拼错，或图标包未随包分发（_icons 为空）；此时降级为纯文字，
-        # 不能让 getIcon 的 KeyError 抛进 paintEvent（会 0xC0000409 静默 abort）。
-        draw_icon = bool(self._iconName) and self._svg_icon_loader.hasIcon(
-            self._iconName
-        )
-        if draw_icon:
-            total_content_width = icon_size.width() + spacing + text_width
-            start_x = (
-                shadow_border
-                + (self.width() - 2 * shadow_border - total_content_width) // 2
-            )
-            icon_y = shadow_border + (content_height - icon_size.height()) // 2
-            icon_rect = QRect(start_x, icon_y, icon_size.width(), icon_size.height())
-            text_rect = QRect(
-                start_x + icon_size.width() + spacing,
-                text_y,
-                text_width,
-                content_height,
-            )
-            icon_color_str = self._getIconColorStr(text_color)
-            icon = self._svg_icon_loader.getIcon(
-                self._iconName,
-                size=self._iconSize,
-                color=icon_color_str,
-            )
-            painter.drawPixmap(icon_rect, icon.pixmap(icon_size))
-        else:
-            start_x = (
-                shadow_border + (self.width() - 2 * shadow_border - text_width) // 2
-            )
-            text_rect = QRect(start_x, text_y, text_width, content_height)
-
-        painter.setPen(text_color)
-        painter.setFont(self.font())
-        painter.drawText(
-            text_rect,
-            Qt.Alignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
-            self.text(),
-        )
-
-    def setBorderRadius(self, radius: int) -> None:
-        self._borderRadius = radius
-        self.update()
-
-
-class ElaSvgButton(_ElaSvgButtonBase):
-    """支持主题切换的 SVG 图标按钮。
-
-    当主题切换时，自动使用ela主题色更新图标颜色。
-    外观与 ElaPushButton 一致，支持鼠标悬浮效果。
-
-    :param text: 按钮文本
-    :param icon_name: 图标名称（如 "ic_fluent_zoom_out_regular"），可选
-    :param theme_color: ElaThemeType.ThemeColor 主题色类型，可选，默认 PrimaryNormal
-    :param size: 图标尺寸，默认 20
-    :param parent: 父控件
-
-    Example::
-
-        btn = ElaSvgButton(
-            "搜索",
-            icon_name="ic_fluent_zoom_out_regular",
-            theme_color=ElaThemeType.ThemeColor.PrimaryNormal,
-        )
-    """
-
-    def __init__(
-        self,
-        text: str,
-        icon_name: Optional[str] = None,
-        theme_color: Optional[ElaThemeType.ThemeColor] = None,
-        size: int = 20,
-        parent: Optional[QWidget] = None,
-    ) -> None:
-        super().__init__(text, icon_name, theme_color, size, parent)
-        self.setIconSize(QSize(size, size))
-        fm = self.fontMetrics()
-        text_width = fm.horizontalAdvance(self.text())
-        btn_height = max(size + 18, fm.height() + 18)
-        self.setFixedSize(text_width + size + 30, btn_height)
-
-    def _getCurrentBgColor(self) -> QColor:
-        mode = eTheme.getThemeMode()
-        if not self.isEnabled():
-            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicDisable)
-        if self.isDown():
-            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicPress)
-        if self.underMouse():
-            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicHover)
-        return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase)
-
-    def setText(self, text: str) -> None:
-        super().setText(text)
-        fm = self.fontMetrics()
-        text_width = fm.horizontalAdvance(text)
-        btn_height = max(self._iconSize + 18, fm.height() + 18)
-        self.setFixedSize(text_width + self._iconSize + 30, btn_height)
-        self.update()
-
-
-class ElaSvgIconButton(_ElaSvgButtonBase):
-    """使用 SVG 图标的按钮。
-
-    支持主题切换，自动更新图标颜色。
-
-    :param text: 按钮文本
-    :param icon_name: 图标名称（如 "ic_fluent_zoom_out_regular"），可选
-    :param theme_color: ElaThemeType.ThemeColor 主题色类型，可选，默认 PrimaryNormal
-    :param size: 图标尺寸，默认 16
-    :param parent: 父控件
-
-    Example::
-
-        btn = ElaSvgIconButton(
-            "搜索",
-            icon_name="ic_fluent_zoom_out_regular",
-            theme_color=ElaThemeType.ThemeColor.PrimaryNormal,
-        )
-    """
-
-    def __init__(
-        self,
-        text: str,
-        icon_name: Optional[str] = None,
-        theme_color: Optional[ElaThemeType.ThemeColor] = None,
-        size: int = 16,
-        parent: Optional[QWidget] = None,
-    ) -> None:
-        super().__init__(text, icon_name, theme_color, size, parent)
-        self.setFixedHeight(38)
-        fm = self.fontMetrics()
-        text_width = fm.horizontalAdvance(text)
-        self.setFixedWidth(size + text_width + 20)
-
-    def _getCurrentBgColor(self) -> QColor:
-        mode = eTheme.getThemeMode()
-        if not self.isEnabled():
-            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicDisable)
-        if self.isDown():
-            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicPress)
-        if self.underMouse():
-            return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicHover)
-        return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBase)
-
-    def _getIconColorStr(self, text_color: QColor) -> str:
-        return text_color.name()[:7]
-
-    def setSvgIcon(self, icon_name: str, size: int = None) -> None:
-        """设置 SVG 图标。
-
-        :param icon_name: 图标名称
-        :param size: 图标尺寸，默认使用创建时的尺寸
-        """
-        self._iconName = icon_name
-        if size is not None:
-            self._iconSize = size
-        self.update()
-
-    def setText(self, text: str) -> None:
-        super().setText(text)
-        fm = self.fontMetrics()
-        text_width = fm.horizontalAdvance(text)
-        self.setFixedWidth(self._iconSize + text_width + 20)
-        self.update()
-
-
 def svg_icon_loader() -> ElaSvgIconLoader:
-    """获取全局图标加载器实例（自动加载默认图标包）"""
+    """获取全局图标加载器实例。
+
+    **不自动加载任何图标包** —— 本库不再随包分发图标集（曾内置 3.66 MB /
+    2604 个图标，替宿主选了一套设计语言，而绝大多数宿主根本不用）。
+    要按名字取图标，宿主自己加载一次：
+
+    ::
+
+        svg_icon_loader().loadFromFile(r"D:/assets/my_icons.icons")
+
+    未加载时 :meth:`ElaSvgIconLoader.hasIcon` 一律返回 ``False``，
+    :meth:`ElaButton.setSvgIcon` 会因此只画文字并 ``warnings.warn`` 一次。
+    """
     global _svg_icon_loader
     if _svg_icon_loader is None:
         _svg_icon_loader = ElaSvgIconLoader.getInstance()
-        try:
-            _svg_icon_loader.loadFromPackage("fluent_ui_icon_regular.icons")
-        except FileNotFoundError as exc:
-            # 不再静默：图标包缺失时所有图标都画不出来，用户会以为是图标名写错。
-            # 警告而非抛出，控件仍可降级为纯文字（见 _ElaSvgButtonBase.paintEvent）。
-            warnings.warn(
-                "fluent_ui_icon_regular.icons 图标包未找到，SVG 图标将全部不可用："
-                f"{exc}",
-                RuntimeWarning,
-                stacklevel=2,
-            )
     return _svg_icon_loader
 
 
@@ -555,7 +298,5 @@ __all__ = [
     "svg_to_pixmap",
     "svg_to_image",
     "ElaSvgIconLoader",
-    "ElaSvgButton",
-    "ElaSvgIconButton",
     "svg_icon_loader",
 ]

@@ -7,7 +7,8 @@
 覆盖：
 - ``ElaDialogBase`` / ``ElaMessageDialog`` 缺 parent（底层 ElaContentDialog
   无条件解引用 parent）
-- ``ElaSvgButton`` 图标名拼错 / 图标包缺失时 ``getSvgData`` 的 ``KeyError``
+- ``ElaButton.setSvgIcon`` 图标名拼错 / 图标包缺失 / SVG 语法错时，
+  ``getSvgData`` 的 ``KeyError`` / ``QSvgRenderer`` 的解析失败不得穿出 ``paintEvent``
 - ``ElaChartWidget`` 的 ``title`` / ``legend`` ``fontSize`` 传非数值
 - ``charts.axes.niceTicks`` 在 ``vmax - vmin`` 溢出为 inf 时的 ``OverflowError``
 """
@@ -28,7 +29,8 @@ from pyqt5_ela_pro.charts.axes import niceTicks
 from pyqt5_ela_pro.charts.core import _opt_float
 from pyqt5_ela_pro.dialog_base import ElaDialogBase
 from pyqt5_ela_pro.message_dialog import ElaMessageDialog
-from pyqt5_ela_pro.svg_icon import ElaSvgButton, ElaSvgIconButton, svg_icon_loader
+from pyqt5_ela_pro.ela_button import ElaButton
+from pyqt5_ela_pro.svg_icon import svg_icon_loader
 
 _ABORT_CODES = {
     0xC0000409,  # STATUS_STACK_BUFFER_OVERRUN —— PyQt 回调异常
@@ -112,14 +114,13 @@ class TestDialogParentContract:
 
 
 class TestSvgIconPaintSafety:
-    """图标名拼错 / 图标包缺失时不能把 KeyError 抛进 paintEvent。"""
+    """图标名拼错 / 图标包缺失 / SVG 语法错时都不能把异常抛进 paintEvent。"""
 
-    def test_unknown_icon_name_paints(self, qapp):
+    def test_unknown_icon_name_paints(self, qapp, recwarn):
 
-        for button in (
-            ElaSvgButton("x", icon_name="definitely-not-an-icon"),
-            ElaSvgIconButton("y", icon_name="also-missing"),
-        ):
+        for source in ("definitely-not-an-icon", "<svg><<<未闭合", ""):
+            button = ElaButton("x", parent=None)
+            button.setSvgIcon(source)
             button.resize(120, 40)
             button.show()
             qapp.processEvents()
@@ -133,18 +134,25 @@ class TestSvgIconPaintSafety:
         loader = svg_icon_loader()
         assert loader.hasIcon("definitely-not-an-icon") is False
 
+    def test_missing_icon_name_warns_instead_of_silent(self, qapp):
+        """找不到图标名必须 warn —— 静默少一个图标，用户会去查图标名。"""
+        button = ElaButton("x")
+        with pytest.warns(RuntimeWarning, match="图标名"):
+            assert button.setSvgIcon("definitely-not-an-icon") is False
+
     def test_subprocess_no_abort_on_bad_icon(self):
         result = _run(
             """
-            from pyqt5_ela_pro.svg_icon import ElaSvgButton
-            b = ElaSvgButton("x", icon_name="definitely-not-an-icon")
+            from pyqt5_ela_pro import ElaButton
+            b = ElaButton("x")
+            b.setSvgIcon("definitely-not-an-icon")
             b.resize(120, 40); b.show()
             for _ in range(10): app.processEvents()
             b.repaint(); b.grab()
             print("OK")
             """
         )
-        _assert_no_abort("ElaSvgButton(bad icon)", result)
+        _assert_no_abort("ElaButton.setSvgIcon(bad icon)", result)
         assert "OK" in result.stdout, result.stderr
 
 

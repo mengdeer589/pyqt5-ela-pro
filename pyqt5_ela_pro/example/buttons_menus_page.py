@@ -34,13 +34,31 @@ from pyqt5_ela_pro import (
     ElaLongPressButton,
     ElaProgressButton,
     ElaSplitButton,
-    ElaSvgButton,
-    ElaSvgIconButton,
     accent,
     resetAccentColor,
     setAccentColor,
 )
-from pyqt5_ela_pro.svg_icon import ElaSvgIconLoader
+from pyqt5_ela_pro.svg_icon import svg_icon_loader
+
+#: 演示用的内联 SVG（24x24 描边风格）。
+#: ``<<<COLOR_CODE>>>`` 会被 :meth:`ElaButton.setSvgIcon` 替换成**当前主题文字色**
+#: —— 这就是 SVG 图标能跟随深浅色主题与禁用态的原理：宿主不用为两套主题各画一份。
+_SVG_BODY = {
+    "search": '<circle cx="11" cy="11" r="7"/><path d="M16 16l4 4"/>',
+    "plus": '<path d="M12 5v14M5 12h14"/>',
+    "download": '<path d="M12 4v11M7 11l5 5 5-5M5 20h14"/>',
+    "close": '<path d="M6 6l12 12M18 6L6 18"/>',
+}
+
+
+def _stroke_svg(body: str) -> str:
+    """把一段描边路径包成 24x24 的 SVG 源码（带主题色占位符）。"""
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"'
+        ' stroke="<<<COLOR_CODE>>>" stroke-width="2" stroke-linecap="round"'
+        f' stroke-linejoin="round">{body}</svg>'
+    )
+
 
 #: 强调色预设。第一个是上游出厂值，其余用来演示「换色后 hover/press 跟着变」。
 _ACCENT_PRESETS = [
@@ -61,7 +79,6 @@ class ButtonsMenusPage(ExamplePage):
         self._nameEdit = None
         self._passwordEdit = None
         self._longPressBtn = None
-        self._svg_loader = None
         self._accentInfo = None
         super().__init__(parent)
 
@@ -73,8 +90,7 @@ class ButtonsMenusPage(ExamplePage):
         self._demoPrimaryButton(main_layout)
         self._demoLongPressButton(main_layout)
         self._demoProgressButton(main_layout)
-        self._demoEsButton(main_layout)
-        self._demoEsSvgButton(main_layout)
+        self._demoSvgIcon(main_layout)
         self._demoElaButton(main_layout)
         self._demoDropDownButton(main_layout)
         self._demoSplitButton(main_layout)
@@ -358,85 +374,73 @@ class ButtonsMenusPage(ExamplePage):
         parent_layout.addLayout(auto_layout)
         parent_layout.addSpacing(20)
 
-    def _getSvgLoader(self):
-        if self._svg_loader is None:
-            self._svg_loader = ElaSvgIconLoader()
-            self._svg_loader.loadFromPackage("fluent_ui_icon_regular.icons")
-        return self._svg_loader
-
-    def _demoEsButton(self, parent_layout):
+    def _demoSvgIcon(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "07. ela_ext - ElaSvgIconButton 基础 SVG 图标按钮", self._demoEsButton
+                "07. ela_ext - ElaButton.setSvgIcon 第三方 SVG 图标", self._demoSvgIcon
             )
         )
         self._addInfoText(
-            "继承 ElaPushButton 的外观，使用 SVG 图标，图标颜色与文字一致",
+            "setSvgIcon 是本库唯一能在按钮里放非 ElaAwesome 图标的入口 —— 其余按钮\n"
+            "（ElaProgressButton / ElaChatToolButton / 上游 ElaPushButton）只认\n"
+            "ElaIconType.IconName 枚举。传 SVG 源码就直接渲染；传图标名则去\n"
+            "svg_icon_loader 里取，宿主自己 loadFromFile 加载图标包（本库不自带\n"
+            "图标集）。SVG 里的 <<<COLOR_CODE>>> 会被替换成当前主题文字色，所以图标\n"
+            "自动跟随深浅色主题与禁用态。注意 ElaButton 自绘，QPushButton 的\n"
+            "setIcon() 无效（抛 RuntimeError），别在那儿浪费时间。",
             parent_layout,
         )
         parent_layout.addSpacing(10)
-        self._getSvgLoader()
-        icons_row_layout = QHBoxLayout()
-        icons_row_layout.setSpacing(15)
-        svg_buttons = [
-            (
-                "ic_fluent_zoom_out_regular",
-                "搜索",
-                ElaThemeType.ThemeColor.PrimaryNormal,
-            ),
-            (
-                "ic_fluent_settings_regular",
-                "设置",
-                ElaThemeType.ThemeColor.PrimaryNormal,
-            ),
-            ("ic_fluent_delete_regular", "删除", ElaThemeType.ThemeColor.StatusDanger),
-            ("ic_fluent_save_regular", "保存", ElaThemeType.ThemeColor.PrimaryNormal),
-        ]
-        for name, text, theme_color in svg_buttons:
-            btn = ElaSvgIconButton(
-                text, icon_name=name, theme_color=theme_color, parent=self
-            )
-            btn.setFixedWidth(120)
-            icons_row_layout.addWidget(btn)
-        icons_row_layout.addStretch()
-        parent_layout.addLayout(icons_row_layout)
-        parent_layout.addSpacing(30)
 
-    def _demoEsSvgButton(self, parent_layout):
-        parent_layout.addLayout(
-            self._createHeaderRow(
-                "08. ela_ext - ElaSvgButton 悬浮/点击主题色效果", self._demoEsSvgButton
-            )
-        )
-        self._addInfoText("鼠标悬浮和点击时显示半透明主题色背景效果", parent_layout)
+        # ① SVG 源码直传 —— 最常见的一次调用搞定
+        source_row = QHBoxLayout()
+        source_row.setSpacing(15)
+        for label, key in (("搜索", "search"), ("添加", "plus"), ("下载", "download")):
+            btn = ElaButton(label, variant="outlined", color="primary", parent=self)
+            btn.setSvgIcon(_stroke_svg(_SVG_BODY[key]), 16)
+            source_row.addWidget(btn)
+
+        # 禁用态也一起演示：图标颜色应与文字一起变灰
+        disabled = ElaButton("禁用", variant="outlined", color="primary", parent=self)
+        disabled.setSvgIcon(_stroke_svg(_SVG_BODY["search"]), 16)
+        disabled.setEnabled(False)
+        source_row.addWidget(disabled)
+
+        # 纯图标按钮（无文字）—— 图标单独居中
+        icon_only = ElaButton(parent=self)
+        icon_only.setSvgIcon(_stroke_svg(_SVG_BODY["close"]), 16)
+        icon_only.setToolTip("clearSvgIcon 可退回纯图标状态")
+        source_row.addWidget(icon_only)
+        source_row.addStretch()
+        parent_layout.addLayout(source_row)
         parent_layout.addSpacing(10)
-        self._getSvgLoader()
-        icons_row_layout = QHBoxLayout()
-        icons_row_layout.setSpacing(15)
-        theme_buttons = [
-            (
-                "ic_fluent_zoom_out_regular",
-                "搜索",
-                ElaThemeType.ThemeColor.PrimaryNormal,
-            ),
-            (
-                "ic_fluent_settings_regular",
-                "设置",
-                ElaThemeType.ThemeColor.PrimaryNormal,
-            ),
-            ("ic_fluent_delete_regular", "删除", ElaThemeType.ThemeColor.StatusDanger),
-            ("ic_fluent_edit_regular", "编辑", ElaThemeType.ThemeColor.PrimaryPress),
-            ("ic_fluent_copy_regular", "复制", ElaThemeType.ThemeColor.PrimaryNormal),
-        ]
-        for name, text, theme_color in theme_buttons:
-            btn = ElaSvgButton(
-                text, icon_name=name, theme_color=theme_color, parent=self
+
+        # ② 图标名形态：先 append 进 loader，再按名字取 —— 适合图标来自
+        #    宿主自己的 .icons 图标包的场景
+        loader = svg_icon_loader()
+        for key in _SVG_BODY:
+            loader.append(f"demo_{key}", _stroke_svg(_SVG_BODY[key]))
+
+        name_row = QHBoxLayout()
+        name_row.setSpacing(15)
+        for label, key in (("按名字", "search"), ("solid 变体", "plus")):
+            btn = ElaButton(
+                label,
+                variant="solid" if key == "plus" else "outlined",
+                color="primary",
+                parent=self,
             )
-            btn.setFixedWidth(120)
-            icons_row_layout.addWidget(btn)
-        icons_row_layout.addStretch()
-        parent_layout.addLayout(icons_row_layout)
-        parent_layout.addSpacing(20)
+            # 返回 False 表示图标包里没这个名字（只画文字并 warn 一次）
+            assert btn.setSvgIcon(f"demo_{key}", 16) is True
+            name_row.addWidget(btn)
+
+        # 故意演示失败路径：图标名不存在时只画文字 + 警告，不抛异常也不静默
+        missing = ElaButton("图标名拼错", variant="outlined", parent=self)
+        ok = missing.setSvgIcon("demo_没有这个图标", 16)
+        name_row.addWidget(missing)
+        assert ok is False
+        name_row.addStretch()
+        parent_layout.addLayout(name_row)
 
     def _demoElaButton(self, parent_layout):
         parent_layout.addLayout(

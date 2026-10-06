@@ -138,6 +138,19 @@ class SelectionAssistantPage(ExamplePage):
             self._length_combo.addItem(f"{value} 个字符", value)
         self._length_combo.currentIndexChanged.connect(self._on_length_changed)
         layout.addWidget(self._length_combo)
+        layout.addSpacing(12)
+
+        # 取词范围：拖选要向前台注入 Ctrl+C（终端里等于 SIGINT），默认用
+        # 内置启发式过滤器把跨窗口 / 窗口边框 / 超长拖拽挡掉。
+        scope_label = ElaText("拖选取词", row)
+        scope_label.setTextPixelSize(14)
+        layout.addWidget(scope_label)
+        self._scope_combo = ElaComboBox(row)
+        self._scope_combo.addItem("内置过滤器（推荐）", "builtin")
+        self._scope_combo.addItem("仅双击选词", "off")
+        self._scope_combo.addItem("不限制（会向任意应用注入）", "all")
+        self._scope_combo.currentIndexChanged.connect(self._on_scope_changed)
+        layout.addWidget(self._scope_combo)
         layout.addStretch(1)
 
         self._manual_button = ElaButton(
@@ -199,6 +212,36 @@ class SelectionAssistantPage(ExamplePage):
         if self._assistant is not None:
             self._assistant.setMinSelectionLength(int(length))
         self._log_line(f"最小长度：{length}")
+
+    def _apply_scope(self, assistant: ElaSelectionAssistant) -> None:
+        """按「拖选取词」下拉框配置取词闸门。
+
+        拖选取词要向前台窗口注入 ``Ctrl+C``，而拖选与「拖窗口 / 拖滚动条 /
+        拖文件」在鼠标层面无法区分 —— 在终端里注入的 ``Ctrl+C`` 就是中断
+        信号。所以默认用**内置启发式过滤器**（跨窗口 / 窗口边框 / 超长拖拽
+        一律拒掉），需要时再显式放开。
+        """
+        scope = self._scope_combo.currentData() or "builtin"
+        if scope == "all":
+            assistant.setCaptureFilter(None)
+            assistant.setRequireFilterForDrag(False)
+        elif scope == "off":
+            assistant.setCaptureFilter(None)
+            assistant.setRequireFilterForDrag(True)
+        else:
+            assistant.setCaptureFilter(ElaSelectionAssistant.builtinDragFilter())
+            assistant.setRequireFilterForDrag(True)
+
+    def _on_scope_changed(self, _index: int) -> None:
+        scope = self._scope_combo.currentData() or "builtin"
+        if self._assistant is not None:
+            self._apply_scope(self._assistant)
+        hint = {
+            "builtin": "拖选仅在同窗口、非边框、短距离时取词",
+            "off": "仅双击选词（不注入拖选那条 Ctrl+C）",
+            "all": "不限制：任意拖选都会向前台注入 Ctrl+C",
+        }[scope]
+        self._log_line(f"拖选取词：{hint}")
 
     def _on_manual_show(self) -> None:
         assistant = self._ensure_assistant()
@@ -306,11 +349,15 @@ class SelectionAssistantPage(ExamplePage):
             assistant.popupShown.connect(self._on_popup_shown)
             assistant.popupHidden.connect(lambda: self._log_line("popupHidden"))
             assistant.errorOccurred.connect(self._on_error)
+            assistant.captureBlocked.connect(
+                lambda reason: self._log_line(f"captureBlocked：{reason}")
+            )
             assistant.popup().setCompactMode(self._compact_switch.getIsToggled())
             assistant.capture().setRestoreClipboard(self._restore_switch.getIsToggled())
             assistant.setMinSelectionLength(int(self._length_combo.currentData() or 1))
             assistant.enabledChanged.connect(self._on_assistant_state_changed)
             self._assistant = assistant
+            self._apply_scope(assistant)
             self._apply_actions()
         return self._assistant
 

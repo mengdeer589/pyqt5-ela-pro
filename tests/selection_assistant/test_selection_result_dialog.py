@@ -14,13 +14,16 @@ from __future__ import annotations
 
 import pytest
 from PyQt5 import sip
-from PyQt5.QtCore import QCoreApplication, QEvent, QPoint, QSize, Qt
+from PyQt5.QtCore import QCoreApplication, QEvent, QPoint, QRect, QSize, Qt
 from PyQt5.QtGui import QKeyEvent
 from PyQt5.QtWidgets import QApplication
 from PyQt5ElaWidgetTools import ElaIconType, ElaThemeType, eTheme
 
 from pyqt5_ela_pro import ElaSelectionResultDialog
-from pyqt5_ela_pro.selection_assistant.result_dialog import _PREVIEW_SOURCE_MAX
+from pyqt5_ela_pro.selection_assistant.result_dialog import (
+    _EDGE_GAP,
+    _PREVIEW_SOURCE_MAX,
+)
 
 _SOURCE = "这是一段被划词选中的文本"
 _ANCHOR = QPoint(300, 200)
@@ -430,11 +433,20 @@ class TestPlacement:
         assert QSize(dialog._preferred_size) == preferred
 
     def test_user_resize_is_remembered(self, make, qapp):
+        # 断言「用户可见期调过尺寸会被记住」，但**不能断言请求值 == 实际值**：
+        # 布局的 heightForWidth 下限会顶大请求（实测宽度 640 处下限是 542，
+        # 而请求只有 511）—— 那是 Qt 的正常行为。`_preferred_size` 记的是用户
+        # 真正看到的尺寸，所以拿实际尺寸对。
         dialog = _make(make)
-        grown = dialog.size() + QSize(120, 60)
+        qapp.processEvents()  # 让 WS_THICKFRAME 的撑高先落地，后面读数才稳定
+        before = QSize(dialog.size())
+        grown = before + QSize(120, 60)
         dialog.resize(grown)
         qapp.processEvents()
-        assert QSize(dialog._preferred_size) == QSize(grown)
+        after = QSize(dialog.size())
+        assert QSize(dialog._preferred_size) == after
+        assert after.width() >= grown.width(), "宽度不该被布局缩小"
+        assert after.height() > before.height(), "这次 resize 没生效"
 
     def test_hidden_resize_is_not_remembered(self, make, qapp):
         # 隐藏时的 resize 是程序行为（构造 / 首帧布局都会发）
@@ -444,6 +456,89 @@ class TestPlacement:
         dialog.resize(QSize(640, 500))
         qapp.processEvents()
         assert QSize(dialog._preferred_size) == before
+
+    def test_nudge_is_idempotent_and_frame_based(self, make, qapp):
+        """``_nudge_inside_work_area`` 按**画框**纠偏，且重复调用不再动。
+
+        回归：原先只按客户区（``self.width()/height()``）摆位，而上游在首次
+        ``show`` 时补的 ``WS_THICKFRAME`` 让画框比客户区高 32px / 宽 2px
+        （实测），锚点贴工作区右下角时画框底部溢出 42px 到屏幕外。
+        """
+        area = QApplication.primaryScreen().availableGeometry()
+        dialog = make(ElaSelectionResultDialog)
+        dialog.openFor(
+            "translate", "翻译", _SOURCE, QPoint(area.right() - 2, area.bottom() - 2)
+        )
+        qapp.processEvents()
+
+        frame = QRect(dialog.frameGeometry())
+        assert frame.right() <= area.right() - _EDGE_GAP + 1
+        assert frame.bottom() <= area.bottom() - _EDGE_GAP + 1
+
+        dialog._nudge_inside_work_area(area)
+        qapp.processEvents()
+        assert QRect(dialog.frameGeometry()) == frame, "纠正步必须幂等"
+
+    def test_wm_grow_is_not_recorded_as_user_resize(self, make, qapp):
+        """``WS_THICKFRAME`` 那次撑高**投递时机不确定**，两种都要挡住。
+
+        回归：撑高有时同步落在 ``_place()`` 内（被 ``_placing`` 盖住），有时被
+        Qt 排进事件队列、在 ``_placing`` 复位之后才到。原先只靠 ``_placing``，
+        后一种就把撑高后的尺寸记成了用户偏好（实测 1908x1020 → 记成 1908x1051）。
+        """
+        area = QApplication.primaryScreen().availableGeometry()
+        dialog = make(ElaSelectionResultDialog)
+        preferred = QSize(area.width() * 3, area.height() * 3)
+        dialog._preferred_size = QSize(preferred)
+        dialog.openFor("translate", "翻译", _SOURCE, area.center())
+        # 多跑几轮事件循环：撑高无论落在哪一帧都不该被记成偏好
+        for _ in range(5):
+            qapp.processEvents()
+        assert QSize(dialog._preferred_size) == preferred
+
+    def test_wm_grow_flag_clears_after_one_resize(self, make, qapp):
+        """撑高只发生一次 —— 之后用户的 resize 必须照常被记住。
+
+        反过来锁死「无条件忽略第一次 resize」这种错误修法：那会让用户第一次
+        调尺寸就丢。
+        """
+        dialog = _make(make)
+        qapp.processEvents()
+        dialog._wm_grow_pending = True
+        dialog.resize(QSize(700, 560))
+        qapp.processEvents()
+        assert dialog._wm_grow_pending is False
+        assert QSize(dialog._preferred_size) == QSize(dialog.size())
+
+        again = QSize(dialog.size()) + QSize(40, 40)
+        dialog.resize(again)
+        qapp.processEvents()
+        assert QSize(dialog._preferred_size) == QSize(dialog.size())
+        assert dialog._preferred_size != QSize(700, 560) or dialog.size() != QSize(
+            700, 560
+        )
+
+    def test_over_tall_window_aligns_to_top(self, make, qapp):
+        """窗口比工作区还高时对齐**顶部**（标题栏必须留在可视区里）。
+
+        上下同时溢出时无法都满足，居中会让标题栏直接被顶出屏幕 —— 对一个自带
+        app bar 的对话框来说那是「打开就看不见标题、连 × 都点不到」。
+
+        直接 ``setMinimumHeight`` 造出超高窗口再调纠正步，不走 ``openFor``：
+        ``_place`` 会把高度夹到 ``area.height() - 2 * _EDGE_GAP``，本来造不出
+        这个状态（真实触发路径是 ``WS_THICKFRAME`` 把画框顶出一截，而那圈边距
+        实测不是常数、不能拿来构造前提）。
+        """
+        area = QApplication.primaryScreen().availableGeometry()
+        dialog = make(ElaSelectionResultDialog)
+        dialog.setMinimumHeight(area.height() + 200)
+        dialog.resize(area.width() - 2 * _EDGE_GAP, area.height() + 200)
+        dialog.move(area.left(), area.bottom())
+        qapp.processEvents()
+
+        dialog._nudge_inside_work_area(area)
+        qapp.processEvents()
+        assert QRect(dialog.frameGeometry()).top() == area.top() + _EDGE_GAP
 
 
 class TestRegenerateDoesNotMove:

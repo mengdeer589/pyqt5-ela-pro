@@ -83,7 +83,18 @@ class TestMarkdownInternalAnchors:
         v.deleteLater()
         qapp.processEvents()
 
-    def test_link_activated_still_emitted(self, qapp):
+    def test_link_activated_still_emitted(self, qapp, monkeypatch):
+        from PyQt5.QtGui import QDesktopServices
+
+        # 必须替换 openUrl：viewer 默认 setOpenExternalLinks(True)，这条走的是
+        # 真实外链分支，不拦的话在有桌面会话的机器上会真的拉起浏览器。
+        # 本用例要验的是「Qt 层关掉 openExternalLinks 后我们自己仍发信号」。
+        opened: list = []
+        monkeypatch.setattr(
+            QDesktopServices,
+            "openUrl",
+            staticmethod(lambda u: opened.append(u) or True),
+        )
 
         v = ElaMarkdownViewer()
         v.resize(500, 400)

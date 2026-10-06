@@ -23,6 +23,10 @@ LLM_TEST_MAIN_SOURCE = r'''"""llm_test 最小示例：ElaChatWidget + 假 / 真�
 
 宿主接入就四步（见 ``DemoWindow``）：摆组件 → 选后端 → 接信号 → 宿主行为。
 
+**错误与状态必须有可见反馈**（状态栏 + 错误卡 + 重试）。它们不属于「四步」，
+但每一步都会用到：只把错误 ``print`` 进 stdout 的话，真实后端初始化失败时界面
+全空，用户只会以为组件坏了。
+
 运行::
 
     .\\.venv\\Scripts\\Activate.ps1
@@ -45,39 +49,110 @@ from PyQt5ElaWidgetTools import eApp
 from pyqt5_ela_pro.chat import (
     ElaChatAsyncWorker,
     ElaChatMockBackend,
+    ElaChatRole,
+    ElaChatStatus,
+    ElaChatStatusBar,
     ElaChatStreamBinder,
     ElaChatWidget,
 )
+
+#: 后端错误归一表：``(规范类型, 命中关键词)``。
+#:
+#: ``ElaChatAsyncWorker`` 只发 ``("worker", "ExcName: 文案")``，而错误卡的
+#: 「重试」只对 ``RETRYABLE_ERROR_TYPES``（限流 / 超时 / 网络 / 5xx）里的类型点亮
+#: —— 不做这层归一，真实后端上**「重试」永远不会出现**；反过来鉴权 / 参数错误
+#: 本来也不该给重试（换次机会只会再失败一次）。
+#:
+#: 两类来源都要认：
+#:
+#: - **抛异常的路径**：异常类名拼在文案最前（``APITimeoutError: …``）；
+#: - **哨兵字符串的路径**：``llm_test/agents`` 不抛异常，把 API 错误编码成
+#:   ``__ERROR__:<类型>:<文案>`` 上报（``llm_client.py``），类型是
+#:   ``api_timeout`` / ``api_connection`` / ``api_rate_limit`` /
+#:   ``api_server_error`` / ``api_auth`` / ``api_bad_request``。服务不可用走的
+#:   就是这条，**不认它 = 错误不可重试**（用户看到的仍是错误卡，只是没有重试键）。
+#:
+#: 这是**宿主**该做的事：库把类型原样传下来，不替宿主猜。
+_ERROR_TYPE_HINTS = (
+    # 抛异常的路径（OpenAI SDK 异常类名）
+    ("timeout", ("timeout", "timedout", "timed out")),
+    ("ratelimit", ("ratelimit", "rate_limit", "rate limit")),
+    ("network", ("connection", "network", "unreachable")),
+    ("overloaded", ("overloaded", "serviceunavailable", "internalservererror")),
+    # 哨兵路径（agents 的 api_* 前缀）
+    ("timeout", ("api_timeout",)),
+    ("ratelimit", ("api_rate_limit",)),
+    ("network", ("api_connection",)),
+    ("overloaded", ("api_server_error",)),
+)
+
+
+def classify_error(errorType, message):
+    """把后端原始错误归一成错误卡认识的规范类型（决定「重试」是否点亮）。
+
+    :param errorType: 后端给的类型（``ElaChatAsyncWorker`` 恒为 ``"worker"``）
+    :param message: 错误文案（异常类名 / ``api_*`` 前缀通常在最前面）
+    :returns: 命中的规范类型；没命中就原样返回 ``errorType``
+
+    ``api_auth`` / ``api_bad_request`` / ``unknown`` **故意不归一**：密钥错了、
+    参数错了重试只会再失败一次，不该给用户一个点了必然又失败的重试键。
+    """
+    text = f"{errorType} {message}".lower()
+    for name, needles in _ERROR_TYPE_HINTS:
+        if any(needle in text for needle in needles):
+            return name
+    return errorType or ""
 
 
 class DemoWindow(QWidget):
     """聊天窗口：只依赖 worker 的信号契约，可换任意同构后端。"""
 
-    def __init__(self, worker, parent=None):
+    def __init__(self, worker, parent=None, statusInfo=None):
+        """:param statusInfo: 状态栏左侧信息（模型 / 服务地址）。
+        缺省按 worker 类型自己给一句；真实后端传入具体值才有排查价值
+        （连接失败时用户第一眼要确认的就是"连的哪个地址"）。"""
         super().__init__(parent)
         self.resize(920, 720)
         self.setWindowTitle("ElaChatWidget 最小示例")
         self.worker = worker
+        #: 本回合是否出过错。**最终态以这里 + ``binder.finish()`` 摘要为准**，
+        #: 不看 ``generationFinished``：错误回合它会按 error → done 发两次。
+        self._turn_failed = False
 
         # ① 摆组件：ElaChatWidget（消息区 + 输入区都在组件内）
         layout = QVBoxLayout(self)
         self.chat = ElaChatWidget(self)
         self.chat.chatView().setEmptyTitle("发送一条消息试试")
         layout.addWidget(self.chat)
+        # 状态栏是宿主的一部分：就绪 / 生成中 / 出错 / 完成的**唯一可见反馈**
+        self.status = ElaChatStatusBar(self)
+        self.status.setInfo(
+            statusInfo
+            or (
+                f"mock 后端 · tick {worker.tickMs()} ms"
+                if isinstance(worker, ElaChatMockBackend)
+                else "真实后端（AgentWorker · llm_test/agents）"
+            )
+        )
+        self.status.setStatus("正在启动后端…", level="busy")
+        layout.addWidget(self.status)
 
         # ② 接后端：传 worker 即自动接机械信号；关窗自动收尾后端
         self.binder = ElaChatStreamBinder(self.chat, worker=worker)
         self.binder.shutdownOnClose(self)
+        worker.ready.connect(self.on_ready)
         worker.turnFinished.connect(self.on_turn_finished)
         worker.failed.connect(self.on_failed)
         worker.errorOccurred.connect(self.on_error)
-        # ready 可按需接 UI（状态栏 / 提示）
 
-        # ③ 宿主行为：提交 / 停止 / 撤回 / 重新生成 / 清空上下文
+        # ③ 宿主行为：提交 / 停止 / 撤回 / 重新生成 / 重试 / 清空上下文
         self.chat.messageSubmitted.connect(self.start_turn)
         self.chat.stopRequested.connect(self.on_stop)
         self.chat.undoRequested.connect(self.on_undo)
         self.chat.regenerateRequested.connect(self.on_regenerate)
+        # 错误卡上的「重试」= 同参数重发（**不删消息**，与「重新生成」不同）
+        self.chat.retryRequested.connect(self.on_retry)
+        self.chat.generationStarted.connect(self.on_generation_started)
         # 清空上下文：组件只清界面 + 队列，后端会话要宿主同步重置，
         # 否则下一轮模型还带着清空前的历史
         self.chat.cleared.connect(self.on_cleared)
@@ -89,22 +164,58 @@ class DemoWindow(QWidget):
     # -- 回合 --------------------------------------------------------------
 
     def start_turn(self, prompt, regenerate=False):
+        self._turn_failed = False
         if not self.binder.startTurn(prompt, regenerate=regenerate):
-            print("后端未就绪")  # 真实宿主可改为状态栏 / 弹提示
+            self.status.setStatus("后端未就绪，这条消息没发出去", level="error")
+
+    def on_generation_started(self, messageId):
+        self._turn_failed = False
+        self.status.setStatus("生成中…", level="busy")
+        self.status.setBusy(True)
 
     def on_stop(self):
         self.binder.cancel()  # 记录停止（finish 自动按 Stopped 收尾）
         self.worker.cancel()
 
+    def on_ready(self):
+        self.status.setBusy(False)
+        self.status.setStatus("后端已就绪", level="success")
+
     def on_turn_finished(self):
-        self.binder.finish()  # 收尾：补耗时 + 结束消息
+        summary = self.binder.finish()  # 收尾：补耗时 + 结束消息
+        self.status.setBusy(False)
+        if self._turn_failed:
+            self._turn_failed = False
+            self.status.setStatus("生成出错（错误卡上可「重试」）", level="error")
+        elif summary.status == ElaChatStatus.Stopped:
+            self.status.setStatus("已停止（保留已输出内容）")
+        elif summary.isEmptyReply():
+            self.status.setStatus(
+                f"模型未返回正文（finish_reason={summary.finishReason or 'unknown'}）",
+                level="error",
+            )
+        else:
+            self.status.setStatus(
+                f"完成 · {summary.durationMs:.0f} ms", level="success"
+            )
 
     def on_failed(self, message):
+        """后端**初始化**失败：这一轮还没开始，没有消息可以落错误卡。
+
+        所以走状态栏 + 一条系统消息 —— 只 ``print`` 到 stderr 的话，界面全空。
+        """
         print(f"后端初始化失败：{message}", file=sys.stderr)
+        self.status.setBusy(False)
+        self.status.setStatus(f"后端不可用：{message}", level="error")
+        self.chat.chatView().addMessage(
+            ElaChatRole.System, f"后端初始化失败：{message}"
+        )
 
     def on_error(self, errorType, message):
-        print(f"后端错误 [{errorType}]：{message}", file=sys.stderr)
-        self.binder.error(errorType, message)  # 错误卡片 + 收尾流式状态
+        self._turn_failed = True
+        self.status.setStatus(f"生成出错：{message}", level="error")
+        # 错误卡 + 「重试」（类型归一后才可能点亮那个按钮）
+        self.binder.error(classify_error(errorType, message), message)
 
     def on_undo(self, messageId):
         self.worker.cancel()
@@ -115,6 +226,15 @@ class DemoWindow(QWidget):
         message = self.chat.regenerateFrom(messageId)  # 删原回答，返回提问
         if message is not None:
             self.start_turn(message.text, regenerate=True)
+
+    def on_retry(self, messageId):
+        """错误卡的「重试」：同参数重发，原地保留那条消息（不删不重建）。"""
+        self.worker.cancel()
+        message = self.chat.retryMessage(messageId)  # 只清错误，返回前置提问
+        if message is None:
+            self.status.setStatus("找不到可重试的提问", level="error")
+            return
+        self.start_turn(message.text)
 
     def on_cleared(self):
         """界面已清空：同步重置后端会话（mock / 真实后端同签名）。"""
@@ -151,7 +271,8 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())'''
+    raise SystemExit(main())
+'''
 
 #: 快照：llm_test/agent_demo.py
 LLM_TEST_AGENT_DEMO_SOURCE = r'''"""真实后端最小示例：把假后端换成 AgentWorker（本地 agents/ 副本 + 本地模型）。
@@ -189,8 +310,7 @@ BASE_URL = os.environ.get("LLM_TEST_BASE_URL", "http://127.0.0.1:8000/v1")
 MODEL = os.environ.get("LLM_TEST_MODEL", "Spark-X2.5-4B-FP8")
 API_KEY = os.environ.get("LLM_TEST_API_KEY", "not-needed")
 WORK_DIR = Path(
-    os.environ.get("LLM_TEST_WORK_DIR")
-    or Path(__file__).resolve().parent / "workspace"
+    os.environ.get("LLM_TEST_WORK_DIR") or Path(__file__).resolve().parent / "workspace"
 )
 SYSTEM_PROMPT = (
     "你是一个有帮助的助手，请始终使用中文回答。"
@@ -241,9 +361,7 @@ class AgentWorker(ElaChatAsyncWorker):
             {"base_url": BASE_URL, "api_key": API_KEY, "model": MODEL}
         )
         thinking = os.environ.get("LLM_TEST_THINKING", "").strip().lower()
-        agents.AgentsConfig.set_thinking_mode(
-            thinking in ("1", "true", "yes", "on")
-        )
+        agents.AgentsConfig.set_thinking_mode(thinking in ("1", "true", "yes", "on"))
         agents.AgentsConfig.set_work_dir(WORK_DIR)
         agents.set_work_dir(WORK_DIR)
         self.agent = agents.create_async_agent(
@@ -255,6 +373,14 @@ class AgentWorker(ElaChatAsyncWorker):
                 on_tool_end=lambda tc, result: self.toolEnded.emit(tc, str(result)),
                 on_llm_end=lambda usage, ttft, tps: self.statsReady.emit(
                     usage, float(ttft or 0), float(tps or 0)
+                ),
+                # **必须接**：agents 把所有 API 异常编码成 ``__ERROR__:<类型>:<文案>``
+                # 哨兵字符串 yield 出来（llm_client.py），**不抛异常**；agent 只经
+                # 这个回调上报（agent.py:1013-1019），随后直接 ``return`` 结束流。
+                # 不接 -> 错误凭空消失，回合以「没有正文」收尾，界面上只剩
+                # 「模型未返回正文（finish_reason=unknown）」，真实原因查不到。
+                on_error=lambda error_type, message: self.errorOccurred.emit(
+                    "worker", f"{error_type}: {message}"
                 ),
             ),
             agent_id="llm_test",
@@ -278,8 +404,9 @@ def main():
     app = QApplication(sys.argv)
     eApp.init()
     bootstrap_agents()  # 必须在主线程
-    window = DemoWindow(AgentWorker())  # 必须持有引用
-    window.show()
+    # 状态栏左侧显示「模型 @ 地址」：连接失败时第一眼要确认的就是这个
+    window = DemoWindow(AgentWorker(), statusInfo=f"{MODEL} @ {BASE_URL}")
+    window.show()  # 必须持有引用
     rc = app.exec_()
     # 同 main.py：退出前显式销毁并冲刷删除队列，避免进程退出时的 Qt 清理竞态
     window.deleteLater()
@@ -288,7 +415,8 @@ def main():
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())'''
+    raise SystemExit(main())
+'''
 
 
 class ChatGuidePage(ExamplePage):
@@ -379,6 +507,13 @@ binder 和窗口（本页示例里 `worker` 就是这个角色）。
 4. **宿主行为**：提交 → `binder.startTurn`；停止 → `binder.cancel()` +
    `worker.cancel()`；撤回 / 重新生成用组件 API；**清空上下文 → `cleared`
    里 `worker.reset()`**（组件只清界面与队列）；回合结束 → `binder.finish()`。
+
+   另有一组**「错了要有话说」**的接线（示例里是 `ElaChatStatusBar` 四档状态 +
+   错误卡 + 「重试」）：`ready` / `failed` / `errorOccurred` / `retryRequested`
+   四个信号必须都接上，否则后端初始化失败时界面全空、错误只进 stdout。
+   注意 `binder.error(errorType, msg)` **原样**把类型传下去，而「重试」只对
+   `RETRYABLE_ERROR_TYPES` 里的类型点亮 —— 真实后端恒发 `"worker"`，宿主要自己
+   归一（示例里的 `classify_error`）。
 
 """ + self._code_block(LLM_TEST_MAIN_SOURCE)
         self._addMarkdown(main_layout, markdown)
@@ -522,6 +657,12 @@ view.beginPermission(messageId, ElaChatPermission(
 焦点、`Ctrl+⏎` 下一步 / 提交、`Alt+←` 上一步、`Esc` 忽略。页脚三个键都是
 `ElaButton`（`text` 弱化 / `outlined` 中性 / `solid+primary` 主动作）——
 **不印快捷键提示**，快捷键照常生效。
+
+**「输入自己的答案」那一行**：点它的标记 / 点整行 / 按 `Space` 是同一件事 ——
+选中它并展开输入框，一步就能开始输入。单选下它是 radio（再点标记不会取消，
+要换答案点其它选项），多选下再点标记 = 取消勾选并收起输入框；空文本勾上**不算
+答案**（`answer` 里不会有这一题）。敲完字直接点「下一步 / 提交」或按 `Ctrl+⏎`
+都会**先把这段文字落定**再前进 / 提交，不会丢。
 
 单选 = `ElaRadioButton`（圆点）、多选 = `ElaCheckBox`（方框）：**标记是真控件，
 不是自绘** —— 自绘版本两种模式画得一模一样，用户根本分不出单选还是多选。

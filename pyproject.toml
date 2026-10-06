@@ -71,7 +71,10 @@ exclude = ["ElaWidgetTools*", "PyQt*", "PyQt-Fluent*", "PyQt-SiliconUI*", "build
 include = ["pyqt5_ela_pro*"]
 
 [tool.setuptools.package-data]
-pyqt5_ela_pro = ["icons/*.svg", "icons/*.png", "icons/*.ico", "icons/packages/*.icons"]
+# 不再随包分发任何图标集（曾内置 3.66 MB / 2604 个 Fluent UI 图标 —— 组件库
+# 不该替宿主选一套设计语言，绝大多数宿主也根本不用）。宿主用自己的图标包时
+# 走 ElaSvgIconLoader.setPackageDirectory() / loadFromFile()，路径在宿主那边。
+pyqt5_ela_pro = []
 
 [tool.uv]
 required-environments="sys_platform == 'win32' and platform_machine == 'AMD64'"

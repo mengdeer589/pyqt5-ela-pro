@@ -123,6 +123,7 @@ class TestEnable:
         """取词是异步的（延迟+轮询共 100~350ms），停用必须取消在途取词，
         否则已发出的 Ctrl+C 仍会在几十毫秒后带回结果。"""
         assistant, monitor, capture = _make(qapp)
+        assistant.setCaptureFilter(lambda down, up: True)
         assistant.setEnabled(True)
         monitor.leftReleased.emit((0, 0), (50, 50))
         assert capture.count == 1
@@ -134,6 +135,7 @@ class TestEnable:
         """异步结果到达时若已停用，不得弹出动作条。"""
         assistant, monitor, capture = _make(qapp)
         assistant.setActions(_HOST_ACTIONS)
+        assistant.setCaptureFilter(lambda down, up: True)
         assistant.setEnabled(True)
         monitor.leftReleased.emit((0, 0), (50, 50))
         assistant.setEnabled(False)
@@ -206,8 +208,12 @@ class TestEnable:
 
 
 class TestGestures:
-    def _enabled(self, qapp):
+    def _enabled(self, qapp, allowDrag: bool = True):
         assistant, monitor, capture = _make(qapp)
+        # 拖选取词要向前台注入 Ctrl+C，默认闸门不放行。绝大多数手势用例要的是
+        # 「手势识别本身对不对」，所以这里统一显式放行拖选（默认闸门另有专测）。
+        if allowDrag:
+            assistant.setCaptureFilter(lambda down, up: True)
         assistant.setEnabled(True)
         return assistant, monitor, capture
 
@@ -321,13 +327,27 @@ class TestCaptureFilter:
         assert capture.count == 0
         _dispose(qapp, assistant)
 
+    def test_double_click_survives_clearing_the_filter(self, qapp):
+        """双击选词不受过滤器开关影响（它不会拖走窗口 / 滚动条）。"""
+        assistant, monitor, capture = self._enabled(qapp)
+        assistant.setCaptureFilter(None)
+        monitor.leftReleased.emit((100, 100), (100, 100))
+        monitor.leftReleased.emit((100, 100), (100, 100))
+        assert capture.count == 1
+        _dispose(qapp, assistant)
+
     def test_filter_can_be_cleared(self, qapp):
+        """清空过滤器后拖选取词**回到默认闸门**（不放行）。
+
+        「清掉过滤器」不等于「打开拖选取词」—— 那要用
+        ``setRequireFilterForDrag(True)`` 显式表达。
+        """
         assistant, monitor, capture = self._enabled(qapp)
         assistant.setCaptureFilter(lambda down, up: False)
         assistant.setCaptureFilter(None)
         assert assistant.captureFilter() is None
         monitor.leftReleased.emit((100, 100), (160, 130))
-        assert capture.count == 1
+        assert capture.count == 0, "清空过滤器不该顺带打开拖选取词"
         _dispose(qapp, assistant)
 
 
@@ -337,6 +357,7 @@ class TestCaptureFlow:
             assistant_module, "to_logical_pos", lambda x, y: QPoint(x, y)
         )
         assistant, monitor, capture = _make(qapp)
+        # 这组用例测的是「取到词之后」的展示链路，用双击手势避开默认的拖选闸门
         assistant.setEnabled(True)
         assistant.setActions(_HOST_ACTIONS)
         captured = []
@@ -347,15 +368,21 @@ class TestCaptureFlow:
         assistant.popupShown.connect(lambda text, pos: shown.append((text, pos)))
         return assistant, monitor, capture, captured, shown
 
+    @staticmethod
+    def _double_click(monitor):
+        """双击选词（默认闸门只拦拖选，双击不需要过滤器）。"""
+        monitor.leftReleased.emit((100, 100), (100, 100))
+        monitor.leftReleased.emit((100, 100), (100, 100))
+
     def test_captured_shows_popup_and_emits(self, qapp, monkeypatch):
         assistant, monitor, capture, captured, shown = self._flow(qapp, monkeypatch)
-        monitor.leftReleased.emit((100, 100), (160, 130))
+        self._double_click(monitor)
         capture.captured.emit("  选中的文本  ")
         qapp.processEvents()
         assert assistant.popup().isVisible() is True
         assert [text for text, _ in captured] == ["  选中的文本  "]
         assert [text for text, _ in shown] == ["  选中的文本  "]
-        assert captured[0][1] == QPoint(160, 130)
+        assert captured[0][1] == QPoint(100, 100)
         assert assistant.selectedText() == "  选中的文本  "
         _dispose(qapp, assistant)
 
@@ -371,10 +398,10 @@ class TestCaptureFlow:
             lambda text, pos: captured.append((text, pos))
         )
         assistant.popupShown.connect(lambda text, pos: shown.append((text, pos)))
-        monitor.leftReleased.emit((100, 100), (160, 130))
+        self._double_click(monitor)
         capture.captured.emit("无动作文本")
         qapp.processEvents()
-        assert captured == [("无动作文本", QPoint(160, 130))]
+        assert captured == [("无动作文本", QPoint(100, 100))]
         assert shown == []
         assert assistant.popup().isVisible() is False
         _dispose(qapp, assistant)

@@ -36,6 +36,7 @@ from pyqt5_ela_pro.chat.binder import ElaChatStreamBinder
 from pyqt5_ela_pro.chat.bubble import ElaChatBubble
 from pyqt5_ela_pro.chat.message import ElaChatRole
 from pyqt5_ela_pro.chat import ElaChatWidget
+from pyqt5_ela_pro.selection_assistant import capture as capture_mod
 from pyqt5_ela_pro.selection_assistant.capture import ElaClipboardCapture
 
 
@@ -222,6 +223,9 @@ class TestClipboardRestoreSettledFirst:
         cap._captured_text = "x"
         cap._need_restore = True
         cap._restore_delay_ms = 500
+        # 快照取「当前」序列号，模拟「取词之后没人动过剪贴板」：
+        # 恢复三道校验的第二道（序列号比对）必须放行，否则这里会跳过还原。
+        cap._capture_seq = capture_mod.clipboard_sequence_number()
 
         cap.capture()
 

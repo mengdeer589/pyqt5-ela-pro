@@ -16,7 +16,8 @@
 
 from __future__ import annotations
 
-from typing import Optional, Literal
+import warnings
+from typing import Literal, Optional
 
 from PyQt5.QtCore import Qt, QRect, QRectF, QSize, QTimer, QVariantAnimation
 from PyQt5.QtGui import (
@@ -36,6 +37,7 @@ from ._colors import get_color_scheme
 from ._motion import Duration, start_idle_loop, start_transition
 from ._styles import paintOverlayShadow
 from ._theme import accent as theme_accent, blend
+from .svg_icon import svg_icon_loader, svg_to_pixmap
 
 
 # ── Type aliases ─────────────────────────────────────────────
@@ -137,6 +139,10 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         self._size_height = 38
         self._icon_name: Optional[ElaIconType.IconName] = icon
         self._icon_size = iconSize
+        #: SVG 图标源：SVG 源码字符串，或 :class:`ElaSvgIconLoader` 里的图标名
+        #: （二选一，见 :meth:`setSvgIcon`）。非 ``None`` 时**压过** ``_icon_name``。
+        self._svg_source: Optional[str] = None
+        self._svg_is_name: bool = False
         self._hovered = False
         self._focus_ring = False
         self._loading = False
@@ -220,15 +226,91 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         return "middle"
 
     def setElaIcon(self, iconName: ElaIconType.IconName, iconSize: int = 16) -> None:
-        """设置按钮图标。
+        """设置按钮图标（ElaAwesome 图标）。
 
         :param iconName: ElaAwesome 图标名称
         :param iconSize: 图标像素大小，默认 16
         """
         self._icon_name = iconName
         self._icon_size = iconSize
+        self._svg_source = None
         self.setIconSize(QSize(iconSize, iconSize))
+        self.updateGeometry()
         self.update()
+
+    def setSvgIcon(self, source: str, iconSize: Optional[int] = None) -> bool:
+        """设置 **第三方 SVG** 图标，颜色跟随当前主题（文字色 / 禁用色）。
+
+        这是本库唯一能在按钮里放非 ElaAwesome 图标的入口 —— 其余按钮
+        （``ElaProgressButton`` / ``ElaChatToolButton`` / 上游 ``ElaPushButton``）
+        只认 ``ElaIconType.IconName`` 枚举，而 :meth:`setIcon` 在本控件上是
+        **静默无效**的（本控件自绘，只读 ``_icon_name`` / ``_svg_source``）。
+
+        ``source`` 两种形态自动判别：
+
+        * **SVG 源码**（含 ``<svg``）→ 直接渲染；
+        * **图标名** → 去 :func:`svg_icon_loader` 里取，宿主需先
+          ``svg_icon_loader().loadFromFile(...)`` 加载自己的图标包（本库不
+          自带图标集）。
+
+        SVG 里的 ``<<<COLOR_CODE>>>`` 占位符会被替换成当前主题文字色，所以
+        多色图标请用占位符标出该跟随主题的部分。
+
+        与 :meth:`setElaIcon` **互斥**：设了 SVG 就清掉 ElaAwesome 图标，反之
+        亦然（不这样做会两套图标语义并存、谁生效说不清）。
+
+        :param source: SVG 源码字符串，或图标包里的图标名
+        :param iconSize: 图标像素大小，默认沿用当前值（16）
+        :returns: 图标名形态且图标包里**找不到**该名字时返回 ``False``
+            （此时只画文字，并已 ``warnings.warn`` 一次 —— 静默少一个图标会
+            让用户去查图标名，而不是查「图标包没加载」）
+        """
+        self._svg_source = source or None
+        self._svg_is_name = bool(source) and "<svg" not in source
+        if iconSize is not None:
+            self._icon_size = iconSize
+        self._icon_name = None
+        found = True
+        if self._svg_is_name:
+            found = svg_icon_loader().hasIcon(source)
+            if not found:
+                warnings.warn(
+                    f"图标名 {source!r} 在已加载的图标包里不存在"
+                    "（svg_icon_loader().loadFromFile(...) 加载过吗？）—— 只画文字。",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+        self.setIconSize(QSize(self._icon_size, self._icon_size))
+        self.updateGeometry()
+        self.update()
+        return found
+
+    def clearSvgIcon(self) -> None:
+        """清掉 SVG 图标（回到无图标状态）。"""
+        self._svg_source = None
+        self._svg_is_name = False
+        self.updateGeometry()
+        self.update()
+
+    def svgIcon(self) -> Optional[str]:
+        """当前 SVG 图标源（``None`` 表示没设）。"""
+        return self._svg_source
+
+    def setIcon(self, icon) -> None:  # noqa: N802 (Qt 命名)
+        """**本控件不支持** ``QPushButton.setIcon``，调用只会静默失效。
+
+        ``paintEvent`` 只读 ``_icon_name`` / ``_svg_source``，``QPushButton``
+        自己那套 ``icon()`` 根本不参与绘制。这里覆写成警告，避免「设了没反应」
+        这种最难查的失败。
+
+        :raises RuntimeError: 恒定抛出，消息里给出正确入口
+        """
+        del icon
+        raise RuntimeError(
+            "ElaButton 自绘，不支持 QPushButton.setIcon（会静默不画）。"
+            "请用 setElaIcon(ElaIconType.IconName) 放 ElaAwesome 图标，"
+            "或 setSvgIcon(svg源码或图标名) 放第三方 SVG。"
+        )
 
     def setBorderRadius(self, radius: int) -> None:
         """设置圆角半径。
@@ -268,7 +350,7 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         """
         fm = self.fontMetrics()
         face_width = fm.horizontalAdvance(self.text())
-        if self._icon_name is not None or self._loading:
+        if self._icon_name is not None or self._svg_source or self._loading:
             face_width += self._icon_size + (8 if self.text() else 0)
         face_width += 2 * self._padding_h
         return QSize(max(64, face_width) + 2 * _SHADOW_MARGIN, self._size_height)
@@ -277,6 +359,27 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         return QSize(
             max(48, 2 * self._padding_h) + 2 * _SHADOW_MARGIN, self._size_height
         )
+
+    def _svg_pixmap_for_paint(self, color: QColor):
+        """按当前文字色渲染 SVG 图标；取不到时返回 ``None``（只画文字）。
+
+        绘制路径上**绝不能**让异常穿出去（``paintEvent`` 在 Qt 回调链里，
+        未捕获异常 = 0xC0000409 静默终止）。所以三道全兜住：图标名找不到
+        （``getSvgData`` 会抛 ``KeyError``）、SVG 语法错、渲染出空图。
+        """
+        source = self._svg_source
+        if not source:
+            return None
+        size = self._icon_size
+        try:
+            if self._svg_is_name:
+                data = svg_icon_loader().getSvgData(source, color.name())
+            else:
+                data = source
+            pixmap = svg_to_pixmap(data, size, color.name())
+        except Exception:  # noqa: BLE001 —— paintEvent 里必须全兜
+            return None
+        return None if pixmap.isNull() else pixmap
 
     def _effective_color(self) -> str:
         return "danger" if self._danger else self._color_name
@@ -555,7 +658,8 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
             icon_name = self._icon_name
             loading = self._loading
             btn_text = self.text()
-            if icon_name is not None or loading:
+            svg_pixmap = None if loading else self._svg_pixmap_for_paint(text_color)
+            if icon_name is not None or loading or svg_pixmap is not None:
                 spacing = 8
                 icon_sz = QSize(self._icon_size, self._icon_size)
                 fm = painter.fontMetrics()
@@ -575,6 +679,8 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
                     painter.setBrush(Qt.BrushStyle.NoBrush)
                     painter.drawArc(QRectF(ir), self._spin_angle * 16, 270 * 16)
                     painter.setPen(text_color)
+                elif svg_pixmap is not None:
+                    painter.drawPixmap(ir, svg_pixmap)
                 else:
                     icon = ElaIcon.getInstance().getElaIcon(icon_name, text_color)
                     painter.drawPixmap(ir, icon.pixmap(icon_sz))

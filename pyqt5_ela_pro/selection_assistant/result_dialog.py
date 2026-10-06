@@ -250,6 +250,8 @@ class ElaSelectionResultDialog(ElaWidget):
         self._preferred_size = QSize(_DEFAULT_SIZE)
         #: 定位过程中为 True —— 此时的 resize 是程序夹取，不是用户意图
         self._placing = False
+        #: ``WS_THICKFRAME`` 那一次撑高是否还没落地（见 ``resizeEvent``）
+        self._wm_grow_pending = False
 
         self._build_ui()
         self._sync_controls()
@@ -564,10 +566,19 @@ class ElaSelectionResultDialog(ElaWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
         super().resizeEvent(event)
-        # 记住用户在**可见期间**手动调过的尺寸，下次 openFor 沿用。两个排除项：
-        # 定位过程中的程序夹取（``_placing``）、以及隐藏时的 resize（构造与
-        # 首帧布局阶段都会发，别把中间态记成用户意图）。
+        # 记住用户在**可见期间**手动调过的尺寸，下次 openFor 沿用。三个排除项：
+        # 定位过程中的程序夹取（``_placing``）、隐藏时的 resize（构造与首帧布局
+        # 阶段都会发）、以及上游补 ``WS_THICKFRAME`` 撑高那一次（见下）。
         if self._placing or not self.isVisible():
+            return
+        if self._wm_grow_pending:
+            # 上游在 ``QEvent::Show`` 里补的 ``WS_THICKFRAME`` 会把窗口**撑高
+            # 约 31px**，而这一次 resize **投递时机不确定**：有时同步落在
+            # ``_place()`` 内（被 ``_placing`` 盖住），有时被 Qt 排进事件队列、
+            # 在 ``_placing`` 复位之后才到（实测两种都发生过）。靠 ``_placing``
+            # 兜不住，所以由 ``_place`` 显式记账：请求值与实际尺寸不一致就说明
+            # 这一次撑高还没落地，下一次可见期 resize 就是它 —— 不是用户意图。
+            self._wm_grow_pending = False
             return
         self._preferred_size = QSize(self.size())
 
@@ -689,6 +700,16 @@ class ElaSelectionResultDialog(ElaWidget):
 
         最后水平 / 垂直夹回 ``availableGeometry()``（排除任务栏）—— 与
         :meth:`ElaSelectionPopup.popupAt` / :meth:`ElaToolTip.showAt` 同一套规则。
+
+        **夹取按画框（``frameGeometry``）而不是客户区**：上游在首次 ``show``
+        时补的 ``WS_THICKFRAME`` 让**不可见拖拽边框**比客户区高 32px / 宽 2px
+        （实测）。按 ``self.width()/height()`` 算，锚点贴工作区右下角时画框底部
+        溢出 42px 到屏幕外。
+
+        而且那圈边距**不是常数**：实测同一个窗口先测得 top=31，移动后又变成 0
+        （无边框窗 + THICKFRAME 的 DWM 报告随状态变），所以**不能用「客户区 +
+        固定常量」推算**。做法是「先按客户区算 → move → 量真实画框 → 按溢出量
+        纠正一次」：平移是线性的，一次纠正即到位。
         """
         area = self._work_area()
         width = max(
@@ -699,24 +720,69 @@ class ElaSelectionResultDialog(ElaWidget):
             _MIN_SIZE.height(),
             min(self._preferred_size.height(), area.height() - 2 * _EDGE_GAP),
         )
-        # 定位期间的 resize 不该被当成「用户调过的尺寸」记进偏好
+        # **整个「按工作区夹取 + 摆位」过程都是程序行为**，`_placing` 必须
+        # 覆盖到 move 之后：THICKFRAME 的纠正步会再发一次 resize（见
+        # ``_nudge_inside_work_area``），它同样不能被记成用户偏好。
+        # （原先只在 ``resize()`` 前后置位，随后 ``move()`` 与纠正步都在保护
+        # 之外，那两步触发的 resize 会把夹取结果写进偏好。）
         self._placing = True
         try:
             self.resize(width, height)
+            # 以 resize 之后的**真实**尺寸摆位（布局的 minimumSizeHint 可能把
+            # 请求值顶大，工作区又小的时候还会再收一次）
+            width, height = self.width(), self.height()
+
+            anchor = self._anchor if self._anchor is not None else area.center()
+            x = anchor.x() - width // 2 + _PLACE_OFFSET.x()
+            y = anchor.y() + _PLACE_OFFSET.y()
+            if y + height > area.bottom() + 1:
+                y = anchor.y() - height - _PLACE_OFFSET.y()
+            x = max(
+                area.left() + _EDGE_GAP, min(x, area.right() - width - _EDGE_GAP + 1)
+            )
+            y = max(area.top(), min(y, area.bottom() - height + 1))
+            self.move(int(x), int(y))
+            # 纠正画框溢出：THICKFRAME 的那圈不可见边框不体现在 size() 里，
+            # 但它才是屏幕上真正占的矩形（见上方 docstring 的实测数据）
+            self._nudge_inside_work_area(area)
+            # 记账：拿到**正好**是请求的尺寸，说明上游补的 WS_THICKFRAME 撑高
+            # 还在事件队列里没落地 —— 那一次 resize 不是用户意图，别记进偏好
+            # （见 resizeEvent）。反之尺寸已经被撑过了（或布局顶大了），就说明
+            # 撑高同步发生过了 / 本平台没有窗口管理器，此后可见期的每次 resize
+            # 都该按用户意图处理。
+            self._wm_grow_pending = self.width() == width and self.height() == height
         finally:
             self._placing = False
-        # 以 resize 之后的**真实**尺寸夹位置（布局的 minimumSizeHint 可能把
-        # 请求值顶大，工作区又小的时候还会再收一次）
-        width, height = self.width(), self.height()
 
-        anchor = self._anchor if self._anchor is not None else area.center()
-        x = anchor.x() - width // 2 + _PLACE_OFFSET.x()
-        y = anchor.y() + _PLACE_OFFSET.y()
-        if y + height > area.bottom() + 1:
-            y = anchor.y() - height - _PLACE_OFFSET.y()
-        x = max(area.left() + _EDGE_GAP, min(x, area.right() - width - _EDGE_GAP + 1))
-        y = max(area.top(), min(y, area.bottom() - height + 1))
-        self.move(int(x), int(y))
+    def _nudge_inside_work_area(self, area: QRect) -> None:
+        """按真实 ``frameGeometry`` 把窗口纠正回工作区内（纯平移，幂等）。
+
+        必须在 ``_placing`` 保护内调用（纠正也是程序行为，不是用户意图）。
+
+        「一次纠正即到位」靠的是**平移的线性性**：``move()`` 对一个无边框 +
+        ``WS_THICKFRAME`` 窗口作用在**画框**原点上（实测：``move(100,100)``
+        之后 ``frameGeometry().topLeft()`` 恰为 (100,100)），所以按当前画框
+        溢出量反向平移即精确落位。
+
+        窗口比工作区还高时上下都溢出，无法同时满足 —— 此时对齐**顶部**而不是
+        居中：多出来的部分落在屏幕外是没法避免的，但标题栏必须留在可视区里
+        （居中会让标题栏直接被顶出屏幕）。
+        """
+        frame = self.frameGeometry()
+        dx = dy = 0
+        if frame.right() > area.right() - _EDGE_GAP:
+            dx = area.right() - _EDGE_GAP - frame.right()
+        elif frame.left() < area.left() + _EDGE_GAP:
+            dx = area.left() + _EDGE_GAP - frame.left()
+        if frame.height() >= area.height():
+            # 比工作区还高：对齐顶部（见 docstring）
+            dy = area.top() + _EDGE_GAP - frame.top()
+        elif frame.bottom() > area.bottom() - _EDGE_GAP:
+            dy = area.bottom() - _EDGE_GAP - frame.bottom()
+        elif frame.top() < area.top() + _EDGE_GAP:
+            dy = area.top() + _EDGE_GAP - frame.top()
+        if dx or dy:
+            self.move(self.x() + dx, self.y() + dy)
 
     def _work_area(self) -> QRect:
         screen = None

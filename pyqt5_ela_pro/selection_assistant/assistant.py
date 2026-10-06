@@ -21,11 +21,15 @@
         if actionId == "copy":
             QApplication.clipboard().setText(text)
 
+    # 拖选取词要向前台注入 Ctrl+C，默认闸门不放行；用内置启发式收窄误伤面
+    assistant.setCaptureFilter(ElaSelectionAssistant.builtinDragFilter())
     assistant.setEnabled(True)
 
 组件不依赖 pywin32（纯 ctypes）；非 Windows 或监视启动失败时发出
-``errorOccurred`` 并保持禁用。取词通过剪贴板探针完成，默认恢复原剪贴板
-（只还原文本）。
+``errorOccurred`` 并保持禁用。**不安装任何键盘钩子**，不会拦截用户自己
+按下 / 松开的 Ctrl+C / Ctrl+V。取词通过剪贴板探针完成，默认恢复原剪贴板
+（只还原文本；基准含图片等非文本内容时改为跳过恢复，原因见
+``assistant.capture().lastRestoreSkipReason()``）。
 
 命名规范与库内一致（``camelCase``）。
 """
@@ -40,7 +44,14 @@ from PyQt5 import sip
 from PyQt5.QtCore import QObject, QPoint, pyqtSignal
 
 from ..menu_item import ElaMenuItem
-from ._native import ElaMouseMonitor, _warn_once, safe_connect, to_logical_pos
+from ._native import (
+    ElaMouseMonitor,
+    _warn_once,
+    safe_connect,
+    to_logical_pos,
+    window_pid_at,
+    window_rect_at,
+)
 from .capture import ElaClipboardCapture
 from .popup import ElaSelectionPopup
 
@@ -96,18 +107,34 @@ class ElaSelectionAssistant(QObject):
         测试可注入假实现）
     :param capture: 取词后端（默认 :class:`ElaClipboardCapture`；
         测试可注入假实现）
+
+    **取词会向前台窗口注入 Ctrl+C**（无法从别的通道读选区）。拖选与
+    「拖窗口 / 拖滚动条 / 拖文件」在鼠标层面无法区分，注入到终端里就是
+    中断信号（实测：终端里拖一下 scrollbar 会把正在跑的命令 SIGINT 掉）。
+    因此未设置 :meth:`setCaptureFilter` 时**拖选默认不取词**，只保留
+    双击选词；需要拖选取词请用内置启发式过滤器::
+
+        assistant.setCaptureFilter(ElaSelectionAssistant.builtinDragFilter())
+
+    被拦截时发 :attr:`captureBlocked`。
     """
 
     #: 启用状态变化
     enabledChanged = pyqtSignal(bool)
     #: 捕获到选中文本（参数：文本、落点逻辑坐标）
     selectionCaptured = pyqtSignal(str, QPoint)
+    #: 本次手势**没有向前台注入 Ctrl+C**（参数：原因，见
+    #: :attr:`captureBlocked` 的取值说明）
     #: 点击动作（参数：动作 id、选中文本、落点逻辑坐标）
     actionTriggered = pyqtSignal(str, str, QPoint)
     #: 动作条弹出
     popupShown = pyqtSignal(str, QPoint)
     #: 动作条隐藏
     popupHidden = pyqtSignal()
+    #: 本次手势**没有注入 Ctrl+C**（被取词闸门拦下），参数为原因：
+    #: ``"drag-without-filter"``（默认闸门，未设过滤器）/ ``"filter-denied"``
+    #: （宿主过滤器返回 False）/ ``"filter-error"``（过滤器抛异常）
+    captureBlocked = pyqtSignal(str)
     #: 错误（监视启动失败 / 取词异常等）
     errorOccurred = pyqtSignal(str)
 
@@ -126,6 +153,7 @@ class ElaSelectionAssistant(QObject):
         # 动作条菜单项完全由宿主定义（setActions），默认无动作
         self._actions: List[ElaMenuItem] = []
         self._capture_filter = None
+        self._require_filter_for_drag = True
         self._min_length = 1
         self._drag_threshold = _DEFAULT_DRAG_THRESHOLD
         self._double_click_ms = _DEFAULT_DOUBLE_CLICK_MS
@@ -216,21 +244,100 @@ class ElaSelectionAssistant(QObject):
 
     def setCaptureFilter(self, predicate) -> None:
         """设置取词过滤器：``predicate(down, up) -> bool``，返回 ``False`` 时
-        本次手势**不取词**（不注入 Ctrl+C）。
+        本次手势**不取词**（不注入 Ctrl+C）。两个参数都是按下 / 抬起点的
+        **物理像素**坐标。
 
-        两个参数都是按下 / 抬起点的**物理像素**坐标（与监视信号一致）。
-        默认 ``None``（不拦截）。典型用途：跳过「拖窗口 / 拖滚动条 / 拖文件」
-        这类非划词拖拽 —— 可用 :func:`~pyqt5_ela_pro.selection_assistant.foreground_pid`
-        / :func:`~pyqt5_ela_pro.selection_assistant.window_pid_at` 判断前台窗口。
+        过滤器异常按**拦截**处理（宁可少取一次词，也不向未知应用注入
+        Ctrl+C），并发一条 ``RuntimeWarning`` + ``captureBlocked("filter-error")``。
 
-        过滤器异常按**拦截**处理（宁可少取一次词，也不向未知应用注入 Ctrl+C），
-        并发一条 ``RuntimeWarning``。
+        典型用途：跳过「拖窗口 / 拖滚动条 / 拖文件」这类非划词拖拽。
+        不想自己写就用内置启发式::
+
+            assistant.setCaptureFilter(ElaSelectionAssistant.builtinDragFilter())
+
+        或按应用收紧::
+
+            import os
+            assistant.setCaptureFilter(
+                lambda down, up: foreground_pid() == os.getpid()
+            )
+
+        传 ``None`` 清空过滤器（此时拖选是否取词由
+        :meth:`requireFilterForDrag` 决定）。
         """
         self._capture_filter = predicate
 
     def captureFilter(self):  # noqa: ANN201
         """当前取词过滤器（未设置时为 ``None``）。"""
         return self._capture_filter
+
+    def setRequireFilterForDrag(self, required: bool) -> None:
+        """拖选取词是否必须先设过滤器（默认 ``True`` = 必须）。
+
+        **默认要求是有意的**：拖选与「拖窗口 / 拖滚动条 / 拖文件」在鼠标
+        层面无法区分，而拖选取词要**向前台窗口注入 Ctrl+C** —— 在终端 /
+        控制台里注入的 Ctrl+C 就是中断信号（实测：终端里拖一下 scrollbar
+        就会把正在跑的命令 SIGINT 掉）。双击选词不受本开关影响。
+
+        想要「开箱即用的拖选取词」用 ``setRequireFilterForDrag(False)``，
+        更推荐 ``setCaptureFilter(builtinDragFilter())`` 把误伤面收窄。
+        """
+        self._require_filter_for_drag = bool(required)
+
+    def requireFilterForDrag(self) -> bool:
+        """拖选取词当前是否要求先设过滤器（默认 ``True``）。"""
+        return self._require_filter_for_drag
+
+    @staticmethod
+    def builtinDragFilter(maxDragPx: int = 600, borderPx: int = 6):
+        """内置的启发式拖选过滤器（``predicate(down, up) -> bool``）。
+
+        刻意只做**不依赖具体应用**的保守判断，宁可放过（少弹一次动作条）
+        也不误伤用户的正常操作：
+
+        1. 按下点与抬起点落在**同一个窗口**内（``window_pid_at`` 相同且非 0）
+           —— 跨窗口的拖拽多半是拖文件 / 拖到别的应用；
+        2. 位移不超过 ``maxDragPx`` 像素（超长的拖更像拖滑块 / 拖滚动条 /
+           拖窗口）；
+        3. 按下点不在目标窗口的边框 ``borderPx`` 范围内（那是调窗口大小）。
+
+        仍会有漏网场景（例如在可滚动区域里横向拖动、拖动带列表的侧栏），
+        所以宿主最好**再叠加自己的规则**（例如限定前台进程，见
+        :meth:`setCaptureFilter` 的示例）。装饰器形态便于组合::
+
+            base = ElaSelectionAssistant.builtinDragFilter()
+            def only_my_app(down, up):
+                return foreground_pid() == os.getpid() and base(down, up)
+            assistant.setCaptureFilter(only_my_app)
+        """
+
+        def _filter(down, up) -> bool:
+            try:
+                dx = int(up[0]) - int(down[0])
+                dy = int(up[1]) - int(down[1])
+                if dx * dx + dy * dy > int(maxDragPx) ** 2:
+                    return False
+                down_pid = window_pid_at(int(down[0]), int(down[1]))
+                if down_pid == 0 or down_pid != window_pid_at(int(up[0]), int(up[1])):
+                    return False
+                if borderPx > 0:
+                    rect = window_rect_at(int(down[0]), int(down[1]))
+                    if rect is not None:
+                        left, top, right, bottom = rect
+                        m = int(borderPx)
+                        if (
+                            int(down[0]) <= left + m
+                            or int(down[1]) <= top + m
+                            or int(down[0]) >= right - m
+                            or int(down[1]) >= bottom - m
+                        ):
+                            return False
+                return True
+            except Exception as exc:  # noqa: BLE001 - Win32 查询不可信
+                _warn_once("内置拖选过滤器查询失败，已拦截本次手势：", exc)
+                return False
+
+        return _filter
 
     # -- 显示 --------------------------------------------------------------
 
@@ -334,7 +441,7 @@ class ElaSelectionAssistant(QObject):
             # 点马上点一下会被误判成双击，多注入一次 Ctrl+C（实测踩过）。
             self._last_click_at = 0.0
             self._last_click_pos = None
-            if self._allow_capture(down, up):
+            if self._allow_capture(down, up, "drag"):
                 self._start_capture(up)
             return
 
@@ -347,19 +454,41 @@ class ElaSelectionAssistant(QObject):
         )
         self._last_click_at = now
         self._last_click_pos = (int(up[0]), int(up[1]))
-        if double and self._allow_capture(down, up):
+        if double and self._allow_capture(down, up, "double"):
             self._start_capture(up)
 
-    def _allow_capture(self, down, up) -> bool:
-        """取词过滤器闸门（默认放行；过滤器异常按拦截处理）。"""
+    def _allow_capture(self, down, up, kind: str = "drag") -> bool:
+        """取词闸门（决定是否向前台窗口注入 Ctrl+C）。
+
+        :param kind: ``"drag"`` / ``"double"``（双击选词）。
+
+        判定顺序：① 宿主过滤器说话（异常按拦截）；② 无过滤器且是拖选时，
+        受 :meth:`requireFilterForDrag` 约束（**默认拦截**，理由见那里）；
+        ③ 其余情况放行。拦截时发 ``captureBlocked`` 并告警一次。
+        """
         predicate = self._capture_filter
         if predicate is None:
+            if kind == "drag" and self._require_filter_for_drag:
+                _warn_once(
+                    "拖选取词被默认闸门拦截（未设置取词过滤器）："
+                    "拖选要向前台注入 Ctrl+C，终端里等于 SIGINT。"
+                    "需要拖选取词请 setCaptureFilter("
+                    "ElaSelectionAssistant.builtinDragFilter())，"
+                    "或 setRequireFilterForDrag(True) 显式打开：",
+                    RuntimeError("blocked"),
+                )
+                self.captureBlocked.emit("drag-without-filter")
+                return False
             return True
         try:
-            return bool(predicate(tuple(down), tuple(up)))
+            allowed = bool(predicate(tuple(down), tuple(up)))
         except Exception as exc:  # noqa: BLE001 - 宿主过滤器不可信
             _warn_once("取词过滤器异常，已拦截本次手势：", exc)
+            self.captureBlocked.emit("filter-error")
             return False
+        if not allowed:
+            self.captureBlocked.emit("filter-denied")
+        return allowed
 
     def _on_other_pressed(self, _point) -> None:
         self.hide()

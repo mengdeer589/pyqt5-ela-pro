@@ -277,8 +277,6 @@ from .notify_popup import ElaNotifyPopup
 
 from .svg_icon import (
     ElaSvgIconLoader,
-    ElaSvgButton,
-    ElaSvgIconButton,
 )
 
 from .window_embedder import ElaWindowEmbedder
@@ -468,8 +466,6 @@ __all__ = [
     "ElaSpotlight",
     "ElaStateToolTip",
     "ElaSteps",
-    "ElaSvgButton",
-    "ElaSvgIconButton",
     "ElaSvgIconLoader",
     "ElaTagBox",
     "ElaTagLineEdit",

@@ -29,6 +29,22 @@ def _set_clipboard(qapp, text: str) -> str:
     return clipboard.text()
 
 
+def _fake_send_copy(action):
+    """替代 ``send_copy()`` 的假注入。
+
+    **必须返回 True**：真实的 ``send_copy()`` 返回「是否真的注入了按键」，
+    而取词链路把 False 当作「注入被闸门拦下」直接按无选区收尾
+    （见 ``_on_send_copy``）。假实现不回 True 的话，用例测到的就不是
+    取词链路而是闸门分支了。
+    """
+
+    def _send() -> bool:
+        action()
+        return True
+
+    return _send
+
+
 class TestCapture:
     def test_success_and_clipboard_restored(
         self, qapp, monkeypatch, requires_clipboard
@@ -40,7 +56,9 @@ class TestCapture:
         results = []
         capture.captured.connect(results.append)
         monkeypatch.setattr(
-            capture_module, "send_copy", lambda: clipboard.setText("选中的文本")
+            capture_module,
+            "send_copy",
+            _fake_send_copy(lambda: clipboard.setText("选中的文本")),
         )
 
         capture.capture()
@@ -59,7 +77,7 @@ class TestCapture:
         _speed_up(capture, timeout_ms=60)
         failures = []
         capture.failed.connect(lambda: failures.append(True))
-        monkeypatch.setattr(capture_module, "send_copy", lambda: None)
+        monkeypatch.setattr(capture_module, "send_copy", _fake_send_copy(lambda: None))
 
         capture.capture()
         assert _wait_until(qapp, lambda: bool(failures))
@@ -79,12 +97,38 @@ class TestCapture:
         results = []
         capture.captured.connect(results.append)
         monkeypatch.setattr(
-            capture_module, "send_copy", lambda: clipboard.setText("选中")
+            capture_module,
+            "send_copy",
+            _fake_send_copy(lambda: clipboard.setText("选中")),
         )
 
         capture.capture()
         assert _wait_until(qapp, lambda: bool(results))
         assert _wait_until(qapp, lambda: clipboard.text() == "选中")
+        capture.deleteLater()
+
+    def test_blocked_injection_never_polls_or_captures(self, qapp, monkeypatch):
+        """注入被 ``send_copy`` 的闸门拦下（返回 False）→ 直接判无选区。
+
+        闸门是「修饰键按下 / 距上次注入过近」这类**不该发按键**的场合；此时
+        绝不能继续轮询剪贴板，否则用户自己那次 Ctrl+C 会被误当成取词结果。
+        """
+        capture = ElaClipboardCapture()
+        _speed_up(capture)
+        results: list[str] = []
+        failures: list[bool] = []
+        capture.captured.connect(results.append)
+        capture.failed.connect(lambda: failures.append(True))
+        sent: list[int] = []
+        monkeypatch.setattr(
+            capture_module, "send_copy", lambda: (sent.append(1), False)[1]
+        )
+
+        capture.capture()
+        assert _wait_until(qapp, lambda: bool(failures))
+        assert results == [], "注入没发出去，不该出现取词结果"
+        assert sent == [1], "闸门判定本身必须走过（只拦一次，不重试）"
+        assert capture.isCapturing() is False
         capture.deleteLater()
 
     def test_empty_copy_is_failure(self, qapp, monkeypatch, requires_clipboard):
@@ -94,7 +138,9 @@ class TestCapture:
         _speed_up(capture, timeout_ms=60)
         failures = []
         capture.failed.connect(lambda: failures.append(True))
-        monkeypatch.setattr(capture_module, "send_copy", lambda: clipboard.clear())
+        monkeypatch.setattr(
+            capture_module, "send_copy", _fake_send_copy(clipboard.clear)
+        )
 
         capture.capture()
         assert _wait_until(qapp, lambda: bool(failures))
@@ -105,7 +151,7 @@ class TestCapture:
         before = _set_clipboard(qapp, "旧内容")
         capture = ElaClipboardCapture()
         capture.setCaptureDelayMs(1000)
-        monkeypatch.setattr(capture_module, "send_copy", lambda: None)
+        monkeypatch.setattr(capture_module, "send_copy", _fake_send_copy(lambda: None))
 
         capture.capture()
         assert capture.isCapturing() is True

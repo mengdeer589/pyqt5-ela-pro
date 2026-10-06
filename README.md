@@ -52,7 +52,7 @@ PyQt5 extension widget library based on PyQt5ElaWidgetTools.
 - **ElaSplitButton** — 拆分按钮（主操作 + 下拉菜单）
 - **ElaLongPressButton** — 长按触发（防误触）
 - **ElaProgressButton** — 含进度指示的按钮
-- **ElaSvgButton / ElaSvgIconButton** — 基于 SVG 图标的按钮
+- **ElaButton.setSvgIcon()** — 往按钮里放**第三方 SVG** 图标（`<<<COLOR_CODE>>>` 自动替换为当前主题文字色）；本库**不自带图标集**，图标名形态需宿主自己 `svg_icon_loader().loadFromFile(...)`
 
 ### 弹窗与提示
 - **ElaMessageDialog** — 消息确认对话框
@@ -170,8 +170,11 @@ PyQt5 extension widget library based on PyQt5ElaWidgetTools.
       （14px 主文本色），候选卡（每项**两行**：标题 + 说明，
       `ElaChatOption{label, description}`；单选 = `ElaRadioButton` 圆点、
       多选 = `ElaCheckBox` 方框，**标记是真控件不是自绘**），末行是「输入自己的
-      答案」，页脚 忽略 / 上一步 / 下一步|提交（**都是 `ElaButton`**，不印快捷键
-      提示但快捷键照常生效）。大量 diff 按「行数 + 单行长度」双上限折叠。
+      答案」（**点标记 / 点整行 / `Space` = 选中它 + 展开输入框**；单选下是
+      radio、再点标记不取消，多选下再点标记 = 取消并收起；空文本勾上不算答案），
+      页脚 忽略 / 上一步 / 下一步|提交（**都是 `ElaButton`**，不印快捷键
+      提示但快捷键照常生效；点它们会先把输入框里的文字落定）。大量 diff 按
+      「行数 + 单行长度」双上限折叠。
       键盘：`1`–`9` 选中对应行（与焦点在哪一行无关）、`Space` 切换（多选）、
       `↑↓←→` / `Home` / `End` 移焦点、`Ctrl+⏎` 下一步 / 提交、`Alt+←` 上一步、
       `Esc` 忽略。
@@ -397,15 +400,23 @@ chat.sendNextQueued()                         # 或手动触发
   双击选词后模拟 `Ctrl+C` 读取选中文本（**不预先改动剪贴板**，成功后按需
   恢复原文本），在落点附近弹出动作条；信号 `selectionCaptured(text, pos)` /
   `actionTriggered(actionId, text, pos)` / `popupShown` / `popupHidden` /
-  `enabledChanged` / `errorOccurred`；**动作条菜单项完全由宿主定义**
+  `enabledChanged` / `captureBlocked` / `errorOccurred`；**动作条菜单项完全由宿主定义**
   （`setActions` 传 `ElaMenuItem` 列表，可启用 / 禁用 / 排序，
   组件不内置任何动作，未定义时只发 `selectionCaptured` 不弹窗）、
   `setMinSelectionLength`、`setDragThreshold`、`setDoubleClickMs`；
   `setCaptureFilter(predicate(down, up))` 在注入 `Ctrl+C` 前给宿主一个闸门
-  （配合 `foreground_pid()` / `window_pid_at()` 跳过拖窗口 / 滚动条等非划词
-  拖拽；过滤器异常按拦截处理）；外观（紧凑模式 / 偏移）走 `popup()`，
+  （过滤器异常按拦截处理）；外观（紧凑模式 / 偏移）走 `popup()`，
   取词参数（剪贴板恢复 / 各类延迟）走 `capture()`；
   `setEnabled(True)` 启动监视，失败发 `errorOccurred` 并保持禁用
+
+  > **取词闸门（默认行为）**：拖选与「拖窗口 / 拖滚动条 / 拖文件」在鼠标
+  > 层面无法区分，而取词要**向前台窗口注入 `Ctrl+C`** —— 在终端 / 控制台里
+  > 注入的 `Ctrl+C` 就是**中断信号**（实测：终端里拖一下 scrollbar 会把正在
+  > 跑的命令 SIGINT 掉）。因此未设 `setCaptureFilter` 时**拖选默认不取词**
+  > （双击选词仍可用），被拦时发 `captureBlocked(reason)`。要开拖选取词用内置
+  > 启发式过滤器 `setCaptureFilter(ElaSelectionAssistant.builtinDragFilter())`
+  > （跨窗口 / 按在窗口边框 / 超长拖拽一律拒掉），或
+  > `setRequireFilterForDrag(False)` 彻底放开（不建议）。
 - **ElaSelectionPopup** — 动作条浮窗（`Tool | 无边框 | 置顶 | 不接受焦点`，
   `WA_ShowWithoutActivating` 不抢源应用焦点）：`popupAt(pos)` 以落点为锚、
   越界自动翻转并收敛到屏幕工作区；点击动作后自动隐藏并发出
@@ -437,9 +448,20 @@ chat.sendNextQueued()                         # 或手动触发
 - **ElaMouseMonitor / ElaClipboardCapture** — 监视与取词后端（可注入假实现，
   测试无需真实输入）；`ElaMouseMonitor` 尊重系统主 / 次键互换
   （`SM_SWAPBUTTON`）；`ElaClipboardCapture` 通过「基准文本 + 轮询变化」
-  取词，失败时剪贴板从未被改动；用户在恢复延迟窗口里新复制的内容不会被
-  覆盖（改发 `restoreSkipped`）；包内另导出 `foreground_pid()` /
-  `window_pid_at()` 进程查询（供 `setCaptureFilter` 使用）
+  取词，失败时剪贴板从未被改动；恢复剪贴板有**三道校验**，任一不过就跳过并
+  发 `restoreSkipped`（原因见 `lastRestoreSkipReason()`，取值 `user-copied` /
+  `clipboard-changed` / `non-text-baseline`）：文本与注入那份不同、**剪贴板序列号
+  变了**（哪怕文本相同 —— 用户又复制了一遍同样的内容，原实现只看文本会把用户
+  这次复制覆盖回旧值）、基准剪贴板含图片 / 文件 / HTML 等**无法还原**的内容
+  （此时宁可留着注入进来的文本，也绝不 `clear()` 掉用户复制的东西）；
+  `send_copy()` 另有**注入侧两道闸门**：修饰键（Shift / Ctrl / Alt）按下不注入
+  （否则发出去的是 `Ctrl+Shift+C` 之类）、距上次注入不足 200ms 不连发
+  （`force=True` 可跳过）；包内另导出 `foreground_pid()` / `window_pid_at()` /
+  `window_rect_at()` 查询（供 `setCaptureFilter` 与内置过滤器使用）
+- **不拦截键盘**：划词助手**不安装任何键盘钩子**（无 `SetWindowsHookEx`，
+  键盘状态只用 `GetAsyncKeyState` 只读），不会吞掉或改写用户自己按下 / 松开的
+  `Ctrl+C` / `Ctrl+V`；动作条浮窗也不接受焦点（`WA_ShowWithoutActivating`），
+  弹窗出现后按键仍发给源应用
 
 ```python
 from PyQt5.QtWidgets import QApplication
@@ -457,17 +479,21 @@ def on_action(actionId, text, pos):
     if actionId == "copy":
         QApplication.clipboard().setText(text)      # 行为全由宿主实现
 
+# 拖选取词要向前台注入 Ctrl+C（终端里等于 SIGINT），默认闸门不放行：
+# 挂上内置启发式过滤器，把跨窗口 / 窗口边框 / 超长拖拽挡掉
+assistant.setCaptureFilter(ElaSelectionAssistant.builtinDragFilter())
 assistant.setEnabled(True)
 ```
 
-> 限制：终端 / 受保护程序可能取不到词；若选中文本与剪贴板原内容完全相同，
-> 无法与「未复制」区分；剪贴板恢复只还原文本，图片等非文本格式不保留；
-> 轮询式监视（默认 15ms）可能漏检极快点击，且无法检测滚轮（动作条改由
-> 下一次点击 / 新划词隐藏）；**任意 ≥4px 的拖拽（拖滚动条 / 窗口 / 文件
-> 也算）都会向前台应用注入一次 `Ctrl+C`** —— 在资源管理器里会把当前选中
-> 文件复制进剪贴板，建议用 `setCaptureFilter` 过滤；取词瞬间若用户还按着
-> `Shift` / `Ctrl`，注入的 `Ctrl+C` 可能被目标应用当成组合键（如浏览器
-> `Ctrl+Shift+C` 打开开发者工具）。
+> 限制：终端 / 受保护程序可能取不到词；若选中文本与剪贴板原内容完全相同
+> **且剪贴板序列号不可用**，无法与「未复制」区分；剪贴板恢复**只还原文本** ——
+> 基准剪贴板含图片 / 文件等非文本内容时会跳过恢复而不是还原（原因见
+> `capture().lastRestoreSkipReason()`），可由宿主在 `restoreSkipped` 后自行
+> 补回原内容；轮询式监视（默认 15ms）可能漏检极快点击，且无法检测滚轮
+> （动作条改由下一次点击 / 新划词隐藏）；启用后鼠标拖拽在**通过闸门**时才会
+> 向前台应用注入一次 `Ctrl+C`（在资源管理器里会把当前选中文件复制进剪贴板，
+> 所以务必配过滤器）；注入前若用户正按着 `Shift` / `Ctrl` / `Alt`，本次注入
+> 会被跳过（发出 `captureBlocked`），连续划词在 200ms 内也只注入一次。
 
 要跑模型的动作接结果对话框（`copy` / `search` 这类不走对话框）：
 
@@ -519,7 +545,7 @@ def on_action(actionId, text, pos):
 ### 其他
 - **ElaSplashScreen** — 应用启动屏（全 QPainter 自绘，主题感知，淡入淡出动画，可拖动）
 - **ElaTaskbarProgress** — Windows 任务栏进度
-- **ElaSvgIconLoader** — 二进制 SVG 图标加载器
+- **ElaSvgIconLoader** — SVG 图标包加载器（`.icons` 文本包；本库不自带图标集）
 - **ElaThemeWidget** — 主题感知基类，自动响应暗色/亮色切换
 - **ElaFigureCanvas** — Matplotlib 画布（主题感知，自动适配暗色/亮色）
 
@@ -591,7 +617,7 @@ pyqt5_ela_pro/              # 核心组件包
   ela_field.py              # ElaField 表单字段外壳（标题 / 必填 / 编辑器槽 / 辅助文字 / 校验状态）
   ela_avatar.py             # ElaAvatar 头像（图片 / 首字母 / 图标三级回退 + 在线状态）
   ela_selector_bar.py       # ElaSelectorBar 分段控件（压扁-移动-绽开的动画指示器）
-  svg_icon.py               # SVG 图标加载器 + ElaSvgButton / ElaSvgIconButton
+  svg_icon.py               # SVG 渲染（svg_to_icon/pixmap/image）+ 可选图标包加载器；按钮侧走 ElaButton.setSvgIcon
   combo_box.py              # ElaSearchBox / ElaSearchMultiBox
   table_view.py             # ElaDataTable
   #
@@ -716,7 +742,10 @@ pyqt5_ela_pro/              # 核心组件包
 | `svg_to_icon(svg_data, size, color)` | SVG **字符串**转 QIcon（首参是 SVG 源码，不是文件路径）；`color` 替换图里的 `<<<COLOR_CODE>>>` 占位符 |
 | `svg_to_pixmap(svg_data, size, color)` | 同上转 QPixmap（每次返回新对象） |
 | `svg_to_image(svg_data, size, color)` | 同上转 QImage（值类型，**可跨线程用** —— 前两个的最后一步要 GUI 线程） |
-| `svg_icon_loader()` | SVG 图标加载器单例句柄（无参） |
+| `svg_icon_loader()` | SVG 图标加载器单例句柄（无参；**不再自动加载任何图标包**，宿主自己 `loadFromFile` / `loadFromPackage`） |
+| `btn.setSvgIcon(source, iconSize)` | 给 `ElaButton` 设**第三方 SVG** 图标。`source` 含 `<svg` 走源码、否则走图标名；返回 `False` 表示图标名查不到（已 warn，只画文字）。与 `setElaIcon` 互斥 |
+| `btn.clearSvgIcon()` | 清掉 SVG 图标 |
+| `loader.setPackageDirectory(path)` | 指定 `loadFromPackage` 找图标包的目录（**默认指向库内置目录，那里现在什么都没有**，宿主应设成自己的资源目录） |
 | `create_ela_splitter(widgets, orientation, ...)` | 创建主题感知分割器 |
 | `show_notify(title, content, timeout)` | 弹出通知 |
 
@@ -743,8 +772,6 @@ pyqt5_ela_pro/              # 核心组件包
 | **ElaSplitButton** | 按钮 | 拆分按钮（主操作 + 下拉菜单） |
 | **ElaLongPressButton** | 按钮 | 长按触发按钮 |
 | **ElaProgressButton** | 按钮 | 含进度指示的按钮 |
-| **ElaSvgButton** | 按钮 | SVG 推按钮 |
-| **ElaSvgIconButton** | 按钮 | SVG 图标工具按钮 |
 | **ElaMessageDialog** | 弹窗 | 消息确认对话框 |
 | **ElaConfirmDialog** | 弹窗 | 全 QPainter 自绘确认对话框 |
 | **ElaDialogBase** | 弹窗 | 可定制按钮的对话框基类 |
@@ -813,11 +840,11 @@ pyqt5_ela_pro/              # 核心组件包
 | **ElaChatSessionInfo** | AI 对话 · 数据 | 会话元信息（多话题由宿主管理，一话题一 widget） |
 | **ElaChatToolButton** | AI 对话 | 工具卡片底部的操作按钮（复制 / 重试等，由宿主传参） |
 | **ElaChatPermissionDock** | AI 对话 | 输入区**上方**的审批 dock（等待回复时的交互卡；时间线上留的是折叠的记录卡，两者不是同一个 widget） |
-| **ElaSelectionAssistant** | 划词助手 | 全局划词监听 + 取词（模拟 Ctrl+C）+ 动作条，纯信号宿主实现行为 |
+| **ElaSelectionAssistant** | 划词助手 | 全局划词监听 + 取词（模拟 Ctrl+C，**带注入闸门：未设过滤器时拖选默认不取词**）+ 动作条，纯信号宿主实现行为 |
 | **ElaSelectionPopup** | 划词助手 | 动作条浮窗（置顶 / 不抢焦点 / 越界收敛，可独立复用） |
 | **ElaSelectionResultDialog** | 划词助手 | 结果对话框（上游 ElaWidget 窗口；流式 Markdown / 停止 / 复制 / 重新生成，**只发信号不碰网络**） |
 | **ElaMouseMonitor** | 划词助手 | 轮询式全局鼠标监视（主线程 QTimer，信号坐标物理像素） |
-| **ElaClipboardCapture** | 划词助手 | 模拟 Ctrl+C 异步取词（不预先改动剪贴板，可恢复原文本） |
+| **ElaClipboardCapture** | 划词助手 | 模拟 Ctrl+C 异步取词（不预先改动剪贴板；恢复有三道校验，含剪贴板序列号与非文本保护） |
 | **ElaChip** | 展示 | 标签纸片（16 色，可关闭/可选择/胶囊/前置图标） |
 | **ElaInfoBadge** | 展示 | 角标（Dot/Value/Icon 模式，5 种级别） |
 | **ElaTerminalView** | 展示 | 终端输出（ANSI 色彩 / 行号 / 自动滚动 / 搜索过滤 / 选区复制 / 导出；`append` 吃 str 与 bytes） |
@@ -829,7 +856,7 @@ pyqt5_ela_pro/              # 核心组件包
 | **ElaBrowserEmbedder** | 窗口嵌入 | 嵌入 Chromium 浏览器，支持 CDP |
 | **ElaSplashScreen** | 窗口 | 应用启动屏（全 QPainter 自绘，淡入淡出） |
 | **ElaTaskbarProgress** | 工具 | Windows 任务栏进度 |
-| **ElaSvgIconLoader** | 图标 | 二进制 SVG 图标加载器 |
+| **ElaSvgIconLoader** | 图标 | SVG 图标包加载器（`.icons`；宿主自带） |
 
 ## 运行示例
 
@@ -902,7 +929,7 @@ python -m pyqt5_ela_pro.example
 |---|---|
 | 外部内容嵌入 | ElaWindowEmbedder（01）/ ElaBrowserEmbedder（02）/ 多 URL 测试台（03） |
 | 终端输出 | 只读终端视图：ANSI 颜色、跨分片转义、过滤、导出 |
-| 划词助手 | ElaSelectionAssistant：全局划词（拖选 / 双击选词）、动作条（启停 / 动作勾选 / 紧凑模式 / 剪贴板恢复 / 最小长度）、手动弹出、事件日志与宿主 copy 实现；ElaSelectionResultDialog：结果对话框（流式 Markdown / 停止 / 复制 / 重新生成，取消走 stopRequested 由宿主 abort） |
+| 划词助手 | ElaSelectionAssistant：全局划词（拖选 / 双击选词；拖选默认要过内置取词过滤器，因为取词要向前台注入 Ctrl+C）、动作条（启停 / 动作勾选 / 紧凑模式 / 剪贴板恢复 / 最小长度 / 拖选取词范围）、手动弹出、事件日志与宿主 copy 实现；ElaSelectionResultDialog：结果对话框（流式 Markdown / 停止 / 复制 / 重新生成，取消走 stopRequested 由宿主 abort） |
 
 **动效与图形 / 参考文档**
 

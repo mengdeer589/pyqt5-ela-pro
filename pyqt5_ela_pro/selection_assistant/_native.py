@@ -5,7 +5,11 @@
   ``WH_MOUSE_LL`` 全局钩子：钩子回调运行在独立线程且需要抢 GIL，一旦回调
   阻塞会拖住整个系统的鼠标输入（表现为机器卡死），还受杀软 / Win7 钩子
   超时影响；
-- :func:`send_copy`：``SendInput`` 向当前前台窗口发送 Ctrl+C；
+- :func:`send_copy`：``SendInput`` 向当前前台窗口发送 Ctrl+C —— **本模块
+  是划词助手唯一会影响用户正常复制粘贴的地方**，所以它默认带两道闸门
+  （修饰键按下不注入、距上次注入不足 ``_MIN_INJECT_INTERVAL_MS`` 不注入）；
+- :func:`any_modifier_down` / :func:`clipboard_sequence_number` /
+  :func:`window_rect_at`：上面三道闸门 / 恢复逻辑要用的 Win32 查询；
 - :func:`to_logical_pos`：物理像素 → Qt 逻辑坐标（多屏 DPI 尽力而为）；
 - :func:`window_pid_at` / :func:`foreground_pid`：窗口归属进程查询。
 
@@ -20,6 +24,7 @@ from __future__ import annotations
 
 import ctypes
 import sys
+import time
 import warnings
 from ctypes import wintypes
 from typing import Optional
@@ -78,10 +83,15 @@ def _warn_once(prefix: str, exc: BaseException) -> None:
 
 #: 默认轮询间隔（毫秒）
 _DEFAULT_POLL_MS = 15
+#: 两次 Ctrl+C 注入之间的最小间隔（毫秒）—— 防连发，也顺带限制
+#: 「注入的那次 Ctrl+C 撞上用户自己按的 Ctrl+C」的窗口
+MIN_INJECT_INTERVAL_MS = 200
 #: 虚拟键
 _VK_LBUTTON = 0x01
 _VK_RBUTTON = 0x02
 _VK_MBUTTON = 0x04
+_VK_SHIFT = 0x10
+_VK_MENU = 0x12
 #: ``GetSystemMetrics``：系统是否交换了鼠标主 / 次键
 _SM_SWAPBUTTON = 23
 
@@ -90,11 +100,23 @@ _KEYEVENTF_KEYUP = 0x0002
 _VK_CONTROL = 0x11
 _VK_C = 0x43
 
+#: 上次注入时刻（``time.monotonic()`` 秒）；模块级，节流闸门用
+_last_inject_at = 0.0
+
 _ULONG_PTR = ctypes.c_uint64 if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_uint32
 
 
 class _POINT(ctypes.Structure):
     _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+
+class _RECT(ctypes.Structure):
+    _fields_ = [
+        ("left", ctypes.c_long),
+        ("top", ctypes.c_long),
+        ("right", ctypes.c_long),
+        ("bottom", ctypes.c_long),
+    ]
 
 
 class _KEYBDINPUT(ctypes.Structure):
@@ -157,6 +179,10 @@ if _IS_WINDOWS:  # pragma: no cover - 平台分支
     _user32.GetForegroundWindow.restype = wintypes.HWND
     _user32.GetSystemMetrics.argtypes = [ctypes.c_int]
     _user32.GetSystemMetrics.restype = ctypes.c_int
+    _user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(_RECT)]
+    _user32.GetWindowRect.restype = wintypes.BOOL
+    _user32.GetClipboardSequenceNumber.argtypes = []
+    _user32.GetClipboardSequenceNumber.restype = wintypes.DWORD
 
 
 def _swap_buttons() -> bool:
@@ -169,20 +195,95 @@ def _swap_buttons() -> bool:
     return bool(_user32.GetSystemMetrics(_SM_SWAPBUTTON))
 
 
-def send_copy() -> None:
-    """向当前前台窗口发送 Ctrl+C（``SendInput``，无 pywin32 依赖）。"""
+def _async_key_down(vk: int) -> bool:
+    """``GetAsyncKeyState`` 的高位置（只读全局键盘状态，无钩子）。"""
+    if not _IS_WINDOWS:  # pragma: no cover - 平台分支
+        return False
+    return bool(_user32.GetAsyncKeyState(vk) & 0x8000)
+
+
+def any_modifier_down() -> bool:
+    """Shift / Ctrl / Alt 中是否有任意一个正被按下。
+
+    注入 Ctrl+C 前必须问一句：用户按着修饰键时，注入出去的其实是
+    Ctrl+Shift+C / Ctrl+Alt+C —— 在不少终端里那恰好是「复制」绑定，
+    语义完全跑偏。
+    """
+    return any(_async_key_down(vk) for vk in (_VK_SHIFT, _VK_CONTROL, _VK_MENU))
+
+
+def clipboard_sequence_number() -> int:
+    """Windows 剪贴板序列号（内容每变化一次递增）；不可用返回 ``0``。
+
+    「文本相同」无法区分「用户又复制了一遍同样的内容」与「没人动过」，
+    序列号可以 —— 恢复剪贴板前用它兜一道。取不到时调用方按「不可用」
+    回退到纯文本比较（本模块的平台分支刻意不引 pywin32 / win32api）。
+    """
+    if not _IS_WINDOWS:  # pragma: no cover - 平台分支
+        return 0
+    try:
+        return int(_user32.GetClipboardSequenceNumber())
+    except Exception:  # noqa: BLE001 - 旧系统 / 导出缺失一律按不可用
+        return 0
+
+
+def window_rect_at(x: int, y: int):
+    """该物理坐标处**顶层窗口**的矩形 ``(left, top, right, bottom)``。
+
+    取不到（无窗口 / API 失败）返回 ``None``。内置拖选过滤器用它排除
+    「按在窗口边框上」——那是在调窗口大小，不是在划词。
+    """
+    if not _IS_WINDOWS:  # pragma: no cover - 平台分支
+        return None
+    try:
+        hwnd = _user32.WindowFromPoint(_POINT(int(x), int(y)))
+        if not hwnd:
+            return None
+        rect = _RECT()
+        if not _user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return None
+        return (int(rect.left), int(rect.top), int(rect.right), int(rect.bottom))
+    except Exception:  # noqa: BLE001 - 查询失败按「无信息」处理
+        return None
+
+
+def _send_key(vk: int, flags: int = 0) -> None:
+    """发一个按键事件（``SendInput``）。单独成函数是为了测试能替换它。"""
     if not _IS_WINDOWS:  # pragma: no cover - 平台分支
         raise RuntimeError("send_copy 仅支持 Windows")
+    item = _INPUT(type=_INPUT_KEYBOARD)
+    item.ki = _KEYBDINPUT(wVk=vk, wScan=0, dwFlags=flags, time=0, dwExtraInfo=0)
+    _user32.SendInput(1, ctypes.byref(item), ctypes.sizeof(_INPUT))
 
-    def _key(vk: int, flags: int = 0) -> None:
-        item = _INPUT(type=_INPUT_KEYBOARD)
-        item.ki = _KEYBDINPUT(wVk=vk, wScan=0, dwFlags=flags, time=0, dwExtraInfo=0)
-        _user32.SendInput(1, ctypes.byref(item), ctypes.sizeof(_INPUT))
 
-    _key(_VK_CONTROL)
-    _key(_VK_C)
-    _key(_VK_C, _KEYEVENTF_KEYUP)
-    _key(_VK_CONTROL, _KEYEVENTF_KEYUP)
+def send_copy(force: bool = False) -> bool:
+    """向当前前台窗口发送 Ctrl+C；返回**是否真的注入**。
+
+    默认两道闸门（任一命中就返回 ``False``，一个键都不发）：
+
+    1. **任何修饰键正被按下** —— 否则注入出去的是 Ctrl+Shift+C /
+       Ctrl+Alt+C 之类，在不少终端里语义直接跑偏；
+    2. **距上次注入不足 :data:`MIN_INJECT_INTERVAL_MS`** —— 连续划词时
+       不连发，也顺带收窄「注入的那次 Ctrl+C 撞上用户自己按的 Ctrl+C」
+       的窗口（撞上了会让恢复逻辑把用户刚复制的内容覆盖回旧值）。
+
+    ``force=True`` 跳过全部闸门，供明确知道自己在做什么的调用方使用。
+    """
+    global _last_inject_at
+    if not _IS_WINDOWS:  # pragma: no cover - 平台分支
+        raise RuntimeError("send_copy 仅支持 Windows")
+    now = time.monotonic()
+    if not force:
+        if any_modifier_down():
+            return False
+        if (now - _last_inject_at) * 1000.0 < MIN_INJECT_INTERVAL_MS:
+            return False
+    _send_key(_VK_CONTROL)
+    _send_key(_VK_C)
+    _send_key(_VK_C, _KEYEVENTF_KEYUP)
+    _send_key(_VK_CONTROL, _KEYEVENTF_KEYUP)
+    _last_inject_at = now
+    return True
 
 
 def window_pid_at(x: int, y: int) -> int:
@@ -337,7 +438,7 @@ class ElaMouseMonitor(QObject):
 
     @staticmethod
     def _key_down(vk: int) -> bool:
-        return bool(_user32.GetAsyncKeyState(vk) & 0x8000)
+        return _async_key_down(vk)
 
     @staticmethod
     def _cursor_pos() -> tuple:
@@ -348,10 +449,14 @@ class ElaMouseMonitor(QObject):
 
 
 __all__ = [
+    "MIN_INJECT_INTERVAL_MS",
     "ElaMouseMonitor",
+    "any_modifier_down",
+    "clipboard_sequence_number",
     "foreground_pid",
     "safe_connect",
     "send_copy",
     "to_logical_pos",
     "window_pid_at",
+    "window_rect_at",
 ]

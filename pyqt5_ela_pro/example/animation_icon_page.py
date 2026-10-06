@@ -6,6 +6,8 @@
 - PyQt5ElaWidgetTools: 图标组件
 """
 
+import os
+
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QListView, QVBoxLayout, QWidget
 from PyQt5.QtCore import Qt, QModelIndex
 from PyQt5ElaWidgetTools import (
@@ -42,6 +44,29 @@ from .es_icon_model import EsIconModel
 from .es_icon_delegate import EsIconDelegate
 
 
+#: 本页演示用的几个内联 SVG。**本库不再自带图标集**（曾随包分发 3.66 MB /
+#: 2604 个 Fluent UI 图标），所以下面两节用这几个内联图标演示 loader 与渲染
+#: 函数；宿主请用 ``setPackageDirectory`` + ``loadFromPackage`` / ``loadFromFile``
+#: 换成自己的图标包（第 01 节底部有入口）。
+_SVG_BODY = {
+    "ic_demo_circle": '<circle cx="12" cy="12" r="8"/>',
+    "ic_demo_square": '<rect x="5" y="5" width="14" height="14" rx="2"/>',
+    "ic_demo_triangle": '<path d="M12 4 L21 20 L3 20 Z"/>',
+    "ic_demo_arrow": '<path d="M4 12h14M13 6l6 6-6 6"/>',
+    "ic_demo_bolt": '<path d="M13 2 L4 14 L11 14 L10 22 L20 10 L13 10 Z"/>',
+    "ic_demo_star": '<path d="M12 3 L14.5 9.5 L21 10 L16 15 L17.5 22 L12 18.5 L6.5 22 L8 15 L3 10 L9.5 9.5 Z"/>',
+}
+
+
+def _stroke_svg(body: str) -> str:
+    """把描边路径包成 24x24 的 SVG 源码（带主题色占位符）。"""
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"'
+        ' stroke="<<<COLOR_CODE>>>" stroke-width="2" stroke-linecap="round"'
+        f' stroke-linejoin="round">{body}</svg>'
+    )
+
+
 class _AnimatedDemoDialog(ElaAnimatedMixin, ElaDialogBase):
     def __init__(self, parent=None):
         super().__init__("ElaAnimatedMixin 演示", parent=parent)
@@ -76,6 +101,10 @@ class AnimationIconPage(ExamplePage):
 
     def __init__(self, parent=None):
         self._svg_loader = None
+        # 浏览器段的模型 / 视图句柄：加载图标包的回调要用（列表是在
+        # _addDemoContent 里才建的，所以这里必须先给默认值）
+        self._svgModel = None
+        self._svgView = None
         self._spinner = None
         self._motion_state = None
         super().__init__(parent)
@@ -340,10 +369,75 @@ class AnimationIconPage(ExamplePage):
         parent_layout.addLayout(btn_layout)
 
     def _getSvgLoader(self):
+        """本页的 loader —— 先塞几个内联图标，让下面两节有东西可演示。
+
+        真实宿主走 ``setPackageDirectory()`` + ``loadFromPackage()`` 加载自己的
+        ``.icons`` 包（见第 01 节底部的加载入口）。
+        """
         if self._svg_loader is None:
             self._svg_loader = ElaSvgIconLoader()
-            self._svg_loader.loadFromPackage("fluent_ui_icon_regular.icons")
+            for name, body in _SVG_BODY.items():
+                self._svg_loader.append(name, _stroke_svg(body))
         return self._svg_loader
+
+    def _onLoadPackageClicked(self, path: str) -> None:
+        """加载按钮 / 回车的统一入口（列表句柄此时可能已就绪）。"""
+        view = getattr(self, "_svgView", None)
+        if view is None:
+            return
+        self._onLoadIconPackage(path, view)
+
+    def _onLoadIconPackage(self, path: str, view) -> None:
+        """按路径加载宿主的 ``.icons`` 图标包并刷新浏览器。
+
+        ``setPackageDirectory`` 是关键：不设的话 ``loadFromPackage`` 会去库内置
+        目录找，而那里现在什么都没有 —— 往 site-packages 里塞文件既脆弱又需要
+        管理员权限，所以包目录必须由宿主给。
+        """
+        from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
+
+        text = path.strip()
+        if not text:
+            return
+        loader = self._getSvgLoader()
+        try:
+            loader.setPackageDirectory(text)
+            loader.loadFromPackage(os.path.basename(text))
+        except FileNotFoundError as exc:
+            # 传进来的可能是完整文件路径，退一步按文件直接读
+            try:
+                loader.loadFromFile(text)
+            except FileNotFoundError:
+                ElaMessageBar.error(
+                    ElaMessageBarType.PositionPolicy.Top,
+                    "图标包加载失败",
+                    str(exc),
+                    3000,
+                    self,
+                )
+                return
+        except Exception as exc:  # noqa: BLE001 —— demo 回调，兜住别炸页面
+            ElaMessageBar.error(
+                ElaMessageBarType.PositionPolicy.Top,
+                "图标包解析失败",
+                str(exc),
+                3000,
+                self,
+            )
+            return
+
+        names = loader.iconNames()
+        model = getattr(self, "_svgModel", None)
+        if model is not None:
+            model.resetIconNames(names)
+        view.viewport().update()
+        ElaMessageBar.success(
+            ElaMessageBarType.PositionPolicy.Top,
+            "图标包已加载",
+            f"当前共 {len(names)} 个图标",
+            2000,
+            self,
+        )
 
     def _demoSvgIconBrowser(self, parent_layout):
         parent_layout.addLayout(
@@ -351,8 +445,34 @@ class AnimationIconPage(ExamplePage):
                 "01. ela_ext - SVG图标浏览器 所有可用图标", self._demoSvgIconBrowser
             )
         )
-        self._addInfoText("点击图标以复制其名称", parent_layout)
+        self._addInfoText(
+            "本库不自带图标集 —— 下面几个是内联演示图标。宿主请把自己的\n"
+            ".icons 图标包路径填进上面那栏，用 setPackageDirectory + "
+            "loadFromPackage 加载（不设目录的话会去库内置目录找，而那里现在\n"
+            "什么都没有）。点击图标可复制其名称。",
+            parent_layout,
+        )
         parent_layout.addSpacing(10)
+
+        # 宿主图标包加载入口：setPackageDirectory + loadFromPackage
+        pack_row = QHBoxLayout()
+        pack_row.setSpacing(8)
+        pack_edit = ElaLineEdit(self)
+        pack_edit.setPlaceholderText("你的 .icons 图标包目录，例如 D:/assets/icons")
+        # 列表在这之后才建，回调里可能还没句柄 —— 所以走 _onLoadPackageClicked
+        # 自己去取，不要在 lambda 里绑一个还不存在的局部变量
+        pack_edit.returnPressed.connect(
+            lambda: self._onLoadPackageClicked(pack_edit.text())
+        )
+        pack_row.addWidget(pack_edit)
+        pack_btn = ElaPushButton("加载图标包", self)
+        pack_btn.setFixedWidth(110)
+        pack_btn.clicked.connect(lambda: self._onLoadPackageClicked(pack_edit.text()))
+        pack_row.addWidget(pack_btn)
+        pack_row.addStretch()
+        parent_layout.addLayout(pack_row)
+        parent_layout.addSpacing(8)
+
         svg_list_view = ElaListView(self)
         svg_list_view.setIsTransparent(True)
         svg_list_view.setFlow(QListView.Flow.LeftToRight)
@@ -371,6 +491,9 @@ class AnimationIconPage(ExamplePage):
         svg_list_view.clicked.connect(
             lambda index: self._onSvgIconClicked(index, loader)
         )
+        # 存句柄给上面的加载回调用（此时列表还没建，回调里可能还是 None）
+        self._svgModel = svg_model
+        self._svgView = svg_list_view
         svg_search_edit = ElaLineEdit(self)
         svg_search_edit.setPlaceholderText("搜索图标")
         svg_search_edit.setFixedSize(300, 35)
@@ -421,7 +544,9 @@ class AnimationIconPage(ExamplePage):
             )
         )
         self._addInfoText(
-            "将 SVG 数据转换为 QIcon/QPixmap，获取全局图标加载器",
+            "把 SVG 源码转成 QIcon/QPixmap（首参是源码字符串，不是图标名、\n"
+            "也不是文件路径），以及取全局图标加载器。注意 svg_icon_loader()\n"
+            "不再自动加载任何图标包 —— 共 0 个图标是正常的，宿主自己加载。",
             parent_layout,
         )
         btn_layout = QHBoxLayout()
@@ -451,13 +576,15 @@ class AnimationIconPage(ExamplePage):
             loader = self._getSvgLoader()
             names = loader.iconNames()
             if names:
-                svg_to_icon(names[0], size=48)
+                # 首参是 **SVG 源码**，不是图标名 —— 直接喂名字会渲染出空图
+                # （QSvgRenderer 解析失败且不报错），这坑 README 的 API 表记着
+                icon = svg_to_icon(loader.getSvgData(names[0]), size=48)
                 from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
 
                 ElaMessageBar.success(
                     ElaMessageBarType.PositionPolicy.Top,
                     "svg_to_icon",
-                    f"已将 '{names[0]}' 转换为 QIcon（48x48）",
+                    f"已将 '{names[0]}' 转换为 QIcon（48x48，空图={icon.isNull()}）",
                     3000,
                     self,
                 )
@@ -477,7 +604,7 @@ class AnimationIconPage(ExamplePage):
             loader = self._getSvgLoader()
             names = loader.iconNames()
             if names:
-                pixmap = svg_to_pixmap(names[0], size=48)
+                pixmap = svg_to_pixmap(loader.getSvgData(names[0]), size=48)
                 from PyQt5ElaWidgetTools import ElaMessageBar, ElaMessageBarType
 
                 ElaMessageBar.success(
@@ -506,7 +633,12 @@ class AnimationIconPage(ExamplePage):
         ElaMessageBar.success(
             ElaMessageBarType.PositionPolicy.Top,
             "svg_icon_loader",
-            f"全局图标加载器已获取，共 {count} 个图标",
+            f"全局图标加载器已获取，共 {count} 个图标"
+            + (
+                "（本库不自带图标集，用 loadFromFile / loadFromPackage 加载）"
+                if count == 0
+                else ""
+            ),
             3000,
             self,
         )
