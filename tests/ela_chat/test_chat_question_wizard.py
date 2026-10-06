@@ -407,14 +407,47 @@ class TestAnswerPayload:
         custom.commitEdit()
         assert card.answers() == {}, "空白不算答案"
 
-    def test_mark_click_needs_content(self, qapp, make):
-        """只点标记、没敲内容 -> 不算选中（否则 payload 里出现空串）。"""
+    def test_mark_click_checks_and_opens_editor(self, qapp, make):
+        """点标记（自定义行）= 选中并展开输入框；没敲内容仍**不算答案**。
+
+        对齐 opencode 的 ``customToggle``：标记不再是个「没内容就哑掉」的装饰。
+        空文本不进 payload 是 ``_current_values`` 兜住的（答案编码契约不变）。
+        """
         chat = make(ElaChatWidget)
         card = _single(chat, _turn(chat), options=(("A", ""),))
-        card._on_mark_clicked(card._questions()[0], "")
-        assert card.answers() == {}
+        question = card._questions()[0]
+        custom = card._option_buttons[-1]
+        card._on_mark_clicked(question, "")
+        assert custom.isPicked() and custom.markWidget().isChecked()
+        assert custom.isEditing(), "点标记就该能直接开始输入"
+        assert card.answers() == {}, "没敲内容不算答案"
 
-    def test_mark_click_toggles_off(self, qapp, make):
+    @pytest.mark.parametrize("multi", [False, True])
+    def test_custom_row_is_checked_after_commit(self, qapp, make, multi):
+        """提交自定义答案后那一行必须亮起来（单选 = 圆点、多选 = 方框都勾上）。
+
+        回归「单选时最后那项『输入自己的答案』选不中」：``_refresh_rows`` 原先
+        用 ``row.value() in picked`` 分发选中态，而自定义行的 ``value()`` 是空串、
+        ``picked`` 里装的是自定义文本 —— 答案进去了，行却永远不高亮、标记也不勾。
+        """
+        chat = make(ElaChatWidget)
+        card = _single(
+            chat, _turn(chat), multiple=multi, options=(("A", ""), ("B", ""))
+        )
+        custom = card._option_buttons[-1]
+        custom.activate.emit("")
+        custom.setEditorText("mine")
+        custom.commitEdit()
+        assert card.answers() == {"q0": ["mine"]}
+        assert custom.isPicked()
+        assert custom.markWidget().isChecked()
+
+    def test_single_select_mark_never_cancels(self, qapp, make):
+        """单选是 radio：再点自定义行的标记**不取消**答案，只是重新展开编辑器。
+
+        旧行为（先「没内容哑掉」再「有内容就 toggle」）组合起来的后果是：用户敲完
+        提交、再去点那个圆点确认一下，答案反而被取消 —— 表现就是「怎么都选不中」。
+        """
         chat = make(ElaChatWidget)
         card = _single(chat, _turn(chat), options=(("A", ""),))
         custom = card._option_buttons[-1]
@@ -422,7 +455,79 @@ class TestAnswerPayload:
         custom.setEditorText("mine")
         custom.commitEdit()
         card._on_mark_clicked(card._questions()[0], "")
+        assert card.answers() == {"q0": ["mine"]}
+        assert custom.isPicked()
+
+    def test_opening_editor_selects_custom_and_clears_option(self, qapp, make):
+        """点整行展开 = 选中自定义（对齐 opencode 的 ``customOpen``）。
+
+        单选下必须同时取消候选项，否则两根圆点同时亮着。
+        """
+        chat = make(ElaChatWidget)
+        card = _single(chat, _turn(chat), options=(("A", ""),))
+        card._option_buttons[0].activate.emit("A")
+        custom = card._option_buttons[-1]
+        custom.activate.emit("")
+        assert custom.isEditing()
+        assert custom.isPicked()
+        assert not card._option_buttons[0].isPicked()
+        assert card.answers() == {}, "还没敲字，自定义不构成答案"
+
+    def test_picking_option_closes_custom_editor(self, qapp, make):
+        """选中普通候选项时收起自定义输入框（别让两个答案并排看着同时选中）。"""
+        chat = make(ElaChatWidget)
+        card = _single(chat, _turn(chat), options=(("A", ""),))
+        custom = card._option_buttons[-1]
+        custom.activate.emit("")
+        assert custom.isEditing()
+        card._option_buttons[0].activate.emit("A")
+        assert not custom.isEditing()
+        assert not custom.isPicked()
+        assert card.answers() == {"q0": ["A"]}
+
+    def test_submit_commits_typed_custom_text(self, qapp, make):
+        """敲了字**没按 Enter**、直接点「提交」—— 文本必须进 payload。
+
+        回归：``commitEdit`` 原来只在 Enter 时被调，用户直接点提交（这是最常见的
+        手势）就把那段文字静默丢掉了，实测 answer 是 ``{}``。对齐 opencode
+        ``next()`` 的 ``if (editing) commitCustom()``。
+        """
+        seen = []
+        chat = make(ElaChatWidget)
+        chat.permissionReplied.connect(
+            lambda i, r, rep, a, f: seen.append((rep, json.loads(a)))
+        )
+        card = _single(chat, _turn(chat), options=(("A", ""),))
+        custom = card._option_buttons[-1]
+        custom.activate.emit("")
+        custom.setEditorText("typed but no enter")
+        card._next_button.click()  # 真实按钮路径
+        assert seen == [("allowed", {"q0": "typed but no enter"})]
+
+    def test_next_commits_draft_before_leaving_question(self, qapp, make):
+        """点「下一步」先落定这一题编辑框里的文字，再切题。"""
+        chat = make(ElaChatWidget)
+        card = _wizard(chat, _turn(chat), count=2)
+        custom = card._option_buttons[-1]
+        custom.activate.emit("")
+        custom.setEditorText("draft")
+        card._go_next()
+        assert card.tabIndex() == 1
+        assert card.answers() == {"q0": ["draft"]}
+
+    def test_mark_click_toggles_off(self, qapp, make):
+        """多选：再点一次标记 = 取消自定义勾选**并收起输入框**（单选没有这个语义）。"""
+        chat = make(ElaChatWidget)
+        card = _single(chat, _turn(chat), multiple=True, options=(("A", ""),))
+        custom = card._option_buttons[-1]
+        custom.activate.emit("")
+        custom.setEditorText("mine")
+        custom.commitEdit()
+        assert card.answers() == {"q0": ["mine"]}
+        card._on_mark_clicked(card._questions()[0], "")
         assert card.answers() == {}, "再点一次标记应取消自定义选中"
+        assert not custom.isPicked()
+        assert not custom.isEditing()
 
     def test_mark_click_on_normal_row_toggles_it(self, qapp, make):
         """普通候选行的标记 = 切该行勾选（与整行点击一致）。"""
@@ -574,12 +679,17 @@ class TestKeyboard:
         _press(card, Qt.Key.Key_Space)
         assert card.answers() == {}
 
-    def test_space_on_custom_toggles_without_editing(self, qapp, make):
-        """Space 在自定义行 = 切勾选（不是展开编辑器，Enter 才展开）。"""
+    def test_space_on_custom_selects_and_expands(self, qapp, make):
+        """Space 在自定义行 = 选中并展开编辑器（与点标记 / 点整行同一件事）。
+
+        对齐 opencode：那一行是 ``<button>``，Space 走的就是 ``onClick``。
+        """
         chat = make(ElaChatWidget)
         card = _single(chat, _turn(chat), options=(("A", ""),))
         _press(card, Qt.Key.Key_Space, row=len(card._option_buttons) - 1)
-        assert not card._option_buttons[-1].isEditing()
+        custom = card._option_buttons[-1]
+        assert custom.isEditing()
+        assert custom.isPicked()
 
     def test_arrows_move_focus(self, qapp, make):
         chat = make(ElaChatWidget)
@@ -716,8 +826,12 @@ class TestKeyboard:
         assert card.answers() == {"q0": ["this way"]}
         assert json.loads(card._build_answer()) == {"q0": "this way"}
 
-    def test_ctrl_enter_in_editor_advances_not_commits(self, qapp, make):
-        """编辑器里 ``Ctrl+⏎`` 是「下一步」，不是「提交这一题」。"""
+    def test_ctrl_enter_in_editor_advances_and_commits(self, qapp, make):
+        """编辑器里 ``Ctrl+⏎`` 是「下一步」，不是「提交整轮」。
+
+        但**编辑框里的文字要先落定**（对齐 opencode ``next()``）—— 走题了还把
+        字留在输入框里等于这段答案从来没被记下。
+        """
         seen = []
         chat = make(ElaChatWidget)
         chat.permissionReplied.connect(lambda i, r, rep, a, f: seen.append(rep))
@@ -734,8 +848,8 @@ class TestKeyboard:
             ),
         )
         assert card.tabIndex() == 1
-        assert seen == [], "不该在这一步就提交"
-        assert card.answers() == {}
+        assert seen == [], "不该在这一步就提交整轮"
+        assert card.answers() == {"q0": ["typed"]}
 
     def test_shift_enter_newline(self, qapp, make):
         """Shift+Enter 在编辑器里换行，不提交。"""
@@ -1232,13 +1346,59 @@ class TestOptionCardContract:
         )
         assert not row.isEditing()
 
+    def test_full_custom_mark_click_while_editing(self, qapp, make):
+        """编辑态下标记仍可点 —— 多选要能「再点一次 = 取消并收起输入框」。
+
+        对齐 opencode：标记在 ``<form>`` 内，编辑时照样点得到。
+        """
+        row = make(QuestionOptionCard, value="", isCustom=True)
+        row.resize(300, 44)
+        row.setEditing(True)
+        picks = []
+        row.markClicked.connect(picks.append)
+        mark = row._mark_rect()
+        pos = QPoint(int(mark.center().x()), int(mark.center().y()))
+        row.mousePressEvent(
+            QMouseEvent(
+                QEvent.Type.MouseButtonPress,
+                pos,
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        )
+        assert picks == [""]
+        assert row.isEditing(), "收起输入框归外层卡片（它才知道该不该取消勾选）"
+
+    def test_body_click_while_editing_does_not_activate(self, qapp, make):
+        """编辑态下点标签 / 说明：不再当整行激活，并把焦点还给编辑器。
+
+        走 ``QAbstractButton`` 会抢走焦点，随后按 Enter 落到行上等于什么都没发生。
+        """
+        row = make(QuestionOptionCard, value="", isCustom=True)
+        row.resize(300, 44)
+        row.setEditing(True)
+        acts = []
+        row.activate.connect(acts.append)
+        row.mousePressEvent(
+            QMouseEvent(
+                QEvent.Type.MouseButtonPress,
+                QPoint(200, 22),
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        )
+        assert acts == []
+        assert row.isEditing()
+
 
 class TestWizardDraftRetention:
     """向导状态与提交 payload 同口径；未提交草稿不能一刷新就没。"""
 
-    def _card(self, make):
+    def _card(self, make, **kwargs):
         card = make(PermissionCard)
-        question = _q("q0", "选一个")
+        question = _q("q0", "选一个", **kwargs)
         card.setPermission(
             ElaChatPermission(
                 request_id="r1",
@@ -1250,7 +1410,11 @@ class TestWizardDraftRetention:
         return card, question
 
     def test_custom_uncheck_clears_answered_segment(self, qapp, make):
-        card, question = self._card(make)
+        """取消自定义勾选后这道题回到未答（进度段随之熄灭）。
+
+        取消语义只挂在**多选**上：单选是 radio，点自定义行的标记只会保持选中。
+        """
+        card, question = self._card(make, multiple=True)
         card._on_commit(question, "自己写的")
         assert card._segments[0]._answered is True
 

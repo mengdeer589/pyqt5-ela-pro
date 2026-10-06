@@ -3415,12 +3415,23 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
 
         顺带刷新进度段 —— 答完一道就该点亮一段，攒到切题时才更新会让「已答 /
         未答」的分界看起来随机。
+
+        **自定义行的勾选态只认 ``_custom_on``**：它的 ``value()`` 是空串，而
+        ``picked`` 里装的是**自定义文本**，``row.value() in picked`` 永远为假
+        —— 于是提交了自定义答案那一行仍然不高亮、标记也不勾，提交完再点那个
+        圆点还会把答案取消掉（用户报的现象：「单选时最后那项怎么都选不中」，
+        单选 / 多选都中招）。对齐 opencode 的 ``data-picked={on()}``
+        （``on = customOn[tab]``，与有没有文字无关）。
         """
         question = self._current_question()
         if question is not None:
             picked = set(self._current_values(question))
+            custom_on = bool(self._custom_on.get(question.key))
             for row in self._rows.get(question.key, ()):
-                row.setPicked(row.value() in picked)
+                if row.isCustom():
+                    row.setPicked(custom_on)
+                else:
+                    row.setPicked(row.value() in picked)
                 # 正在编辑的行不要覆盖：用户没提交的字比已提交值新（草稿优先）
                 if row.isCustom() and not row.isEditing():
                     row.setEditorText(self._custom.get(question.key, ""))
@@ -3438,7 +3449,12 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         """点标记 / 按 Space。
 
         普通候选行 = 切换该行的勾选（``value`` 非空）；自定义行（``value`` 为
-        空串）= 切「自定义选中」状态而不展开编辑器。
+        空串）= **选中并展开编辑器**，一步到位就能开始输入（对齐 opencode 的
+        ``customToggle`` —— 原实现「没敲内容就不给勾」，那个哑操作正是「点了
+        没反应」的来源，而示例页写的又是「可只点标记勾上」，两边对不上）。
+
+        单选下标记**不提供「再点一次取消」**：它是 radio，再点只会保持选中并
+        重新展开输入框（要换答案点其它候选项）。取消语义只挂在多选上。
         """
         if value:
             already = value in (self._answers.get(question.key) or ())
@@ -3449,14 +3465,12 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
             # 没有候选项时标记没有意义，整行 = 展开编辑器
             self._enter_editing(key)
             return
-        self._editing = ""
-        on = not self._custom_on.get(key, False)
-        if on and not self._custom.get(key):
-            on = False  # 没内容就不算选中
-        self._custom_on[key] = on
-        if on:
-            self._answers.pop(key, None)
-        self._refresh_rows()
+        if question.isMultiple and self._custom_on.get(key, False):
+            self._custom_on[key] = False
+            self._close_custom_editor(key)
+            self._refresh_rows()
+            return
+        self._enter_editing(key)
 
     def _on_commit(self, question, text: str) -> None:
         key = question.key
@@ -3483,6 +3497,9 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
             self._answers[key] = [value] if checked else []
         # 选了候选项 -> 取消「自定义选中」（两者互斥，见 _build_answer）
         self._custom_on[key] = False
+        # 输入框也一起收起：否则单选下候选项亮了、上一行还摊着个编辑器，
+        # 同一题里两个答案并排看着像同时选中了
+        self._close_custom_editor(key)
         self._refresh_rows()
 
     def _custom_row(self, key: str):
@@ -3491,8 +3508,39 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
                 return row
         return None
 
+    def _close_custom_editor(self, key: str) -> None:
+        """收起自定义答案的输入框。
+
+        ``_editing`` 是**卡片**层的状态机，行上的 ``setEditing(False)`` 才是
+        收起编辑器本身 —— 两边要一起动，否则 ``_refresh_rows`` 会因为
+        ``row.isEditing()`` 为真而跳过草稿回填。
+        """
+        if self._editing != key:
+            return
+        self._editing = ""
+        row = self._custom_row(key)
+        if row is not None:
+            row.setEditing(False)
+
+    def _commit_editing(self) -> None:
+        """落定**正在编辑**的自定义答案（空文本等于没写，``commitEdit`` 自会跳过）。
+
+        对齐 opencode ``next()`` 的 ``if (editing) commitCustom()``：用户敲完
+        文字习惯直接点「下一步 / 提交」，不会先按 Enter；不在这里补一次提交，
+        那段文字会被静默丢掉（实测 payload 是 ``{}``）。
+        """
+        if not self._editing:
+            return
+        row = self._custom_row(self._editing)
+        if row is not None:
+            row.commitEdit()
+
     def _enter_editing(self, key: str) -> None:
         self._editing = key
+        # 展开编辑器 = 选中自定义（对齐 opencode 的 ``customOpen``）：单选下
+        # 候选项随之取消，否则两根圆点同时亮着；多选下也遵守本库的互斥契约。
+        self._custom_on[key] = True
+        self._answers.pop(key, None)
         row = self._custom_row(key)
         if row is not None:
             # 编辑器里已有内容（Esc 保留的未提交草稿 / 行重建后恢复的草稿）就
@@ -3500,6 +3548,7 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
             if not row.editorText():
                 row.setEditorText(self._drafts.get(key) or self._custom.get(key, ""))
             row.setEditing(True)
+        self._refresh_rows()
 
     def _move_focus(self, delta: int) -> None:
         """方向键 / Home / End 在当前题的候选卡之间移动焦点。"""
@@ -3566,6 +3615,8 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         questions = self._questions()
         if not questions:
             return
+        # 编辑框里的文字先落定：用户很少会先按 Enter 再点按钮
+        self._commit_editing()
         if self._tab < len(questions) - 1:
             self._set_tab(self._tab + 1)
             return
@@ -3586,6 +3637,8 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         questions = self._questions()
         if not 0 <= index < len(questions) or index == self._tab:
             return
+        # 走之前把这一题编辑框里的文字落定（草稿只在「行还在」时才是答案）
+        self._commit_editing()
         self._tab = index
         self._editing = ""
         self._focus_row = 0

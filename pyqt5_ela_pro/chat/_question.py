@@ -293,8 +293,10 @@ class QuestionOptionCard(QAbstractButton):
     （``paintRoundedCard(glow=...)``，QSS 表达不了外发光）。
 
     ``isCustom`` 时是「输入自己的答案」那一行 —— opencode 把它放在**列表最后
-    一项**（不是独立控件）：折叠态显示占位符，点行进入编辑态、**保持选中卡
-    样式**，编辑态里露出一个无边框自增高的输入框。
+    一项**（不是独立控件）：折叠态显示占位符，点标记 / 点整行 / 按 ``Space``
+    三者同义，都是**选中它 + 展开编辑器**（保持选中卡样式），编辑态里露出一个
+    无边框自增高的输入框。标记在编辑态下仍可点（多选要能「再点一次 = 取消 +
+    收起」）。
 
     **本控件是「纯输入面」**：它不认识单选/多选的状态机，只把「谁被激活了、
     从哪儿激活的」发出去，勾选状态由外层 :class:`~pyqt5_ela_pro.chat.blocks.
@@ -494,9 +496,9 @@ class QuestionOptionCard(QAbstractButton):
             self._editor.setPlainText(text)
 
     def commitEdit(self) -> None:  # noqa: N802
-        """提交自定义答案（Enter / 失焦）。**空文本什么都不做**。
+        """提交自定义答案（Enter；卡片在「下一步 / 提交 / 切题」前也会先调它）。
 
-        这是「自己写一个」真正生效的地方 —— 早期实现压根没读
+        **空文本什么都不做**。这是「自己写一个」真正生效的地方 —— 早期实现压根没读
         ``toPlainText()``，那个输入框是纯装饰品。
         """
         if not self._editing:
@@ -526,10 +528,21 @@ class QuestionOptionCard(QAbstractButton):
         return self._mark
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
-        """点左侧标记 = 只切勾选；点其余 = 整行激活（自定义行即展开编辑器）。"""
-        if not self._editing and self._mark_rect().contains(event.pos()):
+        """点左侧标记 = 只切勾选；点其余 = 整行激活（自定义行即展开编辑器）。
+
+        **编辑态下标记仍然可点**：多选要能「再点一次标记 = 取消自定义勾选并收起
+        输入框」（对齐 opencode —— 标记在那个 ``<form>`` 里，编辑时照样点得到）。
+        行内其它位置（标签 / 说明）则把焦点**还给编辑器**：走 ``super()`` 会让
+        ``QAbstractButton`` 抢走焦点，随后按 Enter 落到行上等于什么都没发生。
+        """
+        if self._mark_rect().contains(event.pos()):
             self._press_on_mark = True
             self.markClicked.emit(self._value)
+            event.accept()
+            return
+        if self._editing:
+            if self._editor is not None:
+                self._editor.setFocus()
             event.accept()
             return
         self._press_on_mark = False
