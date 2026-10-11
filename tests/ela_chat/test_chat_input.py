@@ -250,11 +250,13 @@ class TestToolBarExtension:
         )
         button.click()
         assert clicks == [1]
-        # 内置按钮顺序：新建话题 → 上传 → 清空上下文，宿主自定义接在其后
+        # 内置按钮顺序：新建话题 → 上传 → 清空上下文 → 上下文占用圆环，
+        # 宿主自定义接在其后
         assert widget.toolBar().keys() == [
             "new_topic",
             "upload",
             "clear",
+            "usage",
             "widget-1",
             "custom",
         ]

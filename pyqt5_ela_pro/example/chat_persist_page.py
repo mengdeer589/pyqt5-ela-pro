@@ -26,7 +26,7 @@ from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout
 
 from pyqt5_ela_pro import ElaButton
 from pyqt5_ela_pro.chat import (
-    ElaChatRole,
+    ElaChatRoleType,
     ElaChatSessionInfo,
     ElaChatStats,
     ElaChatTurnJournal,
@@ -422,7 +422,7 @@ class ChatPersistPage(ExamplePage):
     def _on_load_30(self):
         view = self._chat.chatView()
         for index in range(30):
-            view.addMessage(ElaChatRole.User, f"历史消息 {index + 1}")
+            view.addMessage(ElaChatRoleType.User, f"历史消息 {index + 1}")
         view.scrollToBottom()
         self._say("perf", f"已追加 30 条，当前 {view.count()} 条")
 
@@ -445,7 +445,7 @@ class ChatPersistPage(ExamplePage):
             return
         view.beginBatch()
         for index in range(20):
-            view.addMessage(ElaChatRole.User, f"批量消息 {index + 1}")
+            view.addMessage(ElaChatRoleType.User, f"批量消息 {index + 1}")
         view.endBatch()
         self._say("perf", "beginBatch + 20 条 + endBatch（骨架先建，再渐进渲染）")
 

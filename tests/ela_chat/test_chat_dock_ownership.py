@@ -18,7 +18,7 @@ from PyQt5 import sip
 from PyQt5.QtCore import QCoreApplication, QEvent
 from PyQt5.QtWidgets import QWidget
 
-from pyqt5_ela_pro import WidgetOwnership
+from pyqt5_ela_pro import ElaWidgetOwnershipType
 from pyqt5_ela_pro.chat.docks import ElaChatInputDock, ElaChatQueueDock
 
 
@@ -34,7 +34,7 @@ class TestInputDockOwnership:
         dock = make(ElaChatInputDock)
         panel = make(QWidget)
         assert dock.setWidget(panel) is True
-        assert dock.ownership() == WidgetOwnership.Borrowed
+        assert dock.ownership() == ElaWidgetOwnershipType.Borrowed
 
         dock.clear()
         qapp.processEvents()
@@ -45,7 +45,7 @@ class TestInputDockOwnership:
     def test_owned_is_deleted(self, qapp, make):
         dock = make(ElaChatInputDock)
         panel = QWidget()
-        assert dock.setWidget(panel, ownership=WidgetOwnership.Owned) is True
+        assert dock.setWidget(panel, ownership=ElaWidgetOwnershipType.Owned) is True
         dock.clear()
         _flush_deferred_delete(qapp, panel)
         assert sip.isdeleted(panel), "Owned 必须由容器 deleteLater"
@@ -54,7 +54,7 @@ class TestInputDockOwnership:
         """回归：换内容时旧控件曾被直接丢弃（Owned 永不删、Borrowed 变无主孤儿）。"""
         dock = make(ElaChatInputDock)
         old, new = make(QWidget), make(QWidget)
-        dock.setWidget(old, ownership=WidgetOwnership.Owned)
+        dock.setWidget(old, ownership=ElaWidgetOwnershipType.Owned)
         assert dock.setWidget(new) is True
         _flush_deferred_delete(qapp, old)
         assert sip.isdeleted(old), "Owned 的旧控件应被删除"
@@ -147,7 +147,7 @@ class TestChatWidgetDockPassthrough:
 
         chat = make(ElaChatWidget)
         panel = QWidget()
-        assert chat.setDockWidget(panel, ownership=WidgetOwnership.Owned) is True
+        assert chat.setDockWidget(panel, ownership=ElaWidgetOwnershipType.Owned) is True
         chat.clearDock()
         _flush_deferred_delete(qapp, panel)
         assert sip.isdeleted(panel)

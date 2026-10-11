@@ -27,7 +27,7 @@ from PyQt5ElaWidgetTools import (
 )
 
 from .._internal import _ThemeAwareMixin
-from .._ownership import ContentSlot, WidgetOwnership
+from .._ownership import ContentSlot, ElaWidgetOwnershipType
 from .._styles import BareButton, ColorText
 from ..ela_button import ElaButton
 from ._theme import muted_color, text_color
@@ -282,13 +282,13 @@ class ElaChatInputDock(_ThemeAwareMixin, ElaScrollPageArea):
         widget: Optional[QWidget],
         replace: bool = True,
         *,
-        ownership: WidgetOwnership = WidgetOwnership.Borrowed,
+        ownership: ElaWidgetOwnershipType = ElaWidgetOwnershipType.Borrowed,
     ) -> bool:
         """设置 dock 内容；``replace=True`` 表示替换输入区（输入区不可用）。
 
-        :param ownership: 释放策略，默认 ``Borrowed``（交还调用方）。选 ``Owned``
-            时由本 dock 负责 ``deleteLater()``。
-        :returns: 是否挂载成功（自挂 / 挂祖先 / 非 QWidget / 宿主已死都会被拒）。
+        ``ownership`` 默认 ``Borrowed``（交还调用方），选 ``Owned`` 时由本 dock 负责
+        ``deleteLater()``。返回是否挂载成功 —— 自挂 / 挂祖先 / 非 QWidget / 宿主已死
+        都会被拒。
         """
         self._updating = True
         try:
@@ -311,7 +311,7 @@ class ElaChatInputDock(_ThemeAwareMixin, ElaScrollPageArea):
         """获取当前 dock 内容。"""
         return self._slot.widget()
 
-    def ownership(self) -> WidgetOwnership:
+    def ownership(self) -> ElaWidgetOwnershipType:
         """当前内容槽的释放策略。"""
         return self._slot.ownership()
 

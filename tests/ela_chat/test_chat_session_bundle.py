@@ -7,10 +7,10 @@ import json
 import pytest
 
 from pyqt5_ela_pro.chat import (
-    ElaChatReasoningStyle,
+    ElaChatReasoningStyleType,
     SESSION_SCHEMA_VERSION,
     ElaChatAttachment,
-    ElaChatRole,
+    ElaChatRoleType,
     ElaChatSessionInfo,
     ElaChatStats,
     ElaChatView,
@@ -22,8 +22,8 @@ from pyqt5_ela_pro.chat import (
 def _build_view(qapp, make) -> ElaChatView:
     """搭一份含用户 / 助手（思考 + 正文 + 工具 + 用量 + 附件 + 错误）的历史。"""
     view = make(ElaChatView)
-    view.addMessage(ElaChatRole.User, "帮我分析目录")
-    messageId = view.addMessage(ElaChatRole.Assistant, "")
+    view.addMessage(ElaChatRoleType.User, "帮我分析目录")
+    messageId = view.addMessage(ElaChatRoleType.Assistant, "")
     view.beginReasoning(messageId)
     view.appendReasoning(messageId, "先看目录结构。")
     view.endReasoning(messageId, 500.0)
@@ -39,7 +39,7 @@ def _build_view(qapp, make) -> ElaChatView:
     view.setMessageDuration(messageId, 1500.0)
     view.endMessage(messageId)
 
-    failedId = view.addMessage(ElaChatRole.Assistant, "这条出错了")
+    failedId = view.addMessage(ElaChatRoleType.Assistant, "这条出错了")
     view.setMessageError(failedId, "接口超时")
     return view
 
@@ -147,7 +147,7 @@ class TestImportSession:
 
     def test_replace_restores_ids_and_options(self, qapp, make):
         source = _build_view(qapp, make)
-        source.setReasoningStyle(ElaChatReasoningStyle.Inline)
+        source.setReasoningStyle(ElaChatReasoningStyleType.Inline)
         source.setStatsMode("none")
         source.setToolGrouping(False)
         source.setAvatarVisible(False)
@@ -165,7 +165,7 @@ class TestImportSession:
         ]
         assert [message.toDict() for message in target.messages()] == rows
         # 外观选项一并恢复
-        assert target.reasoningStyle() == ElaChatReasoningStyle.Inline
+        assert target.reasoningStyle() == ElaChatReasoningStyleType.Inline
         assert target.statsMode() == "none"
         assert target.toolGrouping() is False
         assert target.avatarVisible() is False
@@ -181,7 +181,7 @@ class TestImportSession:
         bundle = source.exportSession()
 
         target = make(ElaChatView)
-        existing = target.addMessage(ElaChatRole.User, "已有消息")
+        existing = target.addMessage(ElaChatRoleType.User, "已有消息")
         count = target.importSession(bundle, clear=False)
         assert count == source.count()
         assert target.count() == 1 + count
@@ -215,7 +215,7 @@ class TestImportSession:
 class TestRestorePreserveIds:
     def test_conflict_raises_without_partial_write(self, qapp, make):
         view = make(ElaChatView)
-        view.addMessage(ElaChatRole.User, "已有", messageId=5)
+        view.addMessage(ElaChatRoleType.User, "已有", messageId=5)
         with pytest.raises(ValueError):
             view.restoreMessages(
                 [{"id": 5, "role": "user", "text": "撞号"}], preserveIds=True
@@ -234,7 +234,7 @@ class TestRestorePreserveIds:
         source = _build_view(qapp, make)
         rows = source.exportSession()["messages"]
         view = make(ElaChatView)
-        view.addMessage(ElaChatRole.User, "将被清空")
+        view.addMessage(ElaChatRoleType.User, "将被清空")
         view.clear()
         restored = view.restoreMessages(rows, preserveIds=True)
         assert restored == [row["id"] for row in rows]

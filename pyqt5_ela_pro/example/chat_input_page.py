@@ -28,9 +28,9 @@ from PyQt5ElaWidgetTools import ElaIconType, ElaMenu
 from pyqt5_ela_pro import ElaButton, ElaDropDownButton
 from pyqt5_ela_pro.chat import (
     ElaChatMockBackend,
-    ElaChatRole,
-    ElaChatStatus,
-    ElaChatReasoningStyle,
+    ElaChatRoleType,
+    ElaChatStatusType,
+    ElaChatReasoningStyleType,
     ElaChatStatusBar,
     ElaChatStreamBinder,
     ElaChatSuggestion,
@@ -133,13 +133,14 @@ def _long_answer() -> str:
 
 
 class ChatInputPage(ExamplePage):
-    """聊天输入区能力（工具栏 / 附件 / @ 引用 / 清空 / 新建话题 / 排队干预）。"""
+    """聊天输入区能力（工具栏 / 附件 / @ 引用 / 清空 / 新建话题 / 排队干预 / 上下文占用圆环）。"""
 
     PAGE_TITLE = "输入区能力"
 
     def __init__(self, parent=None):
         self._pending_answer = None
         self._question = ""
+        self._question_attachments: list = []
         self._chat = None
         self._status = None
         self._mock = None
@@ -148,6 +149,7 @@ class ChatInputPage(ExamplePage):
         self._agent_mode = "build"
         self._model_name = "deepseek-v4"
         self._section_notes: dict = {}
+        self._usage_step = 0
         super().__init__(parent)
 
     def _addDemoContent(self, main_layout):
@@ -185,6 +187,7 @@ class ChatInputPage(ExamplePage):
             self._section_clear(),
             self._section_new_topic(),
             self._section_turn_control(),
+            self._section_usage(),
         ):
             main_layout.addLayout(section)
 
@@ -204,6 +207,7 @@ class ChatInputPage(ExamplePage):
         self._chat.clearRequested.connect(self._on_clear_requested)
         self._chat.cleared.connect(self._on_context_cleared)
         self._chat.newTopicRequested.connect(self._on_new_topic_requested)
+        self._chat.contextUsageClicked.connect(self._on_context_usage_clicked)
 
     # -- 页面高度 ----------------------------------------------------------
 
@@ -287,12 +291,12 @@ class ChatInputPage(ExamplePage):
 
     def _on_toggle_reasoning(self) -> None:
         self._reasoning_style = getattr(
-            self, "_reasoning_style", ElaChatReasoningStyle.Collapse
+            self, "_reasoning_style", ElaChatReasoningStyleType.Collapse
         )
         self._reasoning_style = (
-            ElaChatReasoningStyle.Inline
-            if self._reasoning_style == ElaChatReasoningStyle.Collapse
-            else ElaChatReasoningStyle.Collapse
+            ElaChatReasoningStyleType.Inline
+            if self._reasoning_style == ElaChatReasoningStyleType.Collapse
+            else ElaChatReasoningStyleType.Collapse
         )
         self._chat.chatView().setReasoningStyle(self._reasoning_style)
         self._say(
@@ -396,9 +400,9 @@ class ChatInputPage(ExamplePage):
     def _on_tool_toggled(self, key: str, checked: bool):
         if key == "reasoning_style":
             self._chat.chatView().setReasoningStyle(
-                ElaChatReasoningStyle.Inline
+                ElaChatReasoningStyleType.Inline
                 if checked
-                else ElaChatReasoningStyle.Collapse
+                else ElaChatReasoningStyleType.Collapse
             )
 
     # ================================================================ 02 附件
@@ -652,7 +656,7 @@ class ChatInputPage(ExamplePage):
     def _on_stress(self) -> None:
         for index in range(30):
             self._chat.addMessage(
-                ElaChatRole.User,
+                ElaChatRoleType.User,
                 f"压测消息 {index + 1}：" + "这是一段用于撑开滚动区域的内容。" * 3,
             )
         self._chat.chatView().scrollToBottom()
@@ -670,17 +674,23 @@ class ChatInputPage(ExamplePage):
     def _on_submitted(self, text: str, attachments: list) -> None:
         note_text = f"（附件 {len(attachments)} 个）" if attachments else ""
         self._question = text
+        self._question_attachments = list(attachments or ())
         self._status.setStatus(f"已发送：{text[:20]}{note_text}")
         self._start_answer()
 
     def _start_answer(self) -> None:
         """开始一轮 mock 生成（binder 负责建消息 / 步骤 / 思考 / 工具 / 统计）。"""
-        self._binder.startTurn(self._question)
+        # 附件必须走 startTurn(attachments=...) 送进后端；mock 后端只收不留用，
+        # 真实后端在这里就能拿到用户上传的文件
+        self._binder.startTurn(self._question, attachments=self._question_attachments)
+        self._question_attachments = []
         self._status.setStatus("生成中…", level="busy")
 
-    def _on_turn_finished(self) -> None:
-        summary = self._binder.finish()
-        if summary.status == ElaChatStatus.Stopped:
+    def _on_turn_finished(self, turn) -> None:
+        summary = self._binder.finish(turn)
+        if summary is None:
+            return  # 迟到的旧回合收尾（已开新回合），不动状态栏
+        if summary.status == ElaChatStatusType.Stopped:
             self._status.setStatus("已停止（保留已输出内容）")
         elif summary.isEmptyReply():
             self._status.setStatus(
@@ -722,6 +732,8 @@ class ChatInputPage(ExamplePage):
             self._status.setStatus("找不到可重新生成的用户消息", level="error")
             return
         self._question = userMessage.text
+        # 快照里带着附件，重新生成必须原样送回后端（否则模型看不见文件）
+        self._question_attachments = list(userMessage.attachments)
         self._pending_answer = None
         self._start_answer()
 
@@ -732,6 +744,7 @@ class ChatInputPage(ExamplePage):
             self._status.setStatus("找不到可重试的用户消息", level="error")
             return
         self._question = userMessage.text
+        self._question_attachments = list(userMessage.attachments)
         self._pending_answer = None
         self._start_answer()
 
@@ -767,6 +780,68 @@ class ChatInputPage(ExamplePage):
         self._chat.setAssistantName(self._model_name)
         label = {"build": "构建", "plan": "规划"}.get(self._agent_mode, "构建")
         self._status.setInfo(f"mock 后端 · {self._model_name} · Agent {label}")
+
+    # ================================================ 07 上下文占用圆环
+    def _section_usage(self):
+        box = self._section(
+            7,
+            "上下文占用圆环",
+            self._demo_usage,
+            "圆环就在上面输入区工具栏里（与「清空上下文」同排的**默认组件**，"
+            "无数据时画空底环）。点「喂一档占用」循环 9% → 72% → 92% → 归零"
+            "看三档配色，再**直接点一下圆环**看点击回执。",
+        )
+        row = QHBoxLayout()
+        row.addWidget(self._button("喂一档占用", self._demo_usage))
+        row.addStretch()
+        box.addLayout(row)
+        return box
+
+    def _demo_usage(self) -> None:
+        """上下文占用圆环：数据全由宿主提供（库不推断），按百分比三档配色。
+
+        - ``chat.chatInput().setContextUsage(used, window, costUsd)`` —— 圆环挂在
+          **输入区工具栏**（经 ``chatInput()`` 访问），是**默认常驻**组件
+          （与新建话题 / 上传 / 清空同排，无数据时画空底环）；``window <= 0``
+          按 0% 显示（换话题 / 清空后宿主可这样重置）；显隐走
+          ``setContextUsageVisible``；
+        - 三档配色：``<60%`` 弱化 / ``60~85%`` 警示 / ``>=85%`` 危险（红色 +
+          tooltip 追加「建议压缩上下文」）；hover 显示花费 / 百分比 / 词元数；
+        - **圆环可点击**：``chat.contextUsageClicked``（或
+          ``chatInput().contextUsageClicked``）—— 组件不做任何行为，
+          弹什么详情面板归宿主（本页写在说明行里）。
+        """
+        states = (
+            (18_000, 200_000, 0.0900),  # 9%  弱化
+            (144_000, 200_000, 0.3500),  # 72% 警示
+            (184_000, 200_000, 0.6200),  # 92% 危险（tooltip 追加建议）
+            (0, 0, 0.0),  # 归零：空底环（0%，圆环默认常驻）
+        )
+        used, window, cost = states[self._usage_step % len(states)]
+        self._usage_step += 1
+        chat_input = self._chat.chatInput()
+        chat_input.setContextUsage(used, window, cost)
+        if window <= 0:
+            self._say(
+                7,
+                "已归零：window=0 → 空底环 0%（换话题 / 清空后宿主可这样重置）",
+            )
+            return
+        self._say(
+            7,
+            f"已喂 {used:,} / {window:,} 词元（{chat_input.contextUsagePercent()}%）"
+            f" · 花费 ${cost:.4f} —— 点一下工具栏里的圆环看点击回执",
+        )
+
+    def _on_context_usage_clicked(self) -> None:
+        """圆环点击回执：真宿主在这里弹自己的上下文详情面板。"""
+        chat_input = self._chat.chatInput()
+        used, window, cost = chat_input.contextUsage()
+        self._say(
+            7,
+            f"点击回执：已用 {used:,} / {window:,}（{chat_input.contextUsagePercent()}%）"
+            f" · 花费 ${cost:.4f} —— 弹什么面板归宿主（组件只发信号）",
+        )
 
     def _button(self, text, callback):
         button = ElaButton(text, variant="outlined", size="small", parent=self)

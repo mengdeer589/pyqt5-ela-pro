@@ -9,10 +9,10 @@ from __future__ import annotations
 from _qthelpers import wait_until as _wait_until
 
 from pyqt5_ela_pro.chat import (
-    ElaChatReasoningStyle,
-    ElaChatRole,
+    ElaChatReasoningStyleType,
+    ElaChatRoleType,
     ElaChatStats,
-    ElaChatStatus,
+    ElaChatStatusType,
     ElaChatView,
     ElaChatWidget,
 )
@@ -26,7 +26,7 @@ class TestChatPerformance:
         view.show()
         qapp.processEvents()
         for index in range(30):
-            view.addMessage(ElaChatRole.User, f"第 {index} 条消息 " + "内容" * 10)
+            view.addMessage(ElaChatRoleType.User, f"第 {index} 条消息 " + "内容" * 10)
         assert view.count() == 30
 
         # 快照查询返回副本（防宿主改内部列表），内容与顺序正确
@@ -47,7 +47,7 @@ class TestChatPerformance:
         for index in range(300):
             chat.chatView().appendText(messageId, f"分片 {index}，")
         chat.endAssistantMessage()
-        assert chat.chatView().message(messageId).status == ElaChatStatus.Done
+        assert chat.chatView().message(messageId).status == ElaChatStatusType.Done
         assert chat.chatView().message(messageId).text.count("分片") == 300
 
         # 嵌入模式高度贴合内容：不含文末空白，但不裁剪正文
@@ -75,7 +75,7 @@ class TestChatPerformance:
         )
         for index in range(12):
             messageId = view.addMessage(
-                ElaChatRole.Assistant, f"第 {index} 条回答 " + "内容" * 8
+                ElaChatRoleType.Assistant, f"第 {index} 条回答 " + "内容" * 8
             )
             view.setReasoning(messageId, f"推理 {index}", 500.0)
             callId = view.addToolCall(messageId, "read_file", '{"path": "a.txt"}')
@@ -108,7 +108,7 @@ class TestChatPerformance:
         chat = make(ElaChatWidget)
         message_id = chat.beginAssistantMessage()
         bubble = chat.chatView().bubble(message_id)
-        bubble.setReasoningStyle(ElaChatReasoningStyle.Inline)
+        bubble.setReasoningStyle(ElaChatReasoningStyleType.Inline)
         chat.chatView().beginReasoning(message_id)
         chunks = 3000
         chat.chatView().appendReasoning(message_id, "# 分析步骤\n")
@@ -132,7 +132,7 @@ class TestChatPerformance:
         qapp.processEvents()
         md = "## 标题\n\n内容段落。" * 8
         for _ in range(60):
-            view.addMessage(ElaChatRole.Assistant, md)
+            view.addMessage(ElaChatRoleType.Assistant, md)
         qapp.processEvents()
 
         # 关闭延迟重排：resize 立即重排，不冻结
@@ -162,7 +162,7 @@ class TestChatPerformance:
         qapp.processEvents()
         view.setViewportSuspension(True, minMessages=2)
         ids = [
-            view.addMessage(ElaChatRole.Assistant, "长内容 " * 60) for _ in range(10)
+            view.addMessage(ElaChatRoleType.Assistant, "长内容 " * 60) for _ in range(10)
         ]
         bar = view._scroll.verticalScrollBar()
         assert _wait_until(qapp, lambda: bar.maximum() > 0)

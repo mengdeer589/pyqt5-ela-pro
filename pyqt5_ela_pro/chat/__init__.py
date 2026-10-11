@@ -14,10 +14,11 @@
   :class:`ErrorCard`；
 - 数据模型：:class:`ElaChatMessage`（步骤化 :class:`ElaChatPart` 时间线，
   含 :class:`ElaChatAttachment` / :class:`ElaChatToolCall` /
-  :class:`ElaChatStats`）、:class:`ElaChatSessionInfo`；
-- 常量：:class:`ElaChatRole` / :class:`ElaChatStatus` /
-  :class:`ElaChatToolStatus` / :class:`ElaChatPartKind` /
-  :class:`ElaChatReasoningStyle`；
+  :class:`ElaChatStats`）、:class:`ElaChatSessionInfo` /
+  :class:`ElaChatSessionStats`；
+- 常量：:class:`ElaChatRoleType` / :class:`ElaChatStatusType` /
+  :class:`ElaChatToolStatusType` / :class:`ElaChatPartKindType` /
+  :class:`ElaChatReasoningStyleType`；
 
 结构设计：
 
@@ -27,7 +28,9 @@
 - **消息** 分四层：头部（头像 + 名称 + 时间 / 状态）→ 内容分段
   （思考段 → 正文段 → 每步工具面板 → 步骤用量徽标，按加入顺序组成
   时间线；用户纯文本 / 系统提示为单段弱化样式）→ 附件 chips →
-  底部（复制 / 撤回 / 重新生成 + 整轮耗时 meta）；用量徽标默认只显示
+  底部（复制 / 撤回 / 重新生成 + 整轮耗时 meta；点击「复制」后弹
+  ``ElaMessageBar``「已复制到剪贴板」确认，默认开、``setCopyNotificationEnabled``
+  可关）；用量徽标默认只显示
   一个整轮汇总（各步求和，``setStatsMode`` 可切换逐步骤 / 关闭）；
 - 助手消息复用 :class:`~pyqt5_ela_pro.ela_markdown_viewer.ElaMarkdownViewer`
   的**嵌入模式**（透明背景 / 隐藏滚动条 / 高度自适应），因此公式、Mermaid、
@@ -43,6 +46,10 @@
   ``appendText`` / ``setStepStats`` → ``endMessage``；思考 / 工具调用分别经
   ``beginReasoning`` / ``addToolCall`` 驱动。需要「跟随当前流式消息」的宿主可用
   :class:`ElaChatWidget` 的 ``beginAssistantMessage`` / ``endAssistantMessage``。
+- **回合 token**：后端 ``ask`` / ``regenerate`` 返回回合 token，``turnFinished``
+  原样带回；``binder.startTurn`` 把它交给 ``binder.finish`` 认领收尾。后端
+  ``cancel()`` 是异步的，旧回合的收尾信号可能晚几十毫秒到达 —— 认不出的迟到
+  信号被 ``finish`` 丢弃（返回 ``None``），不会把新回合按「完成」掐掉。
 - 数据只读：``view.messages()`` 返回 ``ElaChatMessage`` 快照列表
   （助手消息含 ``parts`` 与派生字段；**流式在途分片不写回 ``part.text``**，
   所以快照在任意时刻都可直接落库，回合结束才是完整正文）；
@@ -55,7 +62,7 @@
   UTF-8 文本；``allow_nan=False`` 语义一致）；
 - **崩溃恢复**：回合**中途**进程死掉时，在途分片会丢（缓冲只在内存里）。
   :class:`ElaChatTurnJournal` 把回合记成**追加写事件流**
-  （``journal.dumps()`` 一行一条，崩了最多丢最后一行），
+  （``journal.dumpsNewLines()`` 一行一条、只给新增的那些；崩了最多丢最后一行），
   ``ElaChatTurnJournal.fromLines()`` 重放出完整消息 —— 可与 binder 并行
   连同一批 worker 信号（``journal.connectWorker(worker)``）；
 - **多话题**是**宿主的事务**（一话题一 widget，见 ``example/chat_session_page.py``）：
@@ -112,7 +119,7 @@
     journal.connectWorker(worker)          # 与 binder 并行，不改现有接线
     ...
     journal.end("done")
-    fh.write(journal.dumps() + "\\n")      # 追加写；崩了最多丢最后一行
+    fh.write(journal.dumpsNewLines())       # 追加写；崩了最多丢最后一行
 
     # 重启后：残行与未知事件自动跳过
     recovered = ElaChatTurnJournal.fromLines(read_lines())
@@ -146,17 +153,17 @@ from .message import (
     ElaChatAttachment,
     ElaChatMessage,
     ElaChatPart,
-    ElaChatPartKind,
+    ElaChatPartKindType,
     ElaChatPermission,
     ElaChatOption,
-    ElaChatPermissionStatus,
+    ElaChatPermissionStatusType,
     ElaChatQuestion,
-    ElaChatReasoningStyle,
-    ElaChatRole,
+    ElaChatReasoningStyleType,
+    ElaChatRoleType,
     ElaChatStats,
-    ElaChatStatus,
+    ElaChatStatusType,
     ElaChatToolCall,
-    ElaChatToolStatus,
+    ElaChatToolStatusType,
 )
 from ._pricing import ModelPricing, cost_from_parts, formatCost, stats_cost
 from .journal import JOURNAL_VERSION, ElaChatTurnJournal
@@ -172,7 +179,7 @@ from .renderers import (
     toolRendererNames,
     unregisterToolRenderer,
 )
-from .session import SESSION_SCHEMA_VERSION, ElaChatSessionInfo
+from .session import SESSION_SCHEMA_VERSION, ElaChatSessionInfo, ElaChatSessionStats
 from .status import ElaChatStatusBar
 from .suggestions import ElaChatSuggestion, SuggestionPopup
 from .toolbar import ElaChatToolBar, ElaChatToolButton
@@ -189,19 +196,20 @@ __all__ = [
     "ElaChatToolButton",
     "ElaChatMessage",
     "ElaChatPart",
-    "ElaChatPartKind",
+    "ElaChatPartKindType",
     "ElaChatPermission",
-    "ElaChatPermissionStatus",
+    "ElaChatPermissionStatusType",
     "ElaChatOption",
     "ElaChatQuestion",
     "ElaChatAttachment",
     "ElaChatToolCall",
-    "ElaChatToolStatus",
+    "ElaChatToolStatusType",
     "ElaChatStats",
     "SCHEMA_VERSION",
     "ElaChatTurnJournal",
     "JOURNAL_VERSION",
     "ElaChatSessionInfo",
+    "ElaChatSessionStats",
     "SESSION_SCHEMA_VERSION",
     "ElaChatSuggestion",
     "SuggestionPopup",
@@ -215,9 +223,9 @@ __all__ = [
     "ElaChatQueueDock",
     "ElaChatInputDock",
     "ElaChatPermissionDock",
-    "ElaChatRole",
-    "ElaChatStatus",
-    "ElaChatReasoningStyle",
+    "ElaChatRoleType",
+    "ElaChatStatusType",
+    "ElaChatReasoningStyleType",
     "ElaChatAvatarSource",
     "MessageHeader",
     "MessageMeta",

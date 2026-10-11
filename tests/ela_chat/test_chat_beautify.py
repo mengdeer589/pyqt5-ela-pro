@@ -8,9 +8,9 @@ from _pixels import skip_if_no_pixels
 
 from pyqt5_ela_pro.chat import (
     ElaChatBubble,
-    ElaChatRole,
+    ElaChatRoleType,
     ElaChatStats,
-    ElaChatStatus,
+    ElaChatStatusType,
 )
 
 
@@ -43,7 +43,7 @@ def _grab(widget):
 
 class TestStatsLine:
     def test_single_line_no_wrap(self, qapp, make):
-        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRoleType.Assistant)
         _bubble_in_window(qapp, make, bubble)
         bubble.setStepStats(
             ElaChatStats(prompt_tokens=15721, completion_tokens=1069, total_tokens=6790)
@@ -58,37 +58,37 @@ class TestStatsLine:
 
 class TestHeaderStatus:
     def test_streaming_dot_breathing_then_hidden(self, qapp, make):
-        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRoleType.Assistant)
         _bubble_in_window(qapp, make, bubble)
         bubble.beginStream()
         dot = bubble.header().statusDot()
         # 阶段一：排队中（等待 TTFT），呼吸点同样激活
         assert dot.isVisible()
         assert dot.isActive() is True
-        assert bubble.header().statusKind() == ElaChatStatus.Queued
+        assert bubble.header().statusKind() == ElaChatStatusType.Queued
         bubble.appendText("第一片")
         # 阶段二：生成中
         assert dot.isActive() is True
-        assert bubble.header().statusKind() == ElaChatStatus.Streaming
+        assert bubble.header().statusKind() == ElaChatStatusType.Streaming
 
         bubble.endStream()
         assert dot.isActive() is False
         assert dot.isVisible() is False  # Done 无状态文本
 
     def test_error_dot_static_and_colored(self, qapp, make):
-        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRoleType.Assistant)
         _bubble_in_window(qapp, make, bubble)
         bubble.setError("接口超时")
         dot = bubble.header().statusDot()
         assert dot.isVisible()
         assert dot.isActive() is False
-        assert bubble.header().statusKind() == ElaChatStatus.Error
+        assert bubble.header().statusKind() == ElaChatStatusType.Error
         assert dot._color.name() == bubble.header()._status_color().name()
 
 
 class TestShapes:
     def test_avatar_default_circle(self, qapp, make):
-        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRoleType.Assistant)
         _bubble_in_window(qapp, make, bubble)
         avatar = bubble.header().avatar()
         assert avatar.shape() == "circle"
@@ -102,7 +102,7 @@ class TestShapes:
         assert image.pixelColor(2, avatar.height() // 2).name() == bg
 
     def test_avatar_shape_switch(self, qapp, make):
-        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRoleType.Assistant)
         _bubble_in_window(qapp, make, bubble)
         avatar = bubble.header().avatar()
         bg = avatar._bg.name()
@@ -127,7 +127,7 @@ class TestShapes:
         assert avatar.shape() == "circle"
 
     def test_user_bubble_asymmetric_corners(self, qapp, make):
-        bubble = make(ElaChatBubble, ElaChatRole.User, "你好，给我一个很长的回答")
+        bubble = make(ElaChatBubble, ElaChatRoleType.User, "你好，给我一个很长的回答")
         _bubble_in_window(qapp, make, bubble)
         body = bubble._body
         image = _grab(body)

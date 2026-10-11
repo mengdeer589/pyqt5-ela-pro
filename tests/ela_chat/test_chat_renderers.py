@@ -33,7 +33,7 @@ from pyqt5_ela_pro.chat.blocks import (
     ToolCallCard,
     toolArgumentPairs,
 )
-from pyqt5_ela_pro.chat.message import ElaChatToolCall, ElaChatToolStatus
+from pyqt5_ela_pro.chat.message import ElaChatToolCall, ElaChatToolStatusType
 from pyqt5_ela_pro.chat.renderers import (
     _CONTEXT_TOOLS,
     parseToolArguments,
@@ -223,7 +223,7 @@ class TestCardIntegration:
         assert ctx.toolCallId == "c1"
         assert ctx.name == "patch"
         assert ctx.parsedArguments() == {"files": ["a.py"]}
-        assert ctx.status == ElaChatToolStatus.Running
+        assert ctx.status == ElaChatToolStatusType.Running
         assert ctx.isError is False
         # 快照不可变
         with pytest.raises(Exception):
@@ -238,7 +238,7 @@ class TestUpdateProtocol:
         _open(card, qapp)
         widget = card._renderer_widget
         card.setResult("done!", ok=True)
-        assert widget.pushes[-1] == ("done!", ElaChatToolStatus.Done)
+        assert widget.pushes[-1] == ("done!", ElaChatToolStatusType.Done)
 
     def test_status_change_is_pushed(self, qapp, make):
         registerToolRenderer("patch", lambda ctx: _Recorder())
@@ -246,8 +246,8 @@ class TestUpdateProtocol:
         make.track(card)
         _open(card, qapp)
         widget = card._renderer_widget
-        card.setStatus(ElaChatToolStatus.Done)
-        assert widget.pushes[-1][1] == ElaChatToolStatus.Done
+        card.setStatus(ElaChatToolStatusType.Done)
+        assert widget.pushes[-1][1] == ElaChatToolStatusType.Done
 
     def test_widget_without_protocol_is_fine(self, qapp, make):
         registerToolRenderer("patch", lambda ctx: _Plain())

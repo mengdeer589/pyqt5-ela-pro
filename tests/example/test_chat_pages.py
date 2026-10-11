@@ -20,7 +20,7 @@ import pytest
 
 from _qthelpers import wait_until as _wait_until
 
-from pyqt5_ela_pro.chat import ElaChatReasoningStyle
+from pyqt5_ela_pro.chat import ElaChatReasoningStyleType
 from pyqt5_ela_pro.example.chat_agent_page import ChatAgentPage
 from pyqt5_ela_pro.example.chat_input_page import ChatInputPage
 from pyqt5_ela_pro.example.chat_overview_page import ChatOverviewPage
@@ -68,10 +68,10 @@ class TestChatOverviewPage:
         assert kinds.count("stats") == 1, kinds
         # ToolCall 的成败在 `status` 上（不是 `ok` 布尔）：
         # Done=成功、Error=失败、Aborted=回合中止时未完成
-        from pyqt5_ela_pro.chat import ElaChatToolStatus
+        from pyqt5_ela_pro.chat import ElaChatToolStatusType
 
         statuses = {call.status for call in message.tool_calls}
-        assert statuses == {ElaChatToolStatus.Done, ElaChatToolStatus.Error}, statuses
+        assert statuses == {ElaChatToolStatusType.Done, ElaChatToolStatusType.Error}, statuses
         # 附件挂在**用户**那条上（附件是独立的一行，不拼进正文）
         assert len(messages[0].attachments) == 2
 
@@ -81,8 +81,8 @@ class TestChatOverviewPage:
         view = page._chat.chatView()
         original = view.reasoningStyle()
 
-        page._on_reasoning_style(ElaChatReasoningStyle.Inline)
-        assert view.reasoningStyle() == ElaChatReasoningStyle.Inline
+        page._on_reasoning_style(ElaChatReasoningStyleType.Inline)
+        assert view.reasoningStyle() == ElaChatReasoningStyleType.Inline
         page._on_reasoning_style(original)
 
         page._on_tool_grouping("raw")
@@ -97,6 +97,35 @@ class TestChatOverviewPage:
         page._on_avatar_shape("square")
         assert view.avatarShape() == "square"
         page._on_avatar_shape("rounded")
+
+    def test_appearance_dropdown_checks_are_exclusive_and_synced(self, qapp, make):
+        """下拉勾选态必须互斥、跟随当前选择，且再点已选项保持勾选（radio 语义）。
+
+        回归：回调原先只改 view 与按钮文案、不重刷 actions —— 选「内联」后两项
+        同时勾选；再点已选项被 Qt 的 toggle 取消，菜单里一个勾都没有。
+        """
+        page = make(ChatOverviewPage)
+        actions = page._reasoning_actions
+        order = list(actions)
+        assert order == [
+            ElaChatReasoningStyleType.Collapse,
+            ElaChatReasoningStyleType.Inline,
+        ]
+
+        actions[order[1]].trigger()
+        qapp.processEvents()
+        assert [actions[key].isChecked() for key in order] == [False, True]
+        assert page._chat.chatView().reasoningStyle() == order[1]
+        assert "内联" in page._reasoning_button.text()
+
+        actions[order[1]].trigger()
+        qapp.processEvents()
+        assert [actions[key].isChecked() for key in order] == [False, True]
+
+        actions[order[0]].trigger()
+        qapp.processEvents()
+        assert [actions[key].isChecked() for key in order] == [True, False]
+        assert "折叠" in page._reasoning_button.text()
 
     def test_content_width_toggle(self, qapp, make):
         page = make(ChatOverviewPage)
@@ -116,9 +145,9 @@ class TestChatOverviewPage:
 
 # ================================================================ 输入区
 class TestChatInputPage:
-    def test_all_six_sections_present(self, qapp, make):
+    def test_all_sections_present(self, qapp, make):
         page = make(ChatInputPage)
-        assert sorted(page._section_notes) == [1, 2, 3, 4, 5, 6]
+        assert sorted(page._section_notes) == [1, 2, 3, 4, 5, 6, 7]
 
     def test_safe_callbacks_run(self, qapp, make):
         """逐个点名调用**无副作用**的回调（避开模态的清空确认）。"""
@@ -132,6 +161,8 @@ class TestChatInputPage:
             page._on_enqueue,
             page._on_stress,
             page._on_new_topic_clicked,
+            page._demo_usage,
+            page._on_context_usage_clicked,
         ):
             callback()
             qapp.processEvents()
@@ -142,6 +173,38 @@ class TestChatInputPage:
         assert len(page._mention_suggestions("")) == 3
         assert len(page._mention_suggestions("read")) == 1
         assert page._mention_suggestions("zzz") == []
+
+    def test_usage_demo_feeds_the_ring(self, qapp, make):
+        """「上下文占用圆环」节真的把数据喂进输入区工具栏的圆环。
+
+        圆环是**默认组件**（跟新建话题 / 上传 / 清空一样常驻），喂数据只改
+        百分比、不改显隐。
+        """
+        page = make(ChatInputPage)
+        ring = page._chat.chatInput().contextUsageWidget()
+        assert not ring.isHidden()  # 默认就显示（空底环 0%）
+
+        page._demo_usage()
+        qapp.processEvents()
+        assert not ring.isHidden()
+        assert page._chat.chatInput().contextUsagePercent() == 9
+
+        # 点击回执（真宿主在此弹自己的详情面板）
+        page._on_context_usage_clicked()
+        qapp.processEvents()
+
+    def test_attachments_reach_the_backend(self, qapp, make):
+        """带附件发送时，附件必须真的送进后端（不是只画在消息上）。
+
+        链路：`messageSubmittedFull` → `_on_submitted` 存附件 → `_start_answer`
+        → `binder.startTurn(attachments=...)` → `mock.turnAttachments()`。
+        """
+        page = make(ChatInputPage)
+        page._on_send_with_attachment()
+        qapp.processEvents()
+        # 示例页传的是原始 dict（真实宿主传 message.attachments，是 ElaChatAttachment）
+        attachments = page._mock.turnAttachments()
+        assert [item["name"] for item in attachments] == ["blocks.py", "notes.md"]
 
     def test_turn_control_handles_empty_history(self, qapp, make):
         """空历史时「撤回 / 重新生成」要给出提示而不是炸。"""
@@ -213,7 +276,7 @@ class TestChatSessionPage:
         page._on_toggle_reasoning_style()
         qapp.processEvents()
         styles = {p.chat.chatView().reasoningStyle() for p in page._pages.values()}
-        assert styles == {ElaChatReasoningStyle.Inline}, (
+        assert styles == {ElaChatReasoningStyleType.Inline}, (
             f"有页面没跟上外观设置：{styles}"
         )
 

@@ -22,7 +22,7 @@ opencode 对这个问题的解法是 journal 每个 ``part_text_accum_delta``（
     journal.connectWorker(worker)          # 与 binder 各连各的，Qt 允许
     ...
     journal.end("done")
-    fh.write(journal.dumps() + "\\n")      # 追加写；崩了最多丢最后一行
+    fh.write(journal.dumpsNewLines())       # 追加写；崩了最多丢最后一行
 
 **恢复**（重启后）::
 
@@ -34,8 +34,8 @@ opencode 对这个问题的解法是 journal 每个 ``part_text_accum_delta``（
 设计约束
 --------
 - **不依赖 Qt 核心**：纯数据 + 标准库，可在任意线程构造与重放，便于单测；
-- **追加写**：:meth:`dumps` 产出**一行一条**事件（多事件时是多行文本），
-  宿主 ``write(journal.dumps() + "\\n")`` 或逐行落盘都成立；
+- **追加写**：:meth:`dumps` 产出**整份**事件流（多事件时是多行文本），
+  :meth:`dumpsNewLines` 产出**新增**的那些行 —— 落盘用后者，崩了最多丢最后一行；
 - **容忍残行**：进程可能在写一半时被杀，:meth:`loadsLine` 对截断 / 非法 JSON
   返回 ``None`` 而不抛，:meth:`fromLines` 直接跳过；
 - **未知事件跳过**：旧版本读到新版本的事件类型不会崩；
@@ -52,12 +52,12 @@ from .message import (
     ElaChatAttachment,
     ElaChatMessage,
     ElaChatPart,
-    ElaChatPartKind,
-    ElaChatRole,
+    ElaChatPartKindType,
+    ElaChatRoleType,
     ElaChatStats,
-    ElaChatStatus,
+    ElaChatStatusType,
     ElaChatToolCall,
-    ElaChatToolStatus,
+    ElaChatToolStatusType,
     _as_float,
     _as_int,
 )
@@ -102,24 +102,28 @@ class ElaChatTurnJournal:
     def __init__(
         self,
         messageId: int = 0,
-        role: str = ElaChatRole.Assistant,
+        role: str = ElaChatRoleType.Assistant,
         title: str = "",
         timestamp: str = "",
         createdAt: float = 0.0,
     ) -> None:
         self._message_id = _int(messageId, 0)
-        self._role = role if role in ElaChatRole.All else ElaChatRole.Assistant
+        self._role = role if role in ElaChatRoleType.All else ElaChatRoleType.Assistant
         self._title = title or ""
         self._timestamp = timestamp or ""
         self._created_at = _float(createdAt, 0.0)
         self._events: list = []
+        #: 已经通过 :meth:`dumpsNewLines` 落盘的事件数（``dumps()`` 不用它）
+        self._dumped = 0
         #: 已 connectWorker 的后端（幂等守卫 / 换绑时先解旧的）
         self._worker = None
 
         # -- 重放状态（从事件构建 parts） --
         self._parts: list = []
+        #: 未落定分段的增量缓冲 ``{partId: [chunk, ...]}``（见 ``_flushBuffer``）
+        self._buffers: dict = {}
         self._step = 1
-        self._status = ElaChatStatus.Streaming
+        self._status = ElaChatStatusType.Streaming
         self._error = ""
         self._duration_ms = 0.0
         self._attachments: list = []
@@ -138,7 +142,7 @@ class ElaChatTurnJournal:
         self._events = []
         self._parts = []
         self._step = 1
-        self._status = ElaChatStatus.Streaming
+        self._status = ElaChatStatusType.Streaming
         self._error = ""
         self._duration_ms = 0.0
         self._attachments = []
@@ -317,7 +321,7 @@ class ElaChatTurnJournal:
 
     def endCompaction(
         self,
-        status: str = ElaChatStatus.Done,
+        status: str = ElaChatStatusType.Done,
         historyCount: int = 0,
     ) -> "ElaChatTurnJournal":
         """记录压缩结束并落定摘要。"""
@@ -333,9 +337,9 @@ class ElaChatTurnJournal:
         return self
 
     def end(
-        self, status: str = ElaChatStatus.Done, error: str = ""
+        self, status: str = ElaChatStatusType.Done, error: str = ""
     ) -> "ElaChatTurnJournal":
-        """结束记录（``status`` 见 :class:`ElaChatStatus`）。"""
+        """结束记录（``status`` 见 :class:`ElaChatStatusType`）。"""
         if not self._open:
             return self
         self._push(_Ev.End, status=status, error=error or "")
@@ -372,11 +376,27 @@ class ElaChatTurnJournal:
         return [dict(item) for item in self._events]
 
     def dumps(self) -> str:
-        """把事件序列化为**恰好一行** JSON（无换行）。
+        """把**整份**事件流序列化成「一行一条事件」的文本。
 
-        追加写日志的最小单位。崩了最多丢最后一行，:meth:`loadsLine` 能容忍。
+        **返回的是全部事件**（多事件时是多行文本），不是最后一条：想「每来一片
+        追加落一行」要用 :meth:`dumpsNewLines`（或 ``dumps().splitlines()`` 自行
+        去重）。把 ``dumps()`` 的返回值原样 ``append`` 到文件里会在每次调用时
+        把整份历史重复写一遍，恢复时事件被重放多次。
         """
         return "\n".join(_json.dumps(item, allow_nan=False) for item in self._events)
+
+    def dumpsNewLines(self) -> str:  # noqa: N802 (与 Qt 命名一致)
+        """只序列化**尚未被 :meth:`dumpsNewLines` 取走**的新事件（一行一条）。
+
+        这才是「追加写」的入口：::
+
+            fh.write(journal.dumpsNewLines())   # 每来一片写一次
+        """
+        lines = [
+            _json.dumps(item, allow_nan=False) for item in self._events[self._dumped :]
+        ]
+        self._dumped = len(self._events)
+        return "\n".join(lines)
 
     def isOpen(self) -> bool:
         """是否仍在记录中（未 ``end()``）。"""
@@ -437,7 +457,7 @@ class ElaChatTurnJournal:
         journal = cls()
         journal.replay(events)
         if settleOpen and not journal._ended:
-            journal._settle(ElaChatStatus.Stopped)
+            journal._settle(ElaChatStatusType.Stopped)
         return journal
 
     # ------------------------------------------------------------------ 重放
@@ -460,6 +480,7 @@ class ElaChatTurnJournal:
         回合中途调用得到的是「**已收到的部分**」—— 崩了重启后拿它恢复，
         收到多少就显示多少，不会把在途内容丢掉。
         """
+        self._flushBuffers()
         base = ElaChatMessage(
             id=self._message_id,
             role=self._role,
@@ -504,7 +525,7 @@ class ElaChatTurnJournal:
     def _ev_begin(self, event: dict) -> None:
         self._message_id = _int(event.get("id"), self._message_id)
         role = event.get("role")
-        if role in ElaChatRole.All:
+        if role in ElaChatRoleType.All:
             self._role = role
         self._title = _str(event.get("title"), self._title)
         self._timestamp = _str(event.get("timestamp"), self._timestamp)
@@ -534,19 +555,23 @@ class ElaChatTurnJournal:
             self._append(
                 ElaChatPart(
                     id=partId,
-                    kind=ElaChatPartKind.Text,
+                    kind=ElaChatPartKindType.Text,
                     text=chunk,
                     status=self._openStatus(),
                     step=step,
                 )
             )
         else:
-            self._replace(existing, existing.withText((existing.text or "") + chunk))
+            # 走分片缓冲而不是 ``existing.text + chunk``：逐分片整串拼接是 O(n²)，
+            # token 级流式 + 长回答时会产生大量临时大字符串（气泡那边同样是缓冲）。
+            self._buffers.setdefault(partId, []).append(chunk)
 
     def _ev_text_end(self, event: dict) -> None:
-        part = self._find(_str(event.get("id")))
+        partId = _str(event.get("id"))
+        self._flushBuffer(partId)
+        part = self._find(partId)
         if part is not None:
-            self._replace(part, part.withStatus(ElaChatStatus.Done))
+            self._replace(part, part.withStatus(ElaChatStatusType.Done))
 
     def _ev_reasoning(self, event: dict) -> None:
         partId = _str(event.get("id"))
@@ -559,24 +584,42 @@ class ElaChatTurnJournal:
             self._append(
                 ElaChatPart(
                     id=partId,
-                    kind=ElaChatPartKind.Reasoning,
+                    kind=ElaChatPartKindType.Reasoning,
                     text=chunk,
                     status=self._openStatus(),
                     step=step,
                 )
             )
         else:
-            self._replace(existing, existing.withText((existing.text or "") + chunk))
+            self._buffers.setdefault(partId, []).append(chunk)
 
     def _ev_reasoning_end(self, event: dict) -> None:
-        part = self._find(_str(event.get("id")))
+        partId = _str(event.get("id"))
+        self._flushBuffer(partId)
+        part = self._find(partId)
         if part is not None:
             self._replace(
                 part,
-                part.withStatus(ElaChatStatus.Done).withDuration(
+                part.withStatus(ElaChatStatusType.Done).withDuration(
                     _float(event.get("ms"), 0.0)
                 ),
             )
+
+    # -- 分片缓冲（避免逐分片整串拼接） ------------------------------------
+
+    def _flushBuffer(self, partId: str) -> None:  # noqa: N802 (与 Qt 命名一致)
+        """把某个分段的缓冲并回 ``part.text``。"""
+        chunks = self._buffers.pop(partId, None)
+        if not chunks:
+            return
+        part = self._find(partId)
+        if part is not None:
+            self._replace(part, part.withText((part.text or "") + "".join(chunks)))
+
+    def _flushBuffers(self) -> None:  # noqa: N802 (与 Qt 命名一致)
+        """把全部分段的缓冲并回（读快照前调一次）。"""
+        for partId in list(self._buffers):
+            self._flushBuffer(partId)
 
     def _ev_tool_start(self, event: dict) -> None:
         callId = _str(event.get("id"))
@@ -586,7 +629,7 @@ class ElaChatTurnJournal:
             id=callId,
             name=_str(event.get("name")),
             arguments=_str(event.get("args")),
-            status=ElaChatToolStatus.Running,
+            status=ElaChatToolStatusType.Running,
         )
         step = _int(event.get("step"), self._step)
         existing = self._find(callId)
@@ -596,7 +639,7 @@ class ElaChatTurnJournal:
         self._append(
             ElaChatPart(
                 id=callId,
-                kind=ElaChatPartKind.Tool,
+                kind=ElaChatPartKindType.Tool,
                 tool_call=call,
                 status=self._openStatus(),
                 step=step,
@@ -610,12 +653,12 @@ class ElaChatTurnJournal:
         ok = bool(event.get("ok", True))
         call = part.tool_call.withResult(
             _str(event.get("result")),
-            ElaChatToolStatus.Done if ok else ElaChatToolStatus.Error,
+            ElaChatToolStatusType.Done if ok else ElaChatToolStatusType.Error,
         )
         # part 状态保持 Done：工具**跑完了**，只是失败了 —— 失败由
         # ``tool_call.status`` 承载（卡片变红也是读它，见 ``_apply_theme``）。
         # 这与实时路径 ``setToolCallResult(ok=False)`` 的结果一致。
-        self._replace(part, part.withToolCall(call).withStatus(ElaChatStatus.Done))
+        self._replace(part, part.withToolCall(call).withStatus(ElaChatStatusType.Done))
 
     def _ev_stats(self, event: dict) -> None:
         stats = ElaChatStats.fromDict(event.get("data"))
@@ -624,9 +667,9 @@ class ElaChatTurnJournal:
         self._append(
             ElaChatPart(
                 id="st%d" % _int(event.get("n"), 0),
-                kind=ElaChatPartKind.Stats,
+                kind=ElaChatPartKindType.Stats,
                 stats=stats,
-                status=ElaChatStatus.Done,
+                status=ElaChatStatusType.Done,
                 step=_int(event.get("step"), self._step),
             )
         )
@@ -641,7 +684,7 @@ class ElaChatTurnJournal:
         self._append(
             ElaChatPart(
                 id=partId,
-                kind=ElaChatPartKind.Compaction,
+                kind=ElaChatPartKindType.Compaction,
                 status=self._openStatus(),
                 step=_int(event.get("step"), self._step),
             )
@@ -650,23 +693,27 @@ class ElaChatTurnJournal:
     def _ev_compaction_text(self, event: dict) -> None:
         part = self._find(_str(event.get("id")))
         chunk = _str(event.get("text"))
-        if part is None or part.kind != ElaChatPartKind.Compaction or not chunk:
+        if part is None or part.kind != ElaChatPartKindType.Compaction or not chunk:
             return
-        self._replace(part, part.withText((part.text or "") + chunk))
+        self._buffers.setdefault(part.id, []).append(chunk)
 
     def _ev_compaction_end(self, event: dict) -> None:
-        part = self._find(_str(event.get("id")))
-        if part is None or part.kind != ElaChatPartKind.Compaction:
+        partId = _str(event.get("id"))
+        # **先 flush 再取 part**：反过来的话拿到的是 flush 前的旧快照，
+        # ``withStatus`` 会把刚并进去的摘要文本整个覆盖掉（实测摘要重放为空）。
+        self._flushBuffer(partId)
+        part = self._find(partId)
+        if part is None or part.kind != ElaChatPartKindType.Compaction:
             return
-        status = _str(event.get("status"), ElaChatStatus.Done)
-        if status not in ElaChatStatus.All:
-            status = ElaChatStatus.Done
+        status = _str(event.get("status"), ElaChatStatusType.Done)
+        if status not in ElaChatStatusType.All:
+            status = ElaChatStatusType.Done
         self._replace(part, part.withStatus(status))
 
     def _ev_end(self, event: dict) -> None:
-        status = _str(event.get("status"), ElaChatStatus.Done)
-        if status not in ElaChatStatus.All:
-            status = ElaChatStatus.Done
+        status = _str(event.get("status"), ElaChatStatusType.Done)
+        if status not in ElaChatStatusType.All:
+            status = ElaChatStatusType.Done
         self._error = _str(event.get("error"))
         self._settle(status)
         self._ended = True
@@ -676,9 +723,9 @@ class ElaChatTurnJournal:
     def _openStatus(self) -> str:
         """新分段在「回合进行中」时的状态。"""
         return (
-            ElaChatStatus.Streaming
-            if self._status == ElaChatStatus.Streaming
-            else ElaChatStatus.Done
+            ElaChatStatusType.Streaming
+            if self._status == ElaChatStatusType.Streaming
+            else ElaChatStatusType.Done
         )
 
     def _settle(self, status: str) -> None:
@@ -688,31 +735,32 @@ class ElaChatTurnJournal:
         落 ``Error``（确实没拿到结果），其余（被停止 / 进程崩了）落
         ``Aborted`` —— 区分二者是因为「不是失败完成」。
         """
-        if status in ElaChatStatus.All:
+        if status in ElaChatStatusType.All:
             self._status = status
+        self._flushBuffers()
         settled = []
         for part in self._parts:
-            if part.status != ElaChatStatus.Streaming:
+            if part.status != ElaChatStatusType.Streaming:
                 settled.append(part)
                 continue
-            if part.kind == ElaChatPartKind.Tool and part.tool_call is not None:
-                if part.tool_call.status in ElaChatToolStatus.Settled:
-                    settled.append(part.withStatus(ElaChatStatus.Done))
+            if part.kind == ElaChatPartKindType.Tool and part.tool_call is not None:
+                if part.tool_call.status in ElaChatToolStatusType.Settled:
+                    settled.append(part.withStatus(ElaChatStatusType.Done))
                     continue
                 failed = (
-                    self._status == ElaChatStatus.Error
-                    or part.tool_call.status == ElaChatToolStatus.Error
+                    self._status == ElaChatStatusType.Error
+                    or part.tool_call.status == ElaChatToolStatusType.Error
                 )
                 call = part.tool_call.withStatus(
-                    ElaChatToolStatus.Error if failed else ElaChatToolStatus.Aborted
+                    ElaChatToolStatusType.Error if failed else ElaChatToolStatusType.Aborted
                 )
                 settled.append(
                     part.withToolCall(call).withStatus(
-                        ElaChatStatus.Error if failed else ElaChatStatus.Done
+                        ElaChatStatusType.Error if failed else ElaChatStatusType.Done
                     )
                 )
                 continue
-            settled.append(part.withStatus(ElaChatStatus.Done))
+            settled.append(part.withStatus(ElaChatStatusType.Done))
         self._parts = settled
 
     # -- 内部查找 ----------------------------------------------------------
@@ -811,15 +859,25 @@ class ElaChatTurnJournal:
             if tps and not stats.tps:
                 stats = replace(stats, tps=_as_float(tps))
         else:
-            cached = getattr(usage, "prompt_cache_hit_tokens", 0) or 0
-            if not cached:
-                details = getattr(usage, "prompt_tokens_details", None)
-                cached = getattr(details, "cached_tokens", 0) or 0
+            # 与 binder.stats 同一套四路映射（见那里的说明）
+            details = getattr(usage, "prompt_tokens_details", None)
+            completion_details = getattr(usage, "completion_tokens_details", None)
+            cache_read = getattr(usage, "prompt_cache_hit_tokens", 0) or getattr(
+                details, "cached_tokens", 0
+            )
+            cache_write = getattr(usage, "cache_creation_input_tokens", 0) or getattr(
+                details, "cache_write_tokens", 0
+            )
+            reasoning = getattr(usage, "reasoning_tokens", 0) or getattr(
+                completion_details, "reasoning_tokens", 0
+            )
             stats = ElaChatStats(
                 prompt_tokens=_as_int(getattr(usage, "prompt_tokens", 0)),
                 completion_tokens=_as_int(getattr(usage, "completion_tokens", 0)),
                 total_tokens=_as_int(getattr(usage, "total_tokens", 0)),
-                cached_tokens=_as_int(cached),
+                reasoning_tokens=_as_int(reasoning),
+                cache_read_tokens=_as_int(cache_read),
+                cache_write_tokens=_as_int(cache_write),
                 ttft_ms=_as_float(ttftMs),
                 tps=_as_float(tps),
             )

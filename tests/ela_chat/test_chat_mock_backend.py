@@ -35,7 +35,7 @@ def _record(worker) -> list:
     worker.statsReady.connect(
         lambda usage, ttft, tps: events.append(("stats", usage, ttft, tps))
     )
-    worker.turnFinished.connect(lambda: events.append(("finished",)))
+    worker.turnFinished.connect(lambda turn: events.append(("finished", turn)))
     return events
 
 
@@ -43,7 +43,8 @@ class TestEventContract:
     def test_full_turn_two_rounds(self, qapp):
         worker = ElaChatMockBackend(tickMs=0)
         events = _record(worker)
-        assert worker.ask("你好") is True
+        turn = worker.ask("你好")
+        assert turn is not None
         assert _drain(qapp, worker)
 
         kinds = [event[0] for event in events]
@@ -52,6 +53,8 @@ class TestEventContract:
         assert kinds.count("stats") == 2
         assert kinds.count("finished") == 1
         assert kinds[-1] == "finished"
+        # 收尾信号带回的就是发起时那个回合 token
+        assert [e[1] for e in events if e[0] == "finished"] == [turn]
 
         tool_starts = [e for e in events if e[0] == "tool_start"]
         tool_ends = [e for e in events if e[0] == "tool_end"]
@@ -79,6 +82,24 @@ class TestEventContract:
         worker.ready.connect(lambda: ready.append(True))
         qapp.processEvents()
         assert ready == [True]
+        worker.deleteLater()
+        qapp.processEvents()
+
+    def test_turn_attachments_are_kept_for_contract_parity(self, qapp):
+        """模拟后端收下附件并留存（与真实 worker 契约同构，宿主接线不用分叉）。"""
+        worker = ElaChatMockBackend(tickMs=0)
+        attachment = {"name": "a.png", "path": "C:/a.png"}
+        assert worker.ask("看图", attachments=[attachment]) is not None
+        assert worker.turnAttachments() == [attachment]
+        # 返回的是副本：改它不能污染内部状态
+        worker.turnAttachments().append({"name": "注入"})
+        assert worker.turnAttachments() == [attachment]
+
+        assert worker.regenerate("再看", attachments=[attachment]) is not None
+        assert worker.turnAttachments() == [attachment]
+
+        worker.reset()
+        assert worker.turnAttachments() == []
         worker.deleteLater()
         qapp.processEvents()
 
@@ -152,29 +173,31 @@ class TestCommands:
     def test_regenerate_equivalent_to_ask(self, qapp):
         worker = ElaChatMockBackend(tickMs=0)
         events = _record(worker)
-        assert worker.regenerate("再来一次") is True
+        turn = worker.regenerate("再来一次")
+        assert turn is not None
         assert _drain(qapp, worker)
-        assert events[-1] == ("finished",)
+        assert events[-1] == ("finished", turn)
         worker.deleteLater()
         qapp.processEvents()
 
     def test_cancel_ends_turn_without_chunks(self, qapp):
         worker = ElaChatMockBackend(tickMs=60)
         events = _record(worker)
-        worker.ask("你好")
+        turn = worker.ask("你好")
+        assert turn is not None
         worker.cancel()
         assert worker.isRunning() is False
-        assert events == [("finished",)]
+        assert events == [("finished", turn)]
         # 事件已清空，后续 tick 不再产生内容
         _drain(qapp, worker)
-        assert events == [("finished",)]
+        assert events == [("finished", turn)]
         worker.deleteLater()
         qapp.processEvents()
 
     def test_ask_while_running_cancels_previous(self, qapp):
         worker = ElaChatMockBackend(tickMs=200)
         finished = []
-        worker.turnFinished.connect(lambda: finished.append(True))
+        worker.turnFinished.connect(finished.append)
         worker.ask("第一问")
         worker.ask("第二问")
         assert finished == [True]

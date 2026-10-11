@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Optional
 
 import pytest
 from PyQt5 import sip
@@ -11,9 +12,9 @@ from PyQt5.QtWidgets import QWidget
 
 from pyqt5_ela_pro.chat import (
     ElaChatMockBackend,
-    ElaChatPartKind,
+    ElaChatPartKindType,
     ElaChatStats,
-    ElaChatStatus,
+    ElaChatStatusType,
     ElaChatStreamBinder,
     ElaChatWidget,
 )
@@ -41,22 +42,35 @@ class _FakeWorker(QObject):
     toolEnded = pyqtSignal(dict, str)
     statsReady = pyqtSignal(object, float, float)
     emptyTurn = pyqtSignal(str)
+    turnFinished = pyqtSignal(int)
 
     def __init__(self, ready: bool = True) -> None:
         super().__init__()
         self.ask_calls: list = []
         self.regenerate_calls: list = []
+        self.ask_attachments: list = []
+        self.regenerate_attachments: list = []
         self.shutdown_calls: list = []
         self.cancel_calls: list = []
+        #: 每次受理返回的回合 token（与真实后端同构）
+        self.turn_tokens: list = []
         self.ready = ready
 
-    def ask(self, text: str) -> bool:
-        self.ask_calls.append(text)
-        return self.ready
+    def _accept(self) -> Optional[int]:
+        if not self.ready:
+            return None
+        self.turn_tokens.append(len(self.turn_tokens) + 1)
+        return self.turn_tokens[-1]
 
-    def regenerate(self, text: str) -> bool:
+    def ask(self, text: str, attachments=None) -> Optional[int]:
+        self.ask_calls.append(text)
+        self.ask_attachments.append(list(attachments or ()))
+        return self._accept()
+
+    def regenerate(self, text: str, attachments=None) -> Optional[int]:
         self.regenerate_calls.append(text)
-        return self.ready
+        self.regenerate_attachments.append(list(attachments or ()))
+        return self._accept()
 
     def cancel(self) -> None:
         self.cancel_calls.append(True)
@@ -65,11 +79,11 @@ class _FakeWorker(QObject):
         self.shutdown_calls.append(True)
 
 
-def _begin(chat: ElaChatWidget, binder: ElaChatStreamBinder) -> int:
+def _begin(chat: ElaChatWidget, binder: ElaChatStreamBinder) -> tuple:
+    """开一个新回合，返回 ``(消息 id, 回合 token)``。"""
     chat.sendUserMessage("问")
     messageId = chat.beginAssistantMessage()
-    binder.beginTurn()
-    return messageId
+    return messageId, binder.beginTurn()
 
 
 class TestFullTurn:
@@ -77,7 +91,7 @@ class TestFullTurn:
         clock = _Clock()
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, clock)
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
 
         clock.advance(100)
         binder.beginRound()
@@ -109,76 +123,83 @@ class TestFullTurn:
                 total_tokens=28,
                 prompt_cache_hit_tokens=0,
                 prompt_tokens_details=SimpleNamespace(cached_tokens=7),
+                completion_tokens_details=SimpleNamespace(reasoning_tokens=4),
+                cache_creation_input_tokens=2,
             )
         )
         binder.answer("后半")
         clock.advance(300)
-        summary = binder.finish()
+        summary = binder.finish(turn)
 
         assert binder.roundIndex() == 2
         assert binder.isOpen() is False
-        assert summary.status == ElaChatStatus.Done
+        assert summary.status == ElaChatStatusType.Done
         assert summary.hadText is True
         assert summary.isEmptyReply() is False
         assert summary.durationMs == pytest.approx(1000.0)
 
         message = chat.chatView().messages()[-1]
-        assert message.status == ElaChatStatus.Done
+        assert message.status == ElaChatStatusType.Done
         assert message.stepCount == 2
         assert [part.kind for part in message.parts] == [
-            ElaChatPartKind.Reasoning,
-            ElaChatPartKind.Text,
-            ElaChatPartKind.Stats,
-            ElaChatPartKind.Tool,
-            ElaChatPartKind.Tool,
-            ElaChatPartKind.Stats,
-            ElaChatPartKind.Text,
+            ElaChatPartKindType.Reasoning,
+            ElaChatPartKindType.Text,
+            ElaChatPartKindType.Stats,
+            ElaChatPartKindType.Tool,
+            ElaChatPartKindType.Tool,
+            ElaChatPartKindType.Stats,
+            ElaChatPartKindType.Text,
         ]
         # 同一轮的推理分片复用同一思考段
-        assert len(message.partsOfKind(ElaChatPartKind.Reasoning)) == 1
+        assert len(message.partsOfKind(ElaChatPartKindType.Reasoning)) == 1
         assert message.reasoning == "想考"
         assert message.reasoning_ms == pytest.approx(200.0)
         assert message.text == "正文后半"
         assert [(c.name, c.status) for c in message.tool_calls] == [
-            ("read", ElaChatStatus.Done),
-            ("patch", ElaChatStatus.Error),
+            ("read", ElaChatStatusType.Done),
+            ("patch", ElaChatStatusType.Error),
         ]
-        stats_parts = message.partsOfKind(ElaChatPartKind.Stats)
+        stats_parts = message.partsOfKind(ElaChatPartKindType.Stats)
         assert [
-            (s.stats.prompt_tokens, s.stats.cached_tokens) for s in stats_parts
+            (
+                s.stats.prompt_tokens,
+                s.stats.cache_read_tokens,
+                s.stats.reasoning_tokens,
+                s.stats.cache_write_tokens,
+            )
+            for s in stats_parts
         ] == [
-            (10, 3),
-            (20, 7),
+            (10, 3, 0, 0),
+            (20, 7, 4, 2),
         ]
         assert stats_parts[0].stats.ttft_ms == 120.0
         assert stats_parts[0].stats.tps == 42.0
         assert stats_parts[0].stats.duration_ms == pytest.approx(200.0)
         assert stats_parts[1].stats.duration_ms == pytest.approx(100.0)
 
-        # 幂等：重复 finish 不重复结束、耗时置零
-        again = binder.finish()
-        assert again.durationMs == 0.0
+        # 幂等：同一 token 重复收尾属于「陈旧收尾」，直接丢弃
+        assert binder.finish(turn) is None
         assert chat.isGenerating() is False
 
     def test_stats_accepts_ela_chat_stats(self, qapp, make):
         clock = _Clock()
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, clock)
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.beginRound()
         binder.stats(ElaChatStats(prompt_tokens=3, completion_tokens=4), ttftMs=80)
         stats = (
-            chat.chatView().messages()[-1].partsOfKind(ElaChatPartKind.Stats)[0].stats
+            chat.chatView().messages()[-1].partsOfKind(ElaChatPartKindType.Stats)[0].stats
         )
         assert stats.prompt_tokens == 3
         assert stats.completion_tokens == 4
         assert stats.ttft_ms == pytest.approx(80.0)
-        binder.finish()
+        binder.finish(turn)
 
     def test_empty_stats_and_text_ignored(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.beginRound()
         binder.reasoning("")
         binder.answer("")
@@ -186,14 +207,14 @@ class TestFullTurn:
         binder.toolEnd("", "ignored")
         message = chat.chatView().messages()[-1]
         assert not message.parts
-        binder.finish()
+        binder.finish(turn)
 
 
 class TestToolStatus:
     def test_error_prefix_infers_failure(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.beginRound()
         binder.toolStart("a", "grep")
         binder.toolEnd("a", "Error: 目录不存在")
@@ -201,26 +222,26 @@ class TestToolStatus:
         binder.toolEnd("b", "内容")
         calls = chat.chatView().messages()[-1].tool_calls
         assert [(c.name, c.status) for c in calls] == [
-            ("grep", ElaChatStatus.Error),
-            ("read", ElaChatStatus.Done),
+            ("grep", ElaChatStatusType.Error),
+            ("read", ElaChatStatusType.Done),
         ]
 
     def test_explicit_ok_overrides_prefix(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.beginRound()
         binder.toolStart("a", "shell")
         binder.toolEnd("a", "Error: not really", ok=True)
         calls = chat.chatView().messages()[-1].tool_calls
-        assert calls[0].status == ElaChatStatus.Done
+        assert calls[0].status == ElaChatStatusType.Done
 
 
 class TestErrorsAndEmptyTurn:
     def test_error_closes_reasoning_and_marks_message(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.beginRound()
         binder.reasoning("思考中")
         binder.error("worker", "连接中断")
@@ -229,19 +250,54 @@ class TestErrorsAndEmptyTurn:
         assert message.error == "连接中断"
         assert message.error_type == "worker"
         assert chat.chatView().messageError(message.id) == ("连接中断", "worker")
-        assert len(message.partsOfKind(ElaChatPartKind.Reasoning)) == 1
+        assert len(message.partsOfKind(ElaChatPartKindType.Reasoning)) == 1
 
     def test_empty_turn_summary(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.beginRound()
         binder.emptyTurn("length")
-        summary = binder.finish()
+        summary = binder.finish(turn)
         assert summary.isEmptyReply() is True
         assert summary.hadText is False
         assert summary.finishReason == "length"
         assert chat.chatView().messages()[-1].text == ""
+
+
+class TestWhitespaceChunks:
+    """纯空白分片不算正文：不开正文段、不算 hadText，但空白本身保真。"""
+
+    def test_whitespace_only_reply_is_empty(self, qapp, make):
+        chat = make(ElaChatWidget)
+        binder = ElaChatStreamBinder(chat, _Clock())
+        messageId, turn = _begin(chat, binder)
+        binder.answer("\n\n")
+        summary = binder.finish(turn)
+        assert summary.hadText is False
+        assert summary.isEmptyReply() is True
+        message = chat.chatView().messages()[-1]
+        assert message.text == ""
+        assert message.partsOfKind(ElaChatPartKindType.Text) == []
+
+    def test_leading_whitespace_merges_into_first_text_part(self, qapp, make):
+        chat = make(ElaChatWidget)
+        binder = ElaChatStreamBinder(chat, _Clock())
+        messageId, turn = _begin(chat, binder)
+        binder.answer("\n\n")
+        binder.answer("正文")
+        binder.finish(turn)
+        assert chat.chatView().messages()[-1].text == "\n\n正文"
+
+    def test_mid_text_whitespace_is_preserved(self, qapp, make):
+        chat = make(ElaChatWidget)
+        binder = ElaChatStreamBinder(chat, _Clock())
+        messageId, turn = _begin(chat, binder)
+        binder.answer("hello")
+        binder.answer(" ")
+        binder.answer("world")
+        binder.finish(turn)
+        assert chat.chatView().messages()[-1].text == "hello world"
 
 
 class TestConvenienceDispatch:
@@ -250,7 +306,7 @@ class TestConvenienceDispatch:
     def test_stream_dispatches_reasoning_and_answer(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.beginRound()
         binder.stream(SimpleNamespace(reasoning_content="想", answer_content=""))
         binder.stream(SimpleNamespace(reasoning_content="", answer_content="正文"))
@@ -264,7 +320,7 @@ class TestConvenienceDispatch:
         assert message.reasoning == "想再"
         assert message.text == ""
         # 回合结束后快照才是完整内容
-        binder.finish()
+        binder.finish(turn)
         message = chat.chatView().messages()[-1]
         assert message.reasoning == "想再"
         assert message.text == "正文答"
@@ -272,17 +328,17 @@ class TestConvenienceDispatch:
     def test_stream_tolerates_missing_fields(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.beginRound()
         binder.stream(object())
         binder.stream(SimpleNamespace(reasoning_content=None, answer_content=None))
         assert chat.chatView().messages()[-1].text == ""
-        binder.finish()
+        binder.finish(turn)
 
     def test_tool_call_dict_dispatch(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.beginRound()
         binder.toolCallStarted(
             {
@@ -296,17 +352,17 @@ class TestConvenienceDispatch:
         assert calls[0].name == "read"
         assert calls[0].isDone
         assert calls[1].name == "unknown"
-        binder.finish()
+        binder.finish(turn)
 
     def test_tool_call_ignores_non_dict(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.beginRound()
         binder.toolCallStarted(None)
         binder.toolCallEnded("not-a-dict", "结果")
         assert chat.chatView().messages()[-1].tool_calls == ()
-        binder.finish()
+        binder.finish(turn)
 
 
 class TestWorkerBinding:
@@ -318,7 +374,8 @@ class TestWorkerBinding:
         binder = ElaChatStreamBinder(chat, worker=worker)
         assert binder.worker() is worker
 
-        assert binder.startTurn("你好") is True
+        turn = binder.startTurn("你好")
+        assert turn is not None
         assert worker.ask_calls == ["你好"]
         assert chat.isGenerating() is True
         assert binder.isOpen() is True
@@ -337,13 +394,13 @@ class TestWorkerBinding:
         message = chat.chatView().messages()[-1]
         # 工具 / 用量是结构化数据，回合未结束就已确定
         assert [(c.name, c.status) for c in message.tool_calls] == [
-            ("read", ElaChatStatus.Done)
+            ("read", ElaChatStatusType.Done)
         ]
-        assert message.partsOfKind(ElaChatPartKind.Stats)
+        assert message.partsOfKind(ElaChatPartKindType.Stats)
         # 推理段在正文开始时已结束 -> 落定；正文仍在途 -> 快照为空
         assert message.reasoning == "想"
         assert message.text == ""
-        binder.finish()
+        binder.finish(turn)
         message = chat.chatView().messages()[-1]
         assert message.text == "答"
         assert message.reasoning == "想"
@@ -354,21 +411,40 @@ class TestWorkerBinding:
         worker = _FakeWorker()
         binder.connectWorker(worker)
         assert binder.worker() is worker
-        assert binder.startTurn("问") is True
+        assert binder.startTurn("问") is not None
 
     def test_start_turn_regenerate_uses_regenerate(self, qapp, make):
         chat = make(ElaChatWidget)
         worker = _FakeWorker()
         binder = ElaChatStreamBinder(chat, worker=worker)
-        assert binder.startTurn("原问题", regenerate=True) is True
+        assert binder.startTurn("原问题", regenerate=True) is not None
         assert worker.regenerate_calls == ["原问题"]
         assert worker.ask_calls == []
+
+    def test_start_turn_forwards_attachments(self, qapp, make):
+        """附件必须原样送到后端 —— 重新生成丢附件就是这条没接上。
+
+        ``regenerateFrom`` 返回的提问快照里带着附件，宿主把
+        ``message.attachments`` 传进 ``startTurn(attachments=...)`` 即可。
+        """
+        chat = make(ElaChatWidget)
+        worker = _FakeWorker()
+        binder = ElaChatStreamBinder(chat, worker=worker)
+        attachment = {"name": "a.png", "path": "C:/a.png"}
+
+        assert binder.startTurn("看图", attachments=[attachment]) is not None
+        assert worker.ask_attachments == [[attachment]]
+
+        assert (
+            binder.startTurn("看图", attachments=[attachment], regenerate=True) is not None
+        )
+        assert worker.regenerate_attachments == [[attachment]]
 
     def test_start_turn_not_ready_creates_no_message(self, qapp, make):
         chat = make(ElaChatWidget)
         worker = _FakeWorker(ready=False)
         binder = ElaChatStreamBinder(chat, worker=worker)
-        assert binder.startTurn("你好") is False
+        assert binder.startTurn("你好") is None
         assert chat.chatView().count() == 0
         assert chat.isGenerating() is False
         assert binder.isOpen() is False
@@ -376,16 +452,17 @@ class TestWorkerBinding:
     def test_start_turn_without_worker_returns_false(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat)
-        assert binder.startTurn("你好") is False
+        assert binder.startTurn("你好") is None
         assert chat.chatView().count() == 0
 
     def test_empty_turn_auto_wired_into_summary(self, qapp, make):
         chat = make(ElaChatWidget)
         worker = _FakeWorker()
         binder = ElaChatStreamBinder(chat, worker=worker)
-        assert binder.startTurn("你好") is True
+        turn = binder.startTurn("你好")
+        assert turn is not None
         worker.emptyTurn.emit("length")
-        summary = binder.finish()
+        summary = binder.finish(turn)
         assert summary.finishReason == "length"
         assert summary.isEmptyReply() is True
 
@@ -395,14 +472,15 @@ class TestWorkerBinding:
         binder = ElaChatStreamBinder(chat, worker=worker)
         binder.connectWorker(worker)  # 重复绑定不得重复连接信号
 
-        assert binder.startTurn("问") is True
+        turn = binder.startTurn("问")
+        assert turn is not None
         worker.llmStarted.emit()
         assert binder.roundIndex() == 1
         worker.chunkReceived.emit(
             SimpleNamespace(reasoning_content="", answer_content="答")
         )
         assert chat.chatView().messages()[-1].text == ""
-        binder.finish()
+        binder.finish(turn)
         assert chat.chatView().messages()[-1].text == "答"
 
     def test_rebind_disconnects_old_worker(self, qapp, make):
@@ -413,7 +491,8 @@ class TestWorkerBinding:
         binder.connectWorker(second)
 
         assert binder.worker() is second
-        assert binder.startTurn("问") is True
+        turn = binder.startTurn("问")
+        assert turn is not None
         first.llmStarted.emit()
         first.chunkReceived.emit(
             SimpleNamespace(reasoning_content="", answer_content="旧")
@@ -427,7 +506,7 @@ class TestWorkerBinding:
         )
         assert binder.roundIndex() == 1
         assert chat.chatView().messages()[-1].text == ""
-        binder.finish()
+        binder.finish(turn)
         # 旧 worker 的分片始终没进消息，只有 "新"
         assert chat.chatView().messages()[-1].text == "新"
 
@@ -438,10 +517,10 @@ class TestLateEvents:
     def test_events_after_finish_are_ignored(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.beginRound()
         binder.answer("正常")
-        binder.finish()
+        binder.finish(turn)
 
         binder.beginRound()
         binder.reasoning("迟到思考")
@@ -461,26 +540,27 @@ class TestLateEvents:
         assert message.stats is None
         assert message.error == ""
         assert binder.roundIndex() == 1
-        assert binder.finish().finishReason == ""
+        # 同一 token 的第二次收尾是「陈旧收尾」：直接丢弃，不产生新摘要
+        assert binder.finish(turn) is None
 
     def test_new_turn_still_works_after_late_events(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.beginRound()
         binder.answer("第一轮")
-        binder.finish()
+        binder.finish(turn)
 
         binder.answer("旧回合迟到分片")  # 忽略
-        message_id = _begin(chat, binder)
+        message_id, turn = _begin(chat, binder)
         assert binder.isOpen() is True
         binder.beginRound()
         binder.answer("第二轮")
         binder.stats(ElaChatStats(total_tokens=7))
-        summary = binder.finish()
+        summary = binder.finish(turn)
 
         message = chat.chatView().message(message_id)
-        assert summary.status == ElaChatStatus.Done
+        assert summary.status == ElaChatStatusType.Done
         assert message.text == "第二轮"
         assert message.stats.total_tokens == 7
 
@@ -489,72 +569,72 @@ class TestStop:
     def test_finish_after_stop_keeps_status(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.beginRound()
         binder.reasoning("想")
         binder.answer("半句")
         chat.stopGeneration()
-        summary = binder.finish(ElaChatStatus.Stopped)
-        assert summary.status == ElaChatStatus.Stopped
+        summary = binder.finish(turn, ElaChatStatusType.Stopped)
+        assert summary.status == ElaChatStatusType.Stopped
         message = chat.chatView().messages()[-1]
-        assert message.status == ElaChatStatus.Stopped
+        assert message.status == ElaChatStatusType.Stopped
         assert message.text == "半句"
         assert chat.isGenerating() is False
 
     def test_cancel_closes_reasoning(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.beginRound()
         binder.reasoning("想")
         binder.cancel()
         assert chat.chatView().messages()[-1].reasoning_ms >= 0.0
-        binder.finish()
+        binder.finish(turn)
 
     def test_finish_defaults_to_stopped_after_cancel(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.beginRound()
         binder.reasoning("想")
         binder.answer("半句")
         binder.cancel()  # 宿主停止：无需再维护自己的 stopped 标志
-        summary = binder.finish()
-        assert summary.status == ElaChatStatus.Stopped
-        assert chat.chatView().messages()[-1].status == ElaChatStatus.Stopped
+        summary = binder.finish(turn)
+        assert summary.status == ElaChatStatusType.Stopped
+        assert chat.chatView().messages()[-1].status == ElaChatStatusType.Stopped
         assert chat.isGenerating() is False
 
     def test_begin_turn_resets_cancel_flag(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.cancel()
-        assert binder.finish().status == ElaChatStatus.Stopped
-        _begin(chat, binder)  # 新回合
-        assert binder.finish().status == ElaChatStatus.Done
+        assert binder.finish(turn).status == ElaChatStatusType.Stopped
+        messageId, turn = _begin(chat, binder)  # 新回合
+        assert binder.finish(turn).status == ElaChatStatusType.Done
 
     def test_explicit_status_overrides_cancel(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.cancel()
-        assert binder.finish(ElaChatStatus.Done).status == ElaChatStatus.Done
+        assert binder.finish(turn, ElaChatStatusType.Done).status == ElaChatStatusType.Done
 
     # -- abortTurn（多话题：删除 / 关闭话题时立刻作废回合） ------------------
 
     def test_abort_turn_closes_turn_and_ignores_late_events(self, qapp, make):
         chat = make(ElaChatWidget)
         binder = ElaChatStreamBinder(chat, _Clock())
-        _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.answer("写一半")
         messageId = chat.streamingMessageId()
 
         summary = binder.abortTurn()
 
-        assert summary is not None and summary.status == ElaChatStatus.Stopped
+        assert summary is not None and summary.status == ElaChatStatusType.Stopped
         assert binder.isOpen() is False
         assert chat.isGenerating() is False
-        assert chat.chatView().message(messageId).status == ElaChatStatus.Stopped
+        assert chat.chatView().message(messageId).status == ElaChatStatusType.Stopped
         before = chat.chatView().message(messageId).text
         # 作废之后迟到的事件一律无落点（多话题下同 id 恢复消息不会被污染）
         binder.stream("迟到的分片")
@@ -562,7 +642,7 @@ class TestStop:
             SimpleNamespace(id="late", name="read_file", arguments="{}")
         )
         assert chat.chatView().message(messageId).text == before
-        assert chat.chatView().message(messageId).parts[-1].kind != ElaChatPartKind.Tool
+        assert chat.chatView().message(messageId).parts[-1].kind != ElaChatPartKindType.Tool
 
     def test_abort_turn_outside_turn_is_noop(self, qapp, make):
         chat = make(ElaChatWidget)
@@ -578,11 +658,11 @@ class TestStop:
         chat = make(ElaChatWidget)
         worker = _FakeWorker()
         binder = ElaChatStreamBinder(chat, worker=worker)
-        assert binder.startTurn("边跑边删") is True
+        assert binder.startTurn("边跑边删") is not None
 
         summary = binder.abortTurn()
 
-        assert summary is not None and summary.status == ElaChatStatus.Stopped
+        assert summary is not None and summary.status == ElaChatStatusType.Stopped
         assert worker.cancel_calls == [True]
         assert binder.isOpen() is False
 
@@ -591,11 +671,11 @@ class TestStop:
         chat = make(ElaChatWidget)
         worker = _FakeWorker()
         binder = ElaChatStreamBinder(chat, worker=worker)
-        assert binder.startTurn("后端留着") is True
+        assert binder.startTurn("后端留着") is not None
 
         summary = binder.abortTurn(cancelBackend=False)
 
-        assert summary is not None and summary.status == ElaChatStatus.Stopped
+        assert summary is not None and summary.status == ElaChatStatusType.Stopped
         assert worker.cancel_calls == []
         assert binder.isOpen() is False
         assert chat.isGenerating() is False
@@ -607,7 +687,7 @@ class TestStop:
         binder = ElaChatStreamBinder(chat, worker=worker)
         assert chat.autoSendQueue() is True
         chat.sendUserMessage("第一轮")
-        assert binder.startTurn("第一轮") is True
+        assert binder.startTurn("第一轮") is not None
         chat.enqueueMessage("排队中的第二条")
 
         binder.abortTurn()
@@ -629,13 +709,13 @@ class TestStop:
         mock = ElaChatMockBackend(tickMs=0)
         binder = ElaChatStreamBinder(chat, worker=mock)
         mock.turnFinished.connect(binder.finish)  # 与示例 / llm_test 同款接线
-        assert binder.startTurn("提问") is True
+        assert binder.startTurn("提问") is not None
         chat.enqueueMessage("排队中的第二条")
 
         summary = binder.abortTurn()
 
-        assert summary is not None and summary.status == ElaChatStatus.Stopped
-        assert chat.chatView().messages()[-1].status == ElaChatStatus.Stopped
+        assert summary is not None and summary.status == ElaChatStatusType.Stopped
+        assert chat.chatView().messages()[-1].status == ElaChatStatusType.Stopped
         assert chat.queueCount() == 1
         assert binder.isOpen() is False
         mock.shutdown()
@@ -691,9 +771,9 @@ class TestTurnBoundaryRobustness:
         chat = make(ElaChatWidget)
         clock = _Clock(now=10.0)
         binder = ElaChatStreamBinder(chat, clock=clock)
-        binder.beginTurn()
+        turn = binder.beginTurn()
         clock.advance(500)
-        summary = binder.finish()
+        summary = binder.finish(turn)
         assert summary.durationMs > 0
         assert binder.isOpen() is False
 
@@ -704,10 +784,11 @@ class TestTurnBoundaryRobustness:
         binder = ElaChatStreamBinder(chat, worker=worker)
         chat.messageSubmitted.connect(lambda text: binder.startTurn(text))
         chat.enqueueMessage("第二个问题")
-        assert binder.startTurn("第一个问题")
+        first = binder.startTurn("第一个问题")
+        assert first is not None
         binder.beginRound()
         binder.answer("答一")
-        binder.finish()
+        binder.finish(first)
 
         # 排队消息已自动发出：新回合必须仍然开着且有落点
         assert worker.ask_calls == ["第一个问题", "第二个问题"]
@@ -716,10 +797,10 @@ class TestTurnBoundaryRobustness:
         # 新回合的分片不再被 isOpen() 闸门静默丢弃
         binder.beginRound()
         binder.answer("答二")
-        binder.finish()
+        binder.finish(worker.turn_tokens[-1])
         messages = chat.chatView().messages()
         assert messages[-1].text == "答二"
-        assert messages[-1].status == ElaChatStatus.Done
+        assert messages[-1].status == ElaChatStatusType.Done
 
     def test_stats_with_non_finite_tokens_is_tolerated(self, qapp, make):
         """后端 usage 带 inf / nan 时按 0 计，而不是在槽里抛异常。"""

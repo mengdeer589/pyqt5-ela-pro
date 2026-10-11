@@ -27,7 +27,7 @@ from PyQt5ElaWidgetTools import ElaIconButton, ElaIconType, ElaThemeType
 
 from .._styles import setSolidBackground
 from ..ela_button import ElaButton
-from ..tooltips import ElaToolTipPosition, set_tooltip
+from ..tooltips import ElaToolTipPositionType, set_tooltip
 from ..widget_base import ElaThemeWidget
 from ._theme import border_color
 
@@ -71,7 +71,7 @@ class ElaChatToolButton(ElaIconButton):
         self._checked = False
         if tooltip:
             self.setToolTip(tooltip)
-            set_tooltip(self, tooltip, ElaToolTipPosition.Top)
+            set_tooltip(self, tooltip, ElaToolTipPositionType.Top)
         self.clicked.connect(self._on_clicked)
 
     # -- 选中态 ------------------------------------------------------------
@@ -135,6 +135,8 @@ class ElaChatToolBar(ElaThemeWidget):
         self._compact = bool(compact)
         self._items: dict = {}
         self._separators: list = []
+        #: 已登记的弹簧 ``(layout, spacer)``：``clear`` 要能一并移除
+        self._stretches: list = []
         self._seq = 0
 
         layout = QHBoxLayout(self)
@@ -194,7 +196,7 @@ class ElaChatToolBar(ElaThemeWidget):
             )
             if tooltip:
                 button.setToolTip(tooltip)
-                set_tooltip(button, tooltip, ElaToolTipPosition.Top)
+                set_tooltip(button, tooltip, ElaToolTipPositionType.Top)
             if checkable:
                 button.setCheckable(True)
                 button.toggled.connect(
@@ -254,8 +256,17 @@ class ElaChatToolBar(ElaThemeWidget):
         return line
 
     def addStretch(self, zone: str = "trailing") -> None:
-        """在指定分段末尾追加弹簧（非法 ``zone`` 抛 ``ValueError``）。"""
-        self._zone_layout(self._normalize_zone(zone)).addStretch(1)
+        """在指定分段末尾追加弹簧（非法 ``zone`` 抛 ``ValueError``）。
+
+        弹簧会登记句柄，:meth:`clear` 能一并移除 —— 否则每次
+        ``addStretch`` + ``clear`` 都会留下一个永久弹簧。
+        """
+        layout = self._zone_layout(self._normalize_zone(zone))
+        layout.addStretch(1)
+        item = layout.itemAt(layout.count() - 1) if layout.count() else None
+        spacer = item.spacerItem() if item is not None else None
+        if spacer is not None:
+            self._stretches.append((layout, spacer))
 
     # -- 插入（在已有项之前） ----------------------------------------------
 
@@ -413,6 +424,11 @@ class ElaChatToolBar(ElaThemeWidget):
                 continue
             self._separators.remove(line)
             self._detach(line)
+        for layout, spacer in list(self._stretches):
+            if zone is not None and layout is not self._zone_layout(zone):
+                continue
+            layout.removeItem(spacer)
+            self._stretches.remove((layout, spacer))
 
     # -- 外观 --------------------------------------------------------------
 

@@ -6,11 +6,11 @@
    值**，而 ``clock`` 是可注入的。任何返回 ``0.0`` 的时钟（相对时钟的起点、测试用的
    假时钟）会让整回合被静默判成「未开启」：``reasoning`` / ``answer`` / ``toolStart``
    / ``stats`` / ``error`` 全部在第一行退出，**一个字都不落**，而 ``startTurn()``
-   已经返回了 ``True``。
+   已经返回了回合 token。
 2. :meth:`ElaChatAsyncWorker._submit` 的守卫只判 ``_loop is None``，而
    ``_cleanup_loop`` 是「先 ``close()`` 后置 ``None``」—— 中间那个「已 close 但仍非
    None」的可达状态会让 ``run_coroutine_threadsafe`` 抛 ``RuntimeError``，违背
-   「未就绪时返回 ``False``」的契约（异常从 GUI 线程穿出去即 0xC0000409）。
+   「未就绪时返回 ``None``」的契约（异常从 GUI 线程穿出去即 0xC0000409）。
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ class _Worker(ElaChatAsyncWorker):
     async def _setup(self) -> None:
         self.ready.emit()
 
-    def _stream_turn(self, prompt: str):
+    def _stream_turn(self, prompt: str, attachments: list):
         async def gen():
             for i in range(3):
                 yield {"answer_content": "x%d" % i}
@@ -48,7 +48,7 @@ class _HangingSetupWorker(ElaChatAsyncWorker):
     async def _setup(self) -> None:
         await asyncio.sleep(3600)
 
-    def _stream_turn(self, prompt: str):  # pragma: no cover - 不会走到
+    def _stream_turn(self, prompt: str, attachments: list):  # pragma: no cover - 不会走到
         async def gen():
             yield {}
 
@@ -112,7 +112,7 @@ class TestIsOpenDoesNotDependOnTheClock:
         view = chat_widget.chatView()
         binder = ElaChatStreamBinder(chat_widget, clock=lambda: 0.0)
         messageId = chat_widget.beginAssistantMessage()
-        binder.beginTurn()
+        turn = binder.beginTurn()
 
         assert binder.isOpen() is True, "返回 0.0 的时钟不得让回合变成「未开启」"
 
@@ -122,7 +122,7 @@ class TestIsOpenDoesNotDependOnTheClock:
         binder.toolStart("c1", "grep", "{}")
         binder.toolEnd("c1", "ok")
         binder.stats(_Usage())
-        summary = binder.finish()
+        summary = binder.finish(turn)
 
         message = view.message(messageId)
         assert message.text == "你好世界"
@@ -138,27 +138,27 @@ class TestIsOpenDoesNotDependOnTheClock:
             chat_widget, clock=lambda: time.monotonic() - origin
         )
         messageId = chat_widget.beginAssistantMessage()
-        binder.beginTurn()
+        turn = binder.beginTurn()
         binder.answer("相对时钟正文")
-        binder.finish()
+        binder.finish(turn)
         assert view.message(messageId).text == "相对时钟正文"
 
     def test_error_also_lands_with_a_zero_clock(self, qapp, chat_widget):
         view = chat_widget.chatView()
         binder = ElaChatStreamBinder(chat_widget, clock=lambda: 0.0)
         messageId = chat_widget.beginAssistantMessage()
-        binder.beginTurn()
+        turn = binder.beginTurn()
         binder.error("RateLimit", "太频繁了")
-        binder.finish()
+        binder.finish(turn)
         # messageError 返回 (message, errorType)；errorType 原样保留（重试按钮靠它判断）
         assert view.messageError(messageId) == ("太频繁了", "RateLimit")
 
     def test_turn_closes_on_finish(self, qapp, chat_widget):
         binder = ElaChatStreamBinder(chat_widget)
         chat_widget.beginAssistantMessage()
-        binder.beginTurn()
+        turn = binder.beginTurn()
         assert binder.isOpen() is True
-        binder.finish()
+        binder.finish(turn)
         assert binder.isOpen() is False
 
     def test_turn_without_a_target_is_not_open(self, qapp, chat_widget):
@@ -168,18 +168,16 @@ class TestIsOpenDoesNotDependOnTheClock:
 
     def test_finish_without_turn_is_safe(self, qapp, chat_widget):
         binder = ElaChatStreamBinder(chat_widget)
-        summary = binder.finish()
-        assert summary.status == "done"
+        assert binder.finish(binder.beginTurn()) is not None
         assert binder.isOpen() is False
 
     def test_finish_is_idempotent_on_duration(self, qapp, chat_widget):
         binder = ElaChatStreamBinder(chat_widget)
         chat_widget.beginAssistantMessage()
-        binder.beginTurn()
-        first = binder.finish()
-        second = binder.finish()
-        assert second.durationMs == 0.0, "第二次收尾不再重复计时"
+        turn = binder.beginTurn()
+        first = binder.finish(turn)
         assert first.durationMs >= 0.0
+        assert binder.finish(turn) is None, "同一 token 二次收尾属陈旧，必须丢弃"
 
     def test_abort_turn_returns_none_when_not_open(self, qapp, chat_widget):
         binder = ElaChatStreamBinder(chat_widget)
@@ -196,31 +194,31 @@ class TestIsOpenDoesNotDependOnTheClock:
 
 
 class TestWorkerSubmitNeverRaises:
-    """契约是「未就绪返回 ``False``」，不是抛异常。"""
+    """契约是「未就绪返回 ``None``」，不是抛异常。"""
 
-    def test_ask_before_start_returns_false(self, qapp, make):
+    def test_ask_before_start_returns_none(self, qapp, make):
         worker = make(_Worker)
-        assert worker.ask("hi") is False
-        assert worker.regenerate("hi") is False
+        assert worker.ask("hi") is None
+        assert worker.regenerate("hi") is None
 
-    def test_ask_after_shutdown_returns_false(self, qapp, make):
+    def test_ask_after_shutdown_returns_none(self, qapp, make):
         worker = make(_Worker)
         worker.start()
         _spin(400)
-        assert worker.ask("hi") is True
+        assert worker.ask("hi") is not None
         worker.shutdown()
         _spin(50)
-        assert worker.ask("again") is False
+        assert worker.ask("again") is None
 
-    def test_closed_loop_returns_false_instead_of_raising(self, qapp, make):
+    def test_closed_loop_returns_none_instead_of_raising(self, qapp, make):
         """回归：曾抛 ``RuntimeError: Event loop is closed``。"""
         worker = make(_Worker)
         closed = asyncio.new_event_loop()
         closed.close()
         worker._loop = closed  # 复刻 _cleanup_loop 的中间态
         worker._queue = asyncio.Queue()
-        assert worker.ask("x") is False  # 不得抛
-        assert worker.regenerate("x") is False
+        assert worker.ask("x") is None  # 不得抛
+        assert worker.regenerate("x") is None
 
     def test_cleanup_clears_loop_before_closing(self, qapp, make):
         """``_loop`` 必须先置 ``None`` 再 ``close()``（顺序本身就是防线）。"""
@@ -243,7 +241,7 @@ class TestWorkerSubmitNeverRaises:
         worker.start()
         _spin(400)
         assert failures, "应发 failed"
-        assert worker.ask("x") is False
+        assert worker.ask("x") is None
 
     def test_shutdown_on_a_hanging_setup_is_non_blocking(
         self, qapp, make, _reap, monkeypatch
@@ -389,10 +387,10 @@ class TestWorkerStreamsAndFinishes:
         worker = make(_Worker)
         chunks, finished = [], []
         worker.chunkReceived.connect(chunks.append)
-        worker.turnFinished.connect(lambda: finished.append(1))
+        worker.turnFinished.connect(finished.append)
         worker.start()
         _spin(400)
-        assert worker.ask("hi") is True
+        assert worker.ask("hi") is not None
         _spin(600)
         worker.shutdown()
         _spin(100)
@@ -401,7 +399,7 @@ class TestWorkerStreamsAndFinishes:
 
     def test_cancel_stops_the_turn(self, qapp, make):
         class Slow(_Worker):
-            def _stream_turn(self, prompt: str):
+            def _stream_turn(self, prompt: str, attachments: list):
                 async def gen():
                     for i in range(200):
                         yield {"answer_content": "y" * 50}
@@ -411,7 +409,7 @@ class TestWorkerStreamsAndFinishes:
 
         worker = make(Slow)
         finished = []
-        worker.turnFinished.connect(lambda: finished.append(1))
+        worker.turnFinished.connect(finished.append)
         worker.start()
         _spin(400)
         worker.ask("hi")
@@ -426,13 +424,13 @@ class TestWorkerStreamsAndFinishes:
 
     def test_stream_turn_raising_is_contained(self, qapp, make):
         class BadStream(_Worker):
-            def _stream_turn(self, prompt: str):
+            def _stream_turn(self, prompt: str, attachments: list):
                 raise RuntimeError("创建流时就失败")
 
         worker = make(BadStream)
         errors, finished = [], []
         worker.errorOccurred.connect(lambda t, m: errors.append((t, m)))
-        worker.turnFinished.connect(lambda: finished.append(1))
+        worker.turnFinished.connect(finished.append)
         worker.start()
         _spin(400)
         worker.ask("hi")

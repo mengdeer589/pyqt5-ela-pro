@@ -66,11 +66,11 @@ from PyQt5ElaWidgetTools import (
 from .._internal import _ThemeAwareMixin
 from .._motion import idle_loop_running, start_idle_loop
 from .._styles import BareButton, ColorText, setSolidBackground
-from .._theme import StatusRole, statusColor
+from .._theme import ElaStatusRoleType, statusColor
 from ..ela_button import ElaButton
 from ..ela_chip import ElaChip
 from ..svg_icon import svg_to_pixmap
-from ..tooltips import ElaToolTipPosition, set_tooltip
+from ..tooltips import ElaToolTipPositionType, set_tooltip
 from ..widget_base import ElaThemeWidget
 from . import _json
 from ._question import (
@@ -92,12 +92,12 @@ from ._theme import (
 from .message import (
     ElaChatAttachment,
     ElaChatPermission,
-    ElaChatPermissionStatus,
-    ElaChatRole,
+    ElaChatPermissionStatusType,
+    ElaChatRoleType,
     ElaChatStats,
-    ElaChatStatus,
+    ElaChatStatusType,
     ElaChatToolCall,
-    ElaChatToolStatus,
+    ElaChatToolStatusType,
     _as_int,
 )
 from .renderers import (
@@ -120,9 +120,9 @@ AVATAR_DEFAULT_SHAPE = "circle"
 ElaChatAvatarSource = Union[str, bytes, QPixmap, QImage, QIcon]
 #: 角色默认头像图标
 ROLE_ICONS = {
-    ElaChatRole.User: ElaIconType.IconName.User,
-    ElaChatRole.Assistant: ElaIconType.IconName.Robot,
-    ElaChatRole.System: ElaIconType.IconName.Comment,
+    ElaChatRoleType.User: ElaIconType.IconName.User,
+    ElaChatRoleType.Assistant: ElaIconType.IconName.Robot,
+    ElaChatRoleType.System: ElaIconType.IconName.Comment,
 }
 #: 工具名 → 图标（对齐 opencode 的工具图标语义）
 TOOL_ICONS = {
@@ -681,7 +681,7 @@ class _AvatarBadge(QWidget):
         base = base_color(mode)
         text = text_color(mode)
         accent = accent_color(mode)
-        if self._role == ElaChatRole.User:
+        if self._role == ElaChatRoleType.User:
             self._bg = blend(base, accent, 0.22)
             self._border = blend(base, accent, 0.38)
         else:
@@ -849,7 +849,7 @@ class MessageHeader(ElaThemeWidget):
     """消息头部层：头像 + 名称 + 时间 / 状态（状态点呼吸）。"""
 
     def __init__(
-        self, role: str = ElaChatRole.Assistant, parent: Optional[QWidget] = None
+        self, role: str = ElaChatRoleType.Assistant, parent: Optional[QWidget] = None
     ) -> None:
         super().__init__(parent)
         self._role = role
@@ -883,19 +883,19 @@ class MessageHeader(ElaThemeWidget):
         self._status_label = ColorText(self._subtitle_row)
         self._status_label.setWordWrap(False)
         self._status_label.setTextFormat(Qt.TextFormat.PlainText)
-        if role == ElaChatRole.User:
+        if role == ElaChatRoleType.User:
             self._subtitle_layout.addStretch(1)
         self._subtitle_layout.addWidget(self._time_label)
         self._subtitle_layout.addWidget(self._sep_label)
         self._subtitle_layout.addWidget(self._status_dot)
         self._subtitle_layout.addWidget(self._status_label)
-        if role != ElaChatRole.User:
+        if role != ElaChatRoleType.User:
             self._subtitle_layout.addStretch(1)
 
         self._texts.addWidget(self._title_label)
         self._texts.addWidget(self._subtitle_row)
 
-        if role == ElaChatRole.User:
+        if role == ElaChatRoleType.User:
             layout.addStretch(1)
             self._texts.setAlignment(Qt.AlignmentFlag.AlignRight)
             self._title_label.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -945,7 +945,7 @@ class MessageHeader(ElaThemeWidget):
         return self._status_text
 
     def statusKind(self) -> str:
-        """获取状态类型（``ElaChatStatus`` 取值，空表示无状态）。"""
+        """获取状态类型（``ElaChatStatusType`` 取值，空表示无状态）。"""
         return self._status_kind
 
     def statusDot(self) -> _StatusDot:
@@ -963,7 +963,8 @@ class MessageHeader(ElaThemeWidget):
         self._status_dot.setVisible(has_status)
         self._status_dot.setActive(
             has_status
-            and self._status_kind in (ElaChatStatus.Streaming, ElaChatStatus.Queued)
+            and self._status_kind
+            in (ElaChatStatusType.Streaming, ElaChatStatusType.Queued)
         )
         self._subtitle_row.setVisible(has_time or has_status)
 
@@ -975,7 +976,7 @@ class MessageHeader(ElaThemeWidget):
 
     def setAvatarVisible(self, on: bool) -> None:
         """显示 / 隐藏头像。"""
-        self._avatar.setVisible(bool(on) and self._role != ElaChatRole.System)
+        self._avatar.setVisible(bool(on) and self._role != ElaChatRoleType.System)
 
     def setAvatarIcon(self, iconName: ElaIconType.IconName) -> None:
         """设置头像图标（``ElaIconType`` 成员）。"""
@@ -1006,10 +1007,14 @@ class MessageHeader(ElaThemeWidget):
 
     def _status_color(self) -> QColor:
         mode = self._theme_mode
-        if self._status_kind == ElaChatStatus.Error:
-            return blend(text_color(mode), statusColor(mode, StatusRole.Error), 0.55)
-        if self._status_kind == ElaChatStatus.Stopped:
-            return blend(text_color(mode), statusColor(mode, StatusRole.Warning), 0.5)
+        if self._status_kind == ElaChatStatusType.Error:
+            return blend(
+                text_color(mode), statusColor(mode, ElaStatusRoleType.Error), 0.55
+            )
+        if self._status_kind == ElaChatStatusType.Stopped:
+            return blend(
+                text_color(mode), statusColor(mode, ElaStatusRoleType.Warning), 0.5
+            )
         return accent_color(mode)
 
     def _apply_theme(self) -> None:
@@ -1357,7 +1362,7 @@ class ReasoningBlock(_CollapsibleBlock):
         self._flush_timer.stop()
         self._chunks.clear()
         self._text = text or ""
-        self._label.setText(self._text)
+        self._label.setText(self._displayText())
 
     def appendText(self, chunk: str) -> None:
         """追加思考文本（流式；标签刷新按事件循环轮次合并）。"""
@@ -1373,7 +1378,16 @@ class ReasoningBlock(_CollapsibleBlock):
             return
         self._text += "".join(self._chunks)
         self._chunks.clear()
-        self._label.setText(self._text)
+        self._label.setText(self._displayText())
+
+    def _displayText(self) -> str:
+        """喂给标签的文本：裁掉尾部空白（``self._text`` 保持原样）。
+
+        模型常以若干换行收尾一段思考，而这是 PlainText 标签 —— 不像内联形态走
+        Markdown 导入器（导入器本来就丢尾部空行），每个换行都真的画一行。
+        只裁显示不裁数据：``text()`` / ``part.text`` / journal / 导出全部保真。
+        """
+        return self._text.rstrip()
 
     def label(self) -> ElaText:
         """获取内部文本标签（高级用法）。"""
@@ -1582,10 +1596,10 @@ class ToolCallCard(_CollapsibleBlock):
 
     def setResult(self, result: str, ok: bool = True) -> None:
         """设置调用结果与状态（``ok=False`` 标记失败）。"""
-        status = ElaChatToolStatus.Done if ok else ElaChatToolStatus.Error
+        status = ElaChatToolStatusType.Done if ok else ElaChatToolStatusType.Error
         self._call = self._call.withResult(result, status)
         self._sync_header()
-        if status == ElaChatToolStatus.Error:
+        if status == ElaChatToolStatusType.Error:
             self.setOpened(True)
         if self._body_built:
             self._sync_body()
@@ -1595,7 +1609,7 @@ class ToolCallCard(_CollapsibleBlock):
         return self._call.result
 
     def setStatus(self, status: str) -> None:
-        """设置调用状态（见 :class:`ElaChatToolStatus`）。"""
+        """设置调用状态（见 :class:`ElaChatToolStatusType`）。"""
         self._call = ElaChatToolCall(
             id=self._call.id,
             name=self._call.name,
@@ -1625,7 +1639,9 @@ class ToolCallCard(_CollapsibleBlock):
     # -- 展开与内容 --------------------------------------------------------
 
     def _on_toggled(self, checked: bool) -> None:
-        if not checked:
+        if not checked or not self._expandable:
+            # 不可展开（pending 锁定）：直接交给基类收回，**不能建 body** ——
+            # 一次本该是 no-op 的点击会把渲染器工厂提前跑掉并永久钉住快照
             super()._on_toggled(checked)
             return
         if not self._body_built:
@@ -1672,7 +1688,7 @@ class ToolCallCard(_CollapsibleBlock):
             arguments=call.arguments or "",
             result=call.result or "",
             status=call.status,
-            isError=call.status == ElaChatToolStatus.Error,
+            isError=call.status == ElaChatToolStatusType.Error,
             allowOpenWhilePending=self._allow_open_while_pending,
         )
 
@@ -1740,8 +1756,8 @@ class ToolCallCard(_CollapsibleBlock):
     def _sync_header(self) -> None:
         call = self._call
         running = call.status in (
-            ElaChatToolStatus.Pending,
-            ElaChatToolStatus.Running,
+            ElaChatToolStatusType.Pending,
+            ElaChatToolStatusType.Running,
         )
         self._icon.setAwesome(toolIconName(call.name))
         self._title_text = f"工具调用：{call.name}"
@@ -1767,7 +1783,7 @@ class ToolCallCard(_CollapsibleBlock):
         self._elide_header_texts()
 
         self.setBusy(running)
-        pending = call.status == ElaChatToolStatus.Pending
+        pending = call.status == ElaChatToolStatusType.Pending
         self.setExpandable(not pending or self._allow_open_while_pending)
 
     def _elide_header_texts(self) -> None:
@@ -1806,8 +1822,8 @@ class ToolCallCard(_CollapsibleBlock):
         if not hasattr(self, "_subtitle_label"):
             return
         mode = self._theme_mode
-        is_error = self._call.status == ElaChatToolStatus.Error
-        danger = statusColor(mode, StatusRole.Error)
+        is_error = self._call.status == ElaChatToolStatusType.Error
+        danger = statusColor(mode, ElaStatusRoleType.Error)
         title_color = (
             blend(text_color(mode), danger, 0.45) if is_error else text_color(mode)
         )
@@ -1846,12 +1862,12 @@ class ToolCallCard(_CollapsibleBlock):
 
     def paintEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
         super().paintEvent(event)
-        if self._call.status != ElaChatToolStatus.Error:
+        if self._call.status != ElaChatToolStatusType.Error:
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(statusColor(self._theme_mode, StatusRole.Error))
+        painter.setBrush(statusColor(self._theme_mode, ElaStatusRoleType.Error))
         painter.drawRoundedRect(0, 6, 3, max(0, self.height() - 12), 1.5, 1.5)
         painter.end()
 
@@ -1905,7 +1921,7 @@ class ContextToolGroupCard(_CollapsibleBlock):
 
     def updateResult(self, callId: str, result: str, ok: bool = True) -> None:
         """按 id 更新某个工具调用的结果与状态。"""
-        status = ElaChatToolStatus.Done if ok else ElaChatToolStatus.Error
+        status = ElaChatToolStatusType.Done if ok else ElaChatToolStatusType.Error
         for index, call in enumerate(self._calls):
             if call.id == callId:
                 updated = call.withResult(result, status)
@@ -1939,9 +1955,9 @@ class ContextToolGroupCard(_CollapsibleBlock):
         text = f"{call.name}  {subtitle}"
         if pairs:
             text += f"  {pairs}"
-        if call.status == ElaChatToolStatus.Error:
+        if call.status == ElaChatToolStatusType.Error:
             text += "  · 失败"
-        elif call.status == ElaChatToolStatus.Aborted:
+        elif call.status == ElaChatToolStatusType.Aborted:
             text += "  · 已中止"
         if len(text) > 72:
             text = text[:71] + "…"
@@ -1977,7 +1993,8 @@ class ContextToolGroupCard(_CollapsibleBlock):
         self._summary_label.setText(self.summary())
         self._summary_label.setVisible(bool(self.summary()))
         running = any(
-            call.status in (ElaChatToolStatus.Pending, ElaChatToolStatus.Running)
+            call.status
+            in (ElaChatToolStatusType.Pending, ElaChatToolStatusType.Running)
             for call in self._calls
         )
         self.setBusy(running)
@@ -2096,12 +2113,12 @@ class _ImageAttachmentCard(QWidget):
         self._button.setFixedSize(width, height)
         self._button.setBorderRadius(6)
         self._button.setToolTip(tooltip)
-        set_tooltip(self._button, tooltip, ElaToolTipPosition.Top)
+        set_tooltip(self._button, tooltip, ElaToolTipPositionType.Top)
         self._button.clicked.connect(self.clicked)
         self._close = ElaIconButton(ElaIconType.IconName.CircleXmark, 11, 16, 16, self)
         self._close.setBorderRadius(8)
         self._close.setToolTip("移除附件")
-        set_tooltip(self._close, "移除附件", ElaToolTipPosition.Top)
+        set_tooltip(self._close, "移除附件", ElaToolTipPositionType.Top)
         self._close.clicked.connect(self.removed)
         self._close.raise_()
 
@@ -2365,7 +2382,7 @@ class AttachmentStrip(ElaThemeWidget):
         chip = ElaChip(self._chip_text(attachment), self)
         chip.setClosable(True)
         chip.setToolTip(tooltip)
-        set_tooltip(chip, tooltip, ElaToolTipPosition.Top)
+        set_tooltip(chip, tooltip, ElaToolTipPositionType.Top)
         chip.closed.connect(lambda a=attachment: self._on_card_removed(a))
         chip.clicked.connect(
             lambda a=attachment: self.attachmentClicked.emit(a.path or a.name)
@@ -2435,8 +2452,10 @@ class StatsBadge(ElaThemeWidget):
             f"↓{stats.completion_tokens}",
             f"总计 {stats.total_tokens}",
         ]
-        if stats.cached_tokens:
-            parts.append(f"缓存 {stats.cached_tokens}")
+        if stats.cache_read_tokens:
+            parts.append(f"缓存读 {stats.cache_read_tokens}")
+        if stats.cache_write_tokens:
+            parts.append(f"缓存写 {stats.cache_write_tokens}")
         self._label.setText("  ·  ".join(parts))
         self._label.show()
         self._apply_tooltip()
@@ -2449,7 +2468,7 @@ class StatsBadge(ElaThemeWidget):
         self._apply_tooltip()
 
     def _apply_tooltip(self) -> None:
-        """刷新悬浮提示：``首字 X ms · 端到端/耗时 Y · 词元/s · 缓存 N``。"""
+        """刷新悬浮提示：``首字 X ms · 端到端/耗时 Y · 词元/s · 缓存读写``。"""
         stats = self._stats
         if stats is None:
             self._label.setToolTip("")
@@ -2658,7 +2677,7 @@ class CompactionSeparator(_ThemeAwareMixin, ElaScrollPageArea):
         self.setBorderRadius(8)
         self._summary = ""
         self._count = 0
-        self._status = ElaChatStatus.Done
+        self._status = ElaChatStatusType.Done
         self._body_built = False
         # **显式记展开态**，不要从 ``self._body.isVisible()`` 反推：控件还没被
         # show 过时 ``isVisible()`` 恒为 False（跟父链可见性走），反推出来的
@@ -2674,7 +2693,6 @@ class CompactionSeparator(_ThemeAwareMixin, ElaScrollPageArea):
         self._header.setContentsMargins(0, 0, 0, 0)
         self._header.setSpacing(6)
         self._icon = ElaIconButton(ElaIconType.IconName.BoxArchive, 12, 16, 16, self)
-        self._icon.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._icon.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._header.addWidget(self._icon, 0, Qt.AlignmentFlag.AlignVCenter)
         self._label = ColorText(self)
@@ -2682,9 +2700,6 @@ class CompactionSeparator(_ThemeAwareMixin, ElaScrollPageArea):
         self._header.addWidget(self._label, 1)
         self._chevron = ElaIconButton(
             ElaIconType.IconName.ChevronRight, 12, 16, 16, self
-        )
-        self._chevron.setAttribute(
-            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
         )
         self._chevron.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._header.addWidget(self._chevron, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -2766,7 +2781,7 @@ class CompactionSeparator(_ThemeAwareMixin, ElaScrollPageArea):
 
     def setCompactionStatus(self, status: str) -> None:
         """设置压缩状态（``streaming`` 时标题追加「进行中」）。"""
-        self._status = status or ElaChatStatus.Done
+        self._status = status or ElaChatStatusType.Done
         self._sync_label()
 
     def setOpened(self, opened: bool) -> None:
@@ -2813,9 +2828,9 @@ class CompactionSeparator(_ThemeAwareMixin, ElaScrollPageArea):
             if self._count > 0
             else self.LABEL_NO_COUNT
         )
-        if self._status == ElaChatStatus.Streaming:
+        if self._status == ElaChatStatusType.Streaming:
             text = f"{text} · 压缩中…"
-        elif self._status == ElaChatStatus.Error:
+        elif self._status == ElaChatStatusType.Error:
             text = f"{text} · 压缩失败"
         self._label.setText(text)
 
@@ -2866,7 +2881,7 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
 
     #: 用户做出选择（参数：reply、answer、feedback）
     #:
-    #: ``reply`` 取 :class:`~pyqt5_ela_pro.chat.message.ElaChatPermissionStatus`
+    #: ``reply`` 取 :class:`~pyqt5_ela_pro.chat.message.ElaChatPermissionStatusType`
     #: 里的 ``Allowed`` / ``Always`` / ``Rejected`` / ``Cancelled``。问答型的
     #: ``answer`` 是 ``json.dumps({key: str | [str, ...]})``，批准型为空串。
     replied = pyqtSignal(str, str, str)
@@ -3016,14 +3031,14 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
             parent=self._actions,
         )
         self._allow_button.clicked.connect(
-            lambda: self._emit_reply(ElaChatPermissionStatus.Allowed, "", "")
+            lambda: self._emit_reply(ElaChatPermissionStatusType.Allowed, "", "")
         )
         actions_layout.addWidget(self._allow_button)
         self._always_button = ElaButton(
             "始终允许", variant="outlined", size="small", parent=self._actions
         )
         self._always_button.clicked.connect(
-            lambda: self._emit_reply(ElaChatPermissionStatus.Always, "", "")
+            lambda: self._emit_reply(ElaChatPermissionStatusType.Always, "", "")
         )
         actions_layout.addWidget(self._always_button)
         self._reject_button = ElaButton(
@@ -3059,7 +3074,7 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
             "忽略", variant="text", size="small", parent=self._footer
         )
         self._dismiss_button.clicked.connect(
-            lambda: self._emit_reply(ElaChatPermissionStatus.Cancelled, "", "")
+            lambda: self._emit_reply(ElaChatPermissionStatusType.Cancelled, "", "")
         )
         footer_layout.addWidget(self._dismiss_button)
         footer_layout.addStretch(1)
@@ -3337,6 +3352,7 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         if question is None:
             self._question_text.setText("")
             self._option_buttons = []
+            self._editing = ""
             return
         # 短标签进标题行（不单独占一行）；前缀分隔符免得和标题糊成一片
         self._tag.setText(f"\u00b7 {question.header}" if question.header else "")
@@ -3363,7 +3379,12 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         self._option_buttons = rows
         self._refresh_rows()
         if self._editing == question.key:
+            # 同一题刷新（``setPermission`` 两段式回填）：编辑器原地恢复，
+            # 草稿由 ``_refresh_rows`` 回填进新行
             self._enter_editing(question.key)
+        else:
+            # 切题 / 换请求：旧编辑态作废（草稿已在 ``_clear_options`` 暂存）
+            self._editing = ""
 
     def _on_row_focused(self, index: int) -> None:
         """记住键盘焦点行号。
@@ -3397,6 +3418,8 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
     def _clear_options(self) -> None:
         # 正在编辑的自定义草稿要先存下来：``setPermission`` 的刷新会走到这里
         # 销毁行控件，重建后草稿若不在 ``_drafts`` 里就永远找不回来了。
+        # **不在这里清 ``_editing``**：``_sync_question`` 还要按它决定是否
+        # 把编辑器原地恢复（同一题刷新）还是丢弃（切到别的题）。
         if self._editing:
             row = self._custom_row(self._editing)
             if row is not None and row.editorText():
@@ -3408,7 +3431,6 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
                 row.deleteLater()
         self._rows.clear()
         self._option_buttons = []
-        self._editing = ""
 
     def _refresh_rows(self) -> None:
         """把 ``_answers`` / ``_custom`` 同步到当前题的每一张卡。
@@ -3434,7 +3456,10 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
                     row.setPicked(row.value() in picked)
                 # 正在编辑的行不要覆盖：用户没提交的字比已提交值新（草稿优先）
                 if row.isCustom() and not row.isEditing():
-                    row.setEditorText(self._custom.get(question.key, ""))
+                    row.setEditorText(
+                        self._drafts.get(question.key)
+                        or self._custom.get(question.key, "")
+                    )
         self._sync_segments()
 
     def _on_activate(self, question, value: str) -> None:
@@ -3640,7 +3665,6 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         # 走之前把这一题编辑框里的文字落定（草稿只在「行还在」时才是答案）
         self._commit_editing()
         self._tab = index
-        self._editing = ""
         self._focus_row = 0
         self._sync_question()
         self._sync_header(self._permission)
@@ -3650,7 +3674,7 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
             self._option_buttons[0].setFocus()
 
     def _submit_answers(self) -> None:
-        self._emit_reply(ElaChatPermissionStatus.Allowed, self._build_answer(), "")
+        self._emit_reply(ElaChatPermissionStatusType.Allowed, self._build_answer(), "")
 
     def _sync_actions(self) -> None:
         permission = self._permission
@@ -3689,7 +3713,7 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
     def _submit_feedback(self) -> None:
         text = self._feedback_edit.toPlainText().strip()
         self._feedback_row.hide()
-        self._emit_reply(ElaChatPermissionStatus.Rejected, "", text)
+        self._emit_reply(ElaChatPermissionStatusType.Rejected, "", text)
 
     def _emit_reply(self, reply: str, answer: str, feedback: str) -> None:
         # 两道闸：responding（回复在途，宿主可置）与 **已落定**（双击的第二下）。
@@ -3783,7 +3807,7 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         elif action == "back":
             self._go_back()
         elif action == "dismiss":
-            self._emit_reply(ElaChatPermissionStatus.Cancelled, "", "")
+            self._emit_reply(ElaChatPermissionStatusType.Cancelled, "", "")
         elif action.startswith("digit:"):
             try:
                 index = int(action.split(":", 1)[1])
@@ -3810,7 +3834,7 @@ class PermissionCard(_ThemeAwareMixin, ElaScrollPageArea):
         elif action == "back":
             self._go_back()
         elif action == "dismiss":
-            self._emit_reply(ElaChatPermissionStatus.Cancelled, "", "")
+            self._emit_reply(ElaChatPermissionStatusType.Cancelled, "", "")
         else:
             self._on_global_key(action)
         return True
@@ -3891,10 +3915,10 @@ class PermissionRecord(_CollapsibleBlock):
         「已允许一次：question」）。改用第一道题的短标签，答的是什么一眼可见。
         """
         labels = {
-            ElaChatPermissionStatus.Allowed: "已允许一次",
-            ElaChatPermissionStatus.Always: "已允许并记住规则",
-            ElaChatPermissionStatus.Rejected: "已拒绝",
-            ElaChatPermissionStatus.Cancelled: "已作废",
+            ElaChatPermissionStatusType.Allowed: "已允许一次",
+            ElaChatPermissionStatusType.Always: "已允许并记住规则",
+            ElaChatPermissionStatusType.Rejected: "已拒绝",
+            ElaChatPermissionStatusType.Cancelled: "已作废",
         }
         status = (
             "等待中"
@@ -3936,12 +3960,16 @@ class PermissionRecord(_CollapsibleBlock):
                 value = answers.get(question.key)
                 if value is None:
                     continue
-                shown = "、".join(value) if isinstance(value, list) else str(value)
+                shown = (
+                    "、".join(str(item) for item in value)
+                    if isinstance(value, list)
+                    else str(value)
+                )
                 label = question.header or question.question or question.key
                 lines.append(f"{label}: {shown}")
             return "\n".join(lines)
         if (
-            permission.status == ElaChatPermissionStatus.Rejected
+            permission.status == ElaChatPermissionStatusType.Rejected
             and permission.feedback
         ):
             return permission.feedback
@@ -3991,11 +4019,11 @@ class PermissionRecord(_CollapsibleBlock):
         mode = self._theme_mode
         permission = self._permission
         if permission is not None and permission.status == (
-            ElaChatPermissionStatus.Rejected
+            ElaChatPermissionStatusType.Rejected
         ):
-            accent = statusColor(mode, StatusRole.Error)
+            accent = statusColor(mode, ElaStatusRoleType.Error)
         elif permission is not None and not permission.isPending:
-            accent = statusColor(mode, StatusRole.Success)
+            accent = statusColor(mode, ElaStatusRoleType.Success)
         else:
             accent = text_color(mode)
         self._title_label.setTextColor(accent)
@@ -4128,7 +4156,7 @@ class ErrorCard(_ThemeAwareMixin, ElaScrollPageArea):
 
     def _apply_theme(self) -> None:
         mode = self._theme_mode
-        danger = statusColor(mode, StatusRole.Error)
+        danger = statusColor(mode, ElaStatusRoleType.Error)
         base = base_color(mode)
         text = text_color(mode)
         setSolidBackground(self._rail, danger)

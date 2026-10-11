@@ -397,6 +397,10 @@ class QuestionOptionCard(QAbstractButton):
         texts.addWidget(self._desc)
         row.addLayout(texts, 1)
         self._editor = None
+        #: 编辑器尚未创建时的待回填文本（草稿 / 已提交的自定义答案）。
+        #: ``setEditorText`` 在编辑器懒创建（首次 ``setEditing(True)``）之前
+        #: 只能把文本存这里，否则每次重建都会静默丢掉草稿。
+        self._pending_editor_text = ""
         self._texts_layout = texts
         self._apply_content()
         self._apply_theme()
@@ -474,6 +478,8 @@ class QuestionOptionCard(QAbstractButton):
             self._editor.dismissRequested.connect(self._on_editor_dismissed)
             self._editor.advanceRequested.connect(self._on_editor_advance)
             self._texts_layout.addWidget(self._editor)
+            if self._pending_editor_text:
+                self._editor.setPlainText(self._pending_editor_text)
         self._editing = editing
         if self._editor is not None:
             self._editor.setVisible(editing)
@@ -484,24 +490,28 @@ class QuestionOptionCard(QAbstractButton):
         self.contentChanged.emit()
 
     def editorText(self) -> str:  # noqa: N802
-        """自定义答案当前文本。"""
-        return self._editor.toPlainText() if self._editor is not None else ""
+        """自定义答案当前文本（编辑器未创建时返回待回填文本）。"""
+        if self._editor is not None:
+            return self._editor.toPlainText()
+        return self._pending_editor_text
 
     def setEditorText(self, text: str) -> None:  # noqa: N802
-        """回填自定义答案（切题回来时恢复草稿）。"""
+        """回填自定义答案（切题回来时恢复草稿；编辑器懒创建前先暂存）。"""
+        text = text or ""
+        self._pending_editor_text = text
         if self._editor is None:
             return
-        text = text or ""
         if self._editor.toPlainText() != text:
             self._editor.setPlainText(text)
 
     def commitEdit(self) -> None:  # noqa: N802
         """提交自定义答案（Enter；卡片在「下一步 / 提交 / 切题」前也会先调它）。
 
-        **空文本什么都不做**。这是「自己写一个」真正生效的地方 —— 早期实现压根没读
-        ``toPlainText()``，那个输入框是纯装饰品。
+        **空文本什么都不做**；非空文本**不要求行处于编辑态** —— Esc 退出编辑
+        但保留了文本，此时点「下一步 / 提交」也必须把它算成答案（早期实现要求
+        ``self._editing``，Esc 后那段字会被静默丢弃，payload 里没有这一题）。
         """
-        if not self._editing:
+        if self._editor is None:
             return
         text = self.editorText().strip()
         if not text:

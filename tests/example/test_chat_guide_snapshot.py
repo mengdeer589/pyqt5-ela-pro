@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -17,8 +18,26 @@ from pyqt5_ela_pro.example.chat_guide_page import (
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+#: ``os.environ.get("LLM_TEST_*", "<值>")`` 的兜底默认值。
+_ENV_DEFAULT_RE = re.compile(r'os\.environ\.get\("(LLM_TEST_[A-Z_]+)",\s*"[^"]*"\)')
+
+#: 快照里允许出现的 API key 占位值（真 key 一律不许入库）。
+_SAFE_KEY_DEFAULTS = frozenset({"not-needed", "", "your-api-key", "<local-default>"})
+
+
 def _normalize(text: str) -> str:
     return text.replace("\r\n", "\n").strip("\n")
+
+
+def _scrub_env_defaults(text: str) -> str:
+    """把 env 兜底默认值洗成同一个占位符。
+
+    ``LLM_TEST_BASE_URL`` / ``LLM_TEST_MODEL`` / ``LLM_TEST_API_KEY`` 的默认值是
+    **机器本地值**（本地 vLLM 还是 ModelScope、哪个模型、有没有 key），跟着
+    开发者的机器漂移。让它参与比对的结果只有两个坏处：守卫天天误报，以及为了
+    「同步」把个人端点与**真实凭据**抄进已入库的快照常量。代码本身仍逐行比对。
+    """
+    return _ENV_DEFAULT_RE.sub(r'os.environ.get("\1", "<local-default>")', text)
 
 
 def test_snapshot_matches_llm_test_sources():
@@ -32,10 +51,29 @@ def test_snapshot_matches_llm_test_sources():
             # llm_test/ 目前不入库（见 .gitignore）；页面侧的快照常量仍在，
             # 缺文件只能跳过这条漂移校验，不能让它把整个 tests/example 拖挂。
             pytest.skip(f"llm_test/{name} 未入库")
-        assert _normalize(snapshot) == _normalize(path.read_text(encoding="utf-8")), (
+        assert _scrub_env_defaults(_normalize(snapshot)) == _scrub_env_defaults(
+            _normalize(path.read_text(encoding="utf-8"))
+        ), (
             f"快照与 llm_test/{name} 不一致："
             "请把新源码同步到 example/chat_guide_page.py 的常量"
+            "（env 兜底默认值除外，机器本地值不参与比对）"
         )
+
+
+def test_snapshots_carry_no_real_credentials():
+    """快照常量是**已入库**文件，不许出现看起来像真凭据的 env 默认值。"""
+    for name, snapshot in (
+        ("main.py", LLM_TEST_MAIN_SOURCE),
+        ("agent_demo.py", LLM_TEST_AGENT_DEMO_SOURCE),
+    ):
+        for line in snapshot.splitlines():
+            match = _ENV_DEFAULT_RE.search(line)
+            if match and match.group(1).endswith("API_KEY"):
+                default = re.search(r'"([^"]*)"\s*\)', line).group(1)
+                assert default in _SAFE_KEY_DEFAULTS, (
+                    f"{name} 快照里的 {match.group(1)} 默认值 {default!r} "
+                    f"看起来是真凭据，只允许 {_SAFE_KEY_DEFAULTS}"
+                )
 
 
 def test_guide_page_renders_both_sources(qapp):

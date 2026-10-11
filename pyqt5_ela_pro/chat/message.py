@@ -6,7 +6,7 @@
 - 用户 / 系统消息：文本存于 ``text``，``parts`` 为空；
 - 助手消息：内容按 **步骤 + 分段** 组织为
   :class:`ElaChatPart` 时间线（``parts``），分段类型见
-  :class:`ElaChatPartKind`：
+  :class:`ElaChatPartKindType`：
   思考段（``Reasoning``）、正文段（``Text``，可多段）、
   工具调用段（``Tool``）、步骤用量段（``Stats``）；
   文本 / 思考 / 工具 / 统计等字段为 ``parts`` 的派生视图，由
@@ -112,7 +112,7 @@ def _as_bool(value, default: bool = False) -> bool:
     return default
 
 
-class ElaChatRole:
+class ElaChatRoleType:
     """消息角色常量。"""
 
     #: 用户消息
@@ -126,7 +126,7 @@ class ElaChatRole:
     All = (User, Assistant, System)
 
 
-class ElaChatStatus:
+class ElaChatStatusType:
     """消息状态常量。"""
 
     #: 正在流式生成
@@ -146,7 +146,7 @@ class ElaChatStatus:
     All = (Streaming, Done, Stopped, Error)
 
 
-class ElaChatToolStatus:
+class ElaChatToolStatusType:
     """工具调用状态常量。"""
 
     #: 已创建、尚未开始执行（不可展开，对齐 opencode）
@@ -295,25 +295,25 @@ class ElaChatToolCall:
     arguments: str = ""
     #: 调用结果文本
     result: str = ""
-    #: 状态（见 :class:`ElaChatToolStatus`）
-    status: str = ElaChatToolStatus.Running
+    #: 状态（见 :class:`ElaChatToolStatusType`）
+    status: str = ElaChatToolStatusType.Running
 
     @property
     def isRunning(self) -> bool:
         """是否仍在调用中。"""
-        return self.status == ElaChatToolStatus.Running
+        return self.status == ElaChatToolStatusType.Running
 
     @property
     def isDone(self) -> bool:
         """是否调用成功。"""
-        return self.status == ElaChatToolStatus.Done
+        return self.status == ElaChatToolStatusType.Done
 
     @property
     def isError(self) -> bool:
         """是否调用失败。"""
-        return self.status == ElaChatToolStatus.Error
+        return self.status == ElaChatToolStatusType.Error
 
-    def withResult(self, result: str, status: str = ElaChatToolStatus.Done):
+    def withResult(self, result: str, status: str = ElaChatToolStatusType.Done):
         """返回带结果与状态的新快照。"""
         return replace(self, result=result or "", status=status)
 
@@ -347,13 +347,13 @@ class ElaChatToolCall:
         """
         if not isinstance(data, dict):
             return cls(id="", name="")
-        status = _as_str(data.get("status"), ElaChatToolStatus.Running)
+        status = _as_str(data.get("status"), ElaChatToolStatusType.Running)
         return cls(
             id=_as_str(data.get("id")),
             name=_as_str(data.get("name")),
             arguments=_as_str(data.get("arguments")),
             result=_as_str(data.get("result")),
-            status=status or ElaChatToolStatus.Running,
+            status=status or ElaChatToolStatusType.Running,
         )
 
 
@@ -364,16 +364,26 @@ class ElaChatStats:
     单步原始数字由服务端按次返回（一次 LLM 调用一份）；多步场景下
     :meth:`merge` 把各步求和为**整轮汇总**（各轮分别计费，求和即该轮
     实际计费量）。
+
+    **四路词元对齐 opencode 的用量模型**：``prompt`` / ``completion``（含
+    ``reasoning``）/ ``cache_read`` / ``cache_write``；「当前上下文占用」
+    的口径（最后一条有 tokens 的助手消息的四路和）由
+    ``ElaChatView.sessionStats()`` 聚合，不靠这里的 ``total_tokens``
+    （那是服务端原始值）。
     """
 
     #: 输入词元
     prompt_tokens: int = 0
-    #: 输出词元
+    #: 输出词元（**含推理词元** —— 上游 usage 里 reasoning 通常是 completion 的子集）
     completion_tokens: int = 0
-    #: 总词元
+    #: 总词元（服务端给的原始值，不保证等于四路和）
     total_tokens: int = 0
-    #: 缓存命中词元
-    cached_tokens: int = 0
+    #: 推理词元（completion 的子集，单独拆出来只为展示 / 统计）
+    reasoning_tokens: int = 0
+    #: 缓存读词元（命中缓存的输入；旧字段 ``cached_tokens`` 已重构为此名）
+    cache_read_tokens: int = 0
+    #: 缓存写词元（写入缓存的输入；多数 OpenAI 兼容端点没有这一路，为 0）
+    cache_write_tokens: int = 0
     #: 首字耗时（毫秒）
     ttft_ms: float = 0.0
     #: 生成速度（词元/秒）
@@ -385,15 +395,14 @@ class ElaChatStats:
     #: **定价不归本库管** —— 模型价格会变、还分上下文长度阶梯，烤进 UI 库
     #: 必然过期。两条路都留着：宿主可以在 ``binder.stats()`` 里自己算好塞进来，
     #: 也可以只填词元、由 :func:`pyqt5_ela_pro.chat.stats_cost` 按传入的定价表
-    #: 现算。累计的会话总额**不在这里**（那是跨消息求和，属宿主）。
+    #: 现算。跨消息的会话总额**不在这里**（用 ``ElaChatView.sessionStats()``）。
     cost_usd: float = 0.0
 
     @staticmethod
     def merge(items) -> Optional["ElaChatStats"]:
         """把多个步骤用量合并为整轮汇总（``None`` 与空序列返回 ``None``）。
 
-        - 词元字段、缓存命中与 ``cost_usd`` 求和（各轮 API 分别计费，求和即
-          实际消耗）；
+        - 四路词元与 ``cost_usd`` 求和（各轮 API 分别计费，求和即实际消耗）；
         - ``ttft_ms`` 取首个非零值；
         - ``tps`` 按合计输出 / 合计耗时重算（无耗时为 0）；
         - ``duration_ms`` 置 0（整轮耗时由消息级字段承载，避免重复计数）；
@@ -407,7 +416,9 @@ class ElaChatStats:
         prompt = sum(item.prompt_tokens for item in values)
         completion = sum(item.completion_tokens for item in values)
         total = sum(item.total_tokens for item in values)
-        cached = sum(item.cached_tokens for item in values)
+        reasoning = sum(item.reasoning_tokens for item in values)
+        cache_read = sum(item.cache_read_tokens for item in values)
+        cache_write = sum(item.cache_write_tokens for item in values)
         ttft = next((item.ttft_ms for item in values if item.ttft_ms), 0.0)
         duration = sum(item.duration_ms for item in values if item.duration_ms)
         tps = (completion / (duration / 1000.0)) if duration > 0 else 0.0
@@ -415,16 +426,17 @@ class ElaChatStats:
             prompt_tokens=prompt,
             completion_tokens=completion,
             total_tokens=total,
-            cached_tokens=cached,
+            reasoning_tokens=reasoning,
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
             ttft_ms=float(ttft),
             tps=float(tps),
             cost_usd=sum(item.cost_usd for item in values),
         )
 
     def tooltip(self, durationLabel: str = "耗时") -> str:
-        """组合提示文本（花费 / 首字 / 耗时 / 速度 / 缓存）。
-
-        :param durationLabel: 耗时项标签（消息级端到端耗时传 ``"端到端"``）
+        """组合提示文本（花费 / 首字 / 耗时 / 速度 / 缓存）；消息级端到端耗时
+        传 ``durationLabel="端到端"``。
         """
         # 先洗一遍：后端 usage 是外部数据，``inf`` 直接进 int()/格式化会把
         # Qt 槽链上的调用点炸掉（``int(inf)`` -> OverflowError）。
@@ -432,7 +444,8 @@ class ElaChatStats:
         ttft = _as_float(self.ttft_ms)
         duration = _as_float(self.duration_ms)
         tps = _as_float(self.tps)
-        cached = _as_int(self.cached_tokens)
+        cache_read = _as_int(self.cache_read_tokens)
+        cache_write = _as_int(self.cache_write_tokens)
         parts = []
         if cost:
             parts.append(f"花费 {formatCost(cost)}")
@@ -447,8 +460,10 @@ class ElaChatStats:
                 parts.append(f"{durationLabel} {minutes}m {int(seconds % 60)}s")
         if tps:
             parts.append(f"{tps:.1f} 词元/s")
-        if cached:
-            parts.append(f"缓存 {cached} 词元")
+        if cache_read:
+            parts.append(f"缓存读 {cache_read} 词元")
+        if cache_write:
+            parts.append(f"缓存写 {cache_write} 词元")
         return "  ·  ".join(parts)
 
     # -- 持久化 ------------------------------------------------------------
@@ -459,7 +474,9 @@ class ElaChatStats:
             "prompt_tokens": _as_int(self.prompt_tokens),
             "completion_tokens": _as_int(self.completion_tokens),
             "total_tokens": _as_int(self.total_tokens),
-            "cached_tokens": _as_int(self.cached_tokens),
+            "reasoning_tokens": _as_int(self.reasoning_tokens),
+            "cache_read_tokens": _as_int(self.cache_read_tokens),
+            "cache_write_tokens": _as_int(self.cache_write_tokens),
             "ttft_ms": _as_float(self.ttft_ms),
             "tps": _as_float(self.tps),
             "duration_ms": _as_float(self.duration_ms),
@@ -475,7 +492,9 @@ class ElaChatStats:
             prompt_tokens=_as_int(data.get("prompt_tokens")),
             completion_tokens=_as_int(data.get("completion_tokens")),
             total_tokens=_as_int(data.get("total_tokens")),
-            cached_tokens=_as_int(data.get("cached_tokens")),
+            reasoning_tokens=_as_int(data.get("reasoning_tokens")),
+            cache_read_tokens=_as_int(data.get("cache_read_tokens")),
+            cache_write_tokens=_as_int(data.get("cache_write_tokens")),
             ttft_ms=_as_float(data.get("ttft_ms")),
             tps=_as_float(data.get("tps")),
             duration_ms=_as_float(data.get("duration_ms")),
@@ -483,7 +502,7 @@ class ElaChatStats:
         )
 
 
-class ElaChatPartKind:
+class ElaChatPartKindType:
     """消息内容分段类型常量（助手消息按步骤有序排列）。"""
 
     #: 思考段
@@ -508,7 +527,7 @@ class ElaChatPartKind:
     All = (Reasoning, Text, Tool, Stats, Synthetic, Compaction, Permission)
 
 
-class ElaChatReasoningStyle:
+class ElaChatReasoningStyleType:
     """思考展示形态常量（``setReasoningStyle`` 取值）。"""
 
     #: 可折叠思考块（默认）
@@ -520,7 +539,7 @@ class ElaChatReasoningStyle:
     All = (Collapse, Inline)
 
 
-class ElaChatPermissionStatus:
+class ElaChatPermissionStatusType:
     """工具审批状态常量。"""
 
     #: 等待用户选择
@@ -676,8 +695,8 @@ class ElaChatPermission:
     detail: str = ""
     #: 待回答的问题（**非空 = 问答型**；空 = 批准型，见类 docstring）
     questions: Tuple[ElaChatQuestion, ...] = field(default_factory=tuple)
-    #: 状态（见 :class:`ElaChatPermissionStatus`）
-    status: str = ElaChatPermissionStatus.Pending
+    #: 状态（见 :class:`ElaChatPermissionStatusType`）
+    status: str = ElaChatPermissionStatusType.Pending
     #: 用户选择 / 填写的答案（批准型为空；问答型是 JSON 串）
     answer: str = ""
     #: 拒绝时填的原因（回传给宿主，宿主可据此让模型换做法）
@@ -686,7 +705,7 @@ class ElaChatPermission:
     @property
     def isPending(self) -> bool:
         """是否仍在等待用户回复。"""
-        return self.status == ElaChatPermissionStatus.Pending
+        return self.status == ElaChatPermissionStatusType.Pending
 
     @property
     def isQuestion(self) -> bool:
@@ -715,8 +734,8 @@ class ElaChatPermission:
             self,
             status=(
                 status
-                if status in ElaChatPermissionStatus.All
-                else ElaChatPermissionStatus.Pending
+                if status in ElaChatPermissionStatusType.All
+                else ElaChatPermissionStatusType.Pending
             ),
             answer=answer or "",
             feedback=feedback or "",
@@ -733,8 +752,8 @@ class ElaChatPermission:
             "questions": [item.toDict() for item in self.questions],
             "status": _as_choice(
                 self.status,
-                ElaChatPermissionStatus.All,
-                ElaChatPermissionStatus.Pending,
+                ElaChatPermissionStatusType.All,
+                ElaChatPermissionStatusType.Pending,
             ),
             "answer": _as_str(self.answer),
             "feedback": _as_str(self.feedback),
@@ -761,8 +780,8 @@ class ElaChatPermission:
             questions=_as_tuple_of(data.get("questions"), ElaChatQuestion.fromDict),
             status=_as_choice(
                 data.get("status"),
-                ElaChatPermissionStatus.All,
-                ElaChatPermissionStatus.Pending,
+                ElaChatPermissionStatusType.All,
+                ElaChatPermissionStatusType.Pending,
             ),
             answer=_as_str(data.get("answer")),
             feedback=_as_str(data.get("feedback")),
@@ -775,12 +794,12 @@ class ElaChatPart:
 
     #: 分段唯一标识
     id: str
-    #: 分段类型（见 :class:`ElaChatPartKind`）
+    #: 分段类型（见 :class:`ElaChatPartKindType`）
     kind: str
     #: 文本内容（思考 / 正文 / 压缩摘要 / 插话回执）
     text: str = ""
-    #: 状态（见 :class:`ElaChatStatus`）
-    status: str = ElaChatStatus.Done
+    #: 状态（见 :class:`ElaChatStatusType`）
+    status: str = ElaChatStatusType.Done
     #: 工具调用快照（``kind == Tool``）
     tool_call: Optional[ElaChatToolCall] = None
     #: 步骤词元用量（``kind == Stats``）
@@ -843,7 +862,7 @@ class ElaChatPart:
         if not isinstance(data, dict):
             return None
         kind = _as_str(data.get("kind"))
-        if kind not in ElaChatPartKind.All:
+        if kind not in ElaChatPartKindType.All:
             return None
         call = data.get("tool_call")
         return cls(
@@ -851,7 +870,7 @@ class ElaChatPart:
             kind=kind,
             text=_as_str(data.get("text")),
             status=_as_choice(
-                data.get("status"), ElaChatStatus.All, ElaChatStatus.Done
+                data.get("status"), ElaChatStatusType.All, ElaChatStatusType.Done
             ),
             tool_call=ElaChatToolCall.fromDict(call)
             if isinstance(call, dict)
@@ -888,12 +907,12 @@ class ElaChatMessage:
 
     #: 消息序号（同一会话内自增，从 1 开始）
     id: int
-    #: 角色（见 :class:`ElaChatRole`）
+    #: 角色（见 :class:`ElaChatRoleType`）
     role: str
     #: 消息文本（助手消息为 Markdown 源）
     text: str = ""
-    #: 状态（见 :class:`ElaChatStatus`）
-    status: str = ElaChatStatus.Done
+    #: 状态（见 :class:`ElaChatStatusType`）
+    status: str = ElaChatStatusType.Done
     #: 创建时间（``time.time()`` 秒）
     created_at: float = 0.0
     #: 显示名（用户 / 助手 / 模型名），空则用角色默认
@@ -952,17 +971,17 @@ class ElaChatMessage:
         的替代物（并进去等于把同一段历史算两遍），审批详情更不属于回答。
         """
         parts = tuple(parts or ())
-        text = "".join(item.text for item in parts if item.kind == ElaChatPartKind.Text)
+        text = "".join(item.text for item in parts if item.kind == ElaChatPartKindType.Text)
         reasoning = "".join(
-            item.text for item in parts if item.kind == ElaChatPartKind.Reasoning
+            item.text for item in parts if item.kind == ElaChatPartKindType.Reasoning
         )
         reasoningMs = sum(
-            item.duration_ms for item in parts if item.kind == ElaChatPartKind.Reasoning
+            item.duration_ms for item in parts if item.kind == ElaChatPartKindType.Reasoning
         )
         toolCalls = tuple(
             item.tool_call
             for item in parts
-            if item.kind == ElaChatPartKind.Tool and item.tool_call is not None
+            if item.kind == ElaChatPartKindType.Tool and item.tool_call is not None
         )
         stats = ElaChatStats.merge(
             item.stats for item in parts if item.stats is not None
@@ -980,22 +999,22 @@ class ElaChatMessage:
     @property
     def isUser(self) -> bool:
         """是否用户消息。"""
-        return self.role == ElaChatRole.User
+        return self.role == ElaChatRoleType.User
 
     @property
     def isAssistant(self) -> bool:
         """是否助手消息。"""
-        return self.role == ElaChatRole.Assistant
+        return self.role == ElaChatRoleType.Assistant
 
     @property
     def isSystem(self) -> bool:
         """是否系统消息。"""
-        return self.role == ElaChatRole.System
+        return self.role == ElaChatRoleType.System
 
     @property
     def isStreaming(self) -> bool:
         """是否仍在流式生成。"""
-        return self.status == ElaChatStatus.Streaming
+        return self.status == ElaChatStatusType.Streaming
 
     def withText(self, text: str) -> "ElaChatMessage":
         """返回替换文本后的新快照。"""
@@ -1051,10 +1070,7 @@ class ElaChatMessage:
     def withError(
         self, error: str, errorType: Optional[str] = None
     ) -> "ElaChatMessage":
-        """返回替换错误文本后的新快照。
-
-        :param errorType: 省略（``None``）表示保持原值不变
-        """
+        """返回替换错误文本后的新快照（``errorType=None`` 表示保持原值）。"""
         if errorType is None:
             return replace(self, error=error or "")
         return replace(self, error=error or "", error_type=str(errorType or ""))
@@ -1105,13 +1121,13 @@ class ElaChatMessage:
         派生字段和分段搞成互相矛盾的状态，而这种矛盾在界面上很难看出来。
         """
         if not isinstance(data, dict):
-            return cls(id=0, role=ElaChatRole.Assistant)
+            return cls(id=0, role=ElaChatRoleType.Assistant)
         base = cls(
             id=_as_int(data.get("id")),
-            role=_as_choice(data.get("role"), ElaChatRole.All, ElaChatRole.Assistant),
+            role=_as_choice(data.get("role"), ElaChatRoleType.All, ElaChatRoleType.Assistant),
             text=_as_str(data.get("text")),
             status=_as_choice(
-                data.get("status"), ElaChatStatus.All, ElaChatStatus.Done
+                data.get("status"), ElaChatStatusType.All, ElaChatStatusType.Done
             ),
             created_at=_as_float(data.get("created_at")),
             title=_as_str(data.get("title")),

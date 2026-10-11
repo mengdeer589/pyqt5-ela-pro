@@ -143,13 +143,9 @@ def selectPricing(
 def stats_cost(stats, pricing: Optional[ModelPricing] = None) -> float:
     """把 :class:`~pyqt5_ela_pro.chat.message.ElaChatStats` 换算成美元花费。
 
-    计费口径（对齐 opencode）：``prompt + cached`` 决定阶梯档位；实际计费按四路分别
-    乘单价，其中 ``completion`` **已含 reasoning**（上游 usage 里 reasoning 通常是
-    completion 的子集，不重复加）；最后除以 1e6。
-
-    ``ElaChatStats`` 不区分缓存读写（只有一个 ``cached_tokens``），故全部按**缓存读**
-    计价 —— 与该字段「缓存命中」的语义一致。宿主若有更细的拆分请走
-    :func:`cost_from_parts` 或自己填 ``cost_usd``。
+    计费口径（对齐 opencode）：``prompt + cache读 + cache写`` 决定阶梯档位；
+    实际计费按四路分别乘单价，其中 ``completion`` **已含 reasoning**（上游
+    usage 里 reasoning 通常是 completion 的子集，不重复加）；最后除以 1e6。
 
     :param stats: 用量快照；``None`` 返回 0.0
     :param pricing: 定价；``None`` 返回 0.0
@@ -158,11 +154,13 @@ def stats_cost(stats, pricing: Optional[ModelPricing] = None) -> float:
         return 0.0
     prompt = _finite(getattr(stats, "prompt_tokens", 0))
     completion = _finite(getattr(stats, "completion_tokens", 0))
-    cached = _finite(getattr(stats, "cached_tokens", 0))
+    cache_read = _finite(getattr(stats, "cache_read_tokens", 0))
+    cache_write = _finite(getattr(stats, "cache_write_tokens", 0))
     return cost_from_parts(
         prompt,
         completion,
-        cacheRead=cached,
+        cacheRead=cache_read,
+        cacheWrite=cache_write,
         pricing=pricing,
     )
 

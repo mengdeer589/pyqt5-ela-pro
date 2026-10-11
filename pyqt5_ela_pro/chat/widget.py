@@ -39,11 +39,15 @@
 
     chat = ElaChatWidget(parent)
     binder = ElaChatStreamBinder(chat, worker=my_worker)   # 后端事件 → 组件
-    chat.messageSubmitted.connect(lambda text: binder.startTurn(text))
+    # 有附件就接 Full 变体（多带一份 attachments；重新生成时同样要带上）
+    chat.messageSubmittedFull.connect(
+        lambda text, attachments: binder.startTurn(text, attachments=attachments)
+    )
 """
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import Optional
 from uuid import uuid4
 
@@ -51,7 +55,7 @@ from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtGui import QImage
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
-from .._ownership import WidgetOwnership
+from .._ownership import ElaWidgetOwnershipType
 from ..ela_confirm_dialog import ElaConfirmDialog
 from ..widget_base import ElaThemeWidget
 from .blocks import MessageActions
@@ -59,8 +63,8 @@ from .docks import ElaChatInputDock, ElaChatPermissionDock, ElaChatQueueDock
 from .input import ElaChatInput
 from .message import (
     ElaChatMessage,
-    ElaChatRole,
-    ElaChatStatus,
+    ElaChatRoleType,
+    ElaChatStatusType,
 )
 from .toolbar import ElaChatToolBar
 from .view import ElaChatView
@@ -113,6 +117,8 @@ class ElaChatWidget(ElaThemeWidget):
     clearRequested = pyqtSignal()
     #: 点击「新建话题」按钮（组件不做任何处理，宿主据此开新会话 / 话题）
     newTopicRequested = pyqtSignal()
+    #: 点击输入区工具栏的上下文占用圆环（组件不做任何行为，宿主据此弹详情面板等）
+    contextUsageClicked = pyqtSignal()
     #: 会话被清空（消息 + 队列 + 生成态）——宿主在此重置**自己的后端会话**
     #: （``worker.reset()``）：后端上下文只有宿主知道，组件清不到
     cleared = pyqtSignal()
@@ -168,6 +174,10 @@ class ElaChatWidget(ElaThemeWidget):
         #: 待送插话（steer）；与 ``_queue`` 分开，投递时机完全不同
         self._steer: list = []
         self._steer_enabled = True
+        #: 已经为该消息发过 ``generationFinished`` 的 id 集合：一个回合只允许
+        #: 一次收尾信号（``_endActiveStream`` 与后续 ``binder.finish`` 都会走到
+        #: 收尾）。消息被删 / 清空时同步剪掉，避免 id 复用时被误判成「已收尾」。
+        self._finished_generation: set = set()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -209,6 +219,7 @@ class ElaChatWidget(ElaThemeWidget):
         self._input.filesAdded.connect(self.filesAdded)
         self._input.clearRequested.connect(self._on_clear_requested)
         self._input.newTopicRequested.connect(self.newTopicRequested)
+        self._input.contextUsageClicked.connect(self.contextUsageClicked)
         self._input_dock.changed.connect(self._on_input_dock_changed)
         self._queue_dock.sendRequested.connect(self.sendQueuedNow)
         self._queue_dock.editRequested.connect(self.editQueuedMessage)
@@ -264,13 +275,13 @@ class ElaChatWidget(ElaThemeWidget):
         widget: Optional[QWidget],
         replace: bool = True,
         *,
-        ownership=WidgetOwnership.Borrowed,
+        ownership=ElaWidgetOwnershipType.Borrowed,
     ) -> bool:
         """在输入区上方显示 dock 内容（``replace=True`` 时输入区不可用）。
 
         :param ownership: 释放策略，默认 ``Borrowed`` —— ``clearDock()`` 只把控件
             ``setParent(None)`` 交还调用方，**不删除**。要让本组件负责销毁请传
-            :attr:`~pyqt5_ela_pro.WidgetOwnership.Owned`。
+            :attr:`~pyqt5_ela_pro.ElaWidgetOwnershipType.Owned`。
         :returns: 是否挂载成功。
         """
         return self._input_dock.setWidget(widget, replace=replace, ownership=ownership)
@@ -303,20 +314,32 @@ class ElaChatWidget(ElaThemeWidget):
         dock 上已经有卡时**不顶掉**：用户可能正在答先前那张（草稿都打了一半），
         换一张等于把答案白打一遍。改成排队计数，等前一张落定后由
         :meth:`_promote_next_permission` 按时间线顺序接上。
+
+        判据是 dock **实体上有没有卡**而不是私有影子字段 —— 宿主直接
+        ``permissionDock().setCard(None)`` 撤卡的路径不会同步影子字段。
         """
-        if self._permission_dock_part:
+        if self._permission_dock_part and self._permission_dock.card() is not None:
             self._permission_dock.setQueued(self._permission_dock.queued() + 1)
             return
         self._permission_dock_part = str(partId)
         self._permission_dock.setCard(card)
 
     def _on_permission_settled(self, messageId: int, partId: str) -> None:
-        """当前卡落定 -> 撤下 dock，再把**下一张**待答的顶上来。
+        """有审批落定 -> 撤下 dock 上的卡，再把**下一张**待答的顶上来。
 
         dock 一次只放一张。后到的审批不会把先来的顶掉（用户可能正在答先前那张），
         而是排队等位 —— 落定后按时间线顺序依次呈现。
+
+        **补位不只在「落定的正是当前卡」时发生**：``clearPermissionDock`` /
+        宿主直接撤卡后影子字段为空、dock 上也没卡，此时任何一次落定都要重新
+        promote，否则剩下的 pending 卡既看不见也点不到（宿主的后端会死等一个
+        无法给出的答复）。用户正在答 A（dock 有卡）时 B 落定则不动 A。
         """
-        if self._permission_dock_part != str(partId):
+        if (
+            self._permission_dock_part != str(partId)
+            and self._permission_dock_part
+            and self._permission_dock.card() is not None
+        ):
             return
         self._permission_dock_part = ""
         self._promote_next_permission()
@@ -372,7 +395,7 @@ class ElaChatWidget(ElaThemeWidget):
         """设置用户消息头部显示名（含已存在消息）。"""
         self._user_title = name or ""
         for message in self._view.messages():
-            if message.role == ElaChatRole.User:
+            if message.role == ElaChatRoleType.User:
                 self._view.setMessageTitle(message.id, self._user_title)
 
     def userName(self) -> str:
@@ -383,7 +406,7 @@ class ElaChatWidget(ElaThemeWidget):
         """设置助手消息头部显示名 / 模型名（含已存在消息）。"""
         self._assistant_title = name or ""
         for message in self._view.messages():
-            if message.role == ElaChatRole.Assistant:
+            if message.role == ElaChatRoleType.Assistant:
                 self._view.setMessageTitle(message.id, self._assistant_title)
 
     def assistantName(self) -> str:
@@ -420,16 +443,17 @@ class ElaChatWidget(ElaThemeWidget):
                 return existing.id
         if self._streaming_id is not None:
             # 先就地收尾旧流再通知宿主：宿主可能在 stopRequested 槽里同步
-            # 走完 binder.finish()，若此时生成态仍在，会触发排队续发，
-            # 把队首消息抢在新消息之前发出（顺序错乱）。
-            self._endActiveStream(ElaChatStatus.Stopped)
-            self.stopRequested.emit()
+            # 走完 binder.finish(turn)，其末尾会续发排队消息 —— 不压住就会把
+            # 队首消息抢在新消息之前发出（顺序错乱，且队首回合立刻被截断）。
+            self._endActiveStream(ElaChatStatusType.Stopped)
+            with self._autoSendPaused():
+                self.stopRequested.emit()
         if messageId is None:
-            messageId = self._view.addMessage(ElaChatRole.User, text)
+            messageId = self._view.addMessage(ElaChatRoleType.User, text)
         else:
             # 外部 id 且尚不存在：用该 id 建消息（乐观 UI 先行渲染的路径）
             messageId = self._view.addMessage(
-                ElaChatRole.User, text, messageId=messageId
+                ElaChatRoleType.User, text, messageId=messageId
             )
         if self._user_title:
             self._view.setMessageTitle(messageId, self._user_title)
@@ -445,6 +469,23 @@ class ElaChatWidget(ElaThemeWidget):
             self.enqueueMessage(text, attachments)
             return
         self.sendUserMessage(text, attachments)
+
+    @contextmanager
+    def _autoSendPaused(self):  # noqa: N802 (与 Qt 命名一致)
+        """临时关掉 ``autoSendQueue``（``clear`` / 换流期间）。
+
+        宿主在 ``stopRequested`` 槽里会同步走完收尾（``binder.finish`` →
+        ``endAssistantMessage``），而后者末尾**无条件**排下一条排队消息。放在
+        「换流」与「清空会话」里，这一步等于：用户点 B 的「立即发送」，A 被抢在
+        B 前面发了出去（还立刻被 B 截断）；用户点清空，排队消息已经被送进后端
+        才被抹掉（白跑一轮）。照抄 ``binder.abortTurn`` 的处理方式。
+        """
+        autoSend = self._auto_send_queue
+        self._auto_send_queue = False
+        try:
+            yield
+        finally:
+            self._auto_send_queue = autoSend
 
     # -- 排队（follow-up） -------------------------------------------------
 
@@ -504,7 +545,13 @@ class ElaChatWidget(ElaThemeWidget):
         return False
 
     def sendQueuedNow(self, queueId: str) -> bool:
-        """立即发送指定排队消息（出队并作为新消息提交）。"""
+        """立即发送指定排队消息（出队并作为新消息提交）。
+
+        **只发被点的那一条**：其余排队消息保持排队（等本回合结束后自动续发）——
+        在途流的收尾链（``stopRequested`` → 宿主 ``binder.finish``）末尾本来会
+        排下一条排队消息，这条路径上必须压住，否则队首会抢在前面发出去并立刻
+        被这条截断。
+        """
         for index, item in enumerate(self._queue):
             if item["id"] != queueId:
                 continue
@@ -681,21 +728,28 @@ class ElaChatWidget(ElaThemeWidget):
         """清空整个会话：中止生成 -> 停流 -> 清队列 -> 清消息 -> 发 ``cleared``。
 
         顺序要紧：先 ``stopRequested`` 让宿主有机会 cancel 后端，再停流，
-        否则后端还在往已清空的消息里发分片。
+        否则后端还在往已清空的消息里发分片。**整段都关掉 ``autoSendQueue``**：
+        宿主的收尾（``binder.finish``）会同步排下一条排队消息，不关的话这条
+        消息会被送进后端、随即又被清掉 —— 白跑一轮，界面还看不出发生过什么。
 
         只清**组件侧**（界面 / 队列 / 生成态）：后端会话历史归宿主，宿主接
         ``cleared`` 后自行 ``worker.reset()`` —— 少了这步界面是空的、模型
         却还带着清空前的上下文。
         """
-        if self._generating or self._streaming_id is not None:
-            self.stopGeneration()
-        self._streaming_id = None
-        self.setGenerating(False)
-        self.clearQueue()
-        # 会话没了，两个 dock 都要清（审批卡对应的消息已经不存在）
-        self.clearDock()
-        self.clearPermissionDock()
-        self._view.clear()
+        with self._autoSendPaused():
+            if self._generating or self._streaming_id is not None:
+                self.stopGeneration()
+            self._streaming_id = None
+            self.setGenerating(False)
+            self.clearQueue()
+            # 插话属于**被中止的那一轮**：留着会在新会话的下一个 step 边界
+            # 被自动投递（旧指令静默重放给模型），必须一起清
+            self.clearSteer()
+            self._finished_generation.clear()
+            # 会话没了，两个 dock 都要清（审批卡对应的消息已经不存在）
+            self.clearDock()
+            self.clearPermissionDock()
+            self._view.clear()
         self.cleared.emit()
 
     def setMessageError(
@@ -714,7 +768,7 @@ class ElaChatWidget(ElaThemeWidget):
             return
         self._view.setMessageError(target, message, errorType)
         if message and target == self._streaming_id:
-            self._finishErrorTurn(target, ElaChatStatus.Error)
+            self._finishErrorTurn(target, ElaChatStatusType.Error)
 
     def removeMessage(self, messageId: int) -> None:
         """移除指定消息；若是当前流式消息则先结束生成状态。"""
@@ -726,6 +780,7 @@ class ElaChatWidget(ElaThemeWidget):
         bubble = self._view.bubble(messageId)
         if bubble is not None:
             bubble.cancelPendingPermissions()
+        self._finished_generation.discard(messageId)
         self._view.removeMessage(messageId)
 
     def _sync_queue(self) -> None:
@@ -740,8 +795,8 @@ class ElaChatWidget(ElaThemeWidget):
         保证同一时刻只有一个活跃流。
         """
         if self._streaming_id is not None:
-            self._endActiveStream(ElaChatStatus.Stopped)
-        messageId = self._view.beginMessage(ElaChatRole.Assistant)
+            self._endActiveStream(ElaChatStatusType.Stopped)
+        messageId = self._view.beginMessage(ElaChatRoleType.Assistant)
         if self._assistant_title:
             self._view.setMessageTitle(messageId, self._assistant_title)
         self._streaming_id = messageId
@@ -768,12 +823,16 @@ class ElaChatWidget(ElaThemeWidget):
     def endAssistantMessage(
         self,
         messageId: Optional[int] = None,
-        status: str = ElaChatStatus.Done,
+        status: str = ElaChatStatusType.Done,
     ) -> Optional[int]:
         """结束助手消息（默认当前流式消息）；返回消息 id。
 
         先发 ``generationFinished``（宿主可更新状态栏）；若开启
         ``autoSendQueue``（默认），随后自动发送队首排队消息。
+
+        **幂等**：消息已被 ``stopGeneration`` / ``_endActiveStream`` 收尾过时，
+        只补状态与排队续发，不再重复 ``endMessage`` / ``generationFinished``
+        （一次回合一次收尾信号）。
         """
         target = self._streaming_id if messageId is None else messageId
         if target is None:
@@ -784,19 +843,31 @@ class ElaChatWidget(ElaThemeWidget):
         message = self._view.message(target)
         if (
             message is not None
-            and message.status == ElaChatStatus.Error
-            and status == ElaChatStatus.Done
+            and message.status == ElaChatStatusType.Error
+            and status == ElaChatStatusType.Done
         ):
-            # 已出错的消息不被缺省的「完成」覆盖（显式传其他状态仍生效）
-            return self._finishErrorTurn(target, status)
-        self._view.endMessage(target, status)
+            # 已出错的消息不被缺省的「完成」覆盖：按实际状态补发收尾信号
+            return self._finishErrorTurn(target, ElaChatStatusType.Error)
+        if message is not None and message.isStreaming:
+            self._view.endMessage(target, status)
         if target == self._streaming_id:
             self._streaming_id = None
         self.setGenerating(False)
-        self.generationFinished.emit(target, status)
+        self._emit_generation_finished(target, status)
         if self._auto_send_queue:
             self.sendNextQueued()
         return target
+
+    def _emit_generation_finished(self, target: int, status: str) -> None:
+        """发 ``generationFinished``（**同一条消息只发一次**）。
+
+        ``_endActiveStream``（停止 / 换流）与随后的 ``binder.finish`` 都会走到
+        收尾，不去重宿主会收到两次；消息被删除时调用方负责剪掉记录。
+        """
+        if target in self._finished_generation:
+            return
+        self._finished_generation.add(target)
+        self.generationFinished.emit(target, status)
 
     def _finishErrorTurn(self, target: int, status: str) -> int:
         """错误回合的收尾：落 generating、发 ``generationFinished``、排空队列。
@@ -808,7 +879,7 @@ class ElaChatWidget(ElaThemeWidget):
         if target == self._streaming_id:
             self._streaming_id = None
         self.setGenerating(False)
-        self.generationFinished.emit(target, status)
+        self._emit_generation_finished(target, status)
         if self._auto_send_queue:
             self.sendNextQueued()
         return target
@@ -823,9 +894,15 @@ class ElaChatWidget(ElaThemeWidget):
         if target is None:
             return None
         self._streaming_id = None
-        self._view.endMessage(target, status)
+        message = self._view.message(target)
+        if message is not None and message.status == ElaChatStatusType.Error:
+            # 错误来自 ``view.setMessageError``（widget 并不知道）：不能再用
+            # 缺省的 ``Stopped`` 覆盖，收尾信号与文案都按实际状态走
+            status = ElaChatStatusType.Error
+        if message is None or message.isStreaming:
+            self._view.endMessage(target, status)
         self.setGenerating(False)
-        self.generationFinished.emit(target, status)
+        self._emit_generation_finished(target, status)
         return target
 
     # -- 输入区扩展（补全） ------------------------------------------------
@@ -865,7 +942,7 @@ class ElaChatWidget(ElaThemeWidget):
         # beginAssistantMessage()，此时 _streaming_id 已指向**新**消息。
         # 原先「先 emit 再 endAssistantMessage(self._streaming_id)」的顺序会把
         # 刚自动发出的续发回合立刻置成 stopped。
-        target = self._endActiveStream(ElaChatStatus.Stopped)
+        target = self._endActiveStream(ElaChatStatusType.Stopped)
         if target is None:
             self.setGenerating(False)
         self.stopRequested.emit()
@@ -884,9 +961,9 @@ class ElaChatWidget(ElaThemeWidget):
     def addMessage(self, role: str, text: str = "") -> int:
         """添加一条普通消息（用户 / 助手 / 系统）；返回消息 id。"""
         messageId = self._view.addMessage(role, text)
-        if role == ElaChatRole.User and self._user_title:
+        if role == ElaChatRoleType.User and self._user_title:
             self._view.setMessageTitle(messageId, self._user_title)
-        elif role == ElaChatRole.Assistant and self._assistant_title:
+        elif role == ElaChatRoleType.Assistant and self._assistant_title:
             self._view.setMessageTitle(messageId, self._assistant_title)
         return messageId
 
@@ -911,6 +988,9 @@ class ElaChatWidget(ElaThemeWidget):
             self._streaming_id = None
             self.setGenerating(False)
         self._view.removeMessagesFrom(messageId)
+        self._finished_generation = {
+            item for item in self._finished_generation if item < messageId
+        }
         self._input.setText(target.text)
         self._input.setAttachments(target.attachments)
         return target
@@ -935,11 +1015,9 @@ class ElaChatWidget(ElaThemeWidget):
         return self.undoMessage(target.id)
 
     def regenerateFrom(self, messageId: int) -> Optional[ElaChatMessage]:
-        """重新生成准备：删除该回答及其后消息，返回其之前的用户消息。
-
-        :param messageId: 被重新生成的助手消息 id
-        :returns: 提问的用户消息快照（宿主随后 ``beginAssistantMessage()``
-            并重跑后端；找不到前置用户消息时不删除任何消息并返回 ``None``）
+        """重新生成准备：删除该回答及其后消息，返回其之前的用户消息快照
+        （宿主随后 ``beginAssistantMessage()`` 并重跑后端）；找不到前置用户消息时
+        不删除任何消息并返回 ``None``。
         """
         userMessage = None
         for message in self._view.messages():
@@ -953,10 +1031,14 @@ class ElaChatWidget(ElaThemeWidget):
             self._streaming_id = None
             self.setGenerating(False)
         self._view.removeMessagesFrom(messageId)
+        self._finished_generation = {
+            item for item in self._finished_generation if item < messageId
+        }
         return userMessage
 
     def retryMessage(self, messageId: int) -> Optional[ElaChatMessage]:
-        """重试准备：清掉该回答的错误与残留内容，**保留消息位置**。
+        """重试准备：清掉该回答的错误（状态落成 ``Stopped``，保留失败记录），
+        **保留消息位置**。
 
         与 :meth:`regenerateFrom` 的区别是本方法**不删消息** —— 「重试」是
         同参数重发，这条助手消息（含它的 id、它在时间线上的位置）原地复用，
@@ -977,7 +1059,7 @@ class ElaChatWidget(ElaThemeWidget):
             return None
         if self._streaming_id == messageId:
             self._streaming_id = None
-        self.setGenerating(False)
+            self.setGenerating(False)
         self._view.clearMessageError(messageId)
         return userMessage
 

@@ -149,11 +149,10 @@ def replay_section(
 ):
     """一节 = 标题行（含「</> 代码」）+ 若干按钮 + 说明。
 
-    :param build_steps: ``() -> [(ms, callable), ...]``。**每次都重新调用** ——
-        步骤里的闭包会捕获当轮的 ``messageId``，不能缓存。
-    :param buttons: 除「重播」之外的按钮，``(文案, 回调)``。
-    :returns: ``(layout, note_label)``；``note_label`` 由 ``build_steps``
-        里的回调更新（用 :func:`set_note`）。
+    ``build_steps`` 是 ``() -> [(ms, callable), ...]``，**每次都重新调用** ——
+    步骤里的闭包会捕获当轮的 ``messageId``，不能缓存。``buttons`` 是除「重播」
+    之外的按钮 ``(文案, 回调)``。返回 ``(layout, note_label)``，``note_label``
+    由步骤里的回调经 :func:`set_note` 更新。
     """
     row = page._createHeaderRow(title, method)  # noqa: SLF001 —— 示例页内部约定
     row.addWidget(

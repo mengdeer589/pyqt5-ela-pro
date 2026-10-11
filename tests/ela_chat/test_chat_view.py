@@ -10,11 +10,11 @@ from PyQt5.QtWidgets import QTextEdit
 from PyQt5ElaWidgetTools import ElaThemeType
 
 from pyqt5_ela_pro.chat import (
-    ElaChatReasoningStyle,
+    ElaChatReasoningStyleType,
     DISCLAIMER_TEXT,
-    ElaChatRole,
+    ElaChatRoleType,
     ElaChatStats,
-    ElaChatStatus,
+    ElaChatStatusType,
     ElaChatView,
     ElaChatWidget,
 )
@@ -26,7 +26,7 @@ def _long_view(qapp, make, messages: int = 8) -> ElaChatView:
     view.show()
     qapp.processEvents()
     for index in range(messages):
-        view.addMessage(ElaChatRole.User, f"消息 {index} " + "内容" * 20)
+        view.addMessage(ElaChatRoleType.User, f"消息 {index} " + "内容" * 20)
     bar = view._scroll.verticalScrollBar()
     _wait_until(qapp, lambda: bar.maximum() > 0)
     return view
@@ -35,21 +35,21 @@ def _long_view(qapp, make, messages: int = 8) -> ElaChatView:
 class TestMessages:
     def test_add_and_snapshot(self, qapp, make):
         view = make(ElaChatView)
-        first = view.addMessage(ElaChatRole.User, "你好")
-        second = view.addMessage(ElaChatRole.System, "提示")
+        first = view.addMessage(ElaChatRoleType.User, "你好")
+        second = view.addMessage(ElaChatRoleType.System, "提示")
         assert (first, second) == (1, 2)
         assert view.count() == 2
         snapshot = view.messages()
         assert [m.text for m in snapshot] == ["你好", "提示"]
-        assert [m.role for m in snapshot] == [ElaChatRole.User, ElaChatRole.System]
+        assert [m.role for m in snapshot] == [ElaChatRoleType.User, ElaChatRoleType.System]
         assert view.message(second).text == "提示"
         assert view.message(99) is None
         assert view.lastMessage().id == second
 
     def test_begin_append_end(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.beginMessage(ElaChatRole.Assistant)
-        assert view.message(messageId).status == ElaChatStatus.Streaming
+        messageId = view.beginMessage(ElaChatRoleType.Assistant)
+        assert view.message(messageId).status == ElaChatStatusType.Streaming
         view.appendText(messageId, "部分")
         view.appendText(messageId, "内容")
         # 快照 text 是落定值；实时全文走气泡
@@ -59,15 +59,15 @@ class TestMessages:
         view.messageStreamFinished.connect(
             lambda mid, status: finished.append((mid, status))
         )
-        view.endMessage(messageId, ElaChatStatus.Stopped)
-        assert finished == [(messageId, ElaChatStatus.Stopped)]
-        assert view.message(messageId).status == ElaChatStatus.Stopped
+        view.endMessage(messageId, ElaChatStatusType.Stopped)
+        assert finished == [(messageId, ElaChatStatusType.Stopped)]
+        assert view.message(messageId).status == ElaChatStatusType.Stopped
         assert view.message(messageId).text == "部分内容"
 
     def test_update_remove_clear(self, qapp, make):
         view = make(ElaChatView)
-        first = view.addMessage(ElaChatRole.User, "a")
-        second = view.addMessage(ElaChatRole.Assistant, "b")
+        first = view.addMessage(ElaChatRoleType.User, "a")
+        second = view.addMessage(ElaChatRoleType.Assistant, "b")
         removed = []
         view.messageRemoved.connect(removed.append)
 
@@ -91,12 +91,12 @@ class TestMessages:
         view.messageStreamFinished.connect(
             lambda mid, status: events.append(("finished", mid, status))
         )
-        messageId = view.beginMessage(ElaChatRole.Assistant)
+        messageId = view.beginMessage(ElaChatRoleType.Assistant)
         view.appendText(messageId, "x")
         view.endMessage(messageId)
-        assert events[0] == ("added", messageId, ElaChatRole.Assistant)
+        assert events[0] == ("added", messageId, ElaChatRoleType.Assistant)
         assert ("updated", messageId) in events
-        assert events[-1] == ("finished", messageId, ElaChatStatus.Done)
+        assert events[-1] == ("finished", messageId, ElaChatStatusType.Done)
 
     def test_append_unknown_id_ignored(self, qapp, make):
         view = make(ElaChatView)
@@ -111,7 +111,7 @@ class TestEmptyState:
         view.show()
         qapp.processEvents()
         assert view._empty.isVisible()
-        messageId = view.addMessage(ElaChatRole.User, "hi")
+        messageId = view.addMessage(ElaChatRoleType.User, "hi")
         qapp.processEvents()
         assert not view._empty.isVisible()
         view.removeMessage(messageId)
@@ -160,7 +160,7 @@ class TestStickToBottom:
         qapp.processEvents()
         view.setStickToBottom(False)
         bar.setValue(0)
-        view.addMessage(ElaChatRole.User, "新消息 " + "内容" * 20)
+        view.addMessage(ElaChatRoleType.User, "新消息 " + "内容" * 20)
         # 关掉贴底后不得再跟随：等 follow 定时器确定没被武装，视口应停在原处
         assert _wait_until(qapp, lambda: not view._follow_timer.isActive())
         assert bar.value() < bar.maximum() - 6
@@ -179,7 +179,7 @@ class TestAppearancePropagation:
         view = make(ElaChatView)
         view.setAvatarVisible(False)
         view.setUserBubbleMaxWidth(0.5)
-        messageId = view.addMessage(ElaChatRole.User, "hi")
+        messageId = view.addMessage(ElaChatRoleType.User, "hi")
         bubble = view.bubble(messageId)
         assert bubble.avatarVisible() is False
         assert bubble.maxWidthRatio() == 0.5
@@ -193,7 +193,7 @@ class TestAppearancePropagation:
 class TestReasoningLayer:
     def test_reasoning_stream(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.beginMessage(ElaChatRole.Assistant)
+        messageId = view.beginMessage(ElaChatRoleType.Assistant)
         view.beginReasoning(messageId)
         assert view.bubble(messageId).reasoningBlock().isOpened()
         view.appendReasoning(messageId, "先想")
@@ -208,7 +208,7 @@ class TestReasoningLayer:
 
     def test_set_reasoning_replaces(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.addMessage(ElaChatRole.Assistant, "回答")
+        messageId = view.addMessage(ElaChatRoleType.Assistant, "回答")
         view.setReasoning(messageId, "整体推理", 1200.0)
         snapshot = view.message(messageId)
         assert snapshot.reasoning == "整体推理"
@@ -217,7 +217,7 @@ class TestReasoningLayer:
     def test_update_message_replaces_all_text_parts(self, qapp, make):
         """多段正文（多步骤）时 ``updateMessage`` 是**整段替换**，不是追加。"""
         view = make(ElaChatView)
-        messageId = view.beginMessage(ElaChatRole.Assistant)
+        messageId = view.beginMessage(ElaChatRoleType.Assistant)
         view.beginText(messageId)
         view.appendText(messageId, "A")
         view.endText(messageId)
@@ -242,7 +242,7 @@ class TestReasoningLayer:
 class TestToolLayer:
     def test_tool_call_flow(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.beginMessage(ElaChatRole.Assistant)
+        messageId = view.beginMessage(ElaChatRoleType.Assistant)
         callId = view.addToolCall(messageId, "read_file", '{"path": "a"}')
         assert callId
         calls = view.toolCalls(messageId)
@@ -269,7 +269,7 @@ class TestToolLayer:
 class TestStatsErrorAttachments:
     def test_stats_and_error(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.beginMessage(ElaChatRole.Assistant)
+        messageId = view.beginMessage(ElaChatRoleType.Assistant)
         stats = ElaChatStats(
             prompt_tokens=1, completion_tokens=2, total_tokens=3, tps=9.0
         )
@@ -279,11 +279,11 @@ class TestStatsErrorAttachments:
         view.setMessageError(messageId, "接口超时")
         snapshot = view.message(messageId)
         assert snapshot.error == "接口超时"
-        assert snapshot.status == ElaChatStatus.Error
+        assert snapshot.status == ElaChatStatusType.Error
 
     def test_message_attachments(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.addMessage(ElaChatRole.User, "看这个")
+        messageId = view.addMessage(ElaChatRoleType.User, "看这个")
         view.setMessageAttachments(
             messageId, [{"name": "a.png", "path": "C:/tmp/a.png", "size": 1024}]
         )
@@ -293,7 +293,7 @@ class TestStatsErrorAttachments:
 
     def test_title_and_timestamp(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.addMessage(ElaChatRole.Assistant, "hi")
+        messageId = view.addMessage(ElaChatRoleType.Assistant, "hi")
         view.setMessageTitle(messageId, "deepseek")
         view.setMessageTimestamp(messageId, "12:34:56")
         snapshot = view.message(messageId)
@@ -305,7 +305,7 @@ class TestStatsErrorAttachments:
 class TestMessageActions:
     def test_action_signals_carry_message_id(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.addMessage(ElaChatRole.User, "hi")
+        messageId = view.addMessage(ElaChatRoleType.User, "hi")
         events = []
         copies = []
         view.messageActionTriggered.connect(lambda mid, key: events.append((mid, key)))
@@ -317,7 +317,7 @@ class TestMessageActions:
     def test_regenerate_hidden_until_turn_finishes(self, qapp, make):
         """底部行整行（含「重新生成」）在回合结束前不出现（与气泡层同一判定）。"""
         view = make(ElaChatView)
-        messageId = view.beginMessage(ElaChatRole.Assistant)
+        messageId = view.beginMessage(ElaChatRoleType.Assistant)
         bubble = view.bubble(messageId)
         assert bubble.footer().isHidden() is True
         view.appendText(messageId, "写一半")
@@ -330,8 +330,8 @@ class TestMessageActions:
     def test_disclaimer_applies_to_existing_and_new_messages(self, qapp, make):
         """「AI 生成」提示：view 改一次覆盖已有 + 之后新增的助手消息。"""
         view = make(ElaChatView)
-        first = view.bubble(view.addMessage(ElaChatRole.Assistant, "一"))
-        second_id = view.addMessage(ElaChatRole.Assistant, "二")
+        first = view.bubble(view.addMessage(ElaChatRoleType.Assistant, "一"))
+        second_id = view.addMessage(ElaChatRoleType.Assistant, "二")
         assert view.disclaimer() == DISCLAIMER_TEXT
         assert view.disclaimerVisible() is True
 
@@ -342,13 +342,13 @@ class TestMessageActions:
         view.setDisclaimerVisible(False)
         assert view.disclaimerVisible() is False
         assert first.disclaimerVisible() is False
-        new_id = view.addMessage(ElaChatRole.Assistant, "三")  # 新消息也继承
+        new_id = view.addMessage(ElaChatRoleType.Assistant, "三")  # 新消息也继承
         assert view.bubble(new_id).disclaimerVisible() is False
         qapp.processEvents()
 
     def test_custom_action_passthrough(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.addMessage(ElaChatRole.Assistant, "hi")
+        messageId = view.addMessage(ElaChatRoleType.Assistant, "hi")
         events = []
         view.messageActionTriggered.connect(lambda mid, key: events.append((mid, key)))
         bubble = view.bubble(messageId)
@@ -358,7 +358,7 @@ class TestMessageActions:
 
     def test_attachment_clicked_carries_message_id(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.addMessage(ElaChatRole.User, "看附件")
+        messageId = view.addMessage(ElaChatRoleType.User, "看附件")
         view.setMessageAttachments(messageId, [{"name": "a.txt", "path": "C:/a.txt"}])
         clicked = []
         view.attachmentClicked.connect(lambda mid, path: clicked.append((mid, path)))
@@ -367,10 +367,30 @@ class TestMessageActions:
         assert clicked == [(messageId, "C:/a.txt")]
 
 
+class TestCopyNotificationToggle:
+    def test_default_enabled(self, qapp, make):
+        view = make(ElaChatView)
+        assert view.copyNotificationEnabled() is True
+
+    def test_applies_to_existing_and_new_messages(self, qapp, make):
+        """与其它展示形态 setter 一致：view 改一次，已有 + 之后新增全部生效。"""
+        view = make(ElaChatView)
+        first = view.bubble(view.addMessage(ElaChatRoleType.User, "一"))
+
+        view.setCopyNotificationEnabled(False)
+        second_id = view.addMessage(ElaChatRoleType.User, "二")
+        assert first.copyNotificationEnabled() is False
+        assert view.bubble(second_id).copyNotificationEnabled() is False
+
+        view.setCopyNotificationEnabled(True)
+        assert first.copyNotificationEnabled() is True
+        assert view.bubble(second_id).copyNotificationEnabled() is True
+
+
 class TestViewPassthroughs:
     def test_duration_title_timestamp_emit_updates(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.addMessage(ElaChatRole.Assistant, "hi")
+        messageId = view.addMessage(ElaChatRoleType.Assistant, "hi")
         events = []
         view.messageUpdated.connect(events.append)
 
@@ -383,18 +403,18 @@ class TestViewPassthroughs:
 
     def test_style_and_grouping_applied(self, qapp, make):
         view = make(ElaChatView)
-        view.setReasoningStyle(ElaChatReasoningStyle.Inline)
+        view.setReasoningStyle(ElaChatReasoningStyleType.Inline)
         view.setToolGrouping(False)
-        assert view.reasoningStyle() == ElaChatReasoningStyle.Inline
+        assert view.reasoningStyle() == ElaChatReasoningStyleType.Inline
         assert view.toolGrouping() is False
-        messageId = view.addMessage(ElaChatRole.Assistant, "hi")
+        messageId = view.addMessage(ElaChatRoleType.Assistant, "hi")
         bubble = view.bubble(messageId)
-        assert bubble.reasoningStyle() == ElaChatReasoningStyle.Inline
+        assert bubble.reasoningStyle() == ElaChatReasoningStyleType.Inline
         assert bubble.toolGrouping() is False
 
     def test_message_duration(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.addMessage(ElaChatRole.Assistant, "hi")
+        messageId = view.addMessage(ElaChatRoleType.Assistant, "hi")
         view.setMessageDuration(messageId, 1500)
         assert view.message(messageId).duration_ms == 1500.0
         assert view.bubble(messageId).duration() == 1500.0
@@ -403,9 +423,9 @@ class TestViewPassthroughs:
 class TestBatchRemoveAndSync:
     def test_remove_messages_from(self, qapp, make):
         view = make(ElaChatView)
-        first = view.addMessage(ElaChatRole.User, "a")
-        second = view.addMessage(ElaChatRole.Assistant, "b")
-        third = view.addMessage(ElaChatRole.User, "c")
+        first = view.addMessage(ElaChatRoleType.User, "a")
+        second = view.addMessage(ElaChatRoleType.Assistant, "b")
+        third = view.addMessage(ElaChatRoleType.User, "c")
         removed = []
         view.messageRemoved.connect(removed.append)
 
@@ -422,7 +442,7 @@ class TestBatchRemoveAndSync:
         落定语义的前提。
         """
         view = make(ElaChatView)
-        messageId = view.beginMessage(ElaChatRole.Assistant)
+        messageId = view.beginMessage(ElaChatRoleType.Assistant)
         updates = []
         view.messageUpdated.connect(updates.append)
 
@@ -440,7 +460,7 @@ class TestBatchRemoveAndSync:
 
     def test_guard_installed_for_streamed_viewer_and_pruned(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.beginMessage(ElaChatRole.Assistant)
+        messageId = view.beginMessage(ElaChatRoleType.Assistant)
         view.appendText(messageId, "hello")
         assert view.bubble(messageId).markdownViewer() is not None
 
@@ -469,7 +489,7 @@ class TestScrollBehavior:
 
     def test_nested_scroll_guard_installed(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.addMessage(ElaChatRole.Assistant, "hi")
+        messageId = view.addMessage(ElaChatRoleType.Assistant, "hi")
         viewer = view.bubble(messageId).markdownViewer()
         assert viewer is not None
         assert view.guardNestedScroll(viewer) is not None
@@ -486,8 +506,8 @@ class TestScrollBehavior:
         view.show()
         qapp.processEvents()
         for index in range(6):
-            view.addMessage(ElaChatRole.User, f"消息 {index} " + "内容" * 30)
-        messageId = view.addMessage(ElaChatRole.Assistant, "回答 " + "内容" * 20)
+            view.addMessage(ElaChatRoleType.User, f"消息 {index} " + "内容" * 30)
+        messageId = view.addMessage(ElaChatRoleType.Assistant, "回答 " + "内容" * 20)
         callId = view.addToolCall(messageId, "read", '{"path": "a.py"}')
         view.setToolCallResult(messageId, callId, "结果 " * 20)
         bar = view._scroll.verticalScrollBar()
@@ -609,13 +629,13 @@ class TestScrollBar:
         view.resize(420, 260)
         view.show()
         qapp.processEvents()
-        view.addMessage(ElaChatRole.Assistant, "短")
+        view.addMessage(ElaChatRoleType.Assistant, "短")
         qapp.processEvents()
         view.setResizeReflowDeferred(True, minMessages=0, delayMs=20)
         view.resize(460, 260)  # 冻结内容宽度
         # 冻结期间灌满内容 → 滚动条出现，视口窄 10px
         for index in range(6):
-            view.addMessage(ElaChatRole.Assistant, f"消息 {index} " + "内容" * 20)
+            view.addMessage(ElaChatRoleType.Assistant, f"消息 {index} " + "内容" * 20)
         assert _wait_until(qapp, lambda: view.scrollBar().maximum() > 0)
         assert view.scrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
         assert _wait_until(qapp, lambda: view._resize_frozen_width == 0)
@@ -669,19 +689,19 @@ class TestContentMaxWidth:
     def test_default_unlimited(self, qapp, make):
         view = make(ElaChatView)
         assert view.contentMaxWidth() == 0
-        messageId = view.addMessage(ElaChatRole.Assistant, "hi")
+        messageId = view.addMessage(ElaChatRoleType.Assistant, "hi")
         assert view.bubble(messageId).contentMaxWidth() == 0
         assert view.bubble(messageId)._column.maximumWidth() == 16777215
 
     def test_user_message_unaffected(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.addMessage(ElaChatRole.User, "hi")
+        messageId = view.addMessage(ElaChatRoleType.User, "hi")
         assert view.bubble(messageId).contentMaxWidth() == 0
         assert view.bubble(messageId)._column.maximumWidth() == 16777215
 
     def test_setter_applies_to_existing_and_disable(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.addMessage(ElaChatRole.Assistant, "hi")
+        messageId = view.addMessage(ElaChatRoleType.Assistant, "hi")
         view.setContentMaxWidth(500)
         # 限的是整列（正文 + 附件条 + 底部行），不是只限正文 ——
         # 否则宽窗口下 footer 比正文列宽，往右伸出去
@@ -694,7 +714,7 @@ class TestContentMaxWidth:
     def test_column_wraps_content_and_footer(self, qapp, make):
         """内容列必须同时装下正文、附件条与底部行（否则限宽时 footer 伸出列外）。"""
         view = make(ElaChatView)
-        messageId = view.addMessage(ElaChatRole.Assistant, "hi")
+        messageId = view.addMessage(ElaChatRoleType.Assistant, "hi")
         bubble = view.bubble(messageId)
         assert bubble._content.parentWidget() is bubble._column
         assert bubble._footer.parentWidget() is bubble._column
@@ -717,7 +737,7 @@ class TestResizeReflowDeferred:
         view.show()
         qapp.processEvents()
         for index in range(count):
-            view.addMessage(ElaChatRole.Assistant, f"消息 {index} " + "内容" * 10)
+            view.addMessage(ElaChatRoleType.Assistant, f"消息 {index} " + "内容" * 10)
         qapp.processEvents()
         return view
 
@@ -765,7 +785,7 @@ class TestResizeReflowDeferred:
         view.show()
         qapp.processEvents()
         for index in range(6):
-            view.addMessage(ElaChatRole.Assistant, f"消息 {index} " + "内容" * 20)
+            view.addMessage(ElaChatRoleType.Assistant, f"消息 {index} " + "内容" * 20)
         view.setResizeReflowDeferred(True, minMessages=2, delayMs=20)
         view.scrollToBottom()
         qapp.processEvents()

@@ -9,7 +9,7 @@ from _pixels import opaque_colors, skip_if_no_pixels
 
 from pyqt5_ela_pro.chat import (
     ElaChatBubble,
-    ElaChatRole,
+    ElaChatRoleType,
     ElaChatView,
     ElaChatWidget,
 )
@@ -37,7 +37,7 @@ def _center_color(widget, qapp) -> str:
 
 class TestAvatarBadge:
     def test_svg_data_renders_custom_image(self, qapp, make):
-        bubble = make(ElaChatBubble, ElaChatRole.User)
+        bubble = make(ElaChatBubble, ElaChatRoleType.User)
         bubble.setAvatarImage(SVG)
         avatar = bubble.header().avatar()
         assert avatar.hasCustomImage()
@@ -46,14 +46,14 @@ class TestAvatarBadge:
     def test_svg_file_path(self, qapp, tmp_path, make):
         path = tmp_path / "avatar.svg"
         path.write_text(SVG, encoding="utf-8")
-        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRoleType.Assistant)
         bubble.setAvatarImage(str(path))
         assert bubble.avatarImage() is not None
         assert bubble.header().avatar().hasCustomImage()
 
     def test_qpixmap_and_qimage_sources(self, qapp, make):
 
-        bubble = make(ElaChatBubble, ElaChatRole.User)
+        bubble = make(ElaChatBubble, ElaChatRoleType.User)
         bubble.setAvatarImage(_solid_pixmap("#00aa66"))
         avatar = bubble.header().avatar()
         assert _center_color(avatar, qapp) == "#00aa66"
@@ -64,7 +64,7 @@ class TestAvatarBadge:
         assert _center_color(bubble.header().avatar(), qapp) == "#2244cc"
 
     def test_clear_and_invalid_fall_back_to_icon(self, qapp, tmp_path, make):
-        bubble = make(ElaChatBubble, ElaChatRole.User)
+        bubble = make(ElaChatBubble, ElaChatRoleType.User)
         bubble.setAvatarImage(SVG)
         assert bubble.header().avatar().hasCustomImage()
 
@@ -77,7 +77,7 @@ class TestAvatarBadge:
         assert bubble.header().avatar().hasCustomImage() is False
 
     def test_custom_image_clipped_to_circle(self, qapp, make):
-        bubble = make(ElaChatBubble, ElaChatRole.User)
+        bubble = make(ElaChatBubble, ElaChatRoleType.User)
         bubble.setAvatarImage(_solid_pixmap("#ff5500"))
         avatar = bubble.header().avatar()
         avatar.show()
@@ -99,7 +99,7 @@ class TestAvatarBadge:
         （正圆边界离它 0.56px、圆角边界离它 0.93px，取的都是像素整体内外，
         不受抗锯齿影响）。
         """
-        bubble = make(ElaChatBubble, ElaChatRole.User)
+        bubble = make(ElaChatBubble, ElaChatRoleType.User)
         bubble.setAvatarImage(_solid_pixmap("#ff5500"))
         avatar = bubble.header().avatar()
         avatar.show()
@@ -119,7 +119,7 @@ class TestAvatarBadge:
         assert rounded.pixelColor(1, 1).name() != "#ff5500"
 
     def test_shape_switch_on_bubble(self, qapp, make):
-        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRoleType.Assistant)
         assert bubble.avatarShape() == "circle"
         assert bubble.header().avatarShape() == "circle"
 
@@ -140,8 +140,8 @@ class TestAvatarBadge:
 class TestViewAndWidgetAvatars:
     def test_view_role_avatars_apply_existing_and_new(self, qapp, make):
         view = make(ElaChatView)
-        user_id = view.addMessage(ElaChatRole.User, "hi")
-        assistant_id = view.addMessage(ElaChatRole.Assistant, "yo")
+        user_id = view.addMessage(ElaChatRoleType.User, "hi")
+        assistant_id = view.addMessage(ElaChatRoleType.Assistant, "yo")
         assert not view.bubble(user_id).header().avatar().hasCustomImage()
 
         view.setUserAvatar(SVG)
@@ -150,7 +150,7 @@ class TestViewAndWidgetAvatars:
         assert view.bubble(assistant_id).header().avatar().hasCustomImage()
 
         # 后续新增消息自动带上对应角色头像
-        later = view.addMessage(ElaChatRole.User, "again")
+        later = view.addMessage(ElaChatRoleType.User, "again")
         assert view.bubble(later).header().avatar().hasCustomImage()
         assert view.userAvatar() == SVG
         assert view.assistantAvatar() is not None
@@ -162,7 +162,7 @@ class TestViewAndWidgetAvatars:
 
     def test_view_shape_applies_existing_and_new(self, qapp, make):
         view = make(ElaChatView)
-        user_id = view.addMessage(ElaChatRole.User, "hi")
+        user_id = view.addMessage(ElaChatRoleType.User, "hi")
         assert view.avatarShape() == "circle"
         assert view.bubble(user_id).header().avatar().shape() == "circle"
 
@@ -171,7 +171,7 @@ class TestViewAndWidgetAvatars:
         assert view.bubble(user_id).avatarShape() == "rounded"
 
         # 后续新增消息自动带上形状
-        later = view.addMessage(ElaChatRole.Assistant, "yo")
+        later = view.addMessage(ElaChatRoleType.Assistant, "yo")
         assert view.bubble(later).avatarShape() == "rounded"
 
         # 非法值回落默认圆形
@@ -184,8 +184,8 @@ class TestViewAndWidgetAvatars:
         chat.chatView().setUserAvatar(SVG)
         chat.chatView().setAssistantAvatar(SVG)
         chat.chatView().setAvatarShape("square")
-        user_id = chat.addMessage(ElaChatRole.User, "hi")
-        assistant_id = chat.addMessage(ElaChatRole.Assistant, "yo")
+        user_id = chat.addMessage(ElaChatRoleType.User, "hi")
+        assistant_id = chat.addMessage(ElaChatRoleType.Assistant, "yo")
         assert chat.chatView().userAvatar() == SVG
         assert chat.chatView().assistantAvatar() == SVG
         assert chat.chatView().avatarShape() == "square"

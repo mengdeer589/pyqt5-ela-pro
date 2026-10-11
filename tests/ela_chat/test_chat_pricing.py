@@ -26,11 +26,18 @@ WITH_TIER = ModelPricing(
 
 
 class _Usage:
-    def __init__(self, prompt_tokens, completion_tokens=0, cached_tokens=0):
+    def __init__(
+        self,
+        prompt_tokens,
+        completion_tokens=0,
+        cache_read_tokens=0,
+        cache_write_tokens=0,
+    ):
         self.prompt_tokens = prompt_tokens
         self.completion_tokens = completion_tokens
         self.total_tokens = prompt_tokens + completion_tokens
-        self.cached_tokens = cached_tokens
+        self.cache_read_tokens = cache_read_tokens
+        self.cache_write_tokens = cache_write_tokens
 
 
 class TestTierBoundary:
@@ -48,15 +55,20 @@ class TestTierBoundary:
     def test_no_tier_configured(self):
         assert stats_cost(_Usage(500_000), BASE) == pytest.approx(1.5)
 
-    def test_cached_tokens_count_toward_the_tier(self):
+    def test_cache_read_tokens_count_toward_the_tier(self):
         """输入侧总量含缓存读，所以缓存也能把用量顶进阶梯档（单价随之翻倍）。"""
-        usage = _Usage(199_000, cached_tokens=2_000)
+        usage = _Usage(199_000, cache_read_tokens=2_000)
         # 199_000 + 2_000 = 201_000 > 200_000 -> 进阶梯档，prompt 按 6.0 计
         assert stats_cost(usage, WITH_TIER) == pytest.approx(1.194)
         # 若缓存不计入档位选择，单价会停在 3.0 —— 少算一半
         assert cost_from_parts(
             199_000, 0, cacheRead=2_000, pricing=WITH_TIER
         ) == pytest.approx(199_000 * 6.0 / 1e6)
+
+    def test_cache_write_tokens_count_toward_the_tier(self):
+        """缓存写同样计入档位选择（与 opencode 的 ``prompt + read + write`` 一致）。"""
+        usage = _Usage(199_000, cache_write_tokens=2_000)
+        assert stats_cost(usage, WITH_TIER) == pytest.approx(199_000 * 6.0 / 1e6)
 
     def test_tiers_are_sorted_regardless_of_input_order(self):
         shuffled = ModelPricing(

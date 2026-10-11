@@ -20,7 +20,8 @@
     mock.llmStarted.connect(binder.beginRound)
     mock.chunkReceived.connect(lambda c: ...)   # reasoning / answer 分派
     ...
-    mock.ask("你好")
+    turn = mock.ask("你好")                      # 返回回合 token
+    # ... turnFinished.connect(binder.finish) 收尾时会原样带回该 token
 """
 
 from __future__ import annotations
@@ -49,18 +50,24 @@ class ElaChatMockChunk:
 
 
 class ElaChatMockUsage:
-    """模拟 OpenAI ``CompletionUsage``（含缓存字段两种形态之一）。"""
+    """模拟 OpenAI ``CompletionUsage``（含缓存读 / 写与推理词元的常见形态）。"""
 
     def __init__(
         self,
         promptTokens: int = 128,
         completionTokens: int = 96,
         cachedTokens: int = 0,
+        reasoningTokens: int = 0,
+        cacheWriteTokens: int = 0,
     ) -> None:
         self.prompt_tokens = int(promptTokens)
         self.completion_tokens = int(completionTokens)
         self.total_tokens = self.prompt_tokens + self.completion_tokens
         self.prompt_cache_hit_tokens = int(cachedTokens)
+        #: 缓存写（Anthropic 命名；多数 OpenAI 兼容端点为 0）
+        self.cache_creation_input_tokens = int(cacheWriteTokens)
+        #: 推理词元（completion 的子集，单独拆分只为展示）
+        self.reasoning_tokens = int(reasoningTokens)
 
 
 def _default_reply(question: str) -> str:
@@ -79,11 +86,9 @@ def _split(text: str, size: int) -> list:
 
 
 class ElaChatMockBackend(QObject):
-    """模拟聊天后端（事件源，不依赖线程与模型服务）。
+    """模拟聊天后端（事件源，不依赖线程与模型服务；``tickMs=0`` 测试快进）。
 
-    :param parent: 父对象
-    :param tickMs: 每个事件的间隔毫秒数（``0`` 表示测试快进）
-    :param thinkLevel: 思考强度 ``"off"`` / ``"normal"`` / ``"deep"``
+    ``thinkLevel`` 取 ``"off"`` / ``"normal"`` / ``"deep"``。
     """
 
     #: 后端就绪（构造后异步发出一次，与真实 worker 契约一致）
@@ -104,8 +109,8 @@ class ElaChatMockBackend(QObject):
     toolEnded = pyqtSignal(dict, str)
     #: 单轮用量（usage、首字耗时 ms、词元/秒）
     statsReady = pyqtSignal(object, float, float)
-    #: 本回合结束（成功 / 取消）
-    turnFinished = pyqtSignal()
+    #: 本回合结束（成功 / 取消），载荷是 :meth:`ask` 返回的**回合 token**
+    turnFinished = pyqtSignal(int)
 
     def __init__(
         self,
@@ -120,7 +125,11 @@ class ElaChatMockBackend(QObject):
         self._reply_provider: Optional[Callable[[str], str]] = None
         self._events: list = []
         self._question = ""
+        self._turn_attachments: list = []
         self._running = False
+        #: 回合 token 自增源（与真实 worker 同构：token 是「这轮生杀」的凭据）
+        self._turn_seq = 0
+        self._current_turn = 0
         self._timer = QTimer(self)
         self._timer.setInterval(self._tick_ms)
         self._timer.timeout.connect(self._on_tick)
@@ -161,31 +170,50 @@ class ElaChatMockBackend(QObject):
 
     # -- 命令接口（与真实 worker 同构） ------------------------------------
 
-    def ask(self, text: str) -> bool:
-        """开始一个模拟回合（已有回合在跑时先取消）。"""
+    def ask(self, text: str, attachments=None) -> Optional[int]:
+        """开始一个模拟回合（已有回合在跑时先取消），返回**回合 token**。
+
+        token 是这一轮的落定凭据：:attr:`turnFinished` 原样带回，宿主交给
+        ``binder.finish(token)`` —— 收尾只认自己那一次 signal。真实 worker 的
+        ``cancel()`` 是异步的（要等轮询命中，旧回合的 ``turnFinished`` 可能晚
+        到几十毫秒），没有 token 时那个迟到的信号会把新回合直接收掉
+        （分片全被 ``isOpen()`` 丢弃 → 用户看到「发出去了、正文全空」）。
+
+        :returns: 回合 token；未受理（宿主已关门 / 取消的回调里另起了一回合）
+            返回 ``None``。**不要再当 bool 用** —— 真值即代表已受理。
+        """
         if self._running:
             self.cancel()
             if self._running:
                 # ``cancel()`` 的 ``turnFinished`` 是同步发射的：监听者可能在
                 # 回调里又起了一个新回合，外层不能再用原参数把它覆盖掉。
-                return False
+                return None
+        self._turn_seq += 1
+        token = self._turn_seq
+        self._current_turn = token
         self._question = str(text or "")
+        self._turn_attachments = list(attachments or ())
         self._events = self._build_events(self._question)
         self._running = True
         if not self._events:
             self._finish_turn()
-            return True
+            return token
         self._timer.start()
-        return True
+        return token
 
-    def regenerate(self, text: str) -> bool:
-        """重新生成（模拟后端等价于重新提问）。"""
-        return self.ask(text)
+    def regenerate(self, text: str, attachments=None) -> Optional[int]:
+        """重新生成（模拟后端等价于重新提问，附件照收）。返回回合 token。"""
+        return self.ask(text, attachments)
+
+    def turnAttachments(self) -> list:  # noqa: N802
+        """当前回合随消息收下的附件快照（副本）。"""
+        return list(self._turn_attachments)
 
     def reset(self) -> None:
         """重置模拟后端状态。"""
         self._events = []
         self._question = ""
+        self._turn_attachments = []
 
     def cancel(self) -> None:
         """取消当前回合（停止推送并结束回合）。"""
@@ -205,7 +233,7 @@ class ElaChatMockBackend(QObject):
         was_running = self._running
         self._running = False
         if was_running:
-            self.turnFinished.emit()
+            self.turnFinished.emit(self._current_turn)
 
     def _build_events(self, question: str) -> list:
         """按思考强度构造一个两步回合的事件列表。"""

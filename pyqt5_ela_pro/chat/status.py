@@ -21,7 +21,7 @@ from PyQt5.QtWidgets import QHBoxLayout, QWidget
 from PyQt5ElaWidgetTools import ElaProgressRing, ElaThemeType
 
 from .._styles import ColorText
-from .._theme import StatusRole, statusColor
+from .._theme import ElaStatusRoleType, statusColor
 from ..widget_base import ElaThemeWidget
 from ._theme import accent_color, blend, muted_color, text_color
 
@@ -124,9 +124,9 @@ class ElaChatStatusBar(ElaThemeWidget):
         if self._level == "busy":
             color = accent_color(mode)
         elif self._level == "success":
-            color = blend(text_color(mode), statusColor(mode, StatusRole.Success), 0.35)
+            color = blend(text_color(mode), statusColor(mode, ElaStatusRoleType.Success), 0.35)
         elif self._level == "error":
-            color = blend(text_color(mode), statusColor(mode, StatusRole.Error), 0.45)
+            color = blend(text_color(mode), statusColor(mode, ElaStatusRoleType.Error), 0.45)
         else:
             color = muted_color(mode, 0.65)
         self._status_label.setTextColor(color)

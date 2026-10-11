@@ -9,7 +9,8 @@
    而下为：附件条（文件 ``ElaChip`` / 图片缩略卡；支持拖放、粘贴图片、去重）
    → 编辑框（``ElaPlainTextEdit`` **无边框形态**：边框 / 底色 / 聚焦态由卡片
    统一接管；高度自适应，默认 3~8 行）→ 工具栏（``ElaChatToolBar``：左侧
-   回形针（上传）+ 扫帚（清空上下文，发 ``clearRequested``）+ 右侧发送 /
+   回形针（上传）+ 扫帚（清空上下文，发 ``clearRequested``）+ **上下文占用
+   圆环**（默认常驻，见 :meth:`ElaChatInput.setContextUsage`）+ 右侧发送 /
    停止按钮；宿主可用 :meth:`ElaChatInput.toolBar` 继续添加自定义按钮）。
 
 交互（对齐 opencode）：
@@ -66,13 +67,23 @@ from PyQt5ElaWidgetTools import (
 )
 
 from .._styles import editBorderlessStyle
+from .._theme import ElaStatusRoleType, statusColor
 from ..ela_button import ElaButton
-from ..tooltips import ElaToolTipPosition, set_tooltip
+from ..tooltips import ElaToolTipPositionType, set_tooltip
 from ..widget_base import ElaThemeWidget
 from ._mime import localFiles, mimeImage
-from ._theme import accent_color, card_border_color, card_color
+from ._pricing import formatCost
+from ._theme import (
+    accent_color,
+    base_color,
+    blend,
+    card_border_color,
+    card_color,
+    muted_color,
+    text_color,
+)
 from .blocks import AttachmentStrip
-from .message import _as_int
+from .message import _as_float, _as_int
 from .suggestions import ElaChatSuggestion, SuggestionPopup
 from .toolbar import ElaChatToolBar, ElaChatToolButton
 
@@ -99,6 +110,11 @@ _MENTION_TAIL = (
 )
 #: 发送 / 停止图标按钮边长
 _SEND_BUTTON_SIZE = 32
+#: 上下文占用圆环边长（像素）
+_USAGE_RING_SIZE = 22
+#: 上下文占用进入警示 / 危险配色的百分比阈值
+_USAGE_WARN_PERCENT = 60
+_USAGE_DANGER_PERCENT = 85
 #: 输入卡片圆角半径
 _INPUT_CARD_RADIUS = 10
 #: 输入卡片内边距（左、上、右、下）
@@ -266,6 +282,199 @@ class _InputSurface(ElaThemeWidget):
         painter.end()
 
 
+def _shortTokens(value) -> str:
+    """词元数缩写（``187431`` -> ``187.4k``，对齐 opencode 的 compact 记法）。"""
+    try:
+        number = float(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        return "0"
+    if number < 0:
+        number = 0.0
+    if number < 1000:
+        return str(int(number))
+    if number < 1_000_000:
+        return f"{number / 1000:.1f}k"
+    return f"{number / 1_000_000:.1f}M"
+
+
+class _ContextUsageRing(ElaThemeWidget):
+    """上下文窗口占用指示器（输入区底部工具栏里的小圆环 + hover 详情）。
+
+    **不是进度条**。上下文占用是一个**标量**（当前水位），不是一条有起止的
+    过程 —— 进度条会暗示「正在推进到 100%」，而语义恰恰相反（越接近 100%
+    越危险）。opencode 用 ``ProgressCircle`` 是同一个理由。
+
+    **为什么不用 ``ElaProgressRing``**：它有数值模式，但环色硬编码在 C++ 侧
+    （``ElaProgressRing.cpp:216`` 固定 ``PrimaryNormal``，没有取色接口），
+    而「占用越高越该变色」正是这个指示器的全部价值；且 22px 的环里塞
+    ``62%`` 已经挤到读不清（opencode 为此分出 ``indicator`` / ``button``
+    两档形态）。所以这里自绘：环 + 三档配色，数字交给 tooltip。
+    自绘是库内既有做法（``paintRoundedCard`` / ``FlatIconButton`` 同理），
+    且天然满足禁 QSS 约束。
+
+    三档配色：< 60% 弱化、60~85% 警示、> 85% 危险。
+
+    **默认常驻**（与旁边的新建话题 / 上传 / 清空同地位）：没有数据时画一个
+    空底环（0%），显隐由 :meth:`ElaChatInput.setContextUsageVisible` 控制。
+
+    **可点击（当按钮用）**：左键点按发 :attr:`clicked`（组件自身不做任何
+    行为，宿主据此弹上下文详情面板等）；带 hover 8% / press 12% 的状态层
+    （与 ``ElaButton`` 同套比例），拖出圆环松开不算点击。
+    """
+
+    #: 点击圆环（宿主据此弹上下文详情面板等；组件自身不做行为）
+    clicked = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._used = 0
+        self._window = 0
+        self._cost_usd = 0.0
+        self._hover = False
+        self._pressed = False
+        self.setFixedSize(_USAGE_RING_SIZE, _USAGE_RING_SIZE)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setAccessibleName("上下文占用")
+        # 刻意**不**在这里 hide()：它是工具栏的默认组件（与新建话题 / 上传 /
+        # 清空同排），无数据时画空底环（0%）。显隐走 setContextUsageVisible。
+
+    # -- 数据 --------------------------------------------------------------
+
+    def setUsage(self, used: int, window: int, costUsd: float = 0.0) -> None:
+        """设置占用（``window <= 0`` 按 0% 显示；控件默认常驻、不再因此隐藏）。"""
+        try:
+            self._used = max(0, int(used or 0))
+            self._window = max(0, int(window or 0))
+            self._cost_usd = float(costUsd or 0.0)
+        except (TypeError, ValueError, OverflowError):
+            self._used = self._window = 0
+            self._cost_usd = 0.0
+        self._sync()
+
+    def usage(self) -> tuple:
+        """获取 ``(已用, 窗口, 花费美元)``。"""
+        return (self._used, self._window, self._cost_usd)
+
+    def percent(self) -> int:
+        """占用百分比（窗口未知返回 0）。"""
+        if self._window <= 0:
+            return 0
+        return max(0, min(100, round(self._used * 100 / self._window)))
+
+    def level(self) -> int:
+        """档位：``0`` 正常 / ``1`` 警示 / ``2`` 危险。"""
+        percent = self.percent()
+        if percent >= _USAGE_DANGER_PERCENT:
+            return 2
+        if percent >= _USAGE_WARN_PERCENT:
+            return 1
+        return 0
+
+    def tooltipText(self) -> str:
+        """hover 详情文案（花费 / 百分比 / 词元总数 / 危险提示）。"""
+        lines = []
+        if self._cost_usd > 0:
+            lines.append(f"花费 {formatCost(self._cost_usd)}")
+        if self._window > 0:
+            lines.append(
+                f"上下文 {self.percent()}%"
+                f"（{_shortTokens(self._used)} / {_shortTokens(self._window)}）"
+            )
+        elif self._used > 0:
+            lines.append(f"上下文 {_shortTokens(self._used)} 词元")
+        else:
+            lines.append("上下文占用：暂无数据")
+        if self.level() == 2:
+            lines.append("上下文接近上限，建议压缩历史")
+        return "\n".join(lines)
+
+    # -- 交互（当按钮用） --------------------------------------------------
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._pressed = True
+            self.update()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        if event.button() == Qt.MouseButton.LeftButton and self._pressed:
+            self._pressed = False
+            self.update()
+            # 只在圆环内松开才算点击（拖出取消，与普通按钮一致）
+            if self.rect().contains(event.pos()):
+                self.clicked.emit()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def enterEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        self._hover = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        self._hover = False
+        self._pressed = False
+        self.update()
+        super().leaveEvent(event)
+
+    # -- 内部 --------------------------------------------------------------
+
+    def _sync(self) -> None:
+        # 默认常驻（与旁边的新建话题 / 上传 / 清空同地位）：显隐只由
+        # ``ElaChatInput.setContextUsageVisible`` 控制，数据有无只影响画多少
+        # 百分比 —— 没数据时画空底环（0%）。
+        # 输入区贴在窗口最底部 → tooltip 朝上弹，别往输入卡片上盖
+        set_tooltip(self, self.tooltipText(), ElaToolTipPositionType.Top)
+        self.update()
+
+    def _arc_color(self):
+        mode = self._theme_mode
+        base = accent_color(mode)
+        level = self.level()
+        if level == 2:
+            return statusColor(mode, ElaStatusRoleType.Error)
+        if level == 1:
+            return blend(base, statusColor(mode, ElaStatusRoleType.Warning), 0.75)
+        # 低占用刻意弱化：它是「状态」不是「主角」，不该抢注意力
+        return blend(muted_color(mode, 0.5), base, 0.35)
+
+    def paintEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        inset = 2.5
+        track = QRectF(self.rect()).adjusted(inset, inset, -inset, -inset)
+        width = 2.0
+        mode = self._theme_mode
+        # 按钮式状态层：hover 8% / press 12%（与 ElaButton 同一套比例）
+        if self._hover or self._pressed:
+            ratio = 0.12 if self._pressed else 0.08
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(blend(base_color(mode), text_color(mode), ratio))
+            painter.drawEllipse(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5))
+        # 底环：与值环同粗细的浅色圆环，让「还剩多少」可读
+        painter.setPen(QPen(blend(base_color(mode), text_color(mode), 0.16), width))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(track)
+        # 值环：从 12 点顺时针（对齐 opencode ProgressCircle 的 stroke-dashoffset）
+        percent = self.percent()
+        if percent > 0:
+            painter.setPen(QPen(self._arc_color(), width))
+            painter.drawArc(
+                track,
+                90 * 16,
+                -int(round(percent * 360 / 100)) * 16,
+            )
+        painter.end()
+
+    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
+        super()._onThemeChanged(mode)
+        self.update()
+
+
 class ElaChatInput(ElaThemeWidget):
     """聊天输入区（补全 + 附件 + 编辑框 + 可扩展工具栏）。"""
 
@@ -291,6 +500,8 @@ class ElaChatInput(ElaThemeWidget):
     clearRequested = pyqtSignal()
     #: 点击「新建话题」（组件不做任何处理，宿主据此开新会话 / 话题）
     newTopicRequested = pyqtSignal()
+    #: 点击工具栏的上下文占用圆环（组件不做任何行为，宿主据此弹详情面板等）
+    contextUsageClicked = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -375,6 +586,15 @@ class ElaChatInput(ElaThemeWidget):
             key="clear",
             callback=self._on_clear_clicked,
         )
+        # 上下文占用圆环：与「清空上下文」同排的**默认组件**（无数据时画空
+        # 底环 0%；显隐走 setContextUsageVisible）。数据完全由宿主提供：
+        # ``chatInput().setContextUsage(used, window, costUsd)``
+        self._usage_ring = _ContextUsageRing(self._surface)
+        self._toolbar.addWidget(self._usage_ring, zone="leading", key="usage")
+        self._usage_ring.clicked.connect(self.contextUsageClicked)
+        self._usage_used = 0
+        self._usage_window = 0
+        self._usage_cost = 0.0
         self._toolbar.addSeparator(zone="trailing")
         self._button = ElaButton(
             icon=ElaIconType.IconName.ArrowUp,
@@ -470,7 +690,7 @@ class ElaChatInput(ElaThemeWidget):
             bare = token.strip()
             if not bare:
                 continue
-            if re.search(re.escape(bare) + _MENTION_TAIL, text):
+            if re.search(r"(?:^|\s)" + re.escape(bare) + _MENTION_TAIL, text):
                 out.append(mid)
         return out
 
@@ -507,6 +727,57 @@ class ElaChatInput(ElaThemeWidget):
     def clearVisible(self) -> bool:
         """内置「清空上下文」按钮是否可见（``isHidden`` 判据）。"""
         return not self._clear_button.isHidden()
+
+    # -- 上下文占用 --------------------------------------------------------
+
+    def setContextUsage(
+        self, used: int = 0, window: int = 0, costUsd: float = 0.0
+    ) -> None:
+        """设置上下文窗口占用（底部工具栏圆环；``window <= 0`` 按 0% 显示）。
+
+        **数据完全由宿主提供，库不推断**：上下文窗口多大、当前占了多少，
+        只有宿主知道（模型配置在宿主手里）。库也不把它塞进
+        :class:`~pyqt5_ela_pro.chat.message.ElaChatStats` —— 那个字段的
+        ``merge()`` 是**各步求和**语义，而上下文占用是**当前值**，求和是错的。
+
+        圆环是工具栏的**默认组件**（与新建话题 / 上传 / 清空同排，默认显示；
+        显隐走 :meth:`setContextUsageVisible`）；没有数据时画空底环。
+
+        :param used: 已占用词元
+        :param window: 模型上下文窗口词元；``0`` / 非法值按 0% 显示（换话题 /
+            清空后宿主可用它把圆环归零）
+        :param costUsd: 会话累计花费（美元），进 hover 详情；``0`` 不显示该行
+
+        hover 显示三行：花费 / 上下文百分比 / 词元总数（对齐 opencode 的
+        ``session-context-usage.tsx``）。占比 ≥ 85% 时配色转危险色并追加
+        一行提示。
+        """
+        self._usage_used = max(0, _as_int(used))
+        self._usage_window = max(0, _as_int(window))
+        self._usage_cost = _as_float(costUsd)
+        self._usage_ring.setUsage(
+            self._usage_used, self._usage_window, self._usage_cost
+        )
+
+    def contextUsage(self) -> tuple:
+        """获取 ``(已用, 窗口, 花费美元)``（未设置时窗口为 0）。"""
+        return (self._usage_used, self._usage_window, self._usage_cost)
+
+    def contextUsagePercent(self) -> int:
+        """上下文占用百分比（窗口未知返回 0）。"""
+        return self._usage_ring.percent()
+
+    def contextUsageWidget(self) -> "_ContextUsageRing":
+        """获取上下文占用圆环控件（宿主可改边长 / 挂事件）。"""
+        return self._usage_ring
+
+    def setContextUsageVisible(self, on: bool) -> None:
+        """显示 / 隐藏内置「上下文占用圆环」（默认显示，与旁边按钮一致）。"""
+        self._usage_ring.setVisible(bool(on))
+
+    def contextUsageVisible(self) -> bool:
+        """内置圆环是否可见（``isHidden`` 判据，父链未显示时也准确）。"""
+        return not self._usage_ring.isHidden()
 
     def newTopicButton(self) -> ElaChatToolButton:
         """获取内置「新建话题」按钮句柄。"""
@@ -667,6 +938,7 @@ class ElaChatInput(ElaThemeWidget):
     def setQueueEnabled(self, on: bool) -> None:
         """设置生成中是否允许提交（交由宿主排队）。"""
         self._queue_enabled = bool(on)
+        self._sync_button()
 
     def queueEnabled(self) -> bool:
         """生成中是否允许提交。"""
@@ -727,9 +999,12 @@ class ElaChatInput(ElaThemeWidget):
             self._button.setColor(color)
         if self._button.toolTip() != tooltip:
             self._button.setToolTip(tooltip)
-            set_tooltip(self._button, tooltip, ElaToolTipPosition.Top)
-        # 对齐 opencode：空草稿且非「停止」态时置灰不可点（禁用态配色由 ElaButton 自绘）
-        self._button.setEnabled(stopping or has_draft)
+            set_tooltip(self._button, tooltip, ElaToolTipPositionType.Top)
+        # 对齐 opencode：空草稿且非「停止」态时置灰不可点（禁用态配色由 ElaButton 自绘）。
+        # 生成中且宿主禁用了排队时提交会被 ``submit()`` 拒绝，按钮必须跟着
+        # 置灰 —— 否则就是一个点了没反应的「发送」
+        blocked = self._generating and not self._queue_enabled
+        self._button.setEnabled(stopping or (has_draft and not blocked))
 
     def setSendOnEnter(self, on: bool) -> None:
         """设置回车是否发送（关闭后仅按钮发送）。"""
@@ -903,6 +1178,7 @@ class ElaChatInput(ElaThemeWidget):
                 return False
             if self._generating and not self._edit.toPlainText().strip():
                 return False
-            self.submit()
-            return True
+            # 提交被拒（生成中 + 禁用排队）时把事件还给编辑器：插入换行，
+            # 而不是静默吃掉这次回车
+            return bool(self.submit())
         return False

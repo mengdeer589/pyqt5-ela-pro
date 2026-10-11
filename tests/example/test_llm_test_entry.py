@@ -20,7 +20,7 @@ if not (_REPO_ROOT / "llm_test" / "main.py").is_file():
 import llm_test.agent_demo as agent_demo  # noqa: E402
 from llm_test.main import DemoWindow, classify_error, create_worker  # noqa: E402
 
-from pyqt5_ela_pro.chat import ElaChatMockBackend, ElaChatRole  # noqa: E402
+from pyqt5_ela_pro.chat import ElaChatMockBackend, ElaChatRoleType  # noqa: E402
 
 
 class TestCreateWorker:
@@ -126,15 +126,18 @@ class TestErrorAndStatusWiring:
         return window, worker
 
     def _turn(self, window, prompt="hi"):
-        """造一个「用户提问 + 正在流式的助手消息」，返回 ``(userId, mid)``。
+        """造一个「用户提问 + 正在流式的助手消息」，返回 ``(userId, mid, turn)``。
 
-        不走 ``sendUserMessage``：它会发 ``messageSubmitted``，宿主槽真的起一轮，
-        消息 id 与 binder 落点都会多出一层（测试要的就是「一次正常的回合」）。
+        ``turn`` 是回合 token（``turnFinished`` 原样带回，``binder.finish`` 靠它
+        认领收尾）。不走 ``sendUserMessage``：它会发 ``messageSubmitted``，宿主槽
+        真的起一轮，消息 id 与 binder 落点都会多出一层（测试要的就是「一次正常的
+        回合」）。
         """
         view = window.chat.chatView()
-        userId = view.addMessage(ElaChatRole.User, prompt)
-        assert window.binder.startTurn(prompt) is True
-        return userId, window.chat.streamingMessageId()
+        userId = view.addMessage(ElaChatRoleType.User, prompt)
+        turn = window.binder.startTurn(prompt)
+        assert turn is not None
+        return userId, window.chat.streamingMessageId(), turn
 
     def _teardown(self, qapp, window, worker):
         window.deleteLater()
@@ -177,7 +180,7 @@ class TestErrorAndStatusWiring:
 
     def test_turn_error_lands_on_card_and_lights_retry(self, qapp):
         window, worker = self._window(qapp)
-        _userId, mid = self._turn(window)
+        _userId, mid, _turn = self._turn(window)
         window.on_error("worker", "APITimeoutError: Request timed out")
 
         view = window.chat.chatView()
@@ -193,9 +196,9 @@ class TestErrorAndStatusWiring:
     def test_turn_finished_reports_error_not_done(self, qapp):
         """错误回合收尾不能显示「完成」——靠 ``_turn_failed`` 标记而不是摘要。"""
         window, worker = self._window(qapp)
-        self._turn(window)
+        _userId, mid, turn = self._turn(window)
         window.on_error("worker", "APIConnectionError: Connection error")
-        window.on_turn_finished()
+        window.on_turn_finished(turn)
 
         assert window.status.level() == "error"
         assert "重试" in window.status.status()
@@ -204,11 +207,13 @@ class TestErrorAndStatusWiring:
 
     def test_retry_requested_resends_same_prompt(self, qapp):
         window, worker = self._window(qapp)
-        userId, mid = self._turn(window, "再试一次")
+        userId, mid, _turn = self._turn(window, "再试一次")
         window.chat.chatView().setMessageError(mid, "超时", "timeout")
 
         sent = []
-        window.start_turn = lambda prompt, regenerate=False: sent.append(prompt)
+        window.start_turn = (
+            lambda prompt, attachments=None, regenerate=False: sent.append(prompt)
+        )
         window.chat.retryRequested.emit(mid)
 
         assert sent == ["再试一次"]
@@ -216,6 +221,30 @@ class TestErrorAndStatusWiring:
         assert [m.id for m in window.chat.chatView().messages()] == [userId, mid]
         assert window.chat.chatView().messageError(mid) == ("", "")
 
+        self._teardown(qapp, window, worker)
+
+    def test_regenerate_forwards_attachments(self, qapp):
+        """重新生成必须把提问快照里的附件一起交给后端。
+
+        回归：``regenerateFrom`` 返回的快照带着附件，但 ``startTurn`` 原先没有
+        attachments 通道，宿主只能传文本 —— 重新生成后模型看不见用户上传的文件。
+        """
+        window, worker = self._window(qapp)
+        view = window.chat.chatView()
+        userId = view.addMessage(ElaChatRoleType.User, "看图")
+        view.setMessageAttachments(userId, [{"name": "a.png", "path": "C:/a.png"}])
+        mid = window.chat.beginAssistantMessage()
+        window.binder.beginTurn()
+
+        sent = []
+        window.start_turn = (
+            lambda prompt, attachments=None, regenerate=False: sent.append(
+                (prompt, [a.name for a in (attachments or ())], regenerate)
+            )
+        )
+        window.chat.regenerateRequested.emit(mid)
+
+        assert sent == [("看图", ["a.png"], True)]
         self._teardown(qapp, window, worker)
 
     def test_retry_without_user_message_reports(self, qapp):

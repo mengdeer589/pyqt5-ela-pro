@@ -18,7 +18,7 @@
 4. **上下文压缩**（``beginCompaction``）—— 库**不实现压缩算法**，只在时间线
    上如实表达「这里发生过一次压缩」并接住摘要（压不压、压哪段由宿主决定）。
 5. **成本与上下文占用** —— ``cost_usd``（定价表归宿主，库只给换算纯函数）
-   + 右上角占用圆环（三档配色）。
+   + 输入区工具栏里的占用圆环（三档配色）。
 6. **手动重试** —— 错误类型单独存字段，错误卡据此决定是否点亮「重试」
    （限流 / 超时可重试，参数错误 / 鉴权失败不给）。
 
@@ -127,8 +127,6 @@ class ChatAgentPage(ExamplePage):
     def __init__(self, parent=None):
         self._chat = None
         self._active_note = None
-        self._cost_usd = 0.0
-        self._used_tokens = 0
         self._renderers_registered = False
         super().__init__(parent)
 
@@ -215,9 +213,10 @@ class ChatAgentPage(ExamplePage):
                 "成本与上下文占用",
                 self._demo_cost,
                 (("累计一轮用量", self._demo_cost),),
-                "cost_usd 跟着 ElaChatStats 走，定价表不烤进库；上下文占用走 "
-                "setContextUsage，不进 ElaChatStats —— 那个字段是各步求和语义，"
-                "占用是当前值。",
+                "cost_usd 跟着 ElaChatStats 走，定价表不烤进库；会话级汇总走 "
+                "view.sessionStats(limit)（计数 / 当前上下文四路词元 / 使用率 / "
+                "累计成本，口径对齐 opencode），把 total_tokens / total_cost_usd "
+                "喂给输入区工具栏的圆环（本页输入区隐藏，看效果去「输入区能力」页）。",
             ),
             (
                 7,
@@ -543,19 +542,20 @@ class ChatAgentPage(ExamplePage):
         - 定价表**不烤进库**（价格会变、还分上下文长度阶梯），换算口径对齐
           opencode：``output`` 与 ``reasoning`` 同价、按输入侧总量选最大的
           满足档、最后除以 1e6；
-        - 上下文占用走 ``view.setContextUsage()``，**不进** ``ElaChatStats``
-          —— 那个字段的 ``merge()`` 是各步求和语义，上下文占用是当前值。
+        - 会话级汇总走 ``view.sessionStats(limit)``（``ElaChatSessionStats``）：
+          计数 / 当前上下文四路词元 / 使用率 / 累计成本，口径对齐 opencode
+          ``getSessionContext``（取**最后一条有 tokens 的助手消息的最后一步**）；
+          把它的 ``total_tokens`` / ``total_cost_usd`` 直接喂输入区圆环即可。
         """
         view = self._chat.chatView()
-        # 会话累计是**跨消息**的，库不存 —— 由宿主自己累加后喂给指示器。
-        # 注意 `total_tokens` 是**服务端给的原始值**、不由 prompt+completion
-        # 派生（可能含 reasoning），`ElaChatStats` 不会替你算。
         roundStats = ElaChatStats(
-            prompt_tokens=15_000, completion_tokens=3_000, total_tokens=18_000
+            prompt_tokens=15_000,
+            completion_tokens=3_000,
+            total_tokens=18_000,
+            reasoning_tokens=600,
+            cache_read_tokens=12_000,
         )
         roundCost = stats_cost(roundStats, _DEMO_PRICING)
-        self._used_tokens += roundStats.total_tokens
-        self._cost_usd = round(self._cost_usd + roundCost, 6)
 
         self._chat.sendUserMessage("这一轮花了多少钱")
         messageId = self._chat.beginAssistantMessage()
@@ -569,15 +569,21 @@ class ChatAgentPage(ExamplePage):
                 prompt_tokens=roundStats.prompt_tokens,
                 completion_tokens=roundStats.completion_tokens,
                 total_tokens=roundStats.total_tokens,
+                reasoning_tokens=roundStats.reasoning_tokens,
+                cache_read_tokens=roundStats.cache_read_tokens,
                 cost_usd=roundCost,
             ),
         )
         self._chat.endAssistantMessage()
 
-        view.setContextUsage(self._used_tokens, _DEMO_WINDOW, self._cost_usd)
+        # 会话级汇总（opencode context 面板同口径）→ 直接喂底部工具栏的圆环
+        session = view.sessionStats(_DEMO_WINDOW)
+        self._chat.chatInput().setContextUsage(
+            session.total_tokens, _DEMO_WINDOW, session.total_cost_usd
+        )
         self._note(
-            f"本轮 {roundCost} · 累计 {self._used_tokens:,} / {_DEMO_WINDOW:,} 词元"
-            f"（{view.contextUsagePercent()}%）· 累计花费 {self._cost_usd}"
+            f"本轮 {roundCost} · 当前上下文 {session.total_tokens:,} 词元"
+            f"（{session.usage_percent}%）· 会话累计花费 ${session.total_cost_usd:.4f}"
         )
 
     # ================================================================ 演示 6
@@ -606,7 +612,7 @@ class ChatAgentPage(ExamplePage):
         self._note("已插入错误卡（ServerError 可重试 → 展开错误卡点「重试」）")
 
     def _on_retry_requested(self, messageId: int) -> None:
-        """宿主侧：同参数重发。**保留消息位置**，只清错误。"""
+        """宿主侧：同参数重发。**保留消息位置**，清错误并把状态落成 stopped。"""
         prompt = self._chat.retryMessage(messageId)
         self._note(
             f"重试消息 #{messageId}"

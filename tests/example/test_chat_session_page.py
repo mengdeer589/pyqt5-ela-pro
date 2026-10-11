@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pyqt5_ela_pro.chat import ElaChatReasoningStyle, ElaChatRole
+from pyqt5_ela_pro.chat import ElaChatReasoningStyleType, ElaChatRoleType
 from pyqt5_ela_pro.example.chat_session_page import ChatSessionPage
 
 
@@ -29,8 +29,8 @@ class TestTopicIsolation:
         second = page._createTopic(activate=True)
         qapp.processEvents()
 
-        page._pages[first].chat.addMessage(ElaChatRole.User, "话题一的消息")
-        page._pages[second].chat.addMessage(ElaChatRole.User, "话题二的消息")
+        page._pages[first].chat.addMessage(ElaChatRoleType.User, "话题一的消息")
+        page._pages[second].chat.addMessage(ElaChatRoleType.User, "话题二的消息")
         page._pages[first].chat.chatInput().setText("话题一的草稿")
         qapp.processEvents()
 
@@ -52,7 +52,7 @@ class TestTopicIsolation:
         page = _page(qapp)
         first = _topic(page, 0)
         topic = page._pages[first]
-        assert topic.binder.startTurn("一边生成一边切走") is True
+        assert topic.binder.startTurn("一边生成一边切走") is not None
 
         second = page._createTopic(activate=True)
         qapp.processEvents()
@@ -70,7 +70,7 @@ class TestArchiveAndRestore:
         page = _page(qapp)
         topicId = _topic(page, 0)
         chat = page._pages[topicId].chat
-        chat.addMessage(ElaChatRole.User, "归档前的问题")
+        chat.addMessage(ElaChatRoleType.User, "归档前的问题")
         chat.chatInput().setText("没发出去的草稿")
         qapp.processEvents()
 
@@ -97,7 +97,7 @@ class TestArchiveAndRestore:
         page = _page(qapp)
         topicId = _topic(page, 0)
         topic = page._pages[topicId]
-        assert topic.binder.startTurn("归档时还在生成") is True
+        assert topic.binder.startTurn("归档时还在生成") is not None
         messageId = topic.chat.streamingMessageId()
         text_before = topic.chat.chatView().message(messageId).text
 
@@ -163,7 +163,7 @@ class TestAppearance:
         """标签文本里的条数跟着消息走（宿主列表最简接线：messageAdded → 刷新）。"""
         page = _page(qapp)
         topicId = _topic(page, 0)
-        page._pages[topicId].chat.addMessage(ElaChatRole.User, "一条消息")
+        page._pages[topicId].chat.addMessage(ElaChatRoleType.User, "一条消息")
         qapp.processEvents()
         assert "1 条" in page._tabs.tabText(0)
         page.deleteLater()
@@ -178,18 +178,18 @@ class TestAppearance:
         page._on_toggle_reasoning_style()
         qapp.processEvents()
 
-        assert page._reasoning_style == ElaChatReasoningStyle.Inline
+        assert page._reasoning_style == ElaChatReasoningStyleType.Inline
         for topicId in (first, second):
             assert (
                 page._pages[topicId].chat.chatView().reasoningStyle()
-                == ElaChatReasoningStyle.Inline
+                == ElaChatReasoningStyleType.Inline
             )
 
         third = page._createTopic(activate=True)  # 新建的页也要带上偏好
         qapp.processEvents()
         assert (
             page._pages[third].chat.chatView().reasoningStyle()
-            == ElaChatReasoningStyle.Inline
+            == ElaChatReasoningStyleType.Inline
         )
         page.deleteLater()
         qapp.processEvents()

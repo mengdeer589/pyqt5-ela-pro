@@ -107,7 +107,7 @@ class ToolRenderContext:
     arguments: str
     #: 当前结果文本
     result: str
-    #: 当前状态（见 :class:`~pyqt5_ela_pro.chat.message.ElaChatToolStatus`）
+    #: 当前状态（见 :class:`~pyqt5_ela_pro.chat.message.ElaChatToolStatusType`）
     status: str
     #: 是否失败（``status == Error``）
     isError: bool

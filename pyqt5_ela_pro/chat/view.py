@@ -28,8 +28,8 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Optional
 
-from PyQt5.QtCore import QElapsedTimer, QEvent, QObject, QRectF, QTimer, Qt, pyqtSignal
-from PyQt5.QtGui import QFont, QPainter, QPalette, QPen
+from PyQt5.QtCore import QElapsedTimer, QEvent, QObject, QTimer, Qt, pyqtSignal
+from PyQt5.QtGui import QFont, QPalette
 from PyQt5.QtWidgets import (
     QAbstractScrollArea,
     QFrame,
@@ -48,15 +48,10 @@ from PyQt5ElaWidgetTools import (
 )
 
 from .._styles import setTextColor
-from .._theme import StatusRole, statusColor
 from ..ela_button import ElaButton
-from ..tooltips import ElaToolTipPosition, set_tooltip
+from ..tooltips import ElaToolTipPositionType, set_tooltip
 from ..widget_base import ElaThemeWidget
-from ._pricing import formatCost
 from ._theme import (
-    accent_color,
-    base_color,
-    blend,
     muted_color,
     text_color,
 )
@@ -70,14 +65,12 @@ from .bubble import DISCLAIMER_TEXT, ElaChatBubble
 from .message import (
     ElaChatMessage,
     ElaChatPermission,
-    ElaChatReasoningStyle,
-    ElaChatRole,
+    ElaChatReasoningStyleType,
+    ElaChatRoleType,
     ElaChatStats,
-    ElaChatStatus,
-    _as_float,
-    _as_int,
+    ElaChatStatusType,
 )
-from .session import SESSION_SCHEMA_VERSION, ElaChatSessionInfo
+from .session import SESSION_SCHEMA_VERSION, ElaChatSessionInfo, ElaChatSessionStats
 
 #: 判定「贴底」的容差（像素，对齐 opencode 的 10px）
 _BOTTOM_MARGIN = 10
@@ -105,28 +98,6 @@ _SUSPEND_INTERVAL_MS = 100
 _BATCH_RENDER_BUDGET_MS = 8
 #: 助手消息阅读宽度（像素，0 表示不限；宿主可 setContentMaxWidth 收紧）
 _CONTENT_MAX_WIDTH = 0
-#: 上下文占用圆环边长（像素）
-_USAGE_RING_SIZE = 22
-#: 上下文占用进入警示 / 危险配色的百分比阈值
-_USAGE_WARN_PERCENT = 60
-_USAGE_DANGER_PERCENT = 85
-#: 圆环距右上角边距
-_USAGE_RING_MARGIN = 12
-
-
-def _shortTokens(value) -> str:
-    """词元数缩写（``187431`` -> ``187.4k``，对齐 opencode 的 compact 记法）。"""
-    try:
-        number = float(value or 0)
-    except (TypeError, ValueError, OverflowError):
-        return "0"
-    if number < 0:
-        number = 0.0
-    if number < 1000:
-        return str(int(number))
-    if number < 1_000_000:
-        return f"{number / 1000:.1f}k"
-    return f"{number / 1_000_000:.1f}M"
 
 
 def _with_created_at(message: ElaChatMessage, createdAt: float) -> ElaChatMessage:
@@ -292,130 +263,6 @@ class _EmptyState(ElaThemeWidget):
         self._subtitle_label.setFont(subtitle_font)
 
 
-class _ContextUsageRing(ElaThemeWidget):
-    """上下文窗口占用指示器（右上角小圆环 + hover 详情）。
-
-    **不是进度条**。上下文占用是一个**标量**（当前水位），不是一条有起止的
-    过程 —— 进度条会暗示「正在推进到 100%」，而语义恰恰相反（越接近 100%
-    越危险）。opencode 用 ``ProgressCircle`` 是同一个理由。
-
-    **为什么不用 ``ElaProgressRing``**：它有数值模式，但环色硬编码在 C++ 侧
-    （``ElaProgressRing.cpp:216`` 固定 ``PrimaryNormal``，没有取色接口），
-    而「占用越高越该变色」正是这个指示器的全部价值；且 22px 的环里塞
-    ``62%`` 已经挤到读不清（opencode 为此分出 ``indicator`` / ``button``
-    两档形态）。所以这里自绘：环 + 三档配色，数字交给 tooltip。
-    自绘是库内既有做法（``paintRoundedCard`` / ``FlatIconButton`` 同理），
-    且天然满足禁 QSS 约束。
-
-    三档配色：< 60% 弱化、60~85% 警示、> 85% 危险。
-    """
-
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self._used = 0
-        self._window = 0
-        self._cost_usd = 0.0
-        self.setFixedSize(_USAGE_RING_SIZE, _USAGE_RING_SIZE)
-        self.hide()
-
-    # -- 数据 --------------------------------------------------------------
-
-    def setUsage(self, used: int, window: int, costUsd: float = 0.0) -> None:
-        """设置占用（``window <= 0`` 隐藏整个控件）。"""
-        try:
-            self._used = max(0, int(used or 0))
-            self._window = max(0, int(window or 0))
-            self._cost_usd = float(costUsd or 0.0)
-        except (TypeError, ValueError, OverflowError):
-            self._used = self._window = 0
-            self._cost_usd = 0.0
-        self._sync()
-
-    def usage(self) -> tuple:
-        """获取 ``(已用, 窗口, 花费美元)``。"""
-        return (self._used, self._window, self._cost_usd)
-
-    def percent(self) -> int:
-        """占用百分比（窗口未知返回 0）。"""
-        if self._window <= 0:
-            return 0
-        return max(0, min(100, round(self._used * 100 / self._window)))
-
-    def level(self) -> int:
-        """档位：``0`` 正常 / ``1`` 警示 / ``2`` 危险。"""
-        percent = self.percent()
-        if percent >= _USAGE_DANGER_PERCENT:
-            return 2
-        if percent >= _USAGE_WARN_PERCENT:
-            return 1
-        return 0
-
-    def tooltipText(self) -> str:
-        """hover 详情文案（花费 / 百分比 / 词元总数 / 危险提示）。"""
-        lines = []
-        if self._cost_usd > 0:
-            lines.append(f"花费 {formatCost(self._cost_usd)}")
-        if self._window > 0:
-            lines.append(
-                f"上下文 {self.percent()}%"
-                f"（{_shortTokens(self._used)} / {_shortTokens(self._window)}）"
-            )
-        else:
-            lines.append(f"上下文 {_shortTokens(self._used)} 词元")
-        if self.level() == 2:
-            lines.append("上下文接近上限，建议压缩历史")
-        return "\n".join(lines)
-
-    # -- 内部 --------------------------------------------------------------
-
-    def _sync(self) -> None:
-        if self._window <= 0:
-            self.hide()
-            return
-        set_tooltip(self, self.tooltipText(), ElaToolTipPosition.Bottom)
-        self.update()
-        self.show()
-
-    def _arc_color(self):
-        mode = self._theme_mode
-        base = accent_color(mode)
-        level = self.level()
-        if level == 2:
-            return statusColor(mode, StatusRole.Error)
-        if level == 1:
-            return blend(base, statusColor(mode, StatusRole.Warning), 0.75)
-        # 低占用刻意弱化：它是「状态」不是「主角」，不该在每轮回答旁边抢注意力
-        return blend(muted_color(mode, 0.5), base, 0.35)
-
-    def paintEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
-        if self._window <= 0:
-            return
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        inset = 2.5
-        track = QRectF(self.rect()).adjusted(inset, inset, -inset, -inset)
-        width = 2.0
-        mode = self._theme_mode
-        # 底环：与值环同粗细的浅色圆环，让「还剩多少」可读
-        painter.setPen(QPen(blend(base_color(mode), text_color(mode), 0.16), width))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawEllipse(track)
-        # 值环：从 12 点顺时针（对齐 opencode ProgressCircle 的 stroke-dashoffset）
-        percent = self.percent()
-        if percent > 0:
-            painter.setPen(QPen(self._arc_color(), width))
-            painter.drawArc(
-                track,
-                90 * 16,
-                -int(round(percent * 360 / 100)) * 16,
-            )
-        painter.end()
-
-    def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:
-        super()._onThemeChanged(mode)
-        self.update()
-
-
 class ElaChatView(ElaThemeWidget):
     """聊天消息列表视图（可独立使用，也可由 ``ElaChatWidget`` 组装）。
 
@@ -429,8 +276,8 @@ class ElaChatView(ElaThemeWidget):
        ``setMessageTitle`` / ``setMessageTimestamp`` / ``setMessageDuration`` /
        ``setMessageError`` / ``setMessageAttachments`` / ``setReasoningStyle`` /
        ``setStatsMode`` / ``setToolGrouping`` / ``setAvatar*`` /
-       ``setContentMaxWidth`` / ``exportSession`` / ``importSession`` /
-       ``messages`` / ``message`` / ``lastMessage`` / ``count``。
+       ``setCopyNotificationEnabled`` / ``setContentMaxWidth`` / ``exportSession`` /
+       ``importSession`` / ``messages`` / ``message`` / ``lastMessage`` / ``count``。
        所有方法 ``messageId`` **首位必填**（唯一一套约定，见 ``ElaChatWidget``）。
     2. **性能开关（内部 / 只在必要时用）**：``beginBatch`` / ``endBatch``
        （历史加载骨架 + 渐进渲染）、``setViewportSuspension``
@@ -501,12 +348,13 @@ class ElaChatView(ElaThemeWidget):
         self._assistant_avatar = None
         self._user_bubble_ratio = 0.72
         self._content_max_width = _CONTENT_MAX_WIDTH
-        self._reasoning_style = ElaChatReasoningStyle.Collapse
+        self._reasoning_style = ElaChatReasoningStyleType.Collapse
         self._tool_grouping = True
         self._tool_default_open = toolDefaultOpen
         self._stats_mode = "footer"
         self._disclaimer_text = DISCLAIMER_TEXT
         self._disclaimer_visible = True
+        self._copy_notification_enabled = True
         self._jump_threshold = None
         self._scroll_guards: list = []
         self._guards_by_message: dict = {}
@@ -520,10 +368,8 @@ class ElaChatView(ElaThemeWidget):
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        # ElaScrollArea 的构造函数装了 ElaScrollBar 之后又强制
-        # ScrollBarAlwaysOff（ElaScrollArea.cpp:16-19），滚动条因此永远不显示 ——
-        # 全库仅此一处如此，ElaListView / ElaTableView 都是 AsNeeded。这里放开，
-        # 恢复「看得见、能拖动」的垂直滚动条。
+        # 上游 V3.0 起 ElaScrollArea 构造默认就是 AsNeeded；这里显式设置一次，
+        # 防上游回退、也让「垂直滚动条看得见、能拖动」的意图就近可读。
         self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._content = _ChatContent()
         self._content_layout = QVBoxLayout(self._content)
@@ -540,15 +386,9 @@ class ElaChatView(ElaThemeWidget):
         )
         self._jump_button.setBorderRadius(8)
         self._jump_button.setToolTip("回到底部")
-        set_tooltip(self._jump_button, "回到底部", ElaToolTipPosition.Top)
+        set_tooltip(self._jump_button, "回到底部", ElaToolTipPositionType.Top)
         self._jump_button.hide()
         self._jump_button.clicked.connect(self._on_jump_clicked)
-
-        # 上下文占用指示器（右上角浮层，与「回到底部」同级）
-        self._usage_ring = _ContextUsageRing(self)
-        self._usage_used = 0
-        self._usage_window = 0
-        self._usage_cost = 0.0
 
         self._follow_timer = QTimer(self)
         self._follow_timer.setSingleShot(True)
@@ -629,18 +469,21 @@ class ElaChatView(ElaThemeWidget):
         """是否处于严格 id 模式。"""
         return self._strict_ids
 
-    def _require_bubble(self, messageId: int, api: str = "") -> ElaChatBubble:
-        """取气泡；非法 id **抛 TypeError**，严格模式下不存在抛 :class:`KeyError`。
-
-        非严格模式下「id 不存在」等价于 ``self._bubbles.get(messageId)``。
-        类型错（``"1"`` / ``1.0`` / ``True``）**任何模式下都抛** —— 不存在的整数 id
-        可能是合法的迟到事件，但非整数 id 必然是调用方的笔误。
-        """
+    @staticmethod
+    def _require_int_id(messageId, api: str = "") -> None:
+        """非 int 的 messageId 任何模式都抛 :class:`TypeError`（笔误必须显式失败）。"""
         if isinstance(messageId, bool) or not isinstance(messageId, int):
             raise TypeError(
                 f"{api or '该操作'}：messageId 必须是 int，收到 {messageId!r}"
                 f"（{type(messageId).__name__}）"
             )
+
+    def _require_bubble(self, messageId: int, api: str = "") -> ElaChatBubble:
+        """取气泡；非法 id **抛 TypeError**，严格模式下不存在抛 :class:`KeyError`。
+
+        非严格模式下「id 不存在」等价于 ``self._bubbles.get(messageId)``。
+        """
+        self._require_int_id(messageId, api)
         bubble = self._bubbles.get(messageId)
         if bubble is None and self._strict_ids:
             raise KeyError(
@@ -654,6 +497,23 @@ class ElaChatView(ElaThemeWidget):
         self._flush_pending_syncs()
         return self._messages[-1] if self._messages else None
 
+    def sessionStats(self, limit: int = 0) -> ElaChatSessionStats:
+        """会话级用量汇总（计数 / 当前上下文四路词元 / 使用率 / 累计成本）。
+
+        口径对齐 opencode ``getSessionContext``：**「当前用量」取最后一条有
+        tokens 的助手消息的最后一步**（多步工具轮里就是最近一次 LLM 调用），
+        ``total_tokens`` = 四路和；累计成本跨全部消息求和。
+
+        这套数字可以直接喂输入区的上下文圆环::
+
+            stats = view.sessionStats(WINDOW)
+            chat.chatInput().setContextUsage(stats.total_tokens, WINDOW, stats.total_cost_usd)
+
+        :param limit: 模型上下文上限（词元）；``> 0`` 时才计算 ``usage_percent``
+        :returns: :class:`~pyqt5_ela_pro.chat.session.ElaChatSessionStats` 快照
+        """
+        return ElaChatSessionStats.fromMessages(self.messages(), limit)
+
     def contentWidget(self) -> QWidget:
         """获取滚动区内容容器（高级用法）。"""
         return self._content
@@ -665,13 +525,19 @@ class ElaChatView(ElaThemeWidget):
     ) -> int:
         """添加一条消息，返回消息 id。
 
-        ``messageId`` 可由调用方指定（客户端生成的幂等键 / 乐观 UI 先行渲染）。
-        缺省时用内部单调计数器分配 —— 顺序语义与 opencode 的 durable ``seq``
-        一致：不按时间戳排，因为时间戳会碰撞、会被回拨。
+        ``messageId`` 可由调用方指定（乐观 UI 先行渲染）。**该 id 已被占用时
+        抛 :class:`ValueError`** —— 静默重号会让旧气泡既留在界面上又不在索引里
+        （``removeMessage`` / ``clear()`` 都清不到），快照还出现两个同 id 消息
+        （与 :meth:`addMessageFromDict` 同一口径）。客户端生成的幂等键请走
+        ``ElaChatWidget.sendUserMessage``（那里做过重复发送对账）。
         """
+        if messageId is not None and messageId in self._bubbles:
+            raise ValueError(
+                f"addMessage: 消息 id {messageId} 已被占用，请换一个 id 或改用既有消息"
+            )
         return self._create_message(role, text, streaming=False, messageId=messageId)
 
-    def beginMessage(self, role: str = ElaChatRole.Assistant) -> int:
+    def beginMessage(self, role: str = ElaChatRoleType.Assistant) -> int:
         """开始一条流式消息（通常为助手），返回消息 id。"""
         return self._create_message(role, "", streaming=True)
 
@@ -701,9 +567,13 @@ class ElaChatView(ElaThemeWidget):
                 )
             if messageId >= self._next_id:
                 self._next_id = messageId + 1
-        if message.role == ElaChatRole.Assistant and message.parts:
+        if message.role == ElaChatRoleType.Assistant and message.parts:
             messageId = self._create_message(
-                message.role, "", streaming=False, messageId=messageId
+                message.role,
+                "",
+                streaming=False,
+                messageId=messageId,
+                emitAdded=False,
             )
             if not self._bubbles[messageId].setParts(message.parts):
                 raise ValueError("addMessageFromDict: 助手消息分段重建失败")
@@ -714,10 +584,35 @@ class ElaChatView(ElaThemeWidget):
             return messageId
         # 用户 / 系统消息（或无分段的老数据）：走普通纯文本路径
         messageId = self._create_message(
-            message.role, message.text, streaming=False, messageId=messageId
+            message.role,
+            message.text,
+            streaming=False,
+            messageId=messageId,
+            emitAdded=False,
         )
         self._apply_message_fields(messageId, message)
+        self.messageAdded.emit(messageId, message.role)
         return messageId
+
+    def _validate_preserve_ids(self, rows) -> None:
+        """校验 ``preserveIds=True`` 的整批 id（重复 / 与现有消息撞号即抛）。
+
+        **只读校验**：调用方（``restoreMessages`` / ``importSession``）必须在
+        写入前调用 —— 尤其是 ``importSession(clear=True)``，先清空再校验会让
+        坏 bundle 把当前会话整个清掉后才抛异常。
+        """
+        stored = [ElaChatMessage.fromDict(data).id for data in rows]
+        stored = [messageId for messageId in stored if messageId > 0]
+        counts = Counter(stored)
+        bad = sorted(
+            {messageId for messageId, count in counts.items() if count > 1}
+            | {messageId for messageId in counts if messageId in self._bubbles}
+        )
+        if bad:
+            raise ValueError(
+                f"restoreMessages: id {bad} 在本批或现有消息中重复 / 已被占用"
+                "（preserveIds=True 时请先去重或 clear，或改用默认重分配）"
+            )
 
     def restoreMessages(self, items, preserveIds: bool = False) -> list:
         """批量恢复消息（存储模块的**读回**入口），返回恢复后的消息 id 列表。
@@ -733,18 +628,7 @@ class ElaChatView(ElaThemeWidget):
         """
         rows = list(items or ())
         if preserveIds:
-            stored = [ElaChatMessage.fromDict(data).id for data in rows]
-            stored = [messageId for messageId in stored if messageId > 0]
-            counts = Counter(stored)
-            bad = sorted(
-                {messageId for messageId, count in counts.items() if count > 1}
-                | {messageId for messageId in counts if messageId in self._bubbles}
-            )
-            if bad:
-                raise ValueError(
-                    f"restoreMessages: id {bad} 在本批或现有消息中重复 / 已被占用"
-                    "（preserveIds=True 时请先去重或 clear，或改用默认重分配）"
-                )
+            self._validate_preserve_ids(rows)
         restored = []
         self.beginBatch()
         try:
@@ -756,10 +640,16 @@ class ElaChatView(ElaThemeWidget):
                     "" if message.parts else message.text,
                     streaming=False,
                     messageId=messageId,
+                    hasParts=bool(message.parts),
+                    emitAdded=False,
                 )
-                if message.role == ElaChatRole.Assistant and message.parts:
+                if message.role == ElaChatRoleType.Assistant and message.parts:
                     if not self._bubbles[messageId].setParts(message.parts):
                         continue
+                    # 快照**当场结算**，只有 Markdown 渲染延迟（``setParts`` 在延迟
+                    # 模式下只把分段登记成待渲染）。反过来会把「parts 为空」这件事
+                    # 泄露给读路径：``messages()`` / ``exportSession`` 在渲染队列排空
+                    # 之前拿到的都是空消息，导出会静默丢内容。
                     self._sync_parts(messageId)
                 self._apply_message_fields(messageId, message)
                 self.messageAdded.emit(messageId, message.role)
@@ -801,9 +691,15 @@ class ElaChatView(ElaThemeWidget):
         # 有错误文案时不覆盖 —— ``setMessageError`` 已把状态置为 Error，
         # 存储里的 ``status`` 可能还是上一轮的 Done。
         if message.status and not message.error:
-            bubble.setStatus(message.status)
+            status = message.status
+            if status == ElaChatStatusType.Streaming:
+                # 生成中导出 / 崩在途的消息：分段已被 ``setParts`` 结算，状态也
+                # 必须一起落定（与 journal 的 ``settleOpen`` 同口径）—— 否则
+                # 底部行永久隐藏、挂起调度永远跳过它，且没有任何路径再收尾。
+                status = ElaChatStatusType.Stopped
+            bubble.setStatus(status)
             self._update_snapshot(
-                messageId, lambda m, value=message.status: m.withStatus(value)
+                messageId, lambda m, value=status: m.withStatus(value)
             )
 
     # -- 会话 bundle（导出 / 导入） ----------------------------------------
@@ -852,8 +748,9 @@ class ElaChatView(ElaThemeWidget):
     def importSession(self, bundle, clear: bool = True) -> int:
         """从 :meth:`exportSession` 的 bundle 恢复整会话，返回恢复的消息条数。
 
-        - ``clear=True``（默认）：先清空当前消息，**保留消息 id 与分段 id**
-          （跨重启稳定）；``clear=False``：追加到现有消息之后，id 重新分配。
+        - ``clear=True``（默认）：先校验（id 冲突即抛、**一条都不落**）再清空当前
+          消息，**保留消息 id 与分段 id**（跨重启稳定）；``clear=False``：追加到
+          现有消息之后，id 重新分配。
         - 视图外观选项在写入消息**之前**应用（思考形态决定分段控件建卡形态）；
           缺失 / 非法字段保持当前值不动。
         - 非 dict / ``messages`` 非列表抛 :class:`ValueError`；``messages`` 里
@@ -869,17 +766,20 @@ class ElaChatView(ElaThemeWidget):
         rows = bundle.get("messages", [])
         if not isinstance(rows, list):
             raise ValueError("importSession: bundle['messages'] 必须是列表")
+        rows = [row for row in rows if isinstance(row, dict)]
+        if clear:
+            # 先校验后清空：坏 bundle（重复 id 等）不能把当前会话清掉再抛
+            self._validate_preserve_ids(rows)
         self._apply_session_view(bundle.get("view"))
         if clear:
             self.clear()
-        rows = [row for row in rows if isinstance(row, dict)]
         return len(self.restoreMessages(rows, preserveIds=clear))
 
     def _apply_session_view(self, options) -> None:
         """按 bundle 的 ``view`` 段恢复外观选项（缺失 / 非法字段不动）。"""
         if not isinstance(options, dict):
             return
-        if options.get("reasoning_style") in ElaChatReasoningStyle.All:
+        if options.get("reasoning_style") in ElaChatReasoningStyleType.All:
             self.setReasoningStyle(options["reasoning_style"])
         if options.get("stats_mode") in ("footer", "steps", "none"):
             self.setStatsMode(options["stats_mode"])
@@ -902,27 +802,42 @@ class ElaChatView(ElaThemeWidget):
         text: str,
         streaming: bool,
         messageId: Optional[int] = None,
+        *,
+        hasParts: bool = False,
+        emitAdded: bool = True,
     ) -> int:
-        if role not in ElaChatRole.All:
-            role = ElaChatRole.Assistant
+        if role not in ElaChatRoleType.All:
+            role = ElaChatRoleType.Assistant
         if messageId is None:
             messageId = self._next_id
             self._next_id += 1
-        elif messageId >= self._next_id:
-            # 外部 id 必须单调推进内部计数器，否则后续自动分配的 id 会撞车
-            self._next_id = messageId + 1
+        else:
+            if isinstance(messageId, bool) or not isinstance(messageId, int):
+                raise TypeError(
+                    f"messageId 必须是 int，收到 {messageId!r}"
+                    f"（{type(messageId).__name__}）"
+                )
+            if messageId in self._bubbles:
+                raise ValueError(f"消息 id {messageId} 已被占用")
+            if messageId >= self._next_id:
+                # 外部 id 必须单调推进内部计数器，否则后续自动分配的 id 会撞车
+                self._next_id = messageId + 1
+        # **判据是「有没有正文可渲染」，不是「text 是不是空串」**：带 parts 的
+        # 历史消息（``toDict`` / ``exportSession`` 产出的现代存档）正文在 parts
+        # 里、``text`` 传的是空串，早先因此全部走了同步渲染 —— 批量加载几百条
+        # 的主流路径反而绕开了时间片，主线程一次性渲染全部 Markdown。
         deferred = (
             self._batch_depth > 0
-            and role == ElaChatRole.Assistant
-            and bool(text)
+            and role == ElaChatRoleType.Assistant
+            and bool(text or hasParts)
             and not streaming
         )
         bubble = ElaChatBubble(role, "" if deferred else text, self._content)
         bubble.setAvatarVisible(self._avatar_visible)
         bubble.setAvatarShape(self._avatar_shape)
-        if role == ElaChatRole.User and self._user_avatar is not None:
+        if role == ElaChatRoleType.User and self._user_avatar is not None:
             bubble.setAvatarImage(self._user_avatar)
-        elif role == ElaChatRole.Assistant and self._assistant_avatar is not None:
+        elif role == ElaChatRoleType.Assistant and self._assistant_avatar is not None:
             bubble.setAvatarImage(self._assistant_avatar)
         bubble.setMaxWidthRatio(self._user_bubble_ratio)
         bubble.setContentMaxWidth(self._content_max_width)
@@ -934,7 +849,8 @@ class ElaChatView(ElaThemeWidget):
         bubble.setToolDefaultOpen(self._tool_default_open)
         bubble.setDisclaimer(self._disclaimer_text)
         bubble.setDisclaimerVisible(self._disclaimer_visible)
-        if role == ElaChatRole.User and self._messages:
+        bubble.setCopyNotificationEnabled(self._copy_notification_enabled)
+        if role == ElaChatRoleType.User and self._messages:
             # turn 间隔：用户消息前额外留白（对齐 opencode 的 24px 节奏）
             bubble.setTopSpacing(10)
         for area in bubble.nestedScrollAreas():
@@ -988,7 +904,7 @@ class ElaChatView(ElaThemeWidget):
         bubble.toolToggled.connect(self._on_tool_toggled)
         self._bubbles[messageId] = bubble
         self._content_layout.insertWidget(self._content_layout.count() - 1, bubble)
-        status = ElaChatStatus.Streaming if streaming else ElaChatStatus.Done
+        status = ElaChatStatusType.Streaming if streaming else ElaChatStatusType.Done
         self._messages.append(
             ElaChatMessage(
                 id=messageId,
@@ -1007,7 +923,11 @@ class ElaChatView(ElaThemeWidget):
             self._render_queue.append(messageId)
         else:
             self._sync_parts(messageId)
-        self.messageAdded.emit(messageId, role)
+        if emitAdded:
+            # 恢复路径（``addMessageFromDict`` / ``restoreMessages``）传
+            # ``emitAdded=False``：它们要在字段 / 分段全部还原完之后再发一次，
+            # 否则宿主在信号回调里读到的是「parts 为空、字段未恢复」的半成品。
+            self.messageAdded.emit(messageId, role)
         self._follow_bottom()
         return messageId
 
@@ -1120,7 +1040,7 @@ class ElaChatView(ElaThemeWidget):
         bottom = top + viewport
         margin = viewport * _SUSPEND_MARGIN_VIEWPORTS
         for messageId, bubble in self._bubbles.items():
-            if bubble.role() != ElaChatRole.Assistant or bubble.renderDeferred():
+            if bubble.role() != ElaChatRoleType.Assistant or bubble.renderDeferred():
                 continue
             if bubble.isStreaming():
                 continue
@@ -1201,14 +1121,14 @@ class ElaChatView(ElaThemeWidget):
         if bubble is None:
             return
         bubble.setText(text)
-        if bubble.role() == ElaChatRole.Assistant:
+        if bubble.role() == ElaChatRoleType.Assistant:
             self._sync_parts(messageId)
         else:
             self._update_snapshot(messageId, lambda message: message.withText(text))
         self.messageUpdated.emit(messageId)
         self._follow_bottom()
 
-    def endMessage(self, messageId: int, status: str = ElaChatStatus.Done) -> None:
+    def endMessage(self, messageId: int, status: str = ElaChatStatusType.Done) -> None:
         """结束指定消息的流式生成。"""
         bubble = self._require_bubble(messageId, "endMessage")
         if bubble is None:
@@ -1216,15 +1136,15 @@ class ElaChatView(ElaThemeWidget):
         bubble.endStream(status)
 
     def removeMessage(self, messageId: int) -> None:
-        """移除指定消息。"""
+        """移除指定消息（非 int id 抛 ``TypeError``；严格模式下不存在抛 ``KeyError``）。"""
         # 删消息前必须先作废未答复审批：交互卡在 dock 上，气泡删了卡还活着，
         # 用户点一下就会走进已销毁对象（0xC0000409）。widget.removeMessage
         # 早已这么做，这里补上让 view 层直接调用同样安全。
-        bubble = self._bubbles.get(messageId)
-        if bubble is not None:
-            bubble.cancelPendingPermissions()
-        if not self._detach_message(messageId):
+        bubble = self._require_bubble(messageId, "removeMessage")
+        if bubble is None:
             return
+        bubble.cancelPendingPermissions()
+        self._detach_message(messageId)
         self._messages = [m for m in self._messages if m.id != messageId]
         if not self._messages:
             self._empty.setVisible(True)
@@ -1239,6 +1159,7 @@ class ElaChatView(ElaThemeWidget):
 
         :returns: 被移除的消息 id 列表（按原顺序）
         """
+        self._require_int_id(messageId, "removeMessagesFrom")
         removed = [m.id for m in self._messages if m.id >= messageId]
         if not removed:
             return []
@@ -1275,6 +1196,15 @@ class ElaChatView(ElaThemeWidget):
         self._dirty_syncs.clear()
         self._render_queue.clear()
         self._render_timer.stop()
+        # **渐进渲染被打断时必须自己收尾**：``beginBatch`` 关掉了视口刷新，而恢复
+        # 只在 ``_finish_batch_render`` 里。这里把队列清空、计时器停掉，那次
+        # ``endBatch`` 之后再没人会走到那个函数 —— 视口就永久不再重绘（连空态和
+        # 之后新增的消息都不显示）。``_batch_depth > 0`` 时不用管：``endBatch``
+        # 归零时队列已空，会走 ``_finish_batch_render``。
+        if self._batch_depth <= 0 and not self._scroll.viewport().updatesEnabled():
+            self._scroll.viewport().setUpdatesEnabled(True)
+            self._scroll.viewport().update()
+            self._content_layout.activate()
         self._suspended_ids.clear()
         self._suspension_timer.stop()
         for guards in self._guards_by_message.values():
@@ -1399,6 +1329,7 @@ class ElaChatView(ElaThemeWidget):
 
     def toolCalls(self, messageId: int) -> list:
         """获取指定消息的工具调用快照列表。"""
+        self._require_int_id(messageId, "toolCalls")
         bubble = self._bubbles.get(messageId)
         return bubble.toolCalls() if bubble is not None else []
 
@@ -1456,7 +1387,7 @@ class ElaChatView(ElaThemeWidget):
         self,
         messageId: int,
         partId: str,
-        status: str = ElaChatStatus.Done,
+        status: str = ElaChatStatusType.Done,
         historyCount: int = 0,
     ) -> None:
         """结束压缩并落定摘要。"""
@@ -1498,7 +1429,7 @@ class ElaChatView(ElaThemeWidget):
         feedback: str = "",
     ) -> bool:
         """以编程方式落定一次审批（对应卡片按钮）；找不到返回 ``False``。"""
-        bubble = self._bubbles.get(messageId)
+        bubble = self._require_bubble(messageId, "resolvePermission")
         if bubble is None:
             return False
         ok = bubble.resolvePermission(requestId, reply, answer, feedback)
@@ -1509,11 +1440,13 @@ class ElaChatView(ElaThemeWidget):
 
     def pendingPermissions(self, messageId: int) -> list:
         """获取指定消息仍在等待用户回复的审批请求。"""
+        self._require_int_id(messageId, "pendingPermissions")
         bubble = self._bubbles.get(messageId)
         return bubble.pendingPermissions() if bubble is not None else []
 
     def permissionCard(self, messageId: int, requestId: str):
         """取审批卡控件（宿主可改文案 / 挂事件；不存在返回 ``None``）。"""
+        self._require_int_id(messageId, "permissionCard")
         bubble = self._bubbles.get(messageId)
         return bubble.permissionCard(requestId) if bubble is not None else None
 
@@ -1530,6 +1463,7 @@ class ElaChatView(ElaThemeWidget):
         **优先读 dock 上的交互卡**（等待期），落定后才退回时间线上的记录卡
         （那时记录卡已无交互态，答案只能从已落定的载荷里取）。
         """
+        self._require_int_id(messageId, "permissionAnswers")
         card = self.interactivePermissionCard(messageId, requestId)
         if card is not None:
             return card.answers()
@@ -1545,6 +1479,7 @@ class ElaChatView(ElaThemeWidget):
 
     def interactivePermissionCard(self, messageId: int, requestId: str):
         """取**仍在 dock 里等待用户操作**的交互卡（不在 dock 阶段返回 ``None``）。"""
+        self._require_int_id(messageId, "interactivePermissionCard")
         bubble = self._bubbles.get(messageId)
         if bubble is None:
             return None
@@ -1615,8 +1550,8 @@ class ElaChatView(ElaThemeWidget):
         """
         self._reasoning_style = (
             style
-            if style in ElaChatReasoningStyle.All
-            else ElaChatReasoningStyle.Collapse
+            if style in ElaChatReasoningStyleType.All
+            else ElaChatReasoningStyleType.Collapse
         )
         for bubble in self._bubbles.values():
             bubble.setReasoningStyle(self._reasoning_style)
@@ -1661,6 +1596,20 @@ class ElaChatView(ElaThemeWidget):
     def disclaimerVisible(self) -> bool:
         """「AI 生成」提示是否可见。"""
         return self._disclaimer_visible
+
+    def setCopyNotificationEnabled(self, on: bool) -> None:
+        """设置点击消息底部「复制」后是否弹 ``ElaMessageBar`` 成功提示。
+
+        默认开；与其它展示形态 setter 一致，**立即作用于已有消息**。这是应用
+        偏好（与「AI 生成」提示同口径），**不进** ``exportSession`` 的视图段。
+        """
+        self._copy_notification_enabled = bool(on)
+        for bubble in self._bubbles.values():
+            bubble.setCopyNotificationEnabled(self._copy_notification_enabled)
+
+    def copyNotificationEnabled(self) -> bool:
+        """复制后是否弹成功提示。"""
+        return self._copy_notification_enabled
 
     def setToolDefaultOpen(self, policy) -> None:
         """注入「哪些工具卡默认展开」的策略（对新旧消息统一生效）。
@@ -1758,7 +1707,7 @@ class ElaChatView(ElaThemeWidget):
         )
         if message:
             self._update_snapshot(
-                messageId, lambda m: m.withStatus(ElaChatStatus.Error)
+                messageId, lambda m: m.withStatus(ElaChatStatusType.Error)
             )
         self.messageUpdated.emit(messageId)
 
@@ -1774,15 +1723,27 @@ class ElaChatView(ElaThemeWidget):
 
         「重试」前必须先调它 —— 否则上一轮的错误卡会**留在界面上**，而新的
         流式内容正在同一条消息里生成，看起来像同时既有错误又在输出。
+
+        消息状态为 ``Error`` 时一并落成 ``Stopped``（保留「失败的尝试」记录）：
+        错误文案已清空却留着 ``Error`` 状态，导出 / 恢复出来的是「出错但没
+        错误」的自相矛盾数据。
         """
         bubble = self._require_bubble(messageId, "clearMessageError")
         if bubble is None:
             return
-        if not self.messageError(messageId)[0]:
+        error, error_type = self.messageError(messageId)
+        if not (error or error_type):
             return
         bubble.clearError()
         # 显式传空串清类型：withError 的 errorType=None 语义是「保持原值」
         self._update_snapshot(messageId, lambda m: m.withError("", errorType=""))
+        message = self.message(messageId)
+        if message is not None and message.status == ElaChatStatusType.Error:
+            bubble.setStatus(ElaChatStatusType.Stopped)
+            self._update_snapshot(
+                messageId,
+                lambda m: m.withStatus(ElaChatStatusType.Stopped),
+            )
         self.messageUpdated.emit(messageId)
 
     def setMessageTitle(self, messageId: int, title: str) -> None:
@@ -1821,7 +1782,7 @@ class ElaChatView(ElaThemeWidget):
         空串、回合结束才是完整正文 —— 要实时预览请读 ``bubble(messageId).text()``。
         """
         bubble = self._bubbles.get(messageId)
-        if bubble is None or bubble.role() != ElaChatRole.Assistant:
+        if bubble is None or bubble.role() != ElaChatRoleType.Assistant:
             return
         self._dirty_syncs.add(messageId)
 
@@ -1833,14 +1794,14 @@ class ElaChatView(ElaThemeWidget):
         self._dirty_syncs = set()
         for messageId in dirty:
             bubble = self._bubbles.get(messageId)
-            if bubble is None or bubble.role() != ElaChatRole.Assistant:
+            if bubble is None or bubble.role() != ElaChatRoleType.Assistant:
                 continue
             parts = bubble.parts()
             self._update_snapshot(messageId, lambda m, value=parts: m.withParts(value))
 
     def _on_bubble_stream_finished(self, messageId: int) -> None:
         bubble = self._bubbles.get(messageId)
-        status = bubble.status() if bubble is not None else ElaChatStatus.Done
+        status = bubble.status() if bubble is not None else ElaChatStatusType.Done
         # endStream 会同步结束正文段（分段状态 Done），需一并同步到快照，
         # 否则消息态为 done 而 parts 里仍残留 streaming。
         self._sync_parts(messageId)
@@ -1904,59 +1865,9 @@ class ElaChatView(ElaThemeWidget):
             max(0, self.height() - self._jump_button.height() - margin),
         )
 
-    # -- 上下文占用 --------------------------------------------------------
-
-    def setContextUsage(
-        self, used: int = 0, window: int = 0, costUsd: float = 0.0
-    ) -> None:
-        """设置上下文窗口占用（右上角圆环；``window <= 0`` 隐藏）。
-
-        **数据完全由宿主提供，库不推断**：上下文窗口多大、当前占了多少，
-        只有宿主知道（模型配置在宿主手里）。库也不把它塞进
-        :class:`~pyqt5_ela_pro.chat.message.ElaChatStats` —— 那个字段的
-        ``merge()`` 是**各步求和**语义，而上下文占用是**当前值**，求和是错的。
-
-        :param used: 已占用词元
-        :param window: 模型上下文窗口词元；``0`` / 非法值隐藏指示器
-        :param costUsd: 会话累计花费（美元），进 hover 详情；``0`` 不显示该行
-
-        hover 显示三行：花费 / 上下文百分比 / 词元总数（对齐 opencode 的
-        ``session-context-usage.tsx``）。占比 ≥ 85% 时配色转危险色并追加
-        一行提示。
-        """
-        self._usage_used = max(0, _as_int(used))
-        self._usage_window = max(0, _as_int(window))
-        self._usage_cost = _as_float(costUsd)
-        self._usage_ring.setUsage(
-            self._usage_used, self._usage_window, self._usage_cost
-        )
-        self._position_usage_ring()
-
-    def contextUsage(self) -> tuple:
-        """获取 ``(已用, 窗口, 花费美元)``（未设置时窗口为 0）。"""
-        return (self._usage_used, self._usage_window, self._usage_cost)
-
-    def contextUsagePercent(self) -> int:
-        """上下文占用百分比（窗口未知返回 0）。"""
-        return self._usage_ring.percent()
-
-    def contextUsageWidget(self) -> "_ContextUsageRing":
-        """获取上下文占用圆环控件（宿主可改边长 / 挂事件）。"""
-        return self._usage_ring
-
-    def _position_usage_ring(self) -> None:
-        ring = self._usage_ring
-        if ring is None or not ring.isVisible():
-            return
-        ring.move(
-            max(0, self.width() - ring.width() - _USAGE_RING_MARGIN),
-            _USAGE_RING_MARGIN,
-        )
-
     def resizeEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
         super().resizeEvent(event)
         self._position_jump_button()
-        self._position_usage_ring()
         self._on_view_resized(event.size().width())
 
     def showEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
@@ -2171,7 +2082,7 @@ class ElaChatView(ElaThemeWidget):
         """
         self._user_avatar = source
         for bubble in self._bubbles.values():
-            if bubble.role() == ElaChatRole.User:
+            if bubble.role() == ElaChatRoleType.User:
                 bubble.setAvatarImage(source)
 
     def userAvatar(self) -> Optional[ElaChatAvatarSource]:
@@ -2186,7 +2097,7 @@ class ElaChatView(ElaThemeWidget):
         """
         self._assistant_avatar = source
         for bubble in self._bubbles.values():
-            if bubble.role() == ElaChatRole.Assistant:
+            if bubble.role() == ElaChatRoleType.Assistant:
                 bubble.setAvatarImage(source)
 
     def assistantAvatar(self) -> Optional[ElaChatAvatarSource]:
@@ -2197,7 +2108,7 @@ class ElaChatView(ElaThemeWidget):
         """设置用户气泡最大宽度比例（含后续新增消息）。"""
         self._user_bubble_ratio = max(0.1, min(1.0, float(ratio)))
         for bubble in self._bubbles.values():
-            if bubble.role() == ElaChatRole.User:
+            if bubble.role() == ElaChatRoleType.User:
                 bubble.setMaxWidthRatio(self._user_bubble_ratio)
 
     def userBubbleMaxWidth(self) -> float:
@@ -2216,7 +2127,7 @@ class ElaChatView(ElaThemeWidget):
         """
         self._content_max_width = max(0, int(width))
         for bubble in self._bubbles.values():
-            if bubble.role() == ElaChatRole.Assistant:
+            if bubble.role() == ElaChatRoleType.Assistant:
                 bubble.setContentMaxWidth(self._content_max_width)
 
     def contentMaxWidth(self) -> int:

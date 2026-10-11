@@ -18,8 +18,8 @@ from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout
 
 from pyqt5_ela_pro import ElaButton, ElaDropDownButton
 from pyqt5_ela_pro.chat import (
-    ElaChatReasoningStyle,
-    ElaChatRole,
+    ElaChatReasoningStyleType,
+    ElaChatRoleType,
     ElaChatStats,
 )
 from PyQt5ElaWidgetTools import ElaCheckBox, ElaIconType, ElaMenu
@@ -30,7 +30,7 @@ from .chat_demo_kit import _ScriptPlayer, note, readonly_chat, replay_section, s
 
 #: 下拉的初始选中项（用来给菜单项打勾）
 _INITIAL = {
-    "推理形态：折叠": ElaChatReasoningStyle.Collapse,
+    "推理形态：折叠": ElaChatReasoningStyleType.Collapse,
     "工具：分组": "group",
     "统计：整轮": "footer",
     "头像：圆形": "rounded",
@@ -117,7 +117,7 @@ class ChatOverviewPage(ExamplePage):
 
         def add_user():
             userId["id"] = view.addMessage(
-                ElaChatRole.User,
+                ElaChatRoleType.User,
                 "帮我把 `chat/blocks.py` 的工具卡高度收一收，再补一条回归测试。",
             )
             view.addMessageAttachment(
@@ -132,7 +132,7 @@ class ChatOverviewPage(ExamplePage):
             )
 
         def begin_assistant():
-            userId["mid"] = view.beginMessage(ElaChatRole.Assistant)
+            userId["mid"] = view.beginMessage(ElaChatRoleType.Assistant)
             view.setMessageTitle(userId["mid"], "deepseek-v4")
             view.setMessageTimestamp(userId["mid"], "14:02")
             view.beginStep(userId["mid"])
@@ -278,40 +278,44 @@ class ChatOverviewPage(ExamplePage):
         row = QHBoxLayout()
         row.setSpacing(8)
 
-        self._reasoning_button = self._dropdown(
-            "推理形态：折叠",
-            "思考形态",
-            (
-                (ElaChatReasoningStyle.Collapse, "折叠块"),
-                (ElaChatReasoningStyle.Inline, "内联（opencode 风格）"),
-            ),
-            self._on_reasoning_style,
+        self._reasoning_button, self._reasoning_actions, self._reasoning_labels = (
+            self._dropdown(
+                "推理形态：折叠",
+                "思考形态",
+                (
+                    (ElaChatReasoningStyleType.Collapse, "折叠块", "折叠"),
+                    (ElaChatReasoningStyleType.Inline, "内联（opencode 风格）", "内联"),
+                ),
+                self._on_reasoning_style,
+            )
         )
-        self._grouping_button = self._dropdown(
-            "工具：分组",
-            "工具面板",
-            (
-                ("group", "按步分组"),
-                ("raw", "逐个平铺"),
-            ),
-            self._on_tool_grouping,
+        self._grouping_button, self._grouping_actions, self._grouping_labels = (
+            self._dropdown(
+                "工具：分组",
+                "工具面板",
+                (
+                    ("group", "按步分组", "分组"),
+                    ("raw", "逐个平铺", "平铺"),
+                ),
+                self._on_tool_grouping,
+            )
         )
-        self._stats_button = self._dropdown(
+        self._stats_button, self._stats_actions, self._stats_labels = self._dropdown(
             "统计：整轮",
             "用量徽标",
             (
-                ("footer", "整轮汇总停靠底部"),
-                ("steps", "逐步显示"),
-                ("none", "不显示"),
+                ("footer", "整轮汇总停靠底部", "整轮"),
+                ("steps", "逐步显示", "逐步"),
+                ("none", "不显示", "不显示"),
             ),
             self._on_stats_mode,
         )
-        self._avatar_button = self._dropdown(
+        self._avatar_button, self._avatar_actions, self._avatar_labels = self._dropdown(
             "头像：圆形",
             "头像",
             (
-                ("rounded", "圆形"),
-                ("square", "方形"),
+                ("rounded", "圆形", "圆形"),
+                ("square", "方形", "方形"),
             ),
             self._on_avatar_shape,
         )
@@ -324,6 +328,7 @@ class ChatOverviewPage(ExamplePage):
             row.addWidget(widget)
 
         row.addWidget(self._toggle("免责声明", True, self._on_disclaimer))
+        row.addWidget(self._toggle("复制提示", True, self._on_copy_notification))
         row.addWidget(self._toggle("贴底跟随", True, self._on_stick))
         row.addWidget(self._button("正文限宽 720", self._on_content_width))
         row.addStretch()
@@ -331,11 +336,11 @@ class ChatOverviewPage(ExamplePage):
         return box
 
     def _demo_appearance(self) -> None:
-        """外观：推理形态 / 工具分组 / 统计模式 / 免责声明 / 头像形状 / 正文限宽。
+        """外观：推理形态 / 工具分组 / 统计模式 / 免责声明 / 复制提示 / 头像形状 / 正文限宽。
 
         对应 API：``setReasoningStyle`` / ``setToolGrouping`` / ``setStatsMode`` /
-        ``setDisclaimer`` + ``setDisclaimerVisible`` / ``setAvatarShape`` /
-        ``setContentMaxWidth`` / ``setStickToBottom``。
+        ``setDisclaimer`` + ``setDisclaimerVisible`` / ``setCopyNotificationEnabled`` /
+        ``setAvatarShape`` / ``setContentMaxWidth`` / ``setStickToBottom``。
 
         两条约定：
 
@@ -344,9 +349,10 @@ class ChatOverviewPage(ExamplePage):
           叠出来的差异在浅色下明显、在深色下几乎读不出，两头不讨好。
         """
         view = self._chat.chatView()
-        view.setReasoningStyle(ElaChatReasoningStyle.Inline)
+        view.setReasoningStyle(ElaChatReasoningStyleType.Inline)
         view.setToolGrouping(True)
         view.setStatsMode("footer")
+        view.setCopyNotificationEnabled(True)
         view.setAvatarShape("rounded")
         view.setContentMaxWidth(720)
         view.setStickToBottom(True)
@@ -354,23 +360,30 @@ class ChatOverviewPage(ExamplePage):
     # -- 外观回调 ----------------------------------------------------------
 
     def _dropdown(self, label, tip, choices, callback):
-        """下拉：选中即调 ``callback(value)``，并把按钮文案换成选中项。"""
+        """下拉：选中即调 ``callback(value)``。
+
+        ``choices`` 是 ``(值, 菜单文案, 按钮短文案)``；返回
+        ``(按钮, {值: action}, {值: 短文案})``。返回 actions 是必需的：
+        **checkable 项自己没有互斥** —— 点已选项会取消勾选，点另一项两项同时
+        勾上。回调必须拿它做全量 ``setChecked`` 同步（见 :func:`_select`），
+        只改 view 与按钮文案的话菜单勾选态会一直错。
+        """
         button = ElaDropDownButton(label, ElaIconType.IconName.Sliders, parent=self)
         button.setFixedHeight(28)
         button.setToolTip(tip)
         menu = ElaMenu(self)
         menu.setMenuItemHeight(28)
-        for value, text in choices:
+        actions = {}
+        labels = {}
+        for value, text, short in choices:
             action = menu.addElaIconAction(ElaIconType.IconName.Sliders, text)
             action.setCheckable(True)
             action.setChecked(value == _INITIAL[label])
-            action.triggered.connect(
-                lambda _checked=False, v=value, t=text, c=callback, b=button: _apply(
-                    b, t, c, v
-                )
-            )
+            action.triggered.connect(lambda _checked=False, v=value, c=callback: c(v))
+            actions[value] = action
+            labels[value] = short
         button.setMenu(menu)
-        return button
+        return button, actions, labels
 
     def _toggle(self, text, checked, callback):
         """ElaCheckBox 走 Qt 标准 ``setChecked``（**没有** ``setIsToggled``）。"""
@@ -386,26 +399,49 @@ class ChatOverviewPage(ExamplePage):
 
     def _on_reasoning_style(self, value: str):
         self._chat.chatView().setReasoningStyle(value)
-        _relabel(self._reasoning_button, f"推理形态：{value}")
+        _select(
+            self._reasoning_button,
+            "推理形态",
+            self._reasoning_actions,
+            self._reasoning_labels,
+            value,
+        )
 
     def _on_tool_grouping(self, value: str):
         self._chat.chatView().setToolGrouping(value == "group")
-        _relabel(
-            self._grouping_button, "工具：分组" if value == "group" else "工具：平铺"
+        _select(
+            self._grouping_button,
+            "工具",
+            self._grouping_actions,
+            self._grouping_labels,
+            value,
         )
 
     def _on_stats_mode(self, value: str):
         self._chat.chatView().setStatsMode(value)
-        _relabel(self._stats_button, f"统计：{value}")
+        _select(
+            self._stats_button,
+            "统计",
+            self._stats_actions,
+            self._stats_labels,
+            value,
+        )
 
     def _on_avatar_shape(self, value: str):
         self._chat.chatView().setAvatarShape(value)
-        _relabel(
-            self._avatar_button, "头像：方形" if value == "square" else "头像：圆形"
+        _select(
+            self._avatar_button,
+            "头像",
+            self._avatar_actions,
+            self._avatar_labels,
+            value,
         )
 
     def _on_disclaimer(self, checked: bool):
         self._chat.chatView().setDisclaimerVisible(bool(checked))
+
+    def _on_copy_notification(self, checked: bool):
+        self._chat.chatView().setCopyNotificationEnabled(bool(checked))
 
     def _on_stick(self, checked: bool):
         self._chat.chatView().setStickToBottom(bool(checked))
@@ -421,11 +457,14 @@ class ChatOverviewPage(ExamplePage):
         )
 
 
-def _apply(button, text, callback, value):
-    _relabel(button, text)
-    callback(value)
+def _select(button, prefix, actions, labels, value) -> None:
+    """全量同步勾选态 + 按钮文案。
 
-
-def _relabel(button, text: str) -> None:
+    checkable 项没有互斥（再点已选项会取消勾选、点另一项会两项同时勾上），
+    每次选择都必须把所有项重刷一遍。
+    """
+    for item, action in actions.items():
+        action.setChecked(item == value)
+    text = f"{prefix}：{labels.get(value, value)}"
     button.setText(text)
     button.setToolTip(text)

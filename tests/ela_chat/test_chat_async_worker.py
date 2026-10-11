@@ -19,6 +19,7 @@ class _FakeWorker(ElaChatAsyncWorker):
         self.script = script or [("llm",), ("chunk", "a"), ("chunk", "b")]
         self.setup_count = 0
         self.rollback_args = []
+        self.stream_args = []
         self.after_count = 0
         self.reset_count = 0
         self.active = 0
@@ -28,7 +29,9 @@ class _FakeWorker(ElaChatAsyncWorker):
         self.setup_count += 1
         self.ready.emit()
 
-    def _stream_turn(self, prompt):
+    def _stream_turn(self, prompt, attachments):
+        self.stream_args.append((prompt, list(attachments)))
+
         async def gen():
             self.active += 1
             self.max_active = max(self.max_active, self.active)
@@ -50,8 +53,8 @@ class _FakeWorker(ElaChatAsyncWorker):
 
         return gen()
 
-    async def _rollback_turn(self, prompt: str) -> None:
-        self.rollback_args.append(prompt)
+    async def _rollback_turn(self, prompt: str, attachments: list) -> None:
+        self.rollback_args.append((prompt, list(attachments)))
 
     async def _after_turn(self) -> None:
         self.after_count += 1
@@ -80,12 +83,21 @@ class TestLifecycle:
         worker.ready.connect(lambda: events.append("ready"))
         worker.llmStarted.connect(lambda: events.append("llm"))
         worker.chunkReceived.connect(lambda chunk: events.append(f"chunk:{chunk}"))
-        worker.turnFinished.connect(lambda: events.append("finished"))
+        worker.turnFinished.connect(
+            lambda turn: events.append(f"finished:{turn}")
+        )
         _started(qapp, worker)
 
-        assert worker.ask("你好") is True
-        assert _wait_until(qapp, lambda: "finished" in events)
-        assert events == ["ready", "llm", "chunk:a", "chunk:b", "finished"]
+        turn = worker.ask("你好")
+        assert turn is not None
+        assert _wait_until(qapp, lambda: any(e.startswith("finished") for e in events))
+        assert events == [
+            "ready",
+            "llm",
+            "chunk:a",
+            "chunk:b",
+            f"finished:{turn}",
+        ]
         assert worker.after_count == 1
         _dispose(qapp, worker)
 
@@ -93,10 +105,12 @@ class TestLifecycle:
         worker = _FakeWorker(script=[("chunk", "x"), ("sleep", 0.05)])
         _started(qapp, worker)
         finished = []
-        worker.turnFinished.connect(lambda: finished.append(True))
-        assert worker.ask("一") is True
-        assert worker.ask("二") is True
+        worker.turnFinished.connect(finished.append)
+        first = worker.ask("一")
+        second = worker.ask("二")
+        assert first is not None and second is not None
         assert _wait_until(qapp, lambda: len(finished) == 2)
+        assert finished == [first, second], "收尾必须按受理顺序、带回各自 token"
         assert worker.max_active == 1
         _dispose(qapp, worker)
 
@@ -112,7 +126,7 @@ class TestLifecycle:
         worker.toolStarted.connect(lambda tc: events.append(("start", tc["id"])))
         worker.toolEnded.connect(lambda tc, r: events.append(("end", tc["id"], r)))
         _started(qapp, worker)
-        assert worker.ask("读文件") is True
+        assert worker.ask("读文件") is not None
         assert _wait_until(qapp, lambda: len(events) == 2)
         assert events == [("start", "t1"), ("end", "t1", "内容")]
         _dispose(qapp, worker)
@@ -124,20 +138,21 @@ class TestCancel:
         chunks = []
         finished = []
         worker.chunkReceived.connect(chunks.append)
-        worker.turnFinished.connect(lambda: finished.append(True))
+        worker.turnFinished.connect(finished.append)
         _started(qapp, worker)
 
-        assert worker.ask("长回答") is True
+        turn = worker.ask("长回答")
+        assert turn is not None
         assert _wait_until(qapp, lambda: chunks == ["a"])
         worker.cancel()
         assert _wait_until(qapp, lambda: bool(finished))
         assert chunks == ["a"]
-        assert len(finished) == 1
+        assert finished == [turn]
         qapp.processEvents()
         assert len(finished) == 1
         # 取消后还能继续下一轮
         worker.script = [("chunk", "next")]
-        assert worker.ask("再来") is True
+        assert worker.ask("再来") is not None
         assert _wait_until(qapp, lambda: chunks[-1] == "next")
         _dispose(qapp, worker)
 
@@ -146,9 +161,27 @@ class TestCommands:
     def test_regenerate_rolls_back_first(self, qapp):
         worker = _FakeWorker(script=[("chunk", "x")])
         _started(qapp, worker)
-        assert worker.regenerate("原问题") is True
-        assert _wait_until(qapp, lambda: worker.rollback_args == ["原问题"])
+        assert worker.regenerate("原问题") is not None
+        assert _wait_until(qapp, lambda: worker.rollback_args == [("原问题", [])])
         assert _wait_until(qapp, lambda: worker.after_count == 1)
+        _dispose(qapp, worker)
+
+    def test_attachments_reach_stream_turn(self, qapp):
+        """附件通道：ask / regenerate 的 attachments 都要到 ``_stream_turn``。"""
+        worker = _FakeWorker(script=[("chunk", "x")])
+        _started(qapp, worker)
+        attachment = {"name": "a.png", "path": "C:/a.png"}
+
+        assert worker.ask("看图", attachments=[attachment]) is not None
+        assert _wait_until(qapp, lambda: worker.stream_args == [("看图", [attachment])])
+
+        worker.script = [("chunk", "y")]
+        assert worker.regenerate("看图", attachments=[attachment]) is not None
+        assert _wait_until(
+            qapp,
+            lambda: worker.stream_args[-1:] == [("看图", [attachment])]
+            and worker.rollback_args[-1:] == [("看图", [attachment])],
+        )
         _dispose(qapp, worker)
 
     def test_reset_calls_backend(self, qapp):
@@ -160,7 +193,7 @@ class TestCommands:
 
     def test_ask_before_ready_returns_false(self, qapp):
         worker = _FakeWorker()
-        assert worker.ask("你好") is False
+        assert worker.ask("你好") is None
         worker.deleteLater()
         qapp.processEvents()
 
@@ -175,7 +208,7 @@ class TestCommands:
         worker.start()
         assert _wait_until(qapp, lambda: bool(errors))
         assert "backend down" in errors[0]
-        assert worker.ask("你好") is False
+        assert worker.ask("你好") is None
         _dispose(qapp, worker)
 
     def test_sync_stream_error_keeps_worker_alive(self, qapp):
@@ -186,20 +219,20 @@ class TestCommands:
                 super().__init__(**kwargs)
                 self.calls = 0
 
-            def _stream_turn(self, prompt):
+            def _stream_turn(self, prompt, attachments):
                 self.calls += 1
                 if self.calls == 1:
                     raise RuntimeError("sync boom")
-                return super()._stream_turn(prompt)
+                return super()._stream_turn(prompt, attachments)
 
         worker = _SyncBadWorker()
         errors = []
         finished = []
         worker.errorOccurred.connect(lambda kind, msg: errors.append((kind, msg)))
-        worker.turnFinished.connect(lambda: finished.append(True))
+        worker.turnFinished.connect(finished.append)
         _started(qapp, worker)
 
-        assert worker.ask("你好") is True
+        assert worker.ask("你好") is not None
         assert _wait_until(qapp, lambda: bool(finished))
         assert errors and "sync boom" in errors[0][1]
         assert worker.isRunning() is True
@@ -207,7 +240,7 @@ class TestCommands:
         chunks = []
         worker.chunkReceived.connect(chunks.append)
         worker.script = [("chunk", "next")]
-        assert worker.ask("再来") is True
+        assert worker.ask("再来") is not None
         assert _wait_until(qapp, lambda: chunks == ["next"])
         _dispose(qapp, worker)
 
@@ -222,7 +255,7 @@ class TestShutdown:
     def test_shutdown_stops_thread_without_blocking(self, qapp):
         worker = _FakeWorker(script=[("sleep", 5.0), ("chunk", "late")])
         _started(qapp, worker)
-        assert worker.ask("长任务") is True
+        assert worker.ask("长任务") is not None
         assert _wait_until(qapp, lambda: worker.active == 1)
 
         worker.shutdown()
@@ -236,7 +269,7 @@ class TestShutdown:
         """需要「确保线程已停」时走 ``waitForShutdown``。"""
         worker = _FakeWorker(script=[("sleep", 5.0), ("chunk", "late")])
         _started(qapp, worker)
-        assert worker.ask("长任务") is True
+        assert worker.ask("长任务") is not None
         assert _wait_until(qapp, lambda: worker.active == 1)
         worker.shutdown()
         assert worker.waitForShutdown() is True
@@ -295,7 +328,7 @@ class TestTurnCancellationEdges:
                 super().__init__(**kwargs)
                 self.rollback_started = threading.Event()
 
-            async def _rollback_turn(self, prompt: str) -> None:
+            async def _rollback_turn(self, prompt: str, attachments: list) -> None:
                 self.rollback_started.set()
                 await asyncio.sleep(0.4)
 
@@ -303,10 +336,10 @@ class TestTurnCancellationEdges:
         chunks = []
         finished = []
         worker.chunkReceived.connect(chunks.append)
-        worker.turnFinished.connect(lambda: finished.append(True))
+        worker.turnFinished.connect(finished.append)
         _started(qapp, worker)
 
-        assert worker.regenerate("原问题") is True
+        assert worker.regenerate("原问题") is not None
         assert worker.rollback_started.wait(1.0)
         worker.cancel()
 

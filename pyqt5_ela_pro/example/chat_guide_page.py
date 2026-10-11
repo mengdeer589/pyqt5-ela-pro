@@ -38,6 +38,8 @@ LLM_TEST_MAIN_SOURCE = r'''"""llm_test 最小示例：ElaChatWidget + 假 / 真�
 """
 
 import os
+
+os.environ["QT_LOGGING_RULES"] = "qt.qpa.fonts.warning=false"
 import sys
 from pathlib import Path
 
@@ -49,8 +51,8 @@ from PyQt5ElaWidgetTools import eApp
 from pyqt5_ela_pro.chat import (
     ElaChatAsyncWorker,
     ElaChatMockBackend,
-    ElaChatRole,
-    ElaChatStatus,
+    ElaChatRoleType,
+    ElaChatStatusType,
     ElaChatStatusBar,
     ElaChatStreamBinder,
     ElaChatWidget,
@@ -115,8 +117,9 @@ class DemoWindow(QWidget):
         self.resize(920, 720)
         self.setWindowTitle("ElaChatWidget 最小示例")
         self.worker = worker
-        #: 本回合是否出过错。**最终态以这里 + ``binder.finish()`` 摘要为准**，
-        #: 不看 ``generationFinished``：错误回合它会按 error → done 发两次。
+        #: 本回合是否出过错。最终态以这里 + ``binder.finish(turn)`` 摘要为准；
+        #: ``generationFinished`` 现在一次回合只发一次（错误回合按 error 收尾），
+        #: 也可直接用它驱动状态栏。
         self._turn_failed = False
 
         # ① 摆组件：ElaChatWidget（消息区 + 输入区都在组件内）
@@ -146,7 +149,9 @@ class DemoWindow(QWidget):
         worker.errorOccurred.connect(self.on_error)
 
         # ③ 宿主行为：提交 / 停止 / 撤回 / 重新生成 / 重试 / 清空上下文
-        self.chat.messageSubmitted.connect(self.start_turn)
+        # 用 messageSubmittedFull（不是 messageSubmitted）：它多带一份附件，
+        # 附件要原样送进后端，否则用户上传的文件模型根本看不见。
+        self.chat.messageSubmittedFull.connect(self.start_turn)
         self.chat.stopRequested.connect(self.on_stop)
         self.chat.undoRequested.connect(self.on_undo)
         self.chat.regenerateRequested.connect(self.on_regenerate)
@@ -163,9 +168,11 @@ class DemoWindow(QWidget):
 
     # -- 回合 --------------------------------------------------------------
 
-    def start_turn(self, prompt, regenerate=False):
+    def start_turn(self, prompt, attachments=None, regenerate=False):
         self._turn_failed = False
-        if not self.binder.startTurn(prompt, regenerate=regenerate):
+        if self.binder.startTurn(
+            prompt, regenerate=regenerate, attachments=attachments
+        ) is None:
             self.status.setStatus("后端未就绪，这条消息没发出去", level="error")
 
     def on_generation_started(self, messageId):
@@ -181,13 +188,17 @@ class DemoWindow(QWidget):
         self.status.setBusy(False)
         self.status.setStatus("后端已就绪", level="success")
 
-    def on_turn_finished(self):
-        summary = self.binder.finish()  # 收尾：补耗时 + 结束消息
+    def on_turn_finished(self, turn):
+        # turn 是发起本回合时 worker 给的 token：迟到的旧回合收尾会被 binder
+        # 丢弃（返回 None），此时不动状态栏。
+        summary = self.binder.finish(turn)  # 收尾：补耗时 + 结束消息
+        if summary is None:
+            return
         self.status.setBusy(False)
         if self._turn_failed:
             self._turn_failed = False
             self.status.setStatus("生成出错（错误卡上可「重试」）", level="error")
-        elif summary.status == ElaChatStatus.Stopped:
+        elif summary.status == ElaChatStatusType.Stopped:
             self.status.setStatus("已停止（保留已输出内容）")
         elif summary.isEmptyReply():
             self.status.setStatus(
@@ -208,7 +219,7 @@ class DemoWindow(QWidget):
         self.status.setBusy(False)
         self.status.setStatus(f"后端不可用：{message}", level="error")
         self.chat.chatView().addMessage(
-            ElaChatRole.System, f"后端初始化失败：{message}"
+            ElaChatRoleType.System, f"后端初始化失败：{message}"
         )
 
     def on_error(self, errorType, message):
@@ -225,7 +236,10 @@ class DemoWindow(QWidget):
         self.worker.cancel()
         message = self.chat.regenerateFrom(messageId)  # 删原回答，返回提问
         if message is not None:
-            self.start_turn(message.text, regenerate=True)
+            # ★ 附件必须一起带上：快照里有，丢了就是「重新生成后模型看不见文件」
+            self.start_turn(
+                message.text, attachments=message.attachments, regenerate=True
+            )
 
     def on_retry(self, messageId):
         """错误卡的「重试」：同参数重发，原地保留那条消息（不删不重建）。"""
@@ -234,7 +248,7 @@ class DemoWindow(QWidget):
         if message is None:
             self.status.setStatus("找不到可重试的提问", level="error")
             return
-        self.start_turn(message.text)
+        self.start_turn(message.text, attachments=message.attachments)
 
     def on_cleared(self):
         """界面已清空：同步重置后端会话（mock / 真实后端同签名）。"""
@@ -387,13 +401,35 @@ class AgentWorker(ElaChatAsyncWorker):
         )
         self.ready.emit()
 
-    def _stream_turn(self, prompt):
-        return self.agent.run(prompt)
+    @staticmethod
+    def _compose_prompt(prompt, attachments):
+        """把附件拼进提问：本示例的 agent 只吃纯文本，附件名 / 路径交给模型
+        让它用 read_file / read_image 去读。真实宿主应在这里构造多模态消息。
 
-    async def _rollback_turn(self, prompt):
+        ``_stream_turn`` 与 ``_rollback_turn`` 必须用**同一个**口径拼，
+        否则回滚比较对不上（历史里存的是拼好的那份）。
+        """
+
+        def label(item):
+            if hasattr(item, "name"):
+                return item.name or item.path or ""
+            if isinstance(item, dict):
+                return item.get("name") or item.get("path") or ""
+            return str(item)
+
+        if not attachments:
+            return prompt
+        names = "、".join(filter(None, (label(item) for item in attachments)))
+        return f"{prompt}\n\n（附件：{names}）" if names else prompt
+
+    def _stream_turn(self, prompt, attachments):
+        return self.agent.run(self._compose_prompt(prompt, attachments))
+
+    async def _rollback_turn(self, prompt, attachments):
         """重新生成前回滚上一轮提问，避免历史里出现重复提问。"""
+        composed = self._compose_prompt(prompt, attachments)
         history = getattr(self.agent.session, "history", None)
-        if history and getattr(history[-1], "user_message", "") == prompt:
+        if history and getattr(history[-1], "user_message", "") == composed:
             history.pop()
 
     async def _reset_backend(self):
@@ -482,11 +518,11 @@ binder 和窗口（本页示例里 `worker` 就是这个角色）。
 | `toolStarted` / `toolEnded` | 工具调用开始 / 结束 |
 | `statsReady` | 单次调用用量（usage, ttftMs, tps） |
 | `errorOccurred` / `emptyTurn` | 错误 / 回合无正文诊断 |
-| `turnFinished` | 回合结束（成功 / 失败 / 停止） |
+| `turnFinished` | 回合结束（成功 / 失败 / 停止），载荷是发起时 `ask` 返回的**回合 token** |
 
 | 方法 | 说明 |
 |---|---|
-| `ask(text)` / `regenerate(text)` | 提问 / 重新生成（返回后端是否受理） |
+| `ask(text, attachments=None)` / `regenerate(text, attachments=None)` | 提问 / 重新生成，**返回回合 token**（未就绪返回 `None`）；附件原样交给 `_stream_turn(prompt, attachments)`，不带附件时为空列表 |
 | `cancel()` | 中止当前回合（保留已输出内容） |
 | `reset()` / `shutdown()` | 重置会话 / 退出收尾 |
 """
@@ -505,8 +541,10 @@ binder 和窗口（本页示例里 `worker` 就是这个角色）。
    （`llmStarted` / `chunkReceived` / `toolStarted` / `toolEnded` / `statsReady` /
    `emptyTurn`），`shutdownOnClose(window)` 关窗自动收尾；
 4. **宿主行为**：提交 → `binder.startTurn`；停止 → `binder.cancel()` +
-   `worker.cancel()`；撤回 / 重新生成用组件 API；**清空上下文 → `cleared`
-   里 `worker.reset()`**（组件只清界面与队列）；回合结束 → `binder.finish()`。
+   `worker.cancel()`；撤回 / 重新生成用组件 API（**重新生成要把
+   `message.attachments` 一起带上**，`startTurn(attachments=...)` 会送进后端）；
+   **清空上下文 → `cleared` 里 `worker.reset()`**（组件只清界面与队列）；
+   回合结束 → `binder.finish(turn)`（token 由 `startTurn` 给出）。
 
    另有一组**「错了要有话说」**的接线（示例里是 `ElaChatStatusBar` 四档状态 +
    错误卡 + 「重试」）：`ready` / `failed` / `errorOccurred` / `retryRequested`
@@ -528,9 +566,9 @@ binder 和窗口（本页示例里 `worker` 就是这个角色）。
 | API | 说明 |
 |---|---|
 | `ElaChatStreamBinder(chat, worker=...)` | 传 worker 自动接线；`connectWorker(worker)` 幂等（重复传同一后端忽略，换绑会解绑旧后端） |
-| `startTurn(prompt, regenerate=False)` | 建助手消息 + `beginTurn` + 驱动后端；未就绪返回 `False`（不建空消息） |
-| `cancel()` | 记录停止 + 收尾思考段；之后 `finish()` 自动按 `Stopped` |
-| `finish(status=None)` | 补整轮耗时 + 结束消息，返回 `ElaChatTurnSummary`（幂等） |
+| `startTurn(prompt, regenerate=False, attachments=None)` | 建助手消息 + `beginTurn` + 驱动后端，**返回回合 token**；未就绪返回 `None`（不建空消息）。**重新生成必须带 `attachments=message.attachments`** —— `regenerateFrom` 返回的快照里就有，丢了就是模型看不见用户上传的文件 |
+| `cancel()` | 记录停止 + 收尾思考段；之后 `finish(turn)` 自动按 `Stopped` |
+| `finish(turn, status=None)` | 补整轮耗时 + 结束消息，返回 `ElaChatTurnSummary`。**`turn` 必填**（`startTurn` / `beginTurn` 的返回值）：认不出的**迟到收尾直接丢弃并返回 `None`** —— 后端 `cancel()` 是异步的，旧回合的 `turnFinished` 可能在新回合开起来之后才到，收掉它等于把新回合的分片全丢弃（用户看到「发出去了、正文全空」）。`worker.turnFinished.connect(binder.finish)` 写法自带 token，无需转发 |
 | `abortTurn(cancelBackend=True)` | **作废当前回合**（删除 / 关闭话题）：默认连后端一起 `worker.cancel()`、收尾为 `Stopped`、**不续发排队消息**；回合外返回 `None` |
 | `shutdownOnClose(window)` | 关窗 / 销毁时自动 `worker.shutdown()`（免写 `closeEvent`） |
 | `stream(chunk)` / `toolCallStarted(tc)` / `toolCallEnded(tc, r)` | worker 信号直连（自动接线的底层） |
@@ -539,16 +577,17 @@ binder 和窗口（本页示例里 `worker` 就是这个角色）。
 
 | API | 说明 |
 |---|---|
-| `messageSubmitted` / `stopRequested` / `undoRequested` / `regenerateRequested` / `retryRequested` | 宿主行为信号 |
+| `messageSubmitted` / `messageSubmittedFull` / `stopRequested` / `undoRequested` / `regenerateRequested` / `retryRequested` | 宿主行为信号。**要附件就接 `messageSubmittedFull(text, attachments)`**：`messageSubmitted(text)` 只有文本，附件到不了后端 |
 | `permissionRequested` / `permissionReplied` | 工具审批（**组件不阻塞**：收到 `permissionRequested(id, requestId)` 自行挂起后端，收到 `permissionReplied(id, requestId, reply, answer, feedback)` 自行恢复） |
 | `steerReady` / `steerChanged` | steer 插话投递 / 队列变化 |
 | `newTopicRequested` | 输入区「新建话题」按钮（组件**什么都不做** —— 宿主在此 `view.clear()` + `worker.reset()` + 新建 `ElaChatSessionInfo` 并切换） |
+| `contextUsageClicked` | 点击输入区工具栏的上下文占用圆环（组件**什么都不做**，宿主据此弹上下文详情面板等） |
 | `undoMessage(id)` / `undoLastUserMessage()` | 撤回用户消息：删除该条及其后消息，原文 / 附件回填输入框。`undoMessage` **只对用户消息生效**（传助手消息返回 `None`，别拿 `messages()[-1]` 的助手回答 id 去撤）；`undoLastUserMessage()` 自己找**最后一条用户消息**，是「撤回最后一条消息」的正确入口 |
 | `regenerateFrom(id)` | 删除该回答，返回前置用户消息（**按钮与整条底部行只在回合结束后出现** —— 流式 / 排队中不显示：回答没写完点了会整段丢掉，复制到的也只是半句话） |
-| `retryMessage(id)` | **重试**（同参数重发）：只清错误、**保留消息位置与 id**，返回前置用户消息。与 `regenerateFrom` 的区别就是不删消息 —— 删掉重建会让「重试」看起来像「重新生成」，也会打断用户正在读的上下文 |
+| `retryMessage(id)` | **重试**（同参数重发）：清错误并把状态落成 `stopped`、**保留消息位置与 id**，返回前置用户消息。与 `regenerateFrom` 的区别就是不删消息 —— 删掉重建会让「重试」看起来像「重新生成」，也会打断用户正在读的上下文 |
 | `steerMessage(text)` / `drainSteer()` / `setSteerEnabled(on)` | 生成中插话：在 `beginStep` 安全边界把新指令送进**正在跑的这一轮**（对齐 opencode 的 `Delivery = "steer" \| "queue"`，那边 prompt 默认 steer），而不是排队等它跑完。`drainSteer()` 一次只投一条 |
 | `sendNextQueued()` / `setAutoSendQueue(on)` | 排队续发（回合结束默认自动发送队首；仅空闲时发送） |
-| `sendQueuedNow(id)` | 排队 dock「立即发送」：先按 `Stopped` 收尾当前流并发出 `stopRequested`，再提交该条（同一时刻只有一个活跃流） |
+| `sendQueuedNow(id)` | 排队 dock「立即发送」：先按 `Stopped` 收尾当前流并发出 `stopRequested`，再提交该条（同一时刻只有一个活跃流）。**只发被点的那条**，其余排队消息保持排队 |
 | `clear()` | 清空消息与排队；生成中会发出 `stopRequested`；发出 `cleared` 信号 |
 | `cleared` | 界面已清空（消息 + 队列 + 生成态）——**宿主在这里重置后端会话**（`worker.reset()`），后端上下文只有宿主知道，组件管不到 |
 | `clearRequested` | 输入区工具栏「清空上下文」按钮点击**且有待清内容**时（确认弹框**之前**发出，可做埋点；空会话不发、也不弹框） |
@@ -565,7 +604,7 @@ binder 和窗口（本页示例里 `worker` 就是这个角色）。
 | 层 | 宿主 API（可以依赖） | 内部协议 / 性能开关（别依赖） |
 |---|---|---|
 | `ElaChatWidget` | 回合（`beginAssistantMessage` / `endAssistantMessage` / `stopGeneration` / `setMessageError`）、提交与排队、dock、`setCurrentSessionId`（纯标记） | —— （内容方法已全部移除，见上面的提示） |
-| `ElaChatView` | 建 / 改 / 读消息：`addMessage` / `addMessageFromDict` / `restoreMessages` / `removeMessage` / `appendText` / `addToolCall` / `setStepStats` / `setMessageTitle` / `setMessageError` / `messageError` / `clearMessageError` …；agent 能力：`beginPermission` / `resolvePermission` / `pendingPermissions` / `beginCompaction` / `appendCompactionSummary` / `endCompaction` / `addSteerNotice`；外观：`setReasoningStyle` / `setStatsMode` / `setToolGrouping` / `setToolDefaultOpen` / `setAvatar*` / `setContentMaxWidth` / `setContextUsage`；持久化：`exportSession` / `importSession` | **性能开关**：`beginBatch` / `endBatch`（历史骨架 + 渐进渲染）、`setViewportSuspension`（视口外挂起）、`setResizeReflowDeferred`（交互 resize 延迟重排）；**渲染内部**：`bubble` / `contentWidget` / `holdFollow` / `jumpThreshold` / `isBatchActive` / `guardNestedScroll`。单条消息的延迟渲染（`setRenderDeferred` / `flushRender` / `hasPendingRender`）**只在 `bubble` 上**，view 仅在批量路径内部调用 |
+| `ElaChatView` | 建 / 改 / 读消息：`addMessage` / `addMessageFromDict` / `restoreMessages` / `removeMessage` / `appendText` / `addToolCall` / `setStepStats` / `setMessageTitle` / `setMessageError` / `messageError` / `clearMessageError` …；agent 能力：`beginPermission` / `resolvePermission` / `pendingPermissions` / `beginCompaction` / `appendCompactionSummary` / `endCompaction` / `addSteerNotice`；外观：`setReasoningStyle` / `setStatsMode` / `setToolGrouping` / `setToolDefaultOpen` / `setAvatar*` / `setCopyNotificationEnabled` / `setContentMaxWidth`；持久化：`exportSession` / `importSession` | **性能开关**：`beginBatch` / `endBatch`（历史骨架 + 渐进渲染）、`setViewportSuspension`（视口外挂起）、`setResizeReflowDeferred`（交互 resize 延迟重排）；**渲染内部**：`bubble` / `contentWidget` / `holdFollow` / `jumpThreshold` / `isBatchActive` / `guardNestedScroll`。单条消息的延迟渲染（`setRenderDeferred` / `flushRender` / `hasPendingRender`）**只在 `bubble` 上**，view 仅在批量路径内部调用 |
 | `ElaChatBubble` | 取子控件与形态：`actions()` / `footer()` / `meta()` / `header()` / `text()` / `parts()` / `markdownViewer()` / `inlineReasoningViewer()` / `statsBadge()` / `toolPanels()` / `setAvatarShape()` / `setActionsHoverReveal()` | 其余 `beginText` / `appendText` / `addToolCall` / `setParts` / `setStatus` / `setStepStats` / `setRenderDeferred` … 是 **view ↔ bubble 内部协议**：宿主改消息请走 view 层，否则会绕过 `_sync_parts` 派生结算与 `_dirty_syncs` 防抖 |
 
 ## Input（输入区，经 `chatInput()` 调用）
@@ -579,6 +618,7 @@ binder 和窗口（本页示例里 `worker` 就是这个角色）。
 | `newTopicRequested` | 点击「新建话题」按钮（组件**什么都不做**，话题 / 会话由宿主创建） |
 | `newTopicButton()` / `setNewTopicVisible(on)` | 内置「新建话题」按钮句柄 / 显隐（默认显示） |
 | `acceptsMime(mime)` / `attachMime(mime)` | 「这个 mime 收不收」/「收下并入附件」——组件各处拖放判定都走这两个，宿主自定义放置点时可复用 |
+| `setContextUsage(used, window, costUsd)` | 底部工具栏里的上下文占用圆环（与「清空上下文」同排的**默认组件**；无数据时画空底环、`window<=0` 按 0%；`<60%` 弱化 / `60~85%` 警示 / `>85%` 危险），hover 显示花费 / 百分比 / 词元数。数据全由宿主提供；**圆环可点击**（发 `contextUsageClicked`，弹什么面板归宿主）；显隐走 `setContextUsageVisible(on)` |
 
 ## View（消息内容层，经 `chatView()` 调用）
 
@@ -589,6 +629,7 @@ binder 和窗口（本页示例里 `worker` 就是这个角色）。
 | `addToolCall(messageId, name, args, toolCallId)` | 追加工具调用（上下文工具自动归组） |
 | `setReasoningStyle(style)` / `setToolGrouping(on)` / `setStatsMode(mode)` | 展示形态，立即对已有消息生效 |
 | `setDisclaimer(text)` / `setDisclaimerVisible(on)` | 助手消息底部的「内容由 AI 生成，仅供参考」提示（默认开启；流式期间随整行隐藏）；`DISCLAIMER_TEXT` 是默认文案 |
+| `setCopyNotificationEnabled(on)` | 点击消息底部「复制」后是否弹 `ElaMessageBar`「已复制到剪贴板」成功提示（默认开启，立即对已有消息生效；应用偏好，不进 `exportSession`） |
 | `setUserAvatar(source)` / `setAssistantAvatar(source)` / `setAvatarShape(shape)` | 头像自定义：SVG / 路径 / `QPixmap` / `QImage` / `QIcon` / `bytes` 等（含已存在与后续消息）；形状 `"circle"`（默认）/ `"rounded"`（**带圆角的矩形**）/ `"square"`，非法值回落圆形 |
 | `setToolDefaultOpen(policy)` | 注入工具卡展开策略（`policy(name, args, ok) -> bool`），只影响**之后新建**的卡片 |
 | `registerToolRenderer(name, factory, *, subtitle, groupable, replace=False)` | **工具结果富渲染**（模块级函数）：`factory(ToolRenderContext) -> QWidget` 只替换卡片**内容区**，头部 / 折叠 / 错误竖线 / 忙碌环 / 展开策略仍由 `ToolCallCard` 负责。可选实现 `updateToolResult(result, status)` 收推送。`subtitle(args) -> (键, 值)` 的键自动从参数摘要排除。`replace=False` 时注册同名渲染器直接报错（防静默覆盖）。库内不内置任何渲染器 |
@@ -596,11 +637,11 @@ binder 和窗口（本页示例里 `worker` 就是这个角色）。
 | `pendingPermissions(messageId)` / `permissionCard(messageId, requestId)` / `interactivePermissionCard(messageId, requestId)` / `permissionAnswers(messageId, requestId)` | 读审批状态。`permissionCard` 只返回时间线上的**记录卡**（等待期间是 `None`），还在 dock 里等回复的交互卡用 `interactivePermissionCard`。`permissionAnswers` 给**未塌缩**的 `{key: [label, ...]}`，用于「答到一半还没提交」时看进度 |
 | `beginCompaction(messageId, reason)` / `appendCompactionSummary(...)` / `endCompaction(...)` | 上下文压缩在时间线上的表达。**库不实现压缩算法**，只负责「能表达 + 能持久化」 |
 | `addSteerNotice(messageId, text)` | 插话回执行（`↳ <text>`）。刻意不插用户气泡 —— 助手消息正在流式输出，中途插一条用户消息视觉上很怪 |
-| `setContextUsage(used, window, costUsd)` | 右上角上下文占用圆环（`<60%` 弱化 / `60~85%` 警示 / `>85%` 危险），hover 显示花费 / 百分比 / 词元数。数据全由宿主提供 |
 | `setContentMaxWidth(px)` | 气泡宽度约束。限的是**整列**（正文 + 附件条 + 底部行），宽窗口下右边缘对齐；不限宽时行为完全不变 |
 | `setScrollBarPolicy(policy)` / `scrollBar()` | 垂直滚动条策略（默认 `ScrollBarAsNeeded`，仅溢出时显示）与滚动条句柄；手动拖动把手会自动退出贴底跟随 |
 | `setStrictIds(on)` | 严格模式：对**不存在的消息**抛 `KeyError`（默认关闭，迟到事件静默忽略） |
 | `messages()` / `message(id)` / `lastMessage()` | 读快照（读取时才结算派生字段） |
+| `sessionStats(limit=0)` | 会话级用量汇总（`ElaChatSessionStats`）：计数 / 当前上下文四路词元与合计 / 使用率 / 累计成本 / 最后活动；口径对齐 opencode `getSessionContext`（最后一条有 tokens 的助手消息的最后一步）。`total_tokens` / `total_cost_usd` 可直接喂输入区圆环 |
 | `parts()` / `text()` / `reasoning()` | 纯读取；`part.text` 只含**已落定**内容，可直接序列化落库 |
 
 ## 持久化与崩溃恢复
@@ -689,7 +730,10 @@ view.beginPermission(messageId, ElaChatPermission(
   流式期间整行不摆 —— 回答没写完时点「重新生成」会丢掉已经看到的内容
   （`regenerateFrom` 删该条及其后所有消息），复制到的也只是半句话；
 - 真实后端的 `ask` / `regenerate` 只在 `ready` 之后返回 `True`，
-  未就绪时应提示用户而不是静默丢弃。
+  未就绪时应提示用户而不是静默丢弃；
+- **附件要接 `messageSubmittedFull`**（不是 `messageSubmitted`）：后者只有
+  文本。重新生成 / 重试时把快照里的 `message.attachments` 交给
+  `startTurn(attachments=...)`，否则模型看不见用户上传的文件。
 """
         self._addMarkdown(main_layout, markdown)
 
@@ -702,9 +746,11 @@ view.beginPermission(messageId, ElaChatPermission(
 
 1. `bootstrap_agents()`：导入 `agents/` 副本前放两个桩，
    跳过 dash / plotly / Git Bash / mcp 依赖（只需要只读工具）；
-2. `AgentWorker(ElaChatAsyncWorker)`：只实现 `_setup()` / `_stream_turn()` /
-   `_rollback_turn()` / `_reset_backend()`——线程、事件循环、命令队列、
-   取消收尾全部由基类处理；
+2. `AgentWorker(ElaChatAsyncWorker)`：只实现 `_setup()` /
+   `_stream_turn(prompt, attachments)` / `_rollback_turn(prompt, attachments)` /
+   `_reset_backend()`——线程、事件循环、命令队列、取消收尾全部由基类处理；
+   示例把附件名拼进提问（agent 只吃纯文本，模型再用 `read_file` / `read_image`
+   去读），两个钩子用同一口径拼、回滚比较才对得上；
 3. `main()`：主线程引导（`agents` 导入期注册 signal）+ 持有窗口引用。
 
 > `agents/` 是外部完整副本，不随库 / wheel 分发；换成其他 OpenAI 兼容

@@ -10,9 +10,9 @@ from PyQt5.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage
 
 import pyqt5_ela_pro.chat.widget as widget_mod
 from pyqt5_ela_pro.chat import (
-    ElaChatRole,
+    ElaChatRoleType,
     ElaChatStats,
-    ElaChatStatus,
+    ElaChatStatusType,
     ElaChatWidget,
 )
 from pyqt5_ela_pro.chat.blocks import _ImageAttachmentCard
@@ -42,13 +42,13 @@ class TestRoundTrip:
         assert events == [
             ("submitted", "你好"),
             ("started", assistant_id),
-            ("finished", assistant_id, ElaChatStatus.Done),
+            ("finished", assistant_id, ElaChatStatusType.Done),
         ]
         assert chat.isGenerating() is False
         messages = chat.chatView().messages()
         assert [(m.id, m.role, m.text, m.status) for m in messages] == [
-            (1, ElaChatRole.User, "你好", ElaChatStatus.Done),
-            (2, ElaChatRole.Assistant, "你好，世界", ElaChatStatus.Done),
+            (1, ElaChatRoleType.User, "你好", ElaChatStatusType.Done),
+            (2, ElaChatRoleType.Assistant, "你好，世界", ElaChatStatusType.Done),
         ]
 
     def test_send_empty_ignored(self, qapp, make):
@@ -93,8 +93,8 @@ class TestStop:
         chat.stopGeneration()
 
         assert stops == [1]
-        assert finished == [ElaChatStatus.Stopped]
-        assert chat.chatView().message(assistant_id).status == ElaChatStatus.Stopped
+        assert finished == [ElaChatStatusType.Stopped]
+        assert chat.chatView().message(assistant_id).status == ElaChatStatusType.Stopped
         assert chat.chatView().message(assistant_id).text == "部分回答"
         assert chat.isGenerating() is False
 
@@ -120,7 +120,7 @@ class TestStop:
         chat.beginAssistantMessage()
         chat.chatInput()._button.click()  # 生成中按钮为「停止」
         assert chat.isGenerating() is False
-        assert chat.chatView().messages()[-1].status == ElaChatStatus.Stopped
+        assert chat.chatView().messages()[-1].status == ElaChatStatusType.Stopped
 
 
 class TestClear:
@@ -175,8 +175,8 @@ class TestInputBarClearButton:
         requested = []
         chat.cleared.connect(lambda: cleared.append(1))
         chat.clearRequested.connect(lambda: requested.append(1))
-        chat.addMessage(ElaChatRole.User, "你好")
-        chat.addMessage(ElaChatRole.Assistant, "在")
+        chat.addMessage(ElaChatRoleType.User, "你好")
+        chat.addMessage(ElaChatRoleType.Assistant, "在")
         qapp.processEvents()
 
         chat.chatInput().clearButton().click()
@@ -201,7 +201,7 @@ class TestInputBarClearButton:
         qapp.processEvents()
         cleared = []
         chat.cleared.connect(lambda: cleared.append(1))
-        chat.addMessage(ElaChatRole.User, "别删我")
+        chat.addMessage(ElaChatRoleType.User, "别删我")
         qapp.processEvents()
 
         chat.chatInput().clearButton().click()
@@ -218,7 +218,7 @@ class TestInputBarClearButton:
         qapp.processEvents()
         requested = []
         chat.newTopicRequested.connect(lambda: requested.append(1))
-        chat.addMessage(ElaChatRole.User, "旧话题的消息")
+        chat.addMessage(ElaChatRoleType.User, "旧话题的消息")
 
         chat.chatInput().newTopicButton().click()
         qapp.processEvents()
@@ -346,14 +346,14 @@ class TestPassthrough:
 
     def test_add_system_message(self, qapp, make):
         chat = make(ElaChatWidget)
-        messageId = chat.addMessage(ElaChatRole.System, "会话已创建")
-        assert chat.chatView().message(messageId).role == ElaChatRole.System
+        messageId = chat.addMessage(ElaChatRoleType.System, "会话已创建")
+        assert chat.chatView().message(messageId).role == ElaChatRoleType.System
 
     def test_appearance_propagation(self, qapp, make):
         chat = make(ElaChatWidget)
         chat.chatView().setAvatarVisible(False)
         chat.chatView().setUserBubbleMaxWidth(0.6)
-        messageId = chat.addMessage(ElaChatRole.User, "hi")
+        messageId = chat.addMessage(ElaChatRoleType.User, "hi")
         bubble = chat.chatView().bubble(messageId)
         assert bubble.avatarVisible() is False
         assert bubble.maxWidthRatio() == 0.6
@@ -366,7 +366,7 @@ class TestPassthrough:
         chat.show()
         qapp.processEvents()
         for index in range(6):
-            chat.addMessage(ElaChatRole.User, f"消息 {index} " + "内容" * 20)
+            chat.addMessage(ElaChatRoleType.User, f"消息 {index} " + "内容" * 20)
         assert _wait_until(
             qapp,
             lambda: (
@@ -435,7 +435,7 @@ class TestToolBarAndActions:
 
     def test_action_passthrough(self, qapp, make):
         chat = make(ElaChatWidget)
-        messageId = chat.addMessage(ElaChatRole.User, "hi")
+        messageId = chat.addMessage(ElaChatRoleType.User, "hi")
         events = []
         chat.messageActionTriggered.connect(lambda mid, key: events.append((mid, key)))
         chat.actions(messageId).toolButton("undo").click()
@@ -444,7 +444,7 @@ class TestToolBarAndActions:
 
     def test_custom_message_action(self, qapp, make):
         chat = make(ElaChatWidget)
-        messageId = chat.addMessage(ElaChatRole.Assistant, "hi")
+        messageId = chat.addMessage(ElaChatRoleType.Assistant, "hi")
         events = []
         chat.messageActionTriggered.connect(lambda mid, key: events.append((mid, key)))
         chat.actions(messageId).addCustomAction("favorite", tooltip="收藏")
@@ -489,18 +489,18 @@ class TestReasoningAndTools:
         chat.setMessageError("网关错误", assistant_id)
         snapshot = chat.chatView().message(assistant_id)
         assert snapshot.error == "网关错误"
-        assert snapshot.status == ElaChatStatus.Error
+        assert snapshot.status == ElaChatStatusType.Error
         assert chat.isGenerating() is False
         # 流式引用已结束，后续 end 不会把错误状态覆盖为「完成」
         assert chat.endAssistantMessage() is None
-        assert chat.chatView().message(assistant_id).status == ElaChatStatus.Error
+        assert chat.chatView().message(assistant_id).status == ElaChatStatusType.Error
 
 
 class TestMessageManagement:
     def test_remove_update_count_and_tool_calls(self, qapp, make):
         chat = make(ElaChatWidget)
-        first = chat.addMessage(ElaChatRole.User, "a")
-        chat.addMessage(ElaChatRole.Assistant, "b")
+        first = chat.addMessage(ElaChatRoleType.User, "a")
+        chat.addMessage(ElaChatRoleType.Assistant, "b")
         assert chat.chatView().count() == 2
         assert chat.chatView().toolCalls(first) == []
 
@@ -540,10 +540,10 @@ class TestSessionMarker:
 class TestHostActions:
     def test_undo_message_removes_tail_and_restores_input(self, qapp, make):
         chat = make(ElaChatWidget)
-        userId = chat.addMessage(ElaChatRole.User, "第一问")
-        chat.addMessage(ElaChatRole.Assistant, "第一答")
-        targetId = chat.addMessage(ElaChatRole.User, "第二问")
-        chat.addMessage(ElaChatRole.Assistant, "第二答")
+        userId = chat.addMessage(ElaChatRoleType.User, "第一问")
+        chat.addMessage(ElaChatRoleType.Assistant, "第一答")
+        targetId = chat.addMessage(ElaChatRoleType.User, "第二问")
+        chat.addMessage(ElaChatRoleType.Assistant, "第二答")
 
         target = chat.undoMessage(targetId)
         assert target is not None
@@ -603,10 +603,10 @@ class TestHostActions:
     def test_undo_last_user_message_skips_assistant_reply(self, qapp, make):
         """「撤回最后一条消息」撤回的是最后一条**用户**消息，不是助手回答。"""
         chat = make(ElaChatWidget)
-        first_user = chat.addMessage(ElaChatRole.User, "第一条")
-        first_assistant = chat.addMessage(ElaChatRole.Assistant, "第一条回答")
-        last_user = chat.addMessage(ElaChatRole.User, "第二条")
-        chat.addMessage(ElaChatRole.Assistant, "第二条回答")
+        first_user = chat.addMessage(ElaChatRoleType.User, "第一条")
+        first_assistant = chat.addMessage(ElaChatRoleType.Assistant, "第一条回答")
+        last_user = chat.addMessage(ElaChatRoleType.User, "第二条")
+        chat.addMessage(ElaChatRoleType.Assistant, "第二条回答")
 
         target = chat.undoLastUserMessage()
         assert target is not None
@@ -620,26 +620,26 @@ class TestHostActions:
 
     def test_undo_last_user_message_without_user_is_noop(self, qapp, make):
         chat = make(ElaChatWidget)
-        chat.addMessage(ElaChatRole.Assistant, "只有回答")
-        chat.addMessage(ElaChatRole.System, "系统消息")
+        chat.addMessage(ElaChatRoleType.Assistant, "只有回答")
+        chat.addMessage(ElaChatRoleType.System, "系统消息")
         assert chat.undoLastUserMessage() is None
         assert chat.chatView().count() == 2
 
     def test_undo_message_rejects_assistant_target(self, qapp, make):
         """``undoMessage`` 只对用户消息生效：传助手消息不删任何东西。"""
         chat = make(ElaChatWidget)
-        user_id = chat.addMessage(ElaChatRole.User, "问题")
-        assistant_id = chat.addMessage(ElaChatRole.Assistant, "回答")
+        user_id = chat.addMessage(ElaChatRoleType.User, "问题")
+        assistant_id = chat.addMessage(ElaChatRoleType.Assistant, "回答")
         assert chat.undoMessage(assistant_id) is None
         assert [m.id for m in chat.chatView().messages()] == [user_id, assistant_id]
         assert chat.chatInput().text() == ""
 
     def test_regenerate_from_returns_previous_user_message(self, qapp, make):
         chat = make(ElaChatWidget)
-        userId = chat.addMessage(ElaChatRole.User, "原始提问")
-        assistantId = chat.addMessage(ElaChatRole.Assistant, "旧回答")
-        chat.addMessage(ElaChatRole.User, "后续提问")
-        chat.addMessage(ElaChatRole.Assistant, "后续回答")
+        userId = chat.addMessage(ElaChatRoleType.User, "原始提问")
+        assistantId = chat.addMessage(ElaChatRoleType.Assistant, "旧回答")
+        chat.addMessage(ElaChatRoleType.User, "后续提问")
+        chat.addMessage(ElaChatRoleType.Assistant, "后续回答")
 
         userMessage = chat.regenerateFrom(assistantId)
         assert userMessage is not None
@@ -649,7 +649,7 @@ class TestHostActions:
 
     def test_regenerate_from_without_user_message_keeps_messages(self, qapp, make):
         chat = make(ElaChatWidget)
-        assistantId = chat.addMessage(ElaChatRole.Assistant, "孤立回答")
+        assistantId = chat.addMessage(ElaChatRoleType.Assistant, "孤立回答")
         assert chat.regenerateFrom(assistantId) is None
         assert chat.chatView().count() == 1
         assert chat.chatView().message(assistantId) is not None
@@ -684,7 +684,7 @@ class TestHostActions:
         assert submitted == ["第一问", "排队问题"]
         assert chat.queueCount() == 0
         assert chat.isGenerating() is True
-        assert chat.chatView().message(assistantId).status == ElaChatStatus.Done
+        assert chat.chatView().message(assistantId).status == ElaChatStatusType.Done
 
     def test_end_assistant_message_respects_auto_send_off(self, qapp, make):
         chat = make(ElaChatWidget)
@@ -738,7 +738,7 @@ class TestConcurrentTurnSafety:
         chat.sendQueuedNow(queueId)
 
         assert stopped == [1]
-        assert chat.chatView().message(first).status == ElaChatStatus.Stopped
+        assert chat.chatView().message(first).status == ElaChatStatusType.Stopped
         assert chat.isGenerating() is True
         assert submitted == ["第二问"]
 
@@ -757,7 +757,7 @@ class TestConcurrentTurnSafety:
         def on_stop():
             # 模拟宿主在 stopRequested 槽里同步收尾（binder.finish 语义）
             if chat.isGenerating():
-                chat.endAssistantMessage(status=ElaChatStatus.Stopped)
+                chat.endAssistantMessage(status=ElaChatStatusType.Stopped)
 
         chat.stopRequested.connect(on_stop)
         chat.beginAssistantMessage()
@@ -772,12 +772,12 @@ class TestConcurrentTurnSafety:
 
     def test_error_on_other_message_keeps_generating(self, qapp, make):
         chat = make(ElaChatWidget)
-        other = chat.addMessage(ElaChatRole.Assistant, "旧回答")
+        other = chat.addMessage(ElaChatRoleType.Assistant, "旧回答")
         streaming = chat.beginAssistantMessage()
         chat.chatView().appendText(streaming, "进行中")
 
         chat.chatView().setMessageError(other, "旧消息出错")
-        assert chat.chatView().message(other).status == ElaChatStatus.Error
+        assert chat.chatView().message(other).status == ElaChatStatusType.Error
         assert chat.isGenerating() is True
         assert chat._streaming_id == streaming
 
@@ -792,8 +792,8 @@ class TestConcurrentTurnSafety:
 
         second = chat.beginAssistantMessage()
 
-        assert chat.chatView().message(first).status == ElaChatStatus.Stopped
-        assert finished == [(first, ElaChatStatus.Stopped)]
+        assert chat.chatView().message(first).status == ElaChatStatusType.Stopped
+        assert finished == [(first, ElaChatStatusType.Stopped)]
         assert chat._streaming_id == second
         chat.chatView().appendText(second, "第二条")
         assert chat.chatView().message(second).text == ""
@@ -821,8 +821,9 @@ class TestConcurrentTurnSafety:
         chat.messageSubmitted.connect(submitted.append)
 
         def on_stop():
-            if chat.isGenerating():
-                chat.endAssistantMessage(status=ElaChatStatus.Stopped)
+            # 宿主的真实收尾路径：binder.finish -> endAssistantMessage(目标已结束)
+            # -> 末尾排下一条排队消息。组件必须在这条链上把续发压住。
+            chat.endAssistantMessage(status=ElaChatStatusType.Stopped)
 
         chat.stopRequested.connect(on_stop)
         chat.beginAssistantMessage()
@@ -834,6 +835,25 @@ class TestConcurrentTurnSafety:
         assert chat.queueCount() == 0
         assert chat.isGenerating() is False
 
+    def test_send_queued_now_keeps_other_queued_items(self, qapp, make):
+        """点 B 的「立即发送」不该把队首 A 抢先发出去（顺序错乱 + A 被截断）。"""
+        chat = make(ElaChatWidget)
+        submitted = []
+        chat.messageSubmitted.connect(submitted.append)
+        chat.beginAssistantMessage()
+        chat.enqueueMessage("A")
+        chat.enqueueMessage("B")
+        queued = {item["text"]: item["id"] for item in chat.queuedMessages()}
+
+        def on_stop():
+            chat.endAssistantMessage(status=ElaChatStatusType.Stopped)
+
+        chat.stopRequested.connect(on_stop)
+        chat.sendQueuedNow(queued["B"])
+
+        assert submitted == ["B"], "只有被点的那条该发出去"
+        assert [item["text"] for item in chat.queuedMessages()] == ["A"]
+
     def test_end_explicit_id_keeps_error_status(self, qapp, make):
         chat = make(ElaChatWidget)
         messageId = chat.beginAssistantMessage()
@@ -841,4 +861,4 @@ class TestConcurrentTurnSafety:
 
         chat.endAssistantMessage(messageId)
 
-        assert chat.chatView().message(messageId).status == ElaChatStatus.Error
+        assert chat.chatView().message(messageId).status == ElaChatStatusType.Error

@@ -7,39 +7,39 @@ import pytest
 from pyqt5_ela_pro.chat import (
     ElaChatAttachment,
     ElaChatMessage,
-    ElaChatReasoningStyle,
-    ElaChatRole,
+    ElaChatReasoningStyleType,
+    ElaChatRoleType,
     ElaChatStats,
-    ElaChatStatus,
+    ElaChatStatusType,
     ElaChatToolCall,
-    ElaChatToolStatus,
+    ElaChatToolStatusType,
 )
 
 
 class TestRoleAndStatus:
     def test_role_values(self):
-        assert ElaChatRole.User == "user"
-        assert ElaChatRole.Assistant == "assistant"
-        assert ElaChatRole.System == "system"
-        assert set(ElaChatRole.All) == {"user", "assistant", "system"}
+        assert ElaChatRoleType.User == "user"
+        assert ElaChatRoleType.Assistant == "assistant"
+        assert ElaChatRoleType.System == "system"
+        assert set(ElaChatRoleType.All) == {"user", "assistant", "system"}
 
     def test_status_values(self):
-        assert ElaChatStatus.Streaming == "streaming"
+        assert ElaChatStatusType.Streaming == "streaming"
         # queued：流式开始后、首个模型输出前的头部展示态；不进 All（不落数据）
-        assert ElaChatStatus.Queued == "queued"
-        assert ElaChatStatus.Done == "done"
-        assert ElaChatStatus.Stopped == "stopped"
-        assert ElaChatStatus.Error == "error"
-        assert len(ElaChatStatus.All) == 4
+        assert ElaChatStatusType.Queued == "queued"
+        assert ElaChatStatusType.Done == "done"
+        assert ElaChatStatusType.Stopped == "stopped"
+        assert ElaChatStatusType.Error == "error"
+        assert len(ElaChatStatusType.All) == 4
 
     def test_tool_status_values(self):
-        assert ElaChatToolStatus.Pending == "pending"
-        assert ElaChatToolStatus.Running == "running"
-        assert ElaChatToolStatus.Done == "done"
-        assert ElaChatToolStatus.Error == "error"
+        assert ElaChatToolStatusType.Pending == "pending"
+        assert ElaChatToolStatusType.Running == "running"
+        assert ElaChatToolStatusType.Done == "done"
+        assert ElaChatToolStatusType.Error == "error"
         # aborted：回合被停止/中断时仍未落定的调用（不会真的失败，故与 error 分开）
-        assert ElaChatToolStatus.Aborted == "aborted"
-        assert set(ElaChatToolStatus.All) == {
+        assert ElaChatToolStatusType.Aborted == "aborted"
+        assert set(ElaChatToolStatusType.All) == {
             "pending",
             "running",
             "done",
@@ -47,51 +47,51 @@ class TestRoleAndStatus:
             "aborted",
         }
         # Settled = 不再显示忙碌环
-        assert set(ElaChatToolStatus.Settled) == {"done", "error", "aborted"}
+        assert set(ElaChatToolStatusType.Settled) == {"done", "error", "aborted"}
 
 
 class TestConstants:
     def test_reasoning_style(self):
 
-        assert ElaChatReasoningStyle.Collapse == "collapse"
-        assert ElaChatReasoningStyle.Inline == "inline"
-        assert set(ElaChatReasoningStyle.All) == {"collapse", "inline"}
+        assert ElaChatReasoningStyleType.Collapse == "collapse"
+        assert ElaChatReasoningStyleType.Inline == "inline"
+        assert set(ElaChatReasoningStyleType.All) == {"collapse", "inline"}
 
 
 class TestElaChatMessage:
     def test_defaults(self):
-        message = ElaChatMessage(id=1, role=ElaChatRole.User)
+        message = ElaChatMessage(id=1, role=ElaChatRoleType.User)
         assert message.text == ""
-        assert message.status == ElaChatStatus.Done
+        assert message.status == ElaChatStatusType.Done
         assert message.created_at == 0.0
 
     def test_role_properties(self):
-        user = ElaChatMessage(id=1, role=ElaChatRole.User)
-        assistant = ElaChatMessage(id=2, role=ElaChatRole.Assistant)
-        system = ElaChatMessage(id=3, role=ElaChatRole.System)
+        user = ElaChatMessage(id=1, role=ElaChatRoleType.User)
+        assistant = ElaChatMessage(id=2, role=ElaChatRoleType.Assistant)
+        system = ElaChatMessage(id=3, role=ElaChatRoleType.System)
         assert user.isUser and not user.isAssistant and not user.isSystem
         assert assistant.isAssistant and not assistant.isUser
         assert system.isSystem and not system.isUser
 
     def test_is_streaming(self):
         streaming = ElaChatMessage(
-            id=1, role=ElaChatRole.Assistant, status=ElaChatStatus.Streaming
+            id=1, role=ElaChatRoleType.Assistant, status=ElaChatStatusType.Streaming
         )
         assert streaming.isStreaming
-        assert not ElaChatMessage(id=2, role=ElaChatRole.User).isStreaming
+        assert not ElaChatMessage(id=2, role=ElaChatRoleType.User).isStreaming
 
     def test_frozen_and_helpers(self):
-        original = ElaChatMessage(id=1, role=ElaChatRole.User, text="a")
+        original = ElaChatMessage(id=1, role=ElaChatRoleType.User, text="a")
         with pytest.raises(Exception):
             original.text = "b"  # type: ignore[misc]
         changed = original.withText("b")
         assert changed.text == "b" and original.text == "a"
-        stopped = original.withStatus(ElaChatStatus.Stopped)
-        assert stopped.status == ElaChatStatus.Stopped
-        assert original.status == ElaChatStatus.Done
+        stopped = original.withStatus(ElaChatStatusType.Stopped)
+        assert stopped.status == ElaChatStatusType.Stopped
+        assert original.status == ElaChatStatusType.Done
 
     def test_rich_defaults(self):
-        message = ElaChatMessage(id=1, role=ElaChatRole.Assistant)
+        message = ElaChatMessage(id=1, role=ElaChatRoleType.Assistant)
         assert message.title == ""
         assert message.timestamp == ""
         assert message.reasoning == ""
@@ -102,7 +102,7 @@ class TestElaChatMessage:
         assert message.error == ""
 
     def test_rich_helpers(self):
-        message = ElaChatMessage(id=1, role=ElaChatRole.Assistant)
+        message = ElaChatMessage(id=1, role=ElaChatRoleType.Assistant)
         tool_call = ElaChatToolCall(id="t1", name="search")
         updated = (
             message.withTitle("模型")
@@ -160,7 +160,7 @@ class TestElaChatToolCall:
         assert call.isRunning and not call.isDone and not call.isError
         done = call.withResult("ok")
         assert done.isDone and done.result == "ok"
-        failed = call.withResult("boom", ElaChatToolStatus.Error)
+        failed = call.withResult("boom", ElaChatToolStatusType.Error)
         assert failed.isError
         assert call.withArguments("{}").arguments == "{}"
 
@@ -168,14 +168,14 @@ class TestElaChatToolCall:
 class TestElaChatStats:
     def test_tooltip(self):
         stats = ElaChatStats(
-            duration_ms=3200.0, ttft_ms=250.0, tps=12.34, cached_tokens=64
+            duration_ms=3200.0, ttft_ms=250.0, tps=12.34, cache_read_tokens=64
         )
         tooltip = stats.tooltip()
         # 首字在前，耗时紧随其后（便于把端到端耗时并入同一行）
         assert tooltip.startswith("首字 250 ms")
         assert "耗时 3.2s" in tooltip
         assert "12.3 词元/s" in tooltip
-        assert "缓存 64 词元" in tooltip
+        assert "缓存读 64 词元" in tooltip
         assert ElaChatStats().tooltip() == ""
         assert "耗时 1m 20s" in ElaChatStats(duration_ms=80000.0).tooltip()
         assert "端到端 3.2s" in ElaChatStats(duration_ms=3200.0).tooltip("端到端")

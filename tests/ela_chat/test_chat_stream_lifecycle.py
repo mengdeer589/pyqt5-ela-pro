@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from pyqt5_ela_pro.chat import (
-    ElaChatReasoningStyle,
+    ElaChatReasoningStyleType,
     ElaChatBubble,
-    ElaChatRole,
-    ElaChatStatus,
+    ElaChatRoleType,
+    ElaChatStatusType,
     ElaChatView,
     ElaChatWidget,
 )
@@ -15,8 +15,8 @@ from pyqt5_ela_pro.chat import (
 class TestInlineReasoningStream:
     def test_end_reasoning_stops_inline_viewer(self, qapp, make):
         """内联思考结束后查看器必须退出流式（否则光标永久闪烁）。"""
-        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
-        bubble.setReasoningStyle(ElaChatReasoningStyle.Inline)
+        bubble = make(ElaChatBubble, ElaChatRoleType.Assistant)
+        bubble.setReasoningStyle(ElaChatReasoningStyleType.Inline)
         bubble.beginReasoning()
         bubble.appendReasoning("思考内容")
         viewer = bubble._part_widgets[bubble._current_reasoning_id]
@@ -29,8 +29,8 @@ class TestInlineReasoningStream:
 
     def test_end_stream_stops_inline_reasoning(self, qapp, make):
         """endStream 收尾仍处于流式的内联思考查看器。"""
-        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
-        bubble.setReasoningStyle(ElaChatReasoningStyle.Inline)
+        bubble = make(ElaChatBubble, ElaChatRoleType.Assistant)
+        bubble.setReasoningStyle(ElaChatReasoningStyleType.Inline)
         bubble.beginStream()
         bubble.beginReasoning()
         bubble.appendReasoning("第一段")
@@ -39,7 +39,7 @@ class TestInlineReasoningStream:
         bubble.endStream()
 
         assert viewer.isStreaming() is False
-        assert bubble.status() == ElaChatStatus.Done
+        assert bubble.status() == ElaChatStatusType.Done
 
 
 class TestErrorTearsDownStream:
@@ -55,15 +55,15 @@ class TestErrorTearsDownStream:
         assert viewer.isStreaming() is False
         assert viewer._caret_timer.isActive() is False
         message = chat.chatView().message(messageId)
-        assert message.status == ElaChatStatus.Error
-        assert all(part.status == ElaChatStatus.Done for part in message.parts)
+        assert message.status == ElaChatStatusType.Error
+        assert all(part.status == ElaChatStatusType.Done for part in message.parts)
 
     def test_error_stops_inline_reasoning_and_text(self, qapp, make):
         chat = make(ElaChatWidget)
         messageId = chat.beginAssistantMessage()
         view = chat.chatView()
-        view.setReasoningStyle(ElaChatReasoningStyle.Inline)
-        view.bubble(messageId).setReasoningStyle(ElaChatReasoningStyle.Inline)
+        view.setReasoningStyle(ElaChatReasoningStyleType.Inline)
+        view.bubble(messageId).setReasoningStyle(ElaChatReasoningStyleType.Inline)
         chat.chatView().beginReasoning(messageId)
         chat.chatView().appendReasoning(messageId, "推理中")
         reasoning_viewer = view.bubble(messageId)._part_widgets[
@@ -75,25 +75,25 @@ class TestErrorTearsDownStream:
 
         assert reasoning_viewer.isStreaming() is False
         message = chat.chatView().message(messageId)
-        assert message.status == ElaChatStatus.Error
-        assert all(part.status == ElaChatStatus.Done for part in message.parts)
+        assert message.status == ElaChatStatusType.Error
+        assert all(part.status == ElaChatStatusType.Done for part in message.parts)
 
     def test_view_error_syncs_part_status(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.beginMessage(ElaChatRole.Assistant)
+        messageId = view.beginMessage(ElaChatRoleType.Assistant)
         view.appendText(messageId, "part")
 
         view.setMessageError(messageId, "boom")
 
         message = view.message(messageId)
         assert message.error == "boom"
-        assert all(part.status == ElaChatStatus.Done for part in message.parts)
+        assert all(part.status == ElaChatStatusType.Done for part in message.parts)
 
 
 class TestToolGroupFinish:
     def test_context_only_turn_finishes_group(self, qapp, make):
         """仅上下文工具的回合在 endStream 时分组卡应收为「已探索」。"""
-        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRoleType.Assistant)
         bubble.beginStream()
         callId = bubble.addToolCall("read", '{"path": "a.py"}')
         bubble.setToolCallResult(callId, "内容")
@@ -110,12 +110,12 @@ class TestToolGroupFinish:
 class TestSnapshotConsistency:
     def test_end_message_syncs_part_status(self, qapp, make):
         view = make(ElaChatView)
-        messageId = view.beginMessage(ElaChatRole.Assistant)
+        messageId = view.beginMessage(ElaChatRoleType.Assistant)
         view.appendText(messageId, "hello")
 
         view.endMessage(messageId)
 
         parts = view.message(messageId).parts
         assert parts
-        assert all(part.status == ElaChatStatus.Done for part in parts)
-        assert view.message(messageId).status == ElaChatStatus.Done
+        assert all(part.status == ElaChatStatusType.Done for part in parts)
+        assert view.message(messageId).status == ElaChatStatusType.Done

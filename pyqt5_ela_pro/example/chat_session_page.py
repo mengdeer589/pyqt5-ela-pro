@@ -24,7 +24,7 @@ from PyQt5ElaWidgetTools import ElaIconType, ElaMenu, ElaTabBar
 from pyqt5_ela_pro import ElaButton
 from pyqt5_ela_pro.chat import (
     ElaChatMockBackend,
-    ElaChatReasoningStyle,
+    ElaChatReasoningStyleType,
     ElaChatSessionInfo,
     ElaChatStatusBar,
     ElaChatStreamBinder,
@@ -62,7 +62,7 @@ class ChatSessionPage(ExamplePage):
         self._status = None
         self._restore_button = None
         self._style_button = None
-        self._reasoning_style = ElaChatReasoningStyle.Collapse
+        self._reasoning_style = ElaChatReasoningStyleType.Collapse
         super().__init__(parent)
 
     # -- 页面搭建 ----------------------------------------------------------
@@ -177,7 +177,10 @@ class ChatSessionPage(ExamplePage):
 
         mock = ElaChatMockBackend(container, tickMs=28)
         binder = ElaChatStreamBinder(chat, worker=mock)
-        chat.messageSubmitted.connect(lambda text: binder.startTurn(text))
+        # 用 Full 变体：多带一份附件，重新生成 / 重试时宿主才拿得到它
+        chat.messageSubmittedFull.connect(
+            lambda text, attachments: binder.startTurn(text, attachments=attachments)
+        )
         mock.turnFinished.connect(binder.finish)
         # 输入区工具栏自带的「新建话题」按钮 → 宿主建新话题并切过去
         chat.newTopicRequested.connect(lambda: self._createTopic(activate=True))
@@ -213,12 +216,12 @@ class ChatSessionPage(ExamplePage):
 
     def _on_toggle_reasoning_style(self):
         self._reasoning_style = (
-            ElaChatReasoningStyle.Inline
-            if self._reasoning_style == ElaChatReasoningStyle.Collapse
-            else ElaChatReasoningStyle.Collapse
+            ElaChatReasoningStyleType.Inline
+            if self._reasoning_style == ElaChatReasoningStyleType.Collapse
+            else ElaChatReasoningStyleType.Collapse
         )
         label = (
-            "内联" if self._reasoning_style == ElaChatReasoningStyle.Inline else "折叠"
+            "内联" if self._reasoning_style == ElaChatReasoningStyleType.Inline else "折叠"
         )
         self._style_button.setText(f"思考形态：{label}")
         for topic in self._pages.values():

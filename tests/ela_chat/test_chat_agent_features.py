@@ -16,10 +16,13 @@ import json
 
 import pytest
 
+from PyQt5.QtCore import QEvent, QPoint, Qt
+from PyQt5.QtGui import QMouseEvent
+
 from pyqt5_ela_pro.chat import (
     ElaChatStats,
-    ElaChatStatus,
-    ElaChatToolStatus,
+    ElaChatStatusType,
+    ElaChatToolStatusType,
     ElaChatWidget,
     ModelPricing,
     cost_from_parts,
@@ -35,9 +38,9 @@ from pyqt5_ela_pro.chat.message import (
     ElaChatMessage,
     ElaChatOption,
     ElaChatPart,
-    ElaChatPartKind,
+    ElaChatPartKindType,
     ElaChatPermission,
-    ElaChatPermissionStatus,
+    ElaChatPermissionStatusType,
     ElaChatQuestion,
 )
 
@@ -188,7 +191,7 @@ class TestSteer:
         mid = chat.beginAssistantMessage()
         chat.steerMessage("别删那个文件")
         chat.drainSteer()
-        parts = chat.chatView().message(mid).partsOfKind(ElaChatPartKind.Synthetic)
+        parts = chat.chatView().message(mid).partsOfKind(ElaChatPartKindType.Synthetic)
         assert len(parts) == 1
         assert parts[0].text == "别删那个文件"
 
@@ -274,8 +277,8 @@ class TestPermission:
         chat.chatView().beginPermission(mid, self._request(resources=("rm -rf /",)))
         assert chat.chatView().resolvePermission(mid, "r1", "rejected", "", "别删")
         assert seen == [(mid, "r1", "rejected", "", "别删")]
-        parts = chat.chatView().message(mid).partsOfKind(ElaChatPartKind.Permission)
-        assert parts[0].permission.status == ElaChatPermissionStatus.Rejected
+        parts = chat.chatView().message(mid).partsOfKind(ElaChatPartKindType.Permission)
+        assert parts[0].permission.status == ElaChatPermissionStatusType.Rejected
         assert parts[0].permission.feedback == "别删"
         assert chat.chatView().pendingPermissions(mid) == []
 
@@ -359,7 +362,7 @@ class TestPermission:
     def test_end_stream_cancels_pending(self, chat):
         mid = _turn(chat)
         chat.chatView().beginPermission(mid, self._request())
-        chat.endAssistantMessage(status=ElaChatStatus.Done)
+        chat.endAssistantMessage(status=ElaChatStatusType.Done)
         assert chat.chatView().pendingPermissions(mid) == []
 
     def test_dict_request_accepted(self, chat):
@@ -373,13 +376,13 @@ class TestPermission:
     def test_permission_roundtrips(self):
         part = ElaChatPart(
             id="p",
-            kind=ElaChatPartKind.Permission,
+            kind=ElaChatPartKindType.Permission,
             permission=ElaChatPermission(
                 request_id="r1",
                 action="shell",
                 resources=("a", "b"),
                 detail="rm -rf /",
-                status=ElaChatPermissionStatus.Always,
+                status=ElaChatPermissionStatusType.Always,
             ),
         )
         assert ElaChatPart.fromDict(part.toDict()) == part
@@ -394,7 +397,7 @@ class TestPermission:
         """
         part = ElaChatPart(
             id="p1",
-            kind=ElaChatPartKind.Permission,
+            kind=ElaChatPartKindType.Permission,
             permission=ElaChatPermission(request_id="r1", action="edit"),
         )
         message = ElaChatMessage(id=1, role="assistant", parts=(part,)).withParts(
@@ -411,7 +414,7 @@ class TestPermission:
         assert chat.pendingPermissionCards() == []
         record = view.permissionCard(mid, "r1")
         assert isinstance(record, PermissionRecord), "记录卡仍然要显示"
-        assert record.permission().status == ElaChatPermissionStatus.Cancelled
+        assert record.permission().status == ElaChatPermissionStatusType.Cancelled
 
     def test_resolve_unknown_returns_false(self, chat):
         mid = _turn(chat)
@@ -467,7 +470,7 @@ class TestFontScale:
         )
         view.resolvePermission(mid, "q1", "allowed", '{"q0": "a/"}')
         view.setMessageError(mid, "出错了", "Timeout")
-        view.endMessage(mid, ElaChatStatus.Done)
+        view.endMessage(mid, ElaChatStatusType.Done)
         return mid
 
     def test_every_color_text_has_an_explicit_size(self, qapp, make):
@@ -575,11 +578,11 @@ class TestCompaction:
         assert partId
         view.appendCompactionSummary(mid, partId, "## 目标")
         view.appendCompactionSummary(mid, partId, "\n- 修 bug")
-        view.endCompaction(mid, partId, ElaChatStatus.Done, 24)
-        parts = view.message(mid).partsOfKind(ElaChatPartKind.Compaction)
+        view.endCompaction(mid, partId, ElaChatStatusType.Done, 24)
+        parts = view.message(mid).partsOfKind(ElaChatPartKindType.Compaction)
         assert len(parts) == 1
         assert parts[0].text == "## 目标\n- 修 bug"
-        assert parts[0].status == ElaChatStatus.Done
+        assert parts[0].status == ElaChatStatusType.Done
 
     def test_summary_not_merged_into_message_text(self, chat):
         mid = _turn(chat)
@@ -598,21 +601,21 @@ class TestCompaction:
         view = chat.chatView()
         partId = view.beginCompaction(mid)
         view.appendCompactionSummary(mid, partId, "半截摘要")
-        chat.endAssistantMessage(status=ElaChatStatus.Stopped)
-        parts = view.message(mid).partsOfKind(ElaChatPartKind.Compaction)
-        assert parts[0].status != ElaChatStatus.Streaming
+        chat.endAssistantMessage(status=ElaChatStatusType.Stopped)
+        parts = view.message(mid).partsOfKind(ElaChatPartKindType.Compaction)
+        assert parts[0].status != ElaChatStatusType.Streaming
 
     def test_roundtrips_through_persistence(self, chat, qapp, make):
         mid = _turn(chat)
         view = chat.chatView()
         partId = view.beginCompaction(mid)
         view.appendCompactionSummary(mid, partId, "## 摘要")
-        view.endCompaction(mid, partId, ElaChatStatus.Done, 10)
+        view.endCompaction(mid, partId, ElaChatStatusType.Done, 10)
         data = view.message(mid).toDict()
 
         other = make(ElaChatWidget)
         other.chatView().addMessageFromDict(data)
-        parts = other.chatView().message(mid).partsOfKind(ElaChatPartKind.Compaction)
+        parts = other.chatView().message(mid).partsOfKind(ElaChatPartKindType.Compaction)
         assert len(parts) == 1
         assert parts[0].text == "## 摘要"
 
@@ -622,16 +625,16 @@ class TestCompaction:
         journal = ElaChatTurnJournal(messageId=1).begin()
         journal.beginCompaction("auto")
         journal.compactionSummary("## 目标")
-        journal.endCompaction(ElaChatStatus.Done, 24)
-        journal.end(ElaChatStatus.Done)
+        journal.endCompaction(ElaChatStatusType.Done, 24)
+        journal.end(ElaChatStatusType.Done)
         lines = journal.dumps().splitlines()
         for line in lines:
             assert ElaChatTurnJournal.loadsLine(line) is not None
         replayed = ElaChatTurnJournal.fromLines(lines).message()
-        parts = replayed.partsOfKind(ElaChatPartKind.Compaction)
+        parts = replayed.partsOfKind(ElaChatPartKindType.Compaction)
         assert len(parts) == 1
         assert parts[0].text == "## 目标"
-        assert parts[0].status == ElaChatStatus.Done
+        assert parts[0].status == ElaChatStatusType.Done
 
     def test_journal_tolerates_truncated_compaction(self):
         from pyqt5_ela_pro.chat import ElaChatTurnJournal
@@ -639,7 +642,7 @@ class TestCompaction:
         journal = ElaChatTurnJournal(messageId=1).begin()
         journal.beginCompaction("auto")
         journal.compactionSummary("## 目标")
-        journal.end(ElaChatStatus.Done)
+        journal.end(ElaChatStatusType.Done)
         lines = journal.dumps().splitlines()
         broken = lines[:2] + [lines[2][:15]]
         message = ElaChatTurnJournal.fromLines(broken).message()
@@ -672,7 +675,7 @@ class TestCost:
     def test_stats_cost_basic(self):
         price = ModelPricing(input_per_m=3.0, output_per_m=15.0, cache_read_per_m=0.3)
         stats = ElaChatStats(
-            prompt_tokens=1000, completion_tokens=500, cached_tokens=200
+            prompt_tokens=1000, completion_tokens=500, cache_read_tokens=200
         )
         expected = (1000 * 3.0 + 500 * 15.0 + 200 * 0.3) / 1_000_000
         assert stats_cost(stats, price) == pytest.approx(expected)
@@ -752,49 +755,172 @@ class TestCost:
 
 # ================================================================== 上下文占用
 class TestContextUsage:
-    def test_hidden_without_window(self, chat):
-        ring = chat.chatView().contextUsageWidget()
-        chat.chatView().setContextUsage(1000, 0)
-        assert not ring.isVisible()
-        assert chat.chatView().contextUsagePercent() == 0
+    """上下文占用圆环：长在**输入区底部工具栏**（与「清空上下文」同排），
+    默认常驻、数据与 API 都归 :class:`ElaChatInput`（经 ``chatInput()`` 调用）。"""
+
+    def test_default_visible_without_data(self, chat, qapp):
+        """圆环是工具栏默认组件：没喂数据也显示（空底环 0%），与邻居按钮一致。"""
+        input_ = chat.chatInput()
+        chat.show()
+        qapp.processEvents()
+        ring = input_.contextUsageWidget()
+        assert ring.isVisible()
+        assert not ring.isHidden()
+
+        input_.setContextUsage(1000, 0)  # window=0 → 按 0% 显示，不隐藏
+        assert ring.isVisible()
+        assert input_.contextUsagePercent() == 0
 
     def test_percent_computed(self, chat):
-        chat.chatView().setContextUsage(124_000, 200_000, 0.0142)
-        assert chat.chatView().contextUsagePercent() == 62
-        assert chat.chatView().contextUsage() == (124_000, 200_000, 0.0142)
+        chat.chatInput().setContextUsage(124_000, 200_000, 0.0142)
+        assert chat.chatInput().contextUsagePercent() == 62
+        assert chat.chatInput().contextUsage() == (124_000, 200_000, 0.0142)
 
     def test_levels(self, chat):
-        ring = chat.chatView().contextUsageWidget()
-        chat.chatView().setContextUsage(50_000, 200_000)
+        ring = chat.chatInput().contextUsageWidget()
+        chat.chatInput().setContextUsage(50_000, 200_000)
         assert ring.level() == 0
-        chat.chatView().setContextUsage(130_000, 200_000)
+        chat.chatInput().setContextUsage(130_000, 200_000)
         assert ring.level() == 1
-        chat.chatView().setContextUsage(180_000, 200_000)
+        chat.chatInput().setContextUsage(180_000, 200_000)
         assert ring.level() == 2
 
     def test_percent_clamped(self, chat):
-        chat.chatView().setContextUsage(999_999, 200_000)
-        assert chat.chatView().contextUsagePercent() == 100
+        chat.chatInput().setContextUsage(999_999, 200_000)
+        assert chat.chatInput().contextUsagePercent() == 100
 
     def test_tooltip_content(self, chat):
-        chat.chatView().setContextUsage(124_000, 200_000, 0.0142)
-        text = chat.chatView().contextUsageWidget().tooltipText()
+        chat.chatInput().setContextUsage(124_000, 200_000, 0.0142)
+        text = chat.chatInput().contextUsageWidget().tooltipText()
         assert "花费 $0.0142" in text
         assert "62%" in text
         assert "124.0k" in text and "200.0k" in text
 
     def test_danger_hint_in_tooltip(self, chat):
-        chat.chatView().setContextUsage(190_000, 200_000)
-        assert "建议压缩历史" in chat.chatView().contextUsageWidget().tooltipText()
+        chat.chatInput().setContextUsage(190_000, 200_000)
+        assert "建议压缩历史" in chat.chatInput().contextUsageWidget().tooltipText()
 
     def test_no_hint_when_healthy(self, chat):
-        chat.chatView().setContextUsage(10_000, 200_000)
-        assert "建议压缩历史" not in chat.chatView().contextUsageWidget().tooltipText()
+        chat.chatInput().setContextUsage(10_000, 200_000)
+        assert "建议压缩历史" not in chat.chatInput().contextUsageWidget().tooltipText()
+
+    def test_indicator_lives_in_input_toolbar(self, chat, qapp):
+        """圆环挂在**输入区底部工具栏**里（与「清空上下文」同排）。
+
+        回归：它曾在 view 右上角当浮层 —— 压住第一条消息的用户头像，而且
+        视图未显示时调 ``setContextUsage`` 会卡在 ``(0, 0)``。归位到输入区
+        工具栏后由布局定位，与显示顺序无关。
+        """
+        input_ = chat.chatInput()
+        input_.setContextUsage(18_000, 200_000, 0.09)  # 先喂数据、后显示
+        chat.resize(700, 420)
+        chat.show()
+        qapp.processEvents()
+
+        ring = input_.contextUsageWidget()
+        assert ring.isVisible()
+        # 同一行：圆环与「清空上下文」按钮都挂在工具栏下
+        assert input_.toolBar().isAncestorOf(ring)
+        assert input_.toolBar().isAncestorOf(input_.clearButton())
+
+    def test_ring_stays_visible_and_resets_to_zero(self, chat, qapp):
+        """喂数据 / 归零都只改百分比 —— 圆环始终常驻（换话题后回到 0%）。"""
+        input_ = chat.chatInput()
+        chat.show()
+        qapp.processEvents()
+        ring = input_.contextUsageWidget()
+        assert ring.isVisible()
+
+        input_.setContextUsage(50_000, 200_000)
+        qapp.processEvents()
+        assert ring.isVisible() and input_.contextUsagePercent() == 25
+
+        input_.setContextUsage(0, 0)  # 换话题 / 清空后宿主应这样重置
+        qapp.processEvents()
+        assert ring.isVisible() and input_.contextUsagePercent() == 0
+
+    def test_visibility_api_matches_neighbours(self, chat, qapp):
+        """``setContextUsageVisible`` / ``contextUsageVisible``：与上传 / 清空同套。"""
+        input_ = chat.chatInput()
+        chat.show()
+        qapp.processEvents()
+        assert input_.contextUsageVisible() is True  # 默认显示
+
+        input_.setContextUsageVisible(False)
+        assert input_.contextUsageVisible() is False
+        assert input_.contextUsageWidget().isHidden()
+
+        input_.setContextUsage(50_000, 200_000)  # 隐藏态下喂数据不会把它顶出来
+        assert input_.contextUsageVisible() is False
+
+        input_.setContextUsageVisible(True)
+        assert input_.contextUsageVisible() is True
+        assert not input_.contextUsageWidget().isHidden()
+
+    def test_ring_is_clickable(self, chat, qapp):
+        """圆环当按钮用：左键点按 → input / widget 的 ``contextUsageClicked``。
+
+        组件不做任何行为（弹什么面板归宿主），且拖出圆环再松开不算点击。
+        """
+        input_ = chat.chatInput()
+        input_.setContextUsage(50_000, 200_000)
+        chat.show()
+        qapp.processEvents()
+        ring = input_.contextUsageWidget()
+        got = []
+        input_.contextUsageClicked.connect(lambda: got.append("input"))
+        chat.contextUsageClicked.connect(lambda: got.append("widget"))
+
+        def click(at: QPoint) -> None:
+            ring.mousePressEvent(
+                QMouseEvent(
+                    QEvent.Type.MouseButtonPress,
+                    at,
+                    Qt.MouseButton.LeftButton,
+                    Qt.MouseButton.LeftButton,
+                    Qt.KeyboardModifier.NoModifier,
+                )
+            )
+            ring.mouseReleaseEvent(
+                QMouseEvent(
+                    QEvent.Type.MouseButtonRelease,
+                    at,
+                    Qt.MouseButton.LeftButton,
+                    Qt.MouseButton.NoButton,
+                    Qt.KeyboardModifier.NoModifier,
+                )
+            )
+
+        click(QPoint(11, 11))
+        # 两处都要到（投递顺序取决于连接先后：widget 的转发连接建得更早）
+        assert sorted(got) == ["input", "widget"]
+
+        # 拖出圆环再松开：不触发（与按钮语义一致）
+        got.clear()
+        ring.mousePressEvent(
+            QMouseEvent(
+                QEvent.Type.MouseButtonPress,
+                QPoint(11, 11),
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        )
+        ring.mouseReleaseEvent(
+            QMouseEvent(
+                QEvent.Type.MouseButtonRelease,
+                QPoint(-5, -5),
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+        )
+        assert got == []
 
     def test_not_part_of_message_persistence(self, chat, qapp, make):
         """占用不是消息数据：不进 exportSession，换会话也不该被带走。"""
         mid = _turn(chat)
-        chat.chatView().setContextUsage(100_000, 200_000, 1.5)
+        chat.chatInput().setContextUsage(100_000, 200_000, 1.5)
         bundle = chat.chatView().exportSession()
         # 占用不是消息数据：view 段没有它，消息段也没有
         view_options = bundle.get("view", {})
@@ -816,4 +942,4 @@ class TestToolStatusStillSettles:
         chat.chatView().setToolCallResult(mid, callId, "boom", ok=False)
         message = chat.chatView().message(mid)
         assert message.error_type == ""
-        assert message.tool_calls[0].status == ElaChatToolStatus.Error
+        assert message.tool_calls[0].status == ElaChatToolStatusType.Error

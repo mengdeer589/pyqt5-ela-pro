@@ -23,9 +23,9 @@ from pyqt5_ela_pro.chat import (
     ElaChatBubble,
     ElaChatOption,
     ElaChatPermission,
-    ElaChatPermissionStatus,
+    ElaChatPermissionStatusType,
     ElaChatQuestion,
-    ElaChatRole,
+    ElaChatRoleType,
     ElaChatWidget,
 )
 from pyqt5_ela_pro.chat.blocks import PermissionCard, PermissionRecord
@@ -722,7 +722,7 @@ class TestSettledArrivesAlreadyDone:
                 request_id="r1",
                 action="bash",
                 detail="x = 1",
-                status=ElaChatPermissionStatus.Allowed,
+                status=ElaChatPermissionStatusType.Allowed,
             ),
         )
         assert asked == [], "已经答完了还问宿主等回复？"
@@ -745,7 +745,7 @@ class TestSettledArrivesAlreadyDone:
                 request_id="r1",
                 action="question",
                 questions=(_question(header="范围"),),
-                status=ElaChatPermissionStatus.Allowed,
+                status=ElaChatPermissionStatusType.Allowed,
             ),
         )
         assert chat.chatView().permissionCard(mid, "r1").title() == "已允许一次：范围"
@@ -759,7 +759,7 @@ class TestSettledArrivesAlreadyDone:
                 request_id="r1",
                 action="ask",
                 questions=(_question(),),
-                status=ElaChatPermissionStatus.Rejected,
+                status=ElaChatPermissionStatusType.Rejected,
             ),
         )
         assert chat.chatView().permissionCard(mid, "r1").title() == (
@@ -821,7 +821,7 @@ class TestPendingPermissionLifetime:
         assert chat.chatView().pendingPermissions(mid) == []
 
     def test_set_parts_with_pending_permission_is_safe(self, qapp, make):
-        bubble = make(ElaChatBubble, ElaChatRole.Assistant)
+        bubble = make(ElaChatBubble, ElaChatRoleType.Assistant)
         bubble.beginPermission(ElaChatPermission(request_id="r1", action="edit"))
         # 待答复审批没有控件（_part_widgets 里是 None）：清扫必须跳过
         assert bubble.setParts([]) is True
@@ -834,3 +834,33 @@ class TestPermissionModelTolerance:
         assert ElaChatPermission.fromDict({"request_id": "", "action": "edit"}) is None
         got = ElaChatPermission.fromDict({"request_id": "r1", "action": "edit"})
         assert got is not None and got.request_id == "r1"
+
+
+class TestNoNullWidgetWarning:
+    def test_begin_permission_adds_no_null_widget(self, qapp, make):
+        """审批 part 只登记数据、**没有时间线控件**（落定后才补记录卡）。
+
+        回归：``_append_part(part, None)`` 直接 ``addWidget(None)``，Qt 在终端
+        刷 ``QLayout: Cannot add a null widget to QVBoxLayout/``。警告本身无害，
+        但它意味着审批路径每次插卡都在给布局塞空指针 —— 不能留。
+        """
+        from PyQt5.QtCore import qInstallMessageHandler
+
+        chat = make(ElaChatWidget)
+        view = chat.chatView()
+        captured = []
+        previous = qInstallMessageHandler(
+            lambda _mode, _ctx, message: captured.append(message)
+        )
+        try:
+            mid = view.beginMessage(ElaChatRoleType.Assistant)
+            view.beginStep(mid)
+            view.beginPermission(
+                mid,
+                ElaChatPermission(request_id="r1", action="edit", detail="diff"),
+            )
+            qapp.processEvents()
+        finally:
+            qInstallMessageHandler(previous)
+        offenders = [m for m in captured if "null widget" in m]
+        assert offenders == [], offenders

@@ -6,9 +6,9 @@ from __future__ import annotations
 from _qthelpers import wait_until as _wait_until
 
 from pyqt5_ela_pro.chat import (
-    ElaChatReasoningStyle,
-    ElaChatPartKind,
-    ElaChatRole,
+    ElaChatReasoningStyleType,
+    ElaChatPartKindType,
+    ElaChatRoleType,
     ElaChatView,
     ElaChatWidget,
 )
@@ -27,7 +27,7 @@ def _build(qapp, make, count: int = 6, reasoning: bool = False):
     view.setViewportSuspension(True, minMessages=2)
     ids = []
     for index in range(count):
-        messageId = view.addMessage(ElaChatRole.Assistant, MD + f"\n\n第 {index} 段")
+        messageId = view.addMessage(ElaChatRoleType.Assistant, MD + f"\n\n第 {index} 段")
         if reasoning:
             view.setReasoning(messageId, f"## 步骤 {index}\n推理内容", 300.0)
         ids.append(messageId)
@@ -50,7 +50,7 @@ class TestViewportSuspension:
         assert last in view._suspended_ids
         # 快照与分段数据不受影响
         parts = view.message(last).parts
-        assert parts and parts[0].kind == ElaChatPartKind.Text
+        assert parts and parts[0].kind == ElaChatPartKindType.Text
         assert view.bubble(ids[0]).viewersSuspended() is False
 
         height = bubble.height()
@@ -63,7 +63,7 @@ class TestViewportSuspension:
         view, _ids = _build(qapp, make)
         bar = view._scroll.verticalScrollBar()
         assert _wait_until(qapp, lambda: bar.maximum() > 0)
-        streaming_id = view.beginMessage(ElaChatRole.Assistant)
+        streaming_id = view.beginMessage(ElaChatRoleType.Assistant)
         view.appendText(streaming_id, "流式内容")
         bar.setValue(0)
         qapp.processEvents()
@@ -114,7 +114,7 @@ class TestViewportSuspension:
         last = ids[-1]
         assert _wait_until(qapp, lambda: view.bubble(last).viewersSuspended())
 
-        view.setReasoningStyle(ElaChatReasoningStyle.Inline)
+        view.setReasoningStyle(ElaChatReasoningStyleType.Inline)
         assert view.bubble(last).viewersSuspended() is True
         bar.setValue(bar.maximum())
         assert _wait_until(qapp, lambda: not view.bubble(last).viewersSuspended())

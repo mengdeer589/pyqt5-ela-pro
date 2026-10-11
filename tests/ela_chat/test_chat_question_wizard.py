@@ -42,7 +42,7 @@ from pyqt5_ela_pro._styles import ColorText
 from pyqt5_ela_pro.chat import (
     ElaChatOption,
     ElaChatPermission,
-    ElaChatPermissionStatus,
+    ElaChatPermissionStatusType,
     ElaChatQuestion,
     ElaChatWidget,
 )
@@ -1253,6 +1253,9 @@ class TestOptionCardContract:
         """标记左侧那 10px 内边距不算标记区（对齐 opencode 的 padding-left）。"""
         row = make(QuestionOptionCard, value="A")
         row.resize(300, 44)
+        # 必须先激活布局：未布局时子控件还是默认几何 (0,0,100,30)，x=2 会被
+        # 当成落在标记区里（新轮子的 ElaRadioButton 不再在构造时固定 17×17）。
+        row.layout().activate()
         marks = []
         row.markClicked.connect(marks.append)
         row.mousePressEvent(
@@ -1403,7 +1406,7 @@ class TestWizardDraftRetention:
             ElaChatPermission(
                 request_id="r1",
                 action="ask",
-                status=ElaChatPermissionStatus.Pending,
+                status=ElaChatPermissionStatusType.Pending,
                 questions=(question,),
             )
         )
