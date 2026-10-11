@@ -79,9 +79,11 @@ required-environments="sys_platform == 'win32' and platform_machine == 'AMD64'"
 # 开发期用本地编译的轮子（`uv run` / `uv sync` 都会按它锁定环境）。
 # **不影响 `uv build --wheel` 的发布元数据**：tool.uv.sources 只被 uv 用于
 # 本项目的依赖解析，发布时读的仍是 [project].dependencies 里的版本约束。
-# 本地轮子每次重编译后哈希会变，**必须刷新 lock 才能同步**：
-#   uv lock --refresh-package pyqt5-elawidgettools && uv sync
-# （普通 `uv lock` 不重读路径源，会留下旧哈希 → uv run 报 Hash mismatch）。
+# 本地轮子重编译后哈希会变，`uv run` / `uv sync` 报 `Hash mismatch`。
+# **uv 0.12.x 实测：`--refresh-package` / `--no-cache` 都不重算 path wheel 的
+# artifact 哈希**；让该依赖重新解析（临时改本行约束跑一次 `uv lock` 再改回来）
+# 或把 `uv.lock` 里 wheels.hash 换成文件 sha256 后 `uv sync`：
+#   python -c "import hashlib,pathlib;print(hashlib.sha256(pathlib.Path(r'PyElaWidgetTools/dist/pyqt5_elawidgettools-0.12.1-cp37-abi3-win_amd64.whl').read_bytes()).hexdigest())"
 # 版本号升级时记得同步改 dependencies 的 `==0.12.1` 与本路径。
 [tool.uv.sources]
 pyqt5-elawidgettools = { path = "PyElaWidgetTools/dist/pyqt5_elawidgettools-0.12.1-cp37-abi3-win_amd64.whl" }

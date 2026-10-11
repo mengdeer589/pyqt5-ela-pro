@@ -1,10 +1,10 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "(python_full_version >= '3.12' and platform_machine != 'AMD64') or (python_full_version >= '3.12' and sys_platform != 'win32')",
-    "(python_full_version < '3.12' and platform_machine != 'AMD64') or (python_full_version < '3.12' and sys_platform != 'win32')",
     "python_full_version >= '3.12' and platform_machine == 'AMD64' and sys_platform == 'win32'",
+    "(python_full_version < '3.12' and platform_machine != 'AMD64') or (python_full_version < '3.12' and sys_platform != 'win32')",
     "python_full_version < '3.12' and platform_machine == 'AMD64' and sys_platform == 'win32'",
 ]
 required-markers = [
@@ -429,7 +429,7 @@ dependencies = [
     { name = "pyqt5" },
 ]
 wheels = [
-    { filename = "pyqt5_elawidgettools-0.12.1-cp37-abi3-win_amd64.whl", hash = "sha256:563ea57043a600ef68e10f9582b5ee12ef3a77322fb4acfae79f7b7779cd4df2" },
+    { filename = "pyqt5_elawidgettools-0.12.1-cp37-abi3-win_amd64.whl", hash = "sha256:940dfe412dce154f41dc232aab1b51a9d8e3427a96e04134a422be1d6f9aa477" },
 ]
 
 [package.metadata]
