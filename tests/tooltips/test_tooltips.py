@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QEvent, QObject, QPoint, Qt, pyqtSignal
+from PyQt5 import sip
+from PyQt5.QtCore import QCoreApplication, QEvent, QObject, QPoint, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QHelpEvent, QPalette
-from PyQt5.QtWidgets import QApplication, QWidget
+from PyQt5.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 from PyQt5ElaWidgetTools import ElaThemeType, eTheme
 
 import pyqt5_ela_pro.tooltips as tooltips_module
@@ -12,7 +13,7 @@ from pyqt5_ela_pro.tooltips import (
     TOOLTIP_BORDER_RADIUS,
     ElaStateToolTip,
     ElaToolTip,
-    ElaToolTipPosition,
+    ElaToolTipPositionType,
     _filter_dict,
     _tooltip_dict,
     remove_tooltip,
@@ -68,6 +69,77 @@ class TestToolTip:
 
         tooltip.deleteLater()
 
+    def test_set_content_widget_switches_to_custom_content(self, qapp):
+        """自定义内容控件：隐藏文本标签、弹体尺寸跟随控件。"""
+        tooltip = ElaToolTip("文本")
+        content = QWidget()
+        content.setFixedSize(80, 40)
+
+        tooltip.setContentWidget(content)
+
+        assert tooltip.contentWidget() is content
+        assert content.parent() is tooltip
+        assert tooltip._label.isHidden()
+        assert tooltip.size().width() == 80 + 24
+        assert tooltip.size().height() == 40 + 16
+
+        tooltip.deleteLater()
+        qapp.processEvents()
+
+    def test_set_content_widget_replaces_and_deletes_old(self, qapp):
+        """替换时旧控件与上游一致被 deleteLater（所有权归提示框）。"""
+        tooltip = ElaToolTip("文本")
+        first = QWidget()
+        first.setFixedSize(80, 40)
+        second = QWidget()
+        second.setFixedSize(60, 30)
+
+        tooltip.setContentWidget(first)
+        tooltip.setContentWidget(second)
+
+        assert tooltip.contentWidget() is second
+        assert tooltip.size().width() == 60 + 24
+        assert first.parent() is None
+        QCoreApplication.sendPostedEvents(first, QEvent.Type.DeferredDelete)
+        assert sip.isdeleted(first)
+
+        tooltip.deleteLater()
+        qapp.processEvents()
+
+    def test_set_content_widget_ignores_none_and_self(self, qapp):
+        """None / 传自身都是空操作，文本模式不受影响（与上游语义一致）。"""
+        tooltip = ElaToolTip("文本")
+
+        tooltip.setContentWidget(None)
+        tooltip.setContentWidget(tooltip)
+
+        assert tooltip.contentWidget() is None
+        assert not tooltip._label.isHidden()
+
+        tooltip.deleteLater()
+        qapp.processEvents()
+
+    def test_fixed_size_content_wins_over_layout_hint(self, qapp):
+        """显式 ``setFixedSize`` 的内容控件以固定尺寸为准。
+
+        回归：只按 layout 的 ``sizeHint`` 定弹体时，固定尺寸的大于 hint 的内容
+        会溢出被裁（实测两行卡片尾字被切）。
+        """
+        tooltip = ElaToolTip("文本")
+        content = QWidget()
+        content.setFixedSize(200, 56)
+        layout = QVBoxLayout(content)
+        layout.addWidget(QLabel("短"))
+        assert content.sizeHint().width() < 200  # 前提：hint 确实小于固定尺寸
+
+        tooltip.setContentWidget(content)
+
+        assert tooltip.size().width() == 200 + 24
+        assert tooltip.size().height() == 56 + 16
+
+        tooltip.deleteLater()
+        qapp.processEvents()
+
     def test_tooltip_has_translucent_background(self):
         """Test ElaToolTip has translucent background."""
         tooltip = ElaToolTip()
@@ -82,37 +154,37 @@ class TestToolTip:
 
 
 class TestElaToolTipPosition:
-    """Test cases for ElaToolTipPosition enum."""
+    """Test cases for ElaToolTipPositionType enum."""
 
     def test_ela_tool_tip_position_has_top(self):
-        """Test ElaToolTipPosition.Top exists."""
-        assert ElaToolTipPosition.Top is not None
+        """Test ElaToolTipPositionType.Top exists."""
+        assert ElaToolTipPositionType.Top is not None
 
     def test_ela_tool_tip_position_has_bottom(self):
-        """Test ElaToolTipPosition.Bottom exists."""
-        assert ElaToolTipPosition.Bottom is not None
+        """Test ElaToolTipPositionType.Bottom exists."""
+        assert ElaToolTipPositionType.Bottom is not None
 
     def test_ela_tool_tip_position_has_left(self):
-        """Test ElaToolTipPosition.Left exists."""
-        assert ElaToolTipPosition.Left is not None
+        """Test ElaToolTipPositionType.Left exists."""
+        assert ElaToolTipPositionType.Left is not None
 
     def test_ela_tool_tip_position_has_right(self):
-        """Test ElaToolTipPosition.Right exists."""
-        assert ElaToolTipPosition.Right is not None
+        """Test ElaToolTipPositionType.Right exists."""
+        assert ElaToolTipPositionType.Right is not None
 
     def test_ela_tool_tip_position_has_all_8_positions(self):
         """Test all 8 positions exist."""
-        assert len(ElaToolTipPosition) == 8
+        assert len(ElaToolTipPositionType) == 8
 
         positions = [
-            ElaToolTipPosition.Top,
-            ElaToolTipPosition.Bottom,
-            ElaToolTipPosition.Left,
-            ElaToolTipPosition.Right,
-            ElaToolTipPosition.TopLeft,
-            ElaToolTipPosition.TopRight,
-            ElaToolTipPosition.BottomLeft,
-            ElaToolTipPosition.BottomRight,
+            ElaToolTipPositionType.Top,
+            ElaToolTipPositionType.Bottom,
+            ElaToolTipPositionType.Left,
+            ElaToolTipPositionType.Right,
+            ElaToolTipPositionType.TopLeft,
+            ElaToolTipPositionType.TopRight,
+            ElaToolTipPositionType.BottomLeft,
+            ElaToolTipPositionType.BottomRight,
         ]
 
         for pos in positions:
@@ -135,7 +207,7 @@ class TestSetTooltip:
         """Test set_tooltip accepts position parameter."""
         widget = QWidget()
 
-        set_tooltip(widget, "Test", position=ElaToolTipPosition.Top)
+        set_tooltip(widget, "Test", position=ElaToolTipPositionType.Top)
 
         widget.deleteLater()
         qapp.processEvents()
@@ -164,6 +236,22 @@ class TestSetTooltip:
         assert widget not in _filter_dict
 
         widget.deleteLater()
+
+    def test_set_tooltip_supports_content_widget(self, qapp):
+        """``contentWidget`` 透传到 ElaToolTip.setContentWidget。"""
+        widget = QWidget()
+        content = QWidget()
+        content.setFixedSize(50, 20)
+
+        set_tooltip(widget, "", contentWidget=content)
+
+        tooltip = _tooltip_dict[widget]
+        assert tooltip.contentWidget() is content
+        assert tooltip.size().width() == 50 + 24
+
+        remove_tooltip(widget)
+        widget.deleteLater()
+        qapp.processEvents()
 
     def test_custom_tooltip_suppresses_native_tooltip(self, qapp):
         """绑定自定义提示后吞掉 QEvent.ToolTip，避免原生 QToolTip 双提示。"""
@@ -220,10 +308,10 @@ class TestToolTipClamp:
         area = QApplication.primaryScreen().availableGeometry()
         parent, child = self._child(qapp)
         for position in (
-            ElaToolTipPosition.Top,
-            ElaToolTipPosition.Bottom,
-            ElaToolTipPosition.Left,
-            ElaToolTipPosition.Right,
+            ElaToolTipPositionType.Top,
+            ElaToolTipPositionType.Bottom,
+            ElaToolTipPositionType.Left,
+            ElaToolTipPositionType.Right,
         ):
             tooltip = ElaToolTip("提示")
             tooltip.showAt(child, position)

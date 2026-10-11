@@ -12,7 +12,6 @@ from PyQt5.QtGui import QFont
 from PyQt5ElaWidgetTools import (
     ElaCheckBox,
     ElaFlowLayout,
-    ElaIconType,
     ElaPushButton,
     ElaScrollArea,
     ElaScrollPage,
@@ -24,7 +23,7 @@ from pyqt5_ela_pro import (
     ElaDivider,
     ElaDrawer,
     ElaDrawerArea,
-    ElaDrawerPosition,
+    ElaDrawerPositionType,
     ElaGroupBox,
     ElaThemeWidget,
     create_ela_splitter,
@@ -53,7 +52,6 @@ class ContainerLayoutPage(ExamplePage):
         self._demoGroupBox(main_layout)
         self._demoFlowLayout(main_layout)
         self._demoDrawer(main_layout)
-        self._demoElaDrawerArea(main_layout)
 
     def _demoDrawerArea(self, parent_layout):
         parent_layout.addLayout(
@@ -402,10 +400,10 @@ class ContainerLayoutPage(ExamplePage):
         self._addInfoText("SiliconUI 风格抽屉，支持上下左右四个方向滑入", parent_layout)
         default_font_family = QFont().defaultFamily()
         for name, pos, size in [
-            ("左侧抽屉", ElaDrawerPosition.Left, 300),
-            ("右侧抽屉", ElaDrawerPosition.Right, 380),
-            ("顶部抽屉", ElaDrawerPosition.Top, 200),
-            ("底部抽屉", ElaDrawerPosition.Bottom, 200),
+            ("左侧抽屉", ElaDrawerPositionType.Left, 300),
+            ("右侧抽屉", ElaDrawerPositionType.Right, 380),
+            ("顶部抽屉", ElaDrawerPositionType.Top, 200),
+            ("底部抽屉", ElaDrawerPositionType.Bottom, 200),
         ]:
             drawer = ElaDrawer(position=pos, drawer_size=size, parent=self)
             content = ElaThemeWidget()
@@ -442,62 +440,3 @@ class ContainerLayoutPage(ExamplePage):
     def _demoDrawer(self, parent_layout):
         parent_layout.addWidget(self._createSectionHeader("=== ela_ext - 抽屉组件 ==="))
         self._demoSiSideDrawer(parent_layout)
-
-    def _demoElaDrawerArea(self, parent_layout):
-        parent_layout.addLayout(
-            self._createHeaderRow(
-                "02. ela_ext - ElaDrawerArea 折叠面板",
-                self._demoElaDrawerArea,
-            )
-        )
-        self._addInfoText(
-            "可折叠面板，点击开关或点击头部展开/收起内容区域", parent_layout
-        )
-
-        drawer = ElaDrawerArea(self)
-        header = QWidget(self)
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-
-        icon = ElaText(self)
-        icon.setTextPixelSize(15)
-        icon.setElaIcon(ElaIconType.IconName.MessageArrowDown)
-        icon.setFixedSize(25, 25)
-        header_layout.addWidget(icon)
-
-        header_text = ElaText("ElaDrawerArea", self)
-        header_text.setTextPixelSize(15)
-        header_layout.addWidget(header_text)
-        header_layout.addStretch()
-
-        switch_text = ElaText("关", self)
-        switch_text.setTextPixelSize(15)
-        switch_btn = ElaToggleSwitch(self)
-
-        def _on_toggle(toggled: bool):
-            # setIsToggled 同步开关时原生会回发 toggled，状态一致时跳过避免回声
-            if toggled == drawer.getIsExpand():
-                return
-            switch_text.setText("开" if toggled else "关")
-            drawer.expand() if toggled else drawer.collapse()
-
-        switch_btn.toggled.connect(_on_toggle)
-        drawer.expandStateChanged.connect(switch_btn.setIsToggled)
-
-        header_layout.addWidget(switch_text)
-        header_layout.addWidget(switch_btn)
-        drawer.setDrawerHeader(header)
-
-        for i, label in enumerate(["测试窗口1", "测试窗口2", "测试窗口3"], 1):
-            w = QWidget(self)
-            w.setFixedHeight(75)
-            wl = QHBoxLayout(w)
-            wl.addSpacing(60)
-            cb = ElaText(label, self)
-            cb.setTextPixelSize(14)
-            wl.addWidget(cb)
-            wl.addStretch()
-            drawer.addDrawer(w)
-
-        parent_layout.addWidget(drawer)
-        parent_layout.addSpacing(20)

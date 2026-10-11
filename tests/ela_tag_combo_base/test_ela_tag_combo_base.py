@@ -104,7 +104,7 @@ class TestTagBoxAnimMixin:
         assert host._title_font_size == 13
         assert host._expand_mark_width == 0.0
         assert host._expand_icon_rotate == 0.0
-        assert host.height() == 38
+        assert host.height() == 30
         host.deleteLater()
 
     def test_set_title(self):
@@ -181,12 +181,12 @@ class TestDrawTagBackground:
     def test_draw_tag_background_returns_tuple(self):
         widget = MagicMock()
         widget.width.return_value = 100
-        widget.height.return_value = 38
+        widget.height.return_value = 30
         widget._getBackgroundColor.return_value = QColor(255, 255, 255)
         widget._getTitleColor.return_value = QColor(0, 0, 0)
         widget._getBorderColor.return_value = QColor(200, 200, 200)
         painter = QPainter()
-        result = _draw_tag_background(painter, widget, shadow_border=3)
+        result = _draw_tag_background(painter, widget, face_inset=1)
         assert len(result) == 3
         content_rect, text_color, border_color = result
         assert isinstance(content_rect, QRect)
@@ -223,14 +223,14 @@ class TestDrawTagMark:
     def test_draw_tag_mark_zero_width(self):
         widget = MagicMock()
         widget.width.return_value = 100
-        widget.height.return_value = 38
+        widget.height.return_value = 30
         painter = QPainter()
         _draw_tag_mark(painter, widget, 0.0)
 
     def test_draw_tag_mark_positive_width(self):
         widget = MagicMock()
         widget.width.return_value = 100
-        widget.height.return_value = 38
+        widget.height.return_value = 30
         painter = QPainter()
         _draw_tag_mark(painter, widget, 20.0)
 

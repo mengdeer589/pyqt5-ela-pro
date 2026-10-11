@@ -135,8 +135,14 @@ class TestQuitAction:
         tray_page._on_quit_requested()
         assert called == [True]
 
-    def test_quit_menu_item_emits_quit_requested(self, env, qapp):
+    def test_quit_menu_item_emits_quit_requested(self, env, qapp, monkeypatch):
         _window, tray_page, _sel = env
+        # **别让真实的 shutdown() 跑**：它会 ``QApplication.quit()``，而
+        # 「没有执行中的事件循环时调 quit()」会把主线程的 ``quitNow`` 置位且
+        # 没人复位 —— 之后所有 ``QEventLoop.exec_()``（``QTest.qWait`` / 本仓库
+        # 的 ``_spin``）直接返回 -1 变空转（实测 0ms 返回），后续 ela_chat 的
+        # 工作线程用例三条时序断言失败、最终整进程 0xC0000409 静默崩。
+        monkeypatch.setattr(tray_page._host, "shutdown", lambda: None)
         seen = []
         tray_page._host.quitRequested.connect(lambda: seen.append(True))
         assert _click(tray_page._host, "退出") is True
@@ -178,13 +184,13 @@ class TestRawTrayButtons:
         try:
             assert _click_button(tray_page, "警告") is True
             qapp.processEvents()
-            assert tray.state() == ElaTrayIcon.TrayState.Warning
+            assert tray.state() == ElaTrayIcon.ElaTrayStateType.Warning
             assert tray.isVisible() is True, "点了状态按钮托盘图标仍未显示"
             assert "托盘状态 -> 警告" in tray_page._log.toPlainText()
 
             assert _click_button(tray_page, "错误") is True
             qapp.processEvents()
-            assert tray.state() == ElaTrayIcon.TrayState.Critical
+            assert tray.state() == ElaTrayIcon.ElaTrayStateType.Critical
             assert tray.isVisible() is True
         finally:
             tray.hide()

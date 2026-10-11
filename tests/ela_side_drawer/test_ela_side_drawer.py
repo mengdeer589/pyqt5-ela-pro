@@ -6,9 +6,9 @@ import pytest
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QWidget
 
-from pyqt5_ela_pro._ownership import WidgetOwnership
+from pyqt5_ela_pro._ownership import ElaWidgetOwnershipType
 from pyqt5_ela_pro.ela_side_drawer import (
-    ElaDrawerPosition,
+    ElaDrawerPositionType,
     ElaDrawerPanel,
     ElaDrawerDim,
     ElaDrawer,
@@ -38,15 +38,15 @@ def drawer(make, parent):
 
 
 class TestElaDrawerPosition:
-    """Test cases for ElaDrawerPosition enum."""
+    """Test cases for ElaDrawerPositionType enum."""
 
     @pytest.mark.parametrize(
         ("position", "value"),
         [
-            (ElaDrawerPosition.Left, 0),
-            (ElaDrawerPosition.Right, 1),
-            (ElaDrawerPosition.Top, 2),
-            (ElaDrawerPosition.Bottom, 3),
+            (ElaDrawerPositionType.Left, 0),
+            (ElaDrawerPositionType.Right, 1),
+            (ElaDrawerPositionType.Top, 2),
+            (ElaDrawerPositionType.Bottom, 3),
         ],
         ids=["left", "right", "top", "bottom"],
     )
@@ -59,16 +59,16 @@ class TestElaDrawerPanel:
 
     @pytest.mark.parametrize(
         ("attr", "expected"),
-        [("_corner_radius", 12), ("_position", ElaDrawerPosition.Right)],
+        [("_corner_radius", 12), ("_position", ElaDrawerPositionType.Right)],
         ids=["corner-radius", "position"],
     )
     def test_initialization_with_defaults(self, panel, attr, expected):
         assert getattr(panel, attr) == expected
 
     def test_initialization_with_custom_values(self, make):
-        panel = make(ElaDrawerPanel, position=ElaDrawerPosition.Left, corner_radius=8)
+        panel = make(ElaDrawerPanel, position=ElaDrawerPositionType.Left, corner_radius=8)
         assert panel._corner_radius == 8
-        assert panel._position == ElaDrawerPosition.Left
+        assert panel._position == ElaDrawerPositionType.Left
 
     def test_set_bg_color(self, panel):
         color = QColor(255, 0, 0)
@@ -76,8 +76,8 @@ class TestElaDrawerPanel:
         assert panel._bg_color == color
 
     def test_set_position(self, panel):
-        panel.setPosition(ElaDrawerPosition.Top)
-        assert panel._position == ElaDrawerPosition.Top
+        panel.setPosition(ElaDrawerPositionType.Top)
+        assert panel._position == ElaDrawerPositionType.Top
 
 
 class TestElaDrawerDim:
@@ -98,7 +98,7 @@ class TestElaDrawer:
     @pytest.mark.parametrize(
         ("attr", "expected"),
         [
-            ("_position", ElaDrawerPosition.Right),
+            ("_position", ElaDrawerPositionType.Right),
             ("_drawer_size", 360),
             ("_is_opened", False),
             ("_close_on_dim_clicked", True),
@@ -117,9 +117,9 @@ class TestElaDrawer:
 
     def test_initialization_with_custom_values(self, make, parent):
         drawer = make(
-            ElaDrawer, position=ElaDrawerPosition.Left, drawer_size=400, parent=parent
+            ElaDrawer, position=ElaDrawerPositionType.Left, drawer_size=400, parent=parent
         )
-        assert drawer._position == ElaDrawerPosition.Left
+        assert drawer._position == ElaDrawerPositionType.Left
         assert drawer._drawer_size == 400
 
     @pytest.mark.parametrize("signal", ["closed", "opened"])
@@ -142,12 +142,12 @@ class TestElaDrawer:
         assert drawer.contentWidget() is content
 
     def test_default_ownership_is_borrowed(self, make, drawer):
-        assert drawer.contentOwnership() == WidgetOwnership.Borrowed
+        assert drawer.contentOwnership() == ElaWidgetOwnershipType.Borrowed
 
     def test_set_content_widget_accepts_ownership(self, make, drawer):
         content = make(QWidget)
-        drawer.setContentWidget(content, WidgetOwnership.Owned)
-        assert drawer.contentOwnership() == WidgetOwnership.Owned
+        drawer.setContentWidget(content, ElaWidgetOwnershipType.Owned)
+        assert drawer.contentOwnership() == ElaWidgetOwnershipType.Owned
 
     def test_replacing_content_removes_previous_from_layout(self, make, drawer):
         """换内容时旧的要从布局里摘掉，否则两个内容叠在一起。"""
@@ -160,7 +160,7 @@ class TestElaDrawer:
 
     def test_take_content_widget_returns_parentless(self, make, drawer):
         content = make(QWidget)
-        drawer.setContentWidget(content, WidgetOwnership.Owned)
+        drawer.setContentWidget(content, ElaWidgetOwnershipType.Owned)
         got = drawer.takeContentWidget()
         assert got is content
         assert got.parentWidget() is None
@@ -172,7 +172,7 @@ class TestElaDrawer:
         from PyQt5.QtCore import QCoreApplication, QEvent
 
         content = make(QWidget)
-        drawer.setContentWidget(content, WidgetOwnership.Owned)
+        drawer.setContentWidget(content, ElaWidgetOwnershipType.Owned)
         drawer.takeContentWidget()
         QCoreApplication.sendPostedEvents(content, QEvent.Type.DeferredDelete)
         assert sip.isdeleted(content) is False

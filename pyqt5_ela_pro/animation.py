@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import QWidget
 from PyQt5 import sip
 
 from ._internal import safe_call
-from ._motion import Duration, MotionKind, start_transition
+from ._motion import Duration, ElaMotionKindType, start_transition
 
 
 _animation_registry: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
@@ -100,16 +100,12 @@ def shake_window(
     loop_count: int = 2,
     on_finished: Optional[Callable[[], None]] = None,
 ) -> None:
-    """让窗口抖动动画（左右+上下晃动画回到原位）。
+    """让窗口抖动（左右 + 上下晃回原位），动画进行中再次调用会被忽略。
 
-    动画进行中再次调用会忽略新请求。抖动**不产生任何状态变化**（终点就是起点），
-    属纯装饰动效，按 ``MotionKind.Continuous`` 送策略 —— ``Reduced`` /
-    ``Disabled`` 下整体不播（压成 50ms 的抖动只会像渲染故障，不会像反馈）。
-
-    :param widget: 目标窗口控件
-    :param duration: ``Full`` 模式下的动画总时长（毫秒），默认 ``Duration.Fast``
-    :param loop_count: 抖动循环次数，默认 2
-    :param on_finished: 动画完成后的回调函数
+    抖动**不产生任何状态变化**（终点即起点），属纯装饰动效，按
+    ``ElaMotionKindType.Continuous`` 送策略 —— ``Reduced`` / ``Disabled`` 下整体不播
+    （压成 50ms 的抖动只会像渲染故障，不会像反馈）。``duration`` 是 ``Full``
+    模式下的总时长。
     """
     if hasattr(widget, "_shake_animation"):
         existing = widget._shake_animation
@@ -170,7 +166,7 @@ def shake_window(
     start_transition(
         animation,
         duration,
-        kind=MotionKind.Continuous,
+        kind=ElaMotionKindType.Continuous,
         on_complete=_cleanup,
         deletion_policy=QPropertyAnimation.DeletionPolicy.DeleteWhenStopped,
     )

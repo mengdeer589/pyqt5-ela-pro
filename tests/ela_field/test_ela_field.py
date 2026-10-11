@@ -18,9 +18,9 @@ import pytest
 from PyQt5.QtCore import QCoreApplication, QEvent, Qt
 from PyQt5.QtWidgets import QLineEdit, QWidget
 
-from pyqt5_ela_pro._ownership import WidgetOwnership
+from pyqt5_ela_pro._ownership import ElaWidgetOwnershipType
 from pyqt5_ela_pro._theme import (
-    StatusRole,
+    ElaStatusRoleType,
     currentMode,
     statusColor,
     text,
@@ -32,7 +32,7 @@ from pyqt5_ela_pro.ela_field import (
     _LABEL_PX,
     _DETAIL_PX,
     ElaField,
-    FieldStatus,
+    ElaFieldStatusType,
 )
 
 from PyQt5ElaWidgetTools import ElaIconType
@@ -93,7 +93,7 @@ class TestLayout:
 
     def test_helper_and_status_can_both_be_visible(self, field):
         field.setHelperText("2-16 chars")
-        field.setStatus(FieldStatus.Error)
+        field.setStatus(ElaFieldStatusType.Error)
         field.setStatusText("taken")
         assert field._helper.isVisible() is True
         assert field._status_row.isVisible() is True
@@ -135,15 +135,15 @@ class TestRequired:
     def test_mark_is_always_error_colored_regardless_of_status(self, field):
         """``*`` 表达「这栏必填」，不是「这栏当前有错」。"""
         field.setRequired(True)
-        field.setStatus(FieldStatus.Success)
+        field.setStatus(ElaFieldStatusType.Success)
         assert (
             field._required_mark.textColor().name()
-            == statusColor(currentMode(), StatusRole.Error).name()
+            == statusColor(currentMode(), ElaStatusRoleType.Error).name()
         )
-        field.setStatus(FieldStatus.Error)
+        field.setStatus(ElaFieldStatusType.Error)
         assert (
             field._required_mark.textColor().name()
-            == statusColor(currentMode(), StatusRole.Error).name()
+            == statusColor(currentMode(), ElaStatusRoleType.Error).name()
         )
 
 
@@ -160,8 +160,8 @@ class TestHelperText:
         """说明与错误并存时，说明被染红会让用户以为说明本身是错的。"""
         field.setHelperText("2-16 chars")
         baseline = field._helper.textColor().name()
-        for status in FieldStatus:
-            if status is FieldStatus.None_:
+        for status in ElaFieldStatusType:
+            if status is ElaFieldStatusType.None_:
                 continue
             field.setStatus(status)
             field.setStatusText("bad")
@@ -179,13 +179,13 @@ class TestHelperText:
 class TestStatusRow:
     def test_hidden_without_text(self, field):
         """一个没有文案的红三角没有信息量，只是个噪音像素。"""
-        field.setStatus(FieldStatus.Error)
+        field.setStatus(ElaFieldStatusType.Error)
         assert field.hasStatusRow() is False
         assert field._status_row.isVisible() is False
         assert field._status_icon.isVisible() is False
 
     @pytest.mark.parametrize(
-        "status", [FieldStatus.Error, FieldStatus.Warning, FieldStatus.Success]
+        "status", [ElaFieldStatusType.Error, ElaFieldStatusType.Warning, ElaFieldStatusType.Success]
     )
     def test_visible_with_text_and_named_status(self, field, status):
         field.setStatus(status)
@@ -196,22 +196,22 @@ class TestStatusRow:
 
     def test_none_status_with_text_shows_row_but_no_icon(self, field):
         """``None`` + 有文案：行要显示（那是一句说明），但不显示图标。"""
-        field.setStatus(FieldStatus.None_)
+        field.setStatus(ElaFieldStatusType.None_)
         field.setStatusText("just a note")
         assert field._status_row.isVisible() is True
         assert field._status_icon.isVisible() is False
 
     def test_none_status_uses_muted_text(self, field):
-        field.setStatus(FieldStatus.None_)
+        field.setStatus(ElaFieldStatusType.None_)
         field.setStatusText("note")
         assert field.statusColor().name() == textMuted(currentMode()).name()
 
     @pytest.mark.parametrize(
         ("status", "role"),
         [
-            (FieldStatus.Error, StatusRole.Error),
-            (FieldStatus.Warning, StatusRole.Warning),
-            (FieldStatus.Success, StatusRole.Success),
+            (ElaFieldStatusType.Error, ElaStatusRoleType.Error),
+            (ElaFieldStatusType.Warning, ElaStatusRoleType.Warning),
+            (ElaFieldStatusType.Success, ElaStatusRoleType.Success),
         ],
     )
     def test_status_color_comes_from_the_token_layer(self, field, status, role):
@@ -221,18 +221,18 @@ class TestStatusRow:
 
     def test_status_and_text_are_independent(self, field):
         """宿主可以只改色不换文案，也可以只换文案不换色。"""
-        field.setStatus(FieldStatus.Warning)
+        field.setStatus(ElaFieldStatusType.Warning)
         field.setStatusText("careful")
-        field.setStatus(FieldStatus.Error)
+        field.setStatus(ElaFieldStatusType.Error)
         assert field.statusText() == "careful"
-        assert field.status() is FieldStatus.Error
+        assert field.status() is ElaFieldStatusType.Error
 
     @pytest.mark.parametrize(
         ("status", "icon"),
         [
-            (FieldStatus.Error, ElaIconType.IconName.CircleXmark),
-            (FieldStatus.Warning, ElaIconType.IconName.TriangleExclamation),
-            (FieldStatus.Success, ElaIconType.IconName.CircleCheck),
+            (ElaFieldStatusType.Error, ElaIconType.IconName.CircleXmark),
+            (ElaFieldStatusType.Warning, ElaIconType.IconName.TriangleExclamation),
+            (ElaFieldStatusType.Success, ElaIconType.IconName.CircleCheck),
         ],
     )
     def test_each_status_has_a_distinct_icon(self, field, status, icon):
@@ -242,7 +242,7 @@ class TestStatusRow:
         assert field._status_icon._icon == icon
 
     def test_clearing_text_hides_the_row_again(self, field):
-        field.setStatus(FieldStatus.Error)
+        field.setStatus(ElaFieldStatusType.Error)
         field.setStatusText("bad")
         field.setStatusText("")
         assert field._status_row.isVisible() is False
@@ -266,7 +266,7 @@ class TestEditorSlot:
         assert field.editor().parentWidget() is field._editor_host
 
     def test_default_ownership_is_borrowed(self, field):
-        assert field.editorOwnership() == WidgetOwnership.Borrowed
+        assert field.editorOwnership() == ElaWidgetOwnershipType.Borrowed
 
     def test_set_none_clears(self, field):
         field.setEditor(None)
@@ -292,7 +292,7 @@ class TestEditorSlot:
         from PyQt5 import sip
 
         editor = QLineEdit()
-        field.setEditor(editor, WidgetOwnership.Owned)
+        field.setEditor(editor, ElaWidgetOwnershipType.Owned)
         got = field.takeEditor()
         _flush(got)
         assert sip.isdeleted(got) is False
@@ -301,7 +301,7 @@ class TestEditorSlot:
         from PyQt5 import sip
 
         editor = QLineEdit()
-        field.setEditor(editor, WidgetOwnership.Owned)
+        field.setEditor(editor, ElaWidgetOwnershipType.Owned)
         field.releaseEditor()
         _flush(editor)
         assert sip.isdeleted(editor) is True
@@ -310,7 +310,7 @@ class TestEditorSlot:
         from PyQt5 import sip
 
         editor = QLineEdit()
-        field.setEditor(editor, WidgetOwnership.Borrowed)
+        field.setEditor(editor, ElaWidgetOwnershipType.Borrowed)
         field.releaseEditor()
         _flush(editor)
         assert sip.isdeleted(editor) is False
@@ -388,7 +388,7 @@ class TestThemeSwitch:
             dark = f._required_mark.textColor().name()
         finally:
             eTheme.setThemeMode(previous)
-        assert dark == statusColor(TT.ThemeMode.Dark, StatusRole.Error).name()
+        assert dark == statusColor(TT.ThemeMode.Dark, ElaStatusRoleType.Error).name()
 
 
 class TestNoQss:

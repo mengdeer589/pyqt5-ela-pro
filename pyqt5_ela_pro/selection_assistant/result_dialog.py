@@ -2,11 +2,12 @@
 
 :class:`ElaSelectionResultDialog` 是划词动作条点中「翻译 / 解释 / 总结」这类
 **要跑模型**的动作后弹出的浮动窗，实时显示大模型流式返回的 Markdown，
-结束后可复制 / 重新生成。参照 Cherry Studio 的 selection action window。
+结束后可复制（**``Ctrl+C`` = 纯文本**；Markdown 源走「复制 Markdown」/
+``Ctrl+Shift+C``）/ 重新生成。参照 Cherry Studio 的 selection action window。
 
 **基类是上游 :class:`~PyQt5ElaWidgetTools.ElaWidget.ElaWidget`，不是自绘
-``QWidget``**：ElaWidget 自带 ElaAppBar（图标 + 标题 + 窗口按钮）、无边框窗口的
-阴影（``QEvent::Show`` 时补 ``WS_THICKFRAME``，Win7 另加 ``CS_DROPSHADOW``）、
+``QWidget``**：ElaWidget 自带 ElaAppBar（图标 + 标题 + 窗口按钮）、窗口阴影
+（``QEvent::Show`` 时补 ``WS_THICKFRAME``，Win7 另加 ``CS_DROPSHADOW``）、
 拖动与边缘缩放、Mica 背景、主题适配。所以本组件**零 QSS、零 ``paintEvent``
 自绘、零阴影边距常量** —— ``ElaSelectionPopup`` / ``ElaNotifyPopup`` 里那套手写
 圆角 + 阴影是因为它们是**弹层**不是窗口，窗口别学。
@@ -41,7 +42,7 @@ import functools
 from typing import Optional
 
 from PyQt5 import sip
-from PyQt5.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QEvent, QPoint, QRect, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QApplication,
@@ -60,10 +61,10 @@ from PyQt5ElaWidgetTools import (
 
 from .._internal import connect_theme_signal, disconnect_theme
 from .._styles import ColorText
-from .._theme import StatusRole, currentMode, statusColor, textMuted
+from .._theme import ElaStatusRoleType, currentMode, statusColor, textMuted
 from ..ela_button import ElaButton
 from ..ela_markdown_viewer import ElaMarkdownViewer
-from ..tooltips import ElaToolTipPosition, set_tooltip
+from ..tooltips import ElaToolTipPositionType, remove_tooltip, set_tooltip
 
 #: 默认窗口尺寸（app bar 的高度由 ElaWidget 自己让出，不计入）
 _DEFAULT_SIZE = QSize(520, 420)
@@ -85,8 +86,15 @@ _TITLE_ICON_PX = 18
 #: 更后面的内容永远露不出来，所以一次划词几百万字时也不必让 ``elidedText`` 在
 #: 全文上扫 —— 只喂前 400 字给它，QString 拷贝与扫描都变成常数级
 _PREVIEW_SOURCE_MAX = 400
-#: 原文预览悬浮提示的字符上限（ElaToolTip 要排版 + 自绘绘制全文，超长直接卡住）
-_PREVIEW_TIP_MAX = 2000
+#: 原文预览悬浮提示的字符上限。折行有界（见 ``_PREVIEW_TIP_WIDTH``）后不能
+#: 再喂两千字：``ElaToolTip`` 要排版 + 自绘绘制全文，且几十行高的提示框本身
+#: 就不可读。完整原文由 :meth:`_PreviewText.fullText` 提供，宿主想要就取。
+_PREVIEW_TIP_MAX = 400
+#: 原文预览悬浮提示的最大宽度（折行，避免拉成远宽于屏幕的单行横条）
+_PREVIEW_TIP_WIDTH = 480
+#: ``WS_THICKFRAME`` 撑高的高度上限（像素）。实测 +31（与 app bar 高度无关）；
+#: 留一点余量给不同 DPI / 系统度量，但远小于用户拖一次边框的幅度。
+_WM_GROW_MAX_PX = 64
 
 #: 状态行文案（落定且有正文时状态行整行隐藏）
 _TEXT_PREPARING = "准备中…"
@@ -147,12 +155,23 @@ class _PreviewText(ColorText):
         # 每次都 split()/join() 一遍全文 = O(n) × resize 次数，拖一次窗口边
         # 就能把 CPU 吃掉。
         self._flat = " ".join(self._full_text.split())
-        # 悬浮提示同样截断：ElaToolTip 要把整段排版并自绘绘制，几十万字会卡住
+        # 悬浮提示同样截断：ElaToolTip 要把整段排版并自绘绘制，几十万字会卡住；
+        # 且**必须折行**（默认单行会把 400 字拉成几千像素宽的横条，屏幕外全看不见）
         tip = self._flat
         if len(tip) > _PREVIEW_TIP_MAX:
             tip = tip[:_PREVIEW_TIP_MAX] + "…"
         if tip:
-            set_tooltip(self, tip, ElaToolTipPosition.Top)
+            set_tooltip(
+                self,
+                tip,
+                ElaToolTipPositionType.Top,
+                maxWidth=_PREVIEW_TIP_WIDTH,
+                wordWrap=True,
+            )
+        else:
+            # 空原文必须**摘掉**上一轮的提示：同一个对话框复用（openFor 换一次
+            # 划词）时，留着旧 tooltip 会让空白预览行弹出上一轮的原文。
+            remove_tooltip(self)
         self._refresh_elide()
 
     def fullText(self) -> str:  # noqa: N802 (Qt 命名)
@@ -213,6 +232,8 @@ class ElaSelectionResultDialog(ElaWidget):
     regenerateRequested = pyqtSignal(str)
     #: 结果已写入剪贴板（参数：动作 id）
     copied = pyqtSignal(str)
+    #: 结果的**纯文本**已写入剪贴板（去掉 Markdown 标记；参数：动作 id）
+    plainCopied = pyqtSignal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -250,8 +271,13 @@ class ElaSelectionResultDialog(ElaWidget):
         self._preferred_size = QSize(_DEFAULT_SIZE)
         #: 定位过程中为 True —— 此时的 resize 是程序夹取，不是用户意图
         self._placing = False
-        #: ``WS_THICKFRAME`` 那一次撑高是否还没落地（见 ``resizeEvent``）
+        #: ``WS_THICKFRAME`` 撑高（宽度不变、高度 +31）的判定材料：
+        #: ``_wm_grow_pending`` 是「可能还有一次撑高没落地」，
+        #: ``_wm_grow_request`` 是 ``_place`` 请求的尺寸（按形状识别撑高），
+        #: ``_user_resizing`` 记录用户是否亲手拖过边框（拖过就一定是用户意图）。
         self._wm_grow_pending = False
+        self._wm_grow_request: Optional[QSize] = None
+        self._user_resizing = False
 
         self._build_ui()
         self._sync_controls()
@@ -325,7 +351,7 @@ class ElaSelectionResultDialog(ElaWidget):
         self._regen_button.clicked.connect(self._on_regenerate)
         footer.addWidget(self._regen_button)
         self._copy_button = ElaButton(
-            "复制",
+            "复制 Markdown",
             icon=ElaIconType.IconName.Copy,
             variant="text",
             size="small",
@@ -333,6 +359,16 @@ class ElaSelectionResultDialog(ElaWidget):
         )
         self._copy_button.clicked.connect(self._on_copy)
         footer.addWidget(self._copy_button)
+        # 纯文本复制：渲染后的文本（去掉 Markdown 标记），与「复制」的原始源并列
+        self._plain_copy_button = ElaButton(
+            "复制纯文本",
+            icon=ElaIconType.IconName.FileLines,
+            variant="text",
+            size="small",
+            parent=body,
+        )
+        self._plain_copy_button.clicked.connect(self.copyPlainText)
+        footer.addWidget(self._plain_copy_button)
         self._close_button = ElaButton(
             "关闭",
             icon=ElaIconType.IconName.Xmark,
@@ -354,9 +390,18 @@ class ElaSelectionResultDialog(ElaWidget):
         inner.addLayout(footer)
 
         # 只用库内 ElaToolTip（不设 setToolTip，避免任何原生提示框）
-        set_tooltip(self._stop_button, "停止生成（Esc）", ElaToolTipPosition.Top)
-        set_tooltip(self._copy_button, "复制完整结果（Ctrl+C）", ElaToolTipPosition.Top)
-        set_tooltip(self._regen_button, "用同样的输入重新生成", ElaToolTipPosition.Top)
+        set_tooltip(self._stop_button, "停止生成（Esc）", ElaToolTipPositionType.Top)
+        set_tooltip(
+            self._copy_button,
+            "复制 Markdown 源（Ctrl+Shift+C）",
+            ElaToolTipPositionType.Top,
+        )
+        set_tooltip(
+            self._plain_copy_button,
+            "复制纯文本（去掉 Markdown 标记，Ctrl+C）",
+            ElaToolTipPositionType.Top,
+        )
+        set_tooltip(self._regen_button, "用同样的输入重新生成", ElaToolTipPositionType.Top)
 
         # 标题栏的 ✕ **不用**接：上游 ``IsDefaultClosed`` 默认 true，点它就是
         # ``window()->close()``（ElaAppBarPrivate.cpp:52-56），会正常走到
@@ -485,14 +530,32 @@ class ElaSelectionResultDialog(ElaWidget):
         self.finished.emit(self._action_id, self._result_text)
 
     def setError(self, message: str) -> None:
-        """显示错误并结束回合（复制保持禁用 —— 没有可用结果）。"""
+        """显示错误并结束回合（复制保持禁用 —— 没有可用结果）。
+
+        **必须冲掉查看器的流式态**（判据是「本回合是否流式过」，与
+        :meth:`_endTurn` 一致）：流式中途出错时，``ElaMarkdownViewer`` 还在
+        流式缓冲里、流式光标还在闪，用户看到的是「已经报错了，正文却还在
+        打字」，而且那半截内容要等下一次 flush 才落屏。
+        """
+        wasStreaming = self._streaming or self._viewer.isStreaming()
         self._streaming = False
         self._settled = False
         self._turn_started = True
         self._error = str(message or "")
         self._error_text.setText(self._error)
         self._error_row.setVisible(bool(self._error))
+        if wasStreaming and self._aliveViewer():
+            # 只做「停缓冲 + 全量重渲染」，不碰 ``_settled`` 与 ``finished``：
+            # 半句话仍然不算结果（正文可见 ≠ 可复制）。
+            self._viewer.endStream()
         self._sync_controls()
+
+    def _aliveViewer(self) -> bool:  # noqa: N802 (与 Qt 命名一致)
+        """查看器包装器还活着（宿主可能在回合中途销毁整个对话框）。"""
+        try:
+            return not sip.isdeleted(self._viewer)
+        except (RuntimeError, TypeError):
+            return False
 
     def clearError(self) -> None:
         """清除错误行。"""
@@ -516,6 +579,21 @@ class ElaSelectionResultDialog(ElaWidget):
         """当前结果的 Markdown 源（被中止时是已收到的部分，且 ``hasResult()`` 为假）。"""
         return self._result_text
 
+    def copyPlainText(self) -> None:  # noqa: N802 (Qt 命名)
+        """复制**纯文本结果**（渲染后的文本，去掉 Markdown 标记）。
+
+        **这是默认复制**：``Ctrl+C`` 与页脚「复制纯文本」都走这里；要原始
+        Markdown 源用 :meth:`_on_copy`（页脚「复制 Markdown」/ ``Ctrl+Shift+C``，
+        发 :attr:`copied`）。没有落定结果时不做任何事（半句话不复制）。
+        """
+        if not self.hasResult():
+            return
+        clipboard = QApplication.clipboard()
+        if clipboard is None:
+            return
+        clipboard.setText(self._viewer.toPlainText())
+        self.plainCopied.emit(self._action_id)
+
     def actionId(self) -> str:  # noqa: N802 (Qt 命名)
         """当前动作 id（由 :meth:`openFor` 设置）。"""
         return self._action_id
@@ -535,7 +613,11 @@ class ElaSelectionResultDialog(ElaWidget):
     # ── 事件 ────────────────────────────────────────────────────
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
-        """Esc 分流：流式中=停止（留在窗口里），空闲时=关闭。Ctrl+C=复制。"""
+        """Esc 分流：流式中=停止（留在窗口里），空闲时=关闭。
+
+        ``Ctrl+C`` = **纯文本**（默认，与「复制纯文本」按钮同源）；
+        ``Ctrl+Shift+C`` = Markdown 源（「复制 Markdown」按钮的快捷键）。
+        """
         key = event.key()
         ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
         if key == Qt.Key.Key_Escape:
@@ -546,8 +628,11 @@ class ElaSelectionResultDialog(ElaWidget):
             event.accept()
             return
         if key == Qt.Key.Key_C and ctrl:
-            if self._copy_button.isEnabled():
-                self._on_copy()
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                if self._copy_button.isEnabled():
+                    self._on_copy()
+            elif self._plain_copy_button.isEnabled():
+                self.copyPlainText()
             event.accept()
             return
         super().keyPressEvent(event)
@@ -575,12 +660,32 @@ class ElaSelectionResultDialog(ElaWidget):
             # 上游在 ``QEvent::Show`` 里补的 ``WS_THICKFRAME`` 会把窗口**撑高
             # 约 31px**，而这一次 resize **投递时机不确定**：有时同步落在
             # ``_place()`` 内（被 ``_placing`` 盖住），有时被 Qt 排进事件队列、
-            # 在 ``_placing`` 复位之后才到（实测两种都发生过）。靠 ``_placing``
-            # 兜不住，所以由 ``_place`` 显式记账：请求值与实际尺寸不一致就说明
-            # 这一次撑高还没落地，下一次可见期 resize 就是它 —— 不是用户意图。
+            # 在 ``_placing`` 复位之后才到（实测两种都发生过），有时**干脆不来**。
+            # 所以不能无条件把「下一次可见期 resize」当撑高（那会吞掉用户打开后
+            # 第一次调尺寸），按形状 + 用户是否拖过边框判定：
+            #   撑高 = 宽度与 ``_place`` 请求值相同、高度多出 1~_WM_GROW_MAX_PX、
+            #   且用户没亲手拖过边框（拖过 = ``NonClientAreaMouseButtonPress``）。
+            requested = self._wm_grow_request
             self._wm_grow_pending = False
-            return
+            self._wm_grow_request = None
+            if (
+                not self._user_resizing
+                and requested is not None
+                and self.width() == requested.width()
+                and 0 < self.height() - requested.height() <= _WM_GROW_MAX_PX
+            ):
+                return
         self._preferred_size = QSize(self.size())
+
+    def event(self, event) -> bool:  # noqa: N802 (Qt 命名)
+        """记录用户是否亲手拖过窗口边框。
+
+        拖边框是**非客户区**按下（``NonClientAreaMouseButtonPress``）；据此把
+        随后的 resize 与上游补 ``WS_THICKFRAME`` 的撑高区分开（见 ``resizeEvent``）。
+        """
+        if event.type() == QEvent.Type.NonClientAreaMouseButtonPress:
+            self._user_resizing = True
+        return super().event(event)
 
     # ── 内部：回合收尾 ────────────────────────────────────────────
 
@@ -660,9 +765,15 @@ class ElaSelectionResultDialog(ElaWidget):
         self._status_text.setVisible(bool(status))
 
         self._stop_button.setVisible(streaming)
-        for button in (self._regen_button, self._copy_button, self._close_button):
+        for button in (
+            self._regen_button,
+            self._copy_button,
+            self._plain_copy_button,
+            self._close_button,
+        ):
             button.setVisible(not streaming)
         self._copy_button.setEnabled(self.hasResult())
+        self._plain_copy_button.setEnabled(self.hasResult())
         # 「重新生成」只要**这个回合动过手**就可用 —— 判据刻意不是 `_settled`：
         # 出错与被中止之后用户最想干的就是重试，把按钮留着灰的等于把重试入口
         # 藏起来了（截图实测：报错页与停止页上「重新生成」都是灰的）。
@@ -750,6 +861,13 @@ class ElaSelectionResultDialog(ElaWidget):
             # （见 resizeEvent）。反之尺寸已经被撑过了（或布局顶大了），就说明
             # 撑高同步发生过了 / 本平台没有窗口管理器，此后可见期的每次 resize
             # 都该按用户意图处理。
+            #
+            # 只记布尔不够：撑高**可能永远不来**（投递时机不确定），若把「下一次
+            # 可见期 resize」无条件当撑高，用户打开后第一次调尺寸就被吞掉。所以
+            # 同时记下请求尺寸，由 ``resizeEvent`` 按形状 + 用户是否拖过边框判断
+            # （实测撑高 = 宽度不变、高度 +31）。
+            self._wm_grow_request = QSize(width, height)
+            self._user_resizing = False
             self._wm_grow_pending = self.width() == width and self.height() == height
         finally:
             self._placing = False
@@ -805,7 +923,7 @@ class ElaSelectionResultDialog(ElaWidget):
         """
         self._status_text.setTextColor(textMuted(mode))
         self._preview_text.setTextColor(textMuted(mode))
-        self._error_text.setTextColor(statusColor(mode, StatusRole.Error))
+        self._error_text.setTextColor(statusColor(mode, ElaStatusRoleType.Error))
         self.setWindowIcon(self._title_icon())
 
     def _onThemeChanged(self, mode) -> None:  # noqa: N802 (Qt 命名)

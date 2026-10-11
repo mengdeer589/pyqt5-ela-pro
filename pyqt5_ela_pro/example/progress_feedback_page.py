@@ -299,11 +299,11 @@ class ProgressFeedbackPage(ExamplePage):
         parent_layout.addSpacing(10)
 
         severity_names = [
-            ("Attention", ElaInfoBadge.Severity.Attention),
-            ("Informational", ElaInfoBadge.Severity.Informational),
-            ("Success", ElaInfoBadge.Severity.Success),
-            ("Caution", ElaInfoBadge.Severity.Caution),
-            ("Critical", ElaInfoBadge.Severity.Critical),
+            ("Attention", ElaInfoBadge.ElaSeverityType.Attention),
+            ("Informational", ElaInfoBadge.ElaSeverityType.Informational),
+            ("Success", ElaInfoBadge.ElaSeverityType.Success),
+            ("Caution", ElaInfoBadge.ElaSeverityType.Caution),
+            ("Critical", ElaInfoBadge.ElaSeverityType.Critical),
         ]
 
         row = QHBoxLayout()
@@ -351,7 +351,7 @@ class ProgressFeedbackPage(ExamplePage):
         btn = ElaPushButton("溢出", container)
         btn.setFixedWidth(110)
         badge = ElaInfoBadge(value=150, parent=container)
-        badge.setSeverity(ElaInfoBadge.Severity.Caution)
+        badge.setSeverity(ElaInfoBadge.ElaSeverityType.Caution)
         badge.attachTo(btn)
         cl.addWidget(btn)
         row.addWidget(container)
@@ -362,7 +362,7 @@ class ProgressFeedbackPage(ExamplePage):
         btn = ElaPushButton("图标", container)
         btn.setFixedWidth(110)
         badge = ElaInfoBadge(icon=ElaIconType.IconName.BadgeCheck, parent=container)
-        badge.setSeverity(ElaInfoBadge.Severity.Success)
+        badge.setSeverity(ElaInfoBadge.ElaSeverityType.Success)
         badge.attachTo(btn)
         cl.addWidget(btn)
         row.addWidget(container)
@@ -373,7 +373,7 @@ class ProgressFeedbackPage(ExamplePage):
         btn = ElaPushButton("齿轮", container)
         btn.setFixedWidth(110)
         badge = ElaInfoBadge(icon=ElaIconType.IconName.Gear, parent=container)
-        badge.setSeverity(ElaInfoBadge.Severity.Informational)
+        badge.setSeverity(ElaInfoBadge.ElaSeverityType.Informational)
         badge.attachTo(btn)
         cl.addWidget(btn)
         row.addWidget(container)
@@ -390,7 +390,7 @@ class ProgressFeedbackPage(ExamplePage):
         target_btn = ElaPushButton("目标按钮", container)
         target_btn.setFixedWidth(110)
         demo_badge = ElaInfoBadge(value=7, parent=container)
-        demo_badge.setSeverity(ElaInfoBadge.Severity.Attention)
+        demo_badge.setSeverity(ElaInfoBadge.ElaSeverityType.Attention)
         demo_badge.attachTo(target_btn)
         cl.addWidget(target_btn)
         row.addWidget(container)
@@ -420,22 +420,22 @@ class ProgressFeedbackPage(ExamplePage):
         parent_layout.addSpacing(10)
 
         colors = [
-            ("Default", ElaChip.Color.Default),
-            ("Primary", ElaChip.Color.Primary),
-            ("Blue", ElaChip.Color.Blue),
-            ("Purple", ElaChip.Color.Purple),
-            ("Cyan", ElaChip.Color.Cyan),
-            ("Green", ElaChip.Color.Green),
-            ("Magenta", ElaChip.Color.Magenta),
-            ("Pink", ElaChip.Color.Pink),
-            ("Red", ElaChip.Color.Red),
-            ("Danger", ElaChip.Color.Danger),
-            ("Orange", ElaChip.Color.Orange),
-            ("Yellow", ElaChip.Color.Yellow),
-            ("Volcano", ElaChip.Color.Volcano),
-            ("Geekblue", ElaChip.Color.Geekblue),
-            ("Lime", ElaChip.Color.Lime),
-            ("Gold", ElaChip.Color.Gold),
+            ("Default", ElaChip.ElaChipColorType.Default),
+            ("Primary", ElaChip.ElaChipColorType.Primary),
+            ("Blue", ElaChip.ElaChipColorType.Blue),
+            ("Purple", ElaChip.ElaChipColorType.Purple),
+            ("Cyan", ElaChip.ElaChipColorType.Cyan),
+            ("Green", ElaChip.ElaChipColorType.Green),
+            ("Magenta", ElaChip.ElaChipColorType.Magenta),
+            ("Pink", ElaChip.ElaChipColorType.Pink),
+            ("Red", ElaChip.ElaChipColorType.Red),
+            ("Danger", ElaChip.ElaChipColorType.Danger),
+            ("Orange", ElaChip.ElaChipColorType.Orange),
+            ("Yellow", ElaChip.ElaChipColorType.Yellow),
+            ("Volcano", ElaChip.ElaChipColorType.Volcano),
+            ("Geekblue", ElaChip.ElaChipColorType.Geekblue),
+            ("Lime", ElaChip.ElaChipColorType.Lime),
+            ("Gold", ElaChip.ElaChipColorType.Gold),
         ]
 
         row = QHBoxLayout()
@@ -474,20 +474,20 @@ class ProgressFeedbackPage(ExamplePage):
         row = QHBoxLayout()
         row.setSpacing(8)
         pill = ElaChip("胶囊", parent=self)
-        pill.setColor(ElaChip.Color.Primary)
+        pill.setColor(ElaChip.ElaChipColorType.Primary)
         pill.setPill(True)
         row.addWidget(pill)
         closable_pill = ElaChip("可关闭胶囊", parent=self)
-        closable_pill.setColor(ElaChip.Color.Blue)
+        closable_pill.setColor(ElaChip.ElaChipColorType.Blue)
         closable_pill.setPill(True)
         closable_pill.setClosable(True)
         row.addWidget(closable_pill)
         tag_chip = ElaChip("带前置图标", parent=self)
-        tag_chip.setColor(ElaChip.Color.Green)
+        tag_chip.setColor(ElaChip.ElaChipColorType.Green)
         tag_chip.setLeadingIcon(ElaIconType.IconName.Tag)
         row.addWidget(tag_chip)
         attach_chip = ElaChip("附件", parent=self)
-        attach_chip.setColor(ElaChip.Color.Gold)
+        attach_chip.setColor(ElaChip.ElaChipColorType.Gold)
         attach_chip.setLeadingIcon(ElaIconType.IconName.Paperclip)
         row.addWidget(attach_chip)
         row.addStretch()
@@ -497,7 +497,7 @@ class ProgressFeedbackPage(ExamplePage):
     def _demoSteps(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "07. pyqt5_ela_pro - ElaSteps 步骤条", self._demoSteps
+                "07. pyqt5_ela_pro - ElaSteps 步骤条（水平 / 竖直）", self._demoSteps
             )
         )
         steps = ElaSteps(parent=self)
@@ -521,6 +521,16 @@ class ProgressFeedbackPage(ExamplePage):
         nav.addWidget(next_btn)
         nav.addStretch()
         parent_layout.addLayout(nav)
+
+        vertical_row = QHBoxLayout()
+        vertical_steps = ElaSteps(parent=self)
+        vertical_steps.setOrientation("vertical")
+        vertical_steps.step_titles = ["需求评审", "方案设计", "开发实现", "测试发布"]
+        vertical_steps.setCurrentStep(1)
+        vertical_steps.setFixedWidth(220)
+        vertical_row.addWidget(vertical_steps)
+        vertical_row.addStretch()
+        parent_layout.addLayout(vertical_row)
         parent_layout.addSpacing(20)
 
     def _demoRatingControl(self, parent_layout):
@@ -550,7 +560,8 @@ class ProgressFeedbackPage(ExamplePage):
     def _demoTimeline(self, parent_layout):
         parent_layout.addLayout(
             self._createHeaderRow(
-                "10. pyqt5_ela_pro - ElaTimeline 时间线", self._demoTimeline
+                "10. pyqt5_ela_pro - ElaTimeline 时间线（垂直 / 水平）",
+                self._demoTimeline,
             )
         )
         timeline = ElaTimeline(parent=self)
@@ -586,4 +597,28 @@ class ProgressFeedbackPage(ExamplePage):
             nav.addWidget(btn)
         nav.addStretch()
         parent_layout.addLayout(nav)
+
+        horizontal = ElaTimeline(parent=self)
+        horizontal.setOrientation("horizontal")
+        horizontal.addItem(
+            ElaTimeline.TimelineItem(
+                title="立项", content="确定目标与范围", timestamp="01-01"
+            )
+        )
+        horizontal.addItem(
+            ElaTimeline.TimelineItem(
+                title="开发",
+                content="按计划推进",
+                timestamp="02-15",
+                icon=ElaIconType.IconName.Code,
+            )
+        )
+        horizontal.addItem(
+            ElaTimeline.TimelineItem(
+                title="发布", content="上线并观察", timestamp="03-20"
+            )
+        )
+        horizontal.setCurrentStep(1)
+        horizontal.setMinimumHeight(140)
+        parent_layout.addWidget(horizontal)
         parent_layout.addSpacing(20)

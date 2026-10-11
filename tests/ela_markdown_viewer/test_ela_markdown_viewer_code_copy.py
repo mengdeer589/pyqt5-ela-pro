@@ -6,6 +6,7 @@ buttons (hover, copy, feedback, resync on re-render).
 
 from __future__ import annotations
 
+from _qthelpers import wait_for_clipboard as _wait_for_clipboard
 from PyQt5.QtCore import QEvent, QPoint, QPointF, Qt
 from PyQt5.QtGui import QMouseEvent, QTextTable
 from PyQt5.QtTest import QTest
@@ -175,7 +176,10 @@ class TestCopyButtons:
         v._copy_code_block(0)
         qapp.processEvents()
         assert received == ["x = 1\ny = 2"]
-        assert qapp.clipboard().text() == "x = 1\ny = 2"
+        assert (
+            _wait_for_clipboard(qapp, "x = 1\ny = 2", lambda: v._copy_code_block(0))
+            == "x = 1\ny = 2"
+        )
         v.close()
         v.deleteLater()
 
@@ -186,7 +190,7 @@ class TestCopyButtons:
         v._code_buttons[0].click()
         qapp.processEvents()
         assert received == ["x = 1"]
-        assert qapp.clipboard().text() == "x = 1"
+        assert _wait_for_clipboard(qapp, "x = 1", v._code_buttons[0].click) == "x = 1"
         v.close()
         v.deleteLater()
 

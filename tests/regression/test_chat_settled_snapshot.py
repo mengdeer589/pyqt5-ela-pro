@@ -21,15 +21,15 @@ from __future__ import annotations
 
 import json
 
-from pyqt5_ela_pro.chat import ElaChatPartKind, ElaChatWidget
+from pyqt5_ela_pro.chat import ElaChatPartKindType, ElaChatWidget
 
 
 def _texts(parts) -> list:
-    return [p.text for p in parts if p.kind == ElaChatPartKind.Text]
+    return [p.text for p in parts if p.kind == ElaChatPartKindType.Text]
 
 
 def _reasons(parts) -> list:
-    return [p.text for p in parts if p.kind == ElaChatPartKind.Reasoning]
+    return [p.text for p in parts if p.kind == ElaChatPartKindType.Reasoning]
 
 
 def _chat(qapp) -> ElaChatWidget:
@@ -91,7 +91,7 @@ class TestPartsIsPure:
         view.appendText(messageId, "hello world")
 
         bubble = view.bubble(messageId)
-        text_parts = [p for p in bubble.parts() if p.kind == ElaChatPartKind.Text]
+        text_parts = [p for p in bubble.parts() if p.kind == ElaChatPartKindType.Text]
         assert text_parts
         assert bubble.partText(text_parts[0]) == "hello world"
         assert text_parts[0].text == "", "partText() 物化了 part.text"

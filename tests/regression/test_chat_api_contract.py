@@ -30,8 +30,8 @@ from pathlib import Path
 
 import pytest
 
-from pyqt5_ela_pro.chat import ElaChatView, ElaChatWidget
-from pyqt5_ela_pro.chat.message import ElaChatStats, ElaChatStatus
+from pyqt5_ela_pro.chat import ElaChatInput, ElaChatView, ElaChatWidget
+from pyqt5_ela_pro.chat.message import ElaChatStats, ElaChatStatusType
 
 _WIDGET_SOURCE = Path(inspect.getfile(ElaChatWidget)).with_suffix(".py")
 
@@ -209,14 +209,34 @@ class TestNoPassThroughLayer:
             "appendCompactionSummary",
             "endCompaction",
             "addSteerNotice",
-            "setContextUsage",
-            "contextUsage",
             "clearMessageError",
             "messageError",
         ):
             assert hasattr(ElaChatView, name), f"view 缺少 {name}"
             assert not hasattr(ElaChatWidget, name), (
                 f"widget 又暴露了 {name} —— 消息内容操作只应走 chatView()"
+            )
+
+    def test_context_usage_lives_on_input(self):
+        """上下文占用圆环长在**输入区工具栏** → API 归 ``ElaChatInput``。
+
+        它既不是消息内容（不该在 view —— 浮层版本会压住第一条消息的用户
+        头像，且视图未显示时定位会卡在 ``(0, 0)``），也不该被 widget 转发。
+        """
+        for name in (
+            "setContextUsage",
+            "contextUsage",
+            "contextUsagePercent",
+            "contextUsageWidget",
+            "setContextUsageVisible",
+            "contextUsageVisible",
+        ):
+            assert hasattr(ElaChatInput, name), f"input 缺少 {name}"
+            assert not hasattr(ElaChatWidget, name), (
+                f"widget 又暴露了 {name} —— 输入区操作只应走 chatInput()"
+            )
+            assert not hasattr(ElaChatView, name), (
+                f"view 还留着 {name} —— 占用圆环已归位到输入区工具栏"
             )
 
 
@@ -325,7 +345,7 @@ class TestStrictIds:
         view.endMessage(messageId)
         qapp.processEvents()
         assert view.message(messageId).text == "strict 下正常"
-        assert view.message(messageId).status == ElaChatStatus.Done
+        assert view.message(messageId).status == ElaChatStatusType.Done
         chat.deleteLater()
         qapp.processEvents()
 

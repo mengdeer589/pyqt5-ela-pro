@@ -19,7 +19,7 @@ from .ela_tag_combo_base import (
     _TagBoxAnimMixin,
     _paint_tag_single,
 )
-from ._internal import _adjust_combobox_popup
+from ._internal import _adjust_combobox_popup, hideComboboxPopup
 
 
 class ElaTagBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaComboBox):
@@ -60,6 +60,8 @@ class ElaTagBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaComboBox):
 
     def hidePopup(self) -> None:
         self._animate_popup_close()
+        if hideComboboxPopup(self):
+            return
         super().hidePopup()
 
     def _onCurrentIndexChanged(self, _index: int) -> None:

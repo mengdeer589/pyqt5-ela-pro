@@ -71,19 +71,11 @@ if pg is not None:
         # ── Public API ────────────────────────────────────
 
         def plot(self, *args, **kwargs) -> pg.PlotItem:
-            """添加并返回一个 ``PlotItem``。
-
-            :param args: 传递给 ``addPlot`` 的位置参数
-            :param kwargs: 传递给 ``addPlot`` 的关键字参数
-            :returns: 新建的 PlotItem
-            """
+            """``addPlot`` 的别名。"""
             return self.addPlot(*args, **kwargs)
 
         def setStyle(self, **kwargs) -> None:
-            """应用额外的 pyqtgraph 全局配置。
-
-            :param kwargs: pyqtgraph ``setConfigOptions`` 参数
-            """
+            """额外的 pyqtgraph 全局配置（转发 ``setConfigOptions``）。"""
             pg.setConfigOptions(**kwargs)
 
         # ── Internal ──────────────────────────────────────

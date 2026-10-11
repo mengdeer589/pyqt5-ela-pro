@@ -35,7 +35,7 @@ from PyQt5.QtGui import QColor
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
 __all__ = [
-    "StatusRole",
+    "ElaStatusRoleType",
     "accent",
     "blend",
     "border",
@@ -174,7 +174,7 @@ def accent(mode) -> QColor:
 # ── 语义状态色 ────────────────────────────────────────────────
 
 
-class StatusRole(IntEnum):
+class ElaStatusRoleType(IntEnum):
     """校验 / 提示的语义档位。
 
     刻意**不叫** ``None``：那是 Python 关键字，当不了枚举成员名（``None = 0`` 是
@@ -197,12 +197,12 @@ class StatusRole(IntEnum):
 #: 调校的一组。
 _STATUS_COLORS = {
     _TM.Light: {
-        StatusRole.Warning: QColor("#9D5D00"),
-        StatusRole.Success: QColor("#0F7B0F"),
+        ElaStatusRoleType.Warning: QColor("#9D5D00"),
+        ElaStatusRoleType.Success: QColor("#0F7B0F"),
     },
     _TM.Dark: {
-        StatusRole.Warning: QColor("#FCE100"),
-        StatusRole.Success: QColor("#6CCB5F"),
+        ElaStatusRoleType.Warning: QColor("#FCE100"),
+        ElaStatusRoleType.Success: QColor("#6CCB5F"),
     },
 }
 
@@ -224,24 +224,28 @@ def _shift(base: QColor, d_s: float, d_l: float) -> QColor:
     return out
 
 
-def statusColor(mode, role: StatusRole) -> QColor:
+def statusColor(mode, role: ElaStatusRoleType) -> QColor:
     """校验 / 提示状态的文字与图标色。
 
     ``Error`` 用上游原生 ``StatusDanger``；``Warning`` / ``Success`` 取定值（见
     :data:`_STATUS_COLORS`）；``Neutral`` 回落次要文字色。
 
+    :param mode: ``None`` = **当前模式**（与本模块其它访问器一致）；定值色表
+        也按它取，否则暗色下会拿到浅色主题的琥珀 / 绿。
     :param role: 也接受裸 int；非法值按 ``Neutral`` 处理。
     """
+    if mode is None:
+        mode = currentMode()
     try:
-        role = StatusRole(role)
+        role = ElaStatusRoleType(role)
     except ValueError:
-        role = StatusRole.Neutral
-    if role == StatusRole.Neutral:
+        role = ElaStatusRoleType.Neutral
+    if role == ElaStatusRoleType.Neutral:
         return textMuted(mode)
-    if role == StatusRole.Error:
+    if role == ElaStatusRoleType.Error:
         return _color(mode, _TC.StatusDanger)
     table = _STATUS_COLORS.get(mode) or _STATUS_COLORS[_TM.Light]
-    return QColor(table.get(role, table[StatusRole.Warning]))
+    return QColor(table.get(role, table[ElaStatusRoleType.Warning]))
 
 
 # ── 分类调色板（头像兜底色等） ────────────────────────────────
@@ -263,13 +267,16 @@ def chartPalette(mode=None) -> List[QColor]:
 
 
 #: 强调色三档的派生偏移，**从上游出厂值反解**：
-#: Hover ΔS −22.5% / ΔL +5.9%(Light) −5.5%(Dark)；Press ΔS −39.0% / ΔL
-#: +11.6%(Light) −10.8%(Dark)。规律是「饱和度降、亮度向表面靠拢」，用默认强调色走
-#: 一遍 :func:`setAccentColor` → :func:`resetAccentColor` 能逐值还原出厂值
-#: （回归测试 ``tests/theme/`` 钉住）。
+#: Light：Hover ΔS −22.5% / ΔL +5.9%；Press ΔS −39.0% / ΔL +11.6%。
+#: Dark：Hover ΔS −13.8% / ΔL −3.5%；Press ΔS −30.0% / ΔL −8.8% ——
+#: 上游 V3.0 只改了暗色 ``PrimaryNormal``（``#4CC2FF`` → ``#4ABCF7``），
+#: hover / press 沿用旧值，所以暗色步长按新基点重新反解（旧步长在新基点上
+#: 推不回 ``#47b1e8`` / ``#42a1d2``）。规律仍是「饱和度降、亮度向表面靠拢」，
+#: 用默认强调色走一遍 :func:`setAccentColor` → :func:`resetAccentColor` 能逐值
+#: 还原出厂值（回归测试 ``tests/theme/`` 钉住）。
 _ACCENT_STEPS = {
     _TM.Light: {"hover": (-0.225, +0.059), "press": (-0.390, +0.116)},
-    _TM.Dark: {"hover": (-0.222, -0.055), "press": (-0.385, -0.108)},
+    _TM.Dark: {"hover": (-0.1376, -0.0353), "press": (-0.2999, -0.0883)},
 }
 
 #: ``ToggleSwitchNoToggledCenter``（开关未激活的圆点）跟随强调色。它在上游是中性灰，
@@ -279,7 +286,7 @@ _SWITCH_CENTER_DS = -0.55
 #: 上游出厂强调色，供 :func:`resetAccentColor` 还原。
 _DEFAULT_ACCENT = {
     _TM.Light: QColor("#0067c0"),
-    _TM.Dark: QColor("#4cc2ff"),
+    _TM.Dark: QColor("#4abcf7"),
 }
 
 #: 上游出厂的开关圆点色（还原用）。
@@ -290,13 +297,7 @@ _DEFAULT_SWITCH_CENTER = {
 
 
 def setAccentColor(color: QColor, modes=None) -> None:
-    """换强调色，**并一并派生写入 hover / press / 开关圆点**。
-
-    :param color: 新的基础强调色。
-    :param modes: 作用于哪些主题模式，默认两个都改。
-
-    .. note:: 换色后**不会自动重绘**，调用方需自行触发（见模块 docstring）。
-    """
+    """换强调色，**并一并派生写入 hover / press / 开关圆点**（换色后不自动重绘，见模块 docstring）。"""
     if color is None or not isinstance(color, QColor) or not color.isValid():
         return
     targets = list(modes) if modes else [_TM.Light, _TM.Dark]
@@ -333,12 +334,12 @@ def resetAccentColor(modes=None) -> None:
 
 
 def textOnAccent(color: Optional[QColor] = None) -> QColor:
-    """强调色上的前景色（按亮度自动黑 / 白）。
+    """强调色上的前景色（按亮度自动黑 / 白，分界取 0.6，与上游按钮一致）。
 
-    :param color: 底色。阈值取 0.6 —— 与上游按钮选黑/白的分界一致，偏亮才用深色
-        前景，避免中间调（图表色常见）配出低对比的文字。
+    ``color=None`` 取**当前模式**的强调色 —— 用 Light 档算会在暗色下给出反的
+    答案（暗色强调色是亮青，该给黑字却给了白字）。
     """
-    base = accent(ElaThemeType.ThemeMode.Light) if color is None else color
+    base = accent(currentMode()) if color is None else color
     if base.lightnessF() > 0.6:
         return QColor(0, 0, 0)
     return QColor(255, 255, 255)

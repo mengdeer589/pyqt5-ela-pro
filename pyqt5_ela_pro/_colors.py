@@ -378,7 +378,6 @@ def get_color_scheme(
 
 
 def get_accent_color(color_name: str, mode: ElaThemeType.ThemeMode) -> QColor:
-    """仅获取主色 accent。"""
     resolved = _resolve_color(color_name)
     if resolved not in _COLOR_PALETTE:
         resolved = "blue"

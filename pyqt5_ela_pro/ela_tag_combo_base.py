@@ -98,7 +98,8 @@ class _TagBoxAnimMixin:
         self._rotate_animation = QPropertyAnimation(self, b"expandIconRotate")
         self._rotate_animation.setEasingCurve(Easing.type_name(Easing.Standard))
 
-        self.setFixedHeight(38)  # type: ignore[attr-defined]
+        # 与上游 ElaComboBox V3.0（35→30）的触发框同高，整套组合框族统一 30
+        self.setFixedHeight(30)  # type: ignore[attr-defined]
         self._theme_mode = eTheme.getThemeMode()
 
         # 连标准钩子名而不是自定义槽：本 mixin 在 MRO 最前，解析到的就是
@@ -199,6 +200,11 @@ def _get_target_mark_width(widget) -> float:
 
 # ── paint 辅助函数 ──────────────────────────────────────────────
 
+#: 触发框可见面与控件边缘的内缩（px）。与上游 ``ElaComboBox`` V3.0 的
+#: ``comboBoxRect.adjust(1, 1, -1, -1)`` 同值（V3.0 起 combo 从
+#: ``_shadowBorderWidth`` 收到 1px，见 ``ElaComboBoxStyle.cpp``）。
+_TAG_FACE_INSET = 1
+
 
 class _TagBoxWidgetProtocol(Protocol):
     """_draw_tag_background 所需的 widget 接口约束"""
@@ -211,7 +217,7 @@ class _TagBoxWidgetProtocol(Protocol):
 
 
 def _draw_tag_background(
-    painter: QPainter, widget: _TagBoxWidgetProtocol, shadow_border: int = 3
+    painter: QPainter, widget: _TagBoxWidgetProtocol, face_inset: int = _TAG_FACE_INSET
 ) -> tuple[QRect, QColor, QColor]:
     """绘制圆角背景和底部分隔线。返回 (content_rect, text_color, border_color)。"""
     painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
@@ -219,10 +225,10 @@ def _draw_tag_background(
     painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
     content_rect = QRect(
-        shadow_border,
-        shadow_border,
-        widget.width() - 2 * shadow_border,
-        widget.height() - 2 * shadow_border,
+        face_inset,
+        face_inset,
+        widget.width() - 2 * face_inset,
+        widget.height() - 2 * face_inset,
     )
 
     bg_color = widget._getBackgroundColor()
@@ -324,7 +330,7 @@ def _draw_tag_mark(
         painter.setBrush(mark_color)
         mark_rect = QRectF(
             widget.width() / 2 - mark_width,
-            widget.height() - 3,
+            widget.height() - _TAG_FACE_INSET - 3,
             mark_width * 2,
             3,
         )

@@ -9,7 +9,7 @@
 
 import traceback
 from PyQt5.QtGui import QColor
-from PyQt5.QtWidgets import QHBoxLayout, QLabel
+from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 from PyQt5ElaWidgetTools import (
     ElaColorDialog,
     ElaContentDialog,
@@ -23,7 +23,7 @@ from pyqt5_ela_pro import (
     ElaStateToolTip,
     ElaToast,
     ElaToolTip,
-    ElaToolTipPosition,
+    ElaToolTipPositionType,
     remove_tooltip,
     set_tooltip,
     show_notify,
@@ -73,17 +73,17 @@ class DrawerTooltipPage(ExamplePage):
         btn_layout.setSpacing(15)
         btn1 = ElaPushButton("保存", self)
         btn1.setFixedWidth(100)
-        set_tooltip(btn1, "保存当前内容", position=ElaToolTipPosition.Bottom)
+        set_tooltip(btn1, "保存当前内容", position=ElaToolTipPositionType.Bottom)
         btn_layout.addWidget(btn1)
         btn2 = ElaPushButton("删除", self)
         btn2.setFixedWidth(100)
         set_tooltip(
-            btn2, "删除选中项目\n（此操作不可撤销）", position=ElaToolTipPosition.Right
+            btn2, "删除选中项目\n（此操作不可撤销）", position=ElaToolTipPositionType.Right
         )
         btn_layout.addWidget(btn2)
         btn3 = ElaPushButton("关于", self)
         btn3.setFixedWidth(100)
-        set_tooltip(btn3, "关于本软件 v1.0.0", position=ElaToolTipPosition.Top)
+        set_tooltip(btn3, "关于本软件 v1.0.0", position=ElaToolTipPositionType.Top)
         btn_layout.addWidget(btn3)
         btn_layout.addStretch()
         parent_layout.addLayout(btn_layout)
@@ -96,7 +96,11 @@ class DrawerTooltipPage(ExamplePage):
                 self._demoTooltipDirect,
             )
         )
-        self._addInfoText("左侧按钮有 tooltip，点击右侧按钮移除/恢复", parent_layout)
+        self._addInfoText(
+            "左侧按钮有 tooltip，点击右侧按钮移除/恢复；「自定义内容 ToolTip」"
+            "演示 setContentWidget（提示内容换成任意控件；卡片标题用 ElaText.setIsBold）",
+            parent_layout,
+        )
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(15)
         self._tooltip_demo_btn = ElaPushButton("有提示的按钮", self)
@@ -121,32 +125,58 @@ class DrawerTooltipPage(ExamplePage):
         btn_layout.addSpacing(20)
         show_tip_btn = ElaPushButton("显示 ElaToolTip", self)
         show_tip_btn.setFixedWidth(120)
+        show_custom_tip_btn = ElaPushButton("自定义内容 ToolTip", self)
+        show_custom_tip_btn.setFixedWidth(160)
         close_tip_btn = ElaPushButton("关闭 ToolTip", self)
         close_tip_btn.setFixedWidth(100)
         self._direct_tip = None
+        self._custom_tip = None
+
+        def _dispose_tip(tip):
+            if tip is None:
+                return
+            try:
+                tip.hide()
+                tip.deleteLater()
+            except RuntimeError:
+                pass
 
         def _show_tooltip_direct():
-            if self._direct_tip is not None:
-                try:
-                    self._direct_tip.hide()
-                    self._direct_tip.deleteLater()
-                except RuntimeError:
-                    pass
+            _dispose_tip(self._direct_tip)
             self._direct_tip = ElaToolTip("手动定位的提示框", self.window())
-            self._direct_tip.showAt(show_tip_btn, position=ElaToolTipPosition.TopRight)
+            self._direct_tip.showAt(show_tip_btn, position=ElaToolTipPositionType.TopRight)
+
+        def _show_custom_tooltip_direct():
+            """提示内容换成任意控件（对齐上游 ElaToolTip.setCustomWidget）。"""
+            _dispose_tip(self._custom_tip)
+            content = QWidget()
+            content.setFixedSize(200, 56)
+            content_layout = QVBoxLayout(content)
+            content_layout.setContentsMargins(4, 4, 4, 4)
+            content_layout.setSpacing(2)
+            title = ElaText("自定义内容", content)
+            title.setTextPixelSize(13)
+            title.setIsBold(True)
+            desc = ElaText("ToolTip 里可以放任意控件", content)
+            desc.setTextPixelSize(12)
+            content_layout.addWidget(title)
+            content_layout.addWidget(desc)
+            tip = ElaToolTip("", self.window())
+            tip.setContentWidget(content)
+            tip.showAt(show_custom_tip_btn, position=ElaToolTipPositionType.Bottom)
+            self._custom_tip = tip
 
         def _close_tooltip_direct():
-            if self._direct_tip is not None:
-                try:
-                    self._direct_tip.hide()
-                    self._direct_tip.deleteLater()
-                except RuntimeError:
-                    pass
-                self._direct_tip = None
+            _dispose_tip(self._direct_tip)
+            self._direct_tip = None
+            _dispose_tip(self._custom_tip)
+            self._custom_tip = None
 
         show_tip_btn.clicked.connect(_show_tooltip_direct)
+        show_custom_tip_btn.clicked.connect(_show_custom_tooltip_direct)
         close_tip_btn.clicked.connect(_close_tooltip_direct)
         btn_layout.addWidget(show_tip_btn)
+        btn_layout.addWidget(show_custom_tip_btn)
         btn_layout.addWidget(close_tip_btn)
         btn_layout.addStretch()
         parent_layout.addLayout(btn_layout)
@@ -388,7 +418,7 @@ class DrawerTooltipPage(ExamplePage):
         def _on_open_basic():
             dlg = ElaContentDialog(self)
             dlg.setWindowTitle("内容对话框")
-            dlg.setCentralWidget(QLabel("这里是 setCentralWidget 放进去的内容", self))
+            dlg.setCentralWidget(ElaText("这里是 setCentralWidget 放进去的内容",12, self))
             dlg.leftButtonClicked.connect(lambda: (print("左键"), dlg.accept()))
             dlg.rightButtonClicked.connect(lambda: (print("右键"), dlg.accept()))
             dlg.exec()
@@ -402,7 +432,7 @@ class DrawerTooltipPage(ExamplePage):
         def _on_open_three():
             dlg = ElaContentDialog(self)
             dlg.setWindowTitle("三个按钮槽位")
-            dlg.setCentralWidget(QLabel("左键 / 中键 / 右键三个槽位", self))
+            dlg.setCentralWidget(ElaText("左键 / 中键 / 右键三个槽位",12, self))
             dlg.setLeftButtonText("左")
             dlg.setMiddleButtonText("中")
             dlg.setRightButtonText("右")

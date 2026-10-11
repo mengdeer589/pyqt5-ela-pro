@@ -80,12 +80,7 @@ class ExamplePage(ElaThemeWidget):
         parent_layout.addWidget(info)
 
     def _createHeaderRow(self, title, method):
-        """创建带代码查看按钮的节标题行。
-
-        :param title: 标题文本
-        :param method: 要查看源码的 demo 方法
-        :returns: QHBoxLayout，包含标题 + 伸缩 + 代码按钮
-        """
+        """创建带代码查看按钮的节标题行（标题 + 伸缩 + 代码按钮）。"""
         row = QHBoxLayout()
         row.setSpacing(8)
         btn = ElaButton("</> 代码", variant="text", color="primary", parent=self)

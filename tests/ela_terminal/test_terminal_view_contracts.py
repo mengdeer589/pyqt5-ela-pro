@@ -146,6 +146,63 @@ class TestUnterminatedLastLine:
         assert "drop me" in view._edit.toPlainText()
 
 
+class TestTailRedrawDoesNotAccumulateBlocks:
+    """``\\r`` 重画（进度条 / spinner）不得让文档块数无界增长。
+
+    尾块被摘空后那个空块本该被下一批内容复用；原先 ``_render_rows`` 只按
+    ``_doc_lines`` 决定要不要 ``insertBlock``，于是每次重画都白白多留一个空块
+    —— 块数逐帧增长而 ``_doc_lines`` 不动，长任务把文档撑到上万块。
+    """
+
+    def test_redraw_keeps_block_count_flat(self, make, qapp):
+        view = make(ElaTerminalView, maxLines=0)
+        view.resize(640, 320)
+        view.show()
+        _drain(qapp)
+
+        view.append("line 1\n")
+        view.append("line 2\n")
+        _drain(qapp)
+        assert view._edit.document().blockCount() == view._doc_lines == 2
+
+        # 第一次重画会多出「当前行」那一个块；之后每次重画都只在它里面改写
+        view.append("\r  1%")
+        _drain(qapp)
+        doc = view._edit.document()
+        baseline = doc.blockCount()
+        assert baseline == view._doc_lines + 1
+
+        for percent in range(2, 40):
+            view.append(f"\r  {percent}%")
+            _drain(qapp)
+            assert doc.blockCount() == baseline, (
+                f"第 {percent} 次重画后块数从 {baseline} 涨到 {doc.blockCount()}"
+            )
+
+        # 「当前行」仍在屏上，且内容是最新的
+        last = doc.findBlockByNumber(doc.blockCount() - 1).text()
+        assert last.strip() == "39%"
+        assert view._doc_tail is True
+        assert doc.blockCount() == view._doc_lines + 1
+
+    def test_tail_commit_does_not_leave_blank_line(self, make, qapp):
+        view = make(ElaTerminalView, maxLines=0)
+        view.resize(640, 320)
+        view.show()
+        _drain(qapp)
+
+        view.append("first\n")
+        view.append("partial")
+        _drain(qapp)
+        view.append(" done\n")
+        _drain(qapp)
+
+        doc = view._edit.document()
+        texts = [doc.findBlockByNumber(i).text() for i in range(doc.blockCount())]
+        assert texts == ["first", "partial done"], f"文档内容：{texts}"
+        assert view._doc_lines == 2
+
+
 class TestScrollIsNotHijacked:
     @pytest.fixture
     def scrolled_up(self, make, qapp):

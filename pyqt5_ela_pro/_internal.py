@@ -14,7 +14,12 @@ from typing import Any, Callable, Optional, Protocol, TypeVar, runtime_checkable
 from PyQt5 import sip
 from PyQt5.QtCore import QObject, QPoint, QRect, QSize, Qt, QTimer
 from PyQt5.QtGui import QColor, QPainter
-from PyQt5.QtWidgets import QApplication, QWidget, QWIDGETSIZE_MAX
+from PyQt5.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QWidget,
+    QWIDGETSIZE_MAX,
+)
 from PyQt5ElaWidgetTools import ElaThemeType, eTheme
 
 __all__ = [
@@ -23,6 +28,7 @@ __all__ = [
     "connect_theme_signal",
     "disconnect_theme",
     "disconnect_theme_signal",
+    "hideComboboxPopup",
     "safe_call",
     "to_logical_pos",
 ]
@@ -67,8 +73,6 @@ def single_shot_on(ctx: QObject, msec: int, slot) -> QTimer:
     timer.timeout.connect(slot)
     timer.start(int(msec))
     return timer
-
-
 
 
 def catch_error(func: F) -> F:
@@ -152,40 +156,59 @@ def execElaMenu(menu, global_pos) -> None:
         menu.deleteLater()
 
 
+def hideComboboxPopup(combo) -> bool:  # noqa: N802 (与 Qt 命名一致)
+    """无父控件时用 **Qt 原生**实现关弹层，返回 ``True``（调用方据此跳过 super）。
+
+    上游 ``ElaComboBox::hidePopup`` / ``ElaMultiSelectComboBox::hidePopup`` 的
+    收起动画在结束回调里无条件 ``QApplication::sendEvent(parentWidget(), ...)``，
+    而 ``parentWidget()`` 在无父控件时是 ``nullptr`` —— 回调跑到那一步进程静默
+    终止（0xC0000409 一类，无 traceback）。所以本库所有组合框子类的
+    ``hidePopup`` 都要先过这道闸门：
+
+    .. code-block:: python
+
+        def hidePopup(self):
+            ...
+            if hideComboboxPopup(self):
+                return          # 已用 Qt 原生实现关掉
+            super().hidePopup()
+    """
+    if combo.parentWidget() is not None:
+        return False
+    QComboBox.hidePopup(combo)
+    return True
+
+
 def _draw_button_content(
     painter: QPainter,
     text: str,
     icon_name,
     icon_size: int,
-    shadow_border: int,
+    face_inset: int,
     widget_width: int,
     widget_height: int,
     text_color: QColor,
     icon_getter: Callable[[Any, QColor], Any],
 ) -> QRect:
-    """绘制按钮图标和文字。
-
-    :return: 文字区域 QRect
-    """
+    """绘制按钮图标和文字，返回文字区域 ``QRect``。"""
     if icon_name is not None:
         icon_sz = QSize(icon_size, icon_size)
         spacing = 8
-        content_height = widget_height - 2 * shadow_border
+        content_height = widget_height - 2 * face_inset
 
         fm = painter.fontMetrics()
         text_width = fm.horizontalAdvance(text)
         total_content_width = icon_sz.width() + spacing + text_width
         start_x = (
-            shadow_border
-            + (widget_width - 2 * shadow_border - total_content_width) // 2
+            face_inset + (widget_width - 2 * face_inset - total_content_width) // 2
         )
 
-        icon_y = shadow_border + (content_height - icon_sz.height()) // 2
+        icon_y = face_inset + (content_height - icon_sz.height()) // 2
         icon_rect = QRect(start_x, icon_y, icon_sz.width(), icon_sz.height())
 
         text_rect = QRect(
             icon_rect.right() + spacing,
-            shadow_border,
+            face_inset,
             text_width,
             content_height,
         )
@@ -193,10 +216,10 @@ def _draw_button_content(
         painter.drawPixmap(icon_rect, icon.pixmap(icon_sz))
     else:
         rect = QRect(
-            shadow_border,
-            shadow_border,
-            widget_width - 2 * shadow_border,
-            widget_height - 2 * shadow_border,
+            face_inset,
+            face_inset,
+            widget_width - 2 * face_inset,
+            widget_height - 2 * face_inset,
         )
         text_rect = rect
 

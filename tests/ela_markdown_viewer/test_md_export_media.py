@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from _qthelpers import wait_for_clipboard as _wait_for_clipboard
 from _qthelpers import wait_until as _wait
 from PyQt5.QtGui import QImage, QTextCursor
 from PyQt5.QtPrintSupport import QPrinter
@@ -60,7 +61,12 @@ class TestClickCopy:
         qapp.processEvents()
 
         assert received == ["x^2"]
-        assert qapp.clipboard().text() == "x^2"
+        assert (
+            _wait_for_clipboard(
+                qapp, "x^2", lambda: v._on_image_clicked(fragment.position() + 1)
+            )
+            == "x^2"
+        )
         v.deleteLater()
 
     def test_mermaid_click_copies_source(self, qapp, requires_clipboard):
@@ -79,7 +85,14 @@ class TestClickCopy:
         qapp.processEvents()
 
         assert received == ["graph TD;\nA-->B;"]
-        assert qapp.clipboard().text() == "graph TD;\nA-->B;"
+        assert (
+            _wait_for_clipboard(
+                qapp,
+                "graph TD;\nA-->B;",
+                lambda: v._on_image_clicked(fragment.position() + 1),
+            )
+            == "graph TD;\nA-->B;"
+        )
         v.deleteLater()
 
     def test_plain_image_click_still_emits_url(self, qapp, tmp_path):

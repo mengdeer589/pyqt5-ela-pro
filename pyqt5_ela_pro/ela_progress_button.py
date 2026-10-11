@@ -21,6 +21,7 @@ from PyQt5ElaWidgetTools import (
 )
 
 from ._internal import _draw_button_content, _ThemeAwareMixin
+from .ela_button import _FACE_INSET
 
 
 class ElaProgressButton(_ThemeAwareMixin, ElaPushButton):
@@ -60,7 +61,8 @@ class ElaProgressButton(_ThemeAwareMixin, ElaPushButton):
             getProgressColor if self._custom_progress_color else QColor()
         )
         self._theme_mode = eTheme.getThemeMode()
-        self.setFixedHeight(38)
+        # 与上游 ElaPushButton V3.0（控件高 30）和 ElaButton middle 同高
+        self.setFixedHeight(30)
 
         self._onThemeChanged(self._theme_mode)
 
@@ -73,45 +75,25 @@ class ElaProgressButton(_ThemeAwareMixin, ElaPushButton):
         self.update()
 
     def setBorderRadius(self, radius: int) -> None:
-        """设置圆角大小。
-
-        :param radius: 圆角半径
-        """
         self._border_radius = radius
         self.update()
 
     def setElaIcon(self, icon, iconSize: int = 16) -> None:
-        """设置图标。
-
-        :param icon: 图标名称（``ElaIconType.IconName``）
-        :param iconSize: 图标大小，默认 16
-        """
         self._icon_name = icon
         self._icon_size = iconSize
         self.setIconSize(QSize(iconSize, iconSize))
         self.update()
 
     def setProgressColor(self, color: QColor) -> None:
-        """设置进度条颜色。
-
-        :param color: 进度条颜色
-        """
         self._custom_progress_color = True
         self._progress_color = color
         self.update()
 
     def progressColor(self) -> QColor:
-        """返回进度条填充颜色。
-
-        :return: 进度条颜色
-        """
         return self._progress_color
 
     def setProgress(self, percent: int) -> None:
-        """设置进度百分比 (0-100)。
-
-        :param percent: 进度百分比，范围 0-100
-        """
+        """设置进度百分比（0-100，越界会打警告并夹取）。"""
         if percent < 0 or percent > 100:
             print(
                 f"Warning: ElaProgressButton.setProgress({percent}) out of range [0, 100]"
@@ -122,10 +104,6 @@ class ElaProgressButton(_ThemeAwareMixin, ElaPushButton):
         self.update()
 
     def progress(self) -> int:
-        """获取当前进度 (0-100)。
-
-        :return: 进度百分比
-        """
         return int(self._progress * 100)
 
     def resetProgress(self) -> None:
@@ -159,12 +137,12 @@ class ElaProgressButton(_ThemeAwareMixin, ElaPushButton):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
-        shadow_border = 3
+        face_inset = _FACE_INSET
         rect = QRect(
-            shadow_border,
-            shadow_border,
-            self.width() - 2 * shadow_border,
-            self.height() - 2 * shadow_border,
+            face_inset,
+            face_inset,
+            self.width() - 2 * face_inset,
+            self.height() - 2 * face_inset,
         )
 
         bg_color = self._getCurrentBgColor()
@@ -205,7 +183,7 @@ class ElaProgressButton(_ThemeAwareMixin, ElaPushButton):
             self.text(),
             self._icon_name,
             self._icon_size,
-            shadow_border,
+            face_inset,
             self.width(),
             self.height(),
             text_color,

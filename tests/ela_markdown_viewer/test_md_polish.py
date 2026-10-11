@@ -7,6 +7,7 @@ streaming caret, formula tooltip/copy, PDF export.
 from __future__ import annotations
 
 import pytest
+from _qthelpers import wait_for_clipboard as _wait_for_clipboard
 from PyQt5.QtCore import QEvent, QPointF, Qt
 from PyQt5.QtGui import QMouseEvent, QPixmap, QTextCursor
 from PyQt5.QtTest import QTest
@@ -197,7 +198,9 @@ class TestFormulaTooltipAndCopy:
         v._copy_formula_at_cursor()
         qapp.processEvents()
         assert received == ["E=mc^2"]
-        assert qapp.clipboard().text() == "E=mc^2"
+        assert (
+            _wait_for_clipboard(qapp, "E=mc^2", v._copy_formula_at_cursor) == "E=mc^2"
+        )
         v.deleteLater()
 
     def test_menu_action_enabled_only_on_formula(self):

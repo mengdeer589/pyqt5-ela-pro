@@ -102,10 +102,7 @@ if _FigureCanvas is not None:
         # ── Public API ────────────────────────────────────
 
         def setStyle(self, rcparams: dict) -> None:
-            """应用额外的 matplotlib rcParams 样式参数。
-
-            :param rcparams: matplotlib rcParams 字典
-            """
+            """应用额外的 matplotlib rcParams 样式参数。"""
             if mpl:
                 mpl.rcParams.update(rcparams)
             self.draw_idle()

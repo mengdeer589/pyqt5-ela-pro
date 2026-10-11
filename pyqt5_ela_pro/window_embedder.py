@@ -61,9 +61,7 @@ def _release_on_destroy(embedder) -> None:
             # 关键：解除 SetParent，否则外部窗口随 Qt 父 HWND 一起销毁
             win32gui.SetParent(hwnd, 0)
             win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, info.get("style", 0))
-            win32gui.SetWindowLong(
-                hwnd, win32con.GWL_EXSTYLE, info.get("exstyle", 0)
-            )
+            win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, info.get("exstyle", 0))
             win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
         tid = getattr(embedder, "_attached_tid", None)
         if tid:
@@ -78,25 +76,10 @@ def _release_on_destroy(embedder) -> None:
 
 
 class ElaWindowEmbedder(QWidget):
-    """外部窗口嵌入器
+    """外部窗口嵌入器：把外部窗口 ``SetParent`` 到本控件，支持嵌入 / 释放 / 目标窗口轮询等待。
 
-    功能：
-    - 将指定的外部窗口嵌入到当前 QWidget 中
-    - 检测目标窗口是否存在
-    - 支持窗口的嵌入和释放
-    - Windows 7/10/11 兼容性优化
-
-    信号：
-        windowEmbedded(int): 窗口嵌入成功，参数为 hwnd
-        windowReleased(int): 窗口释放成功，参数为原 hwnd
-        windowNotFound(str): 等待窗口时未找到，参数为状态消息
-        embedError(str): 嵌入出错，参数为错误信息
-        embedTimeout(): 等待窗口嵌入超时
-
-    使用示例：
-        embedder = ElaWindowEmbedder(parent_widget)
-        embedder.embedByHwnd(hwnd)
-        embedder.release()
+    信号：``windowEmbedded(hwnd)`` / ``windowReleased(hwnd)`` / ``windowNotFound(msg)``
+    / ``embedError(msg)`` / ``embedTimeout()`` / ``fileDropped(path)``。
     """
 
     windowEmbedded = pyqtSignal(int)
@@ -223,7 +206,7 @@ class ElaWindowEmbedder(QWidget):
             ElaWindowEmbedder.release(self, destroy=True)
 
         # **两个都必须在 try 之前预置**：
-        #① ``orig_style`` 原先在下面那个**嵌套 try** 里才赋值，而它在
+        # ① ``orig_style`` 原先在下面那个**嵌套 try** 里才赋值，而它在
         #    外层 ``except`` 里被使用 —— 182~191 之间任何一步抛异常
         #    （``QWindow.fromWinId`` 对已销毁窗口返回 None、
         #    ``createWindowContainer`` 对非顶层 HWND 返回 nullptr、
@@ -231,7 +214,7 @@ class ElaWindowEmbedder(QWidget):
         #    而它是从 ``except`` 块里抛出的 -> 直接逃出整个函数。
         #    两条入口都在 Qt 回调链上（``_onEmbedTimerTimeout`` 的
         #    ``QTimer.timeout``、``embedByHwnd``）= 进程 0xC0000409 静默终止。
-        #② ``widget`` 同理：183 行创建的容器若在 194 行之后失败，
+        # ② ``widget`` 同理：183 行创建的容器若在 194 行之后失败，
         #    原补偿路径只把 ``self._embeddedWidget`` 置 None、**从不
         #    deleteLater 它** —— 每次失败泄漏一个容器（重试循环最多 30 个），
         #    且它们继续参与 resize 布局。
@@ -379,12 +362,7 @@ class ElaWindowEmbedder(QWidget):
                     logger.warning(f"显示嵌入窗口失败: {e}")
 
     def findWindowByTitle(self, title: str, class_name: Optional[str] = None) -> int:
-        """根据窗口标题查找窗口句柄
-
-        :param title: 窗口标题（支持包含匹配）
-        :param class_name: 可选的窗口类名（精确匹配）
-        :returns: 窗口句柄，未找到返回 0
-        """
+        """按标题（包含匹配，可选类名精确匹配）找句柄，未找到返回 0。"""
         if not title:
             return 0
 
@@ -410,11 +388,7 @@ class ElaWindowEmbedder(QWidget):
         return results[0] if results else 0
 
     def findWindowByClass(self, class_name: str) -> int:
-        """根据窗口类名查找窗口句柄
-
-        :param class_name: 窗口类名（精确匹配）
-        :returns: 窗口句柄，未找到返回 0
-        """
+        """按窗口类名（精确匹配）找句柄，未找到返回 0。"""
         if not class_name:
             return 0
 
@@ -425,11 +399,8 @@ class ElaWindowEmbedder(QWidget):
             return 0
 
     def getWindowInfo(self, hwnd: int) -> Optional[dict]:
-        """获取窗口详细信息
-
-        :param hwnd: 窗口句柄
-        :returns: 包含 hwnd, phwnd, title, class_name, style, exstyle, wrect 的字典
-        """
+        """窗口详情（``hwnd`` / ``phwnd`` / ``title`` / ``class_name`` / ``style`` /
+        ``exstyle`` / ``wrect``），句柄无效时返回 ``None``。"""
         if not self.isWindowValid(hwnd):
             return None
 
@@ -456,11 +427,7 @@ class ElaWindowEmbedder(QWidget):
             return None
 
     def embedByHwnd(self, hwnd: int) -> bool:
-        """根据句柄嵌入窗口
-
-        :param hwnd: 目标窗口句柄
-        :returns: True 表示成功发起嵌入流程（异步嵌入会等待）
-        """
+        """按句柄嵌入；先试一次，失败就转入等待窗口的轮询。"""
         if self._embeddedInfo:
             self.release()
 
@@ -473,12 +440,7 @@ class ElaWindowEmbedder(QWidget):
         return True
 
     def embedByTitle(self, title: str, class_name: Optional[str] = None) -> bool:
-        """根据标题嵌入窗口
-
-        :param title: 窗口标题（支持包含匹配）
-        :param class_name: 可选的窗口类名
-        :returns: True 表示成功发起嵌入流程
-        """
+        """按标题嵌入；找不到就发 ``windowNotFound`` 并转入等待。"""
         hwnd = self.findWindowByTitle(title, class_name)
 
         if not hwnd:
@@ -489,11 +451,7 @@ class ElaWindowEmbedder(QWidget):
         return self.embedByHwnd(hwnd)
 
     def embedByClass(self, class_name: str) -> bool:
-        """根据类名嵌入窗口
-
-        :param class_name: 窗口类名
-        :returns: True 表示成功发起嵌入流程
-        """
+        """按类名嵌入；找不到就发 ``windowNotFound`` 并转入等待。"""
         hwnd = self.findWindowByClass(class_name)
 
         if not hwnd:
@@ -504,11 +462,7 @@ class ElaWindowEmbedder(QWidget):
         return self.embedByHwnd(hwnd)
 
     def release(self, destroy: bool = False) -> bool:
-        """释放已嵌入的窗口
-
-        :param destroy: True 则不恢复窗口原状态直接销毁
-        :returns: True 表示成功
-        """
+        """释放已嵌入的窗口（``destroy=True`` 时不恢复原状态直接销毁）。"""
         self._stopEmbedTimer()
         self._stopFindTimer()
 
@@ -584,10 +538,7 @@ class ElaWindowEmbedder(QWidget):
             self._apply_debounced_resize()
 
     def setResizeDebounceEnabled(self, enabled: bool) -> None:
-        """设置是否启用 resize 节流（默认启用）。
-
-        :param enabled: True 启用 150ms 节流，False 立即响应
-        """
+        """resize 节流开关（默认启用，150ms；关闭时立即响应）。"""
         self._resize_debounce_enabled = enabled
         if not enabled and self._resize_debounce:
             self._resize_debounce.stop()

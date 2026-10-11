@@ -40,8 +40,8 @@ __all__ = [
     "ElaShimmer",
     "ShimmerElement",
     "ShimmerPalette",
-    "ShimmerShape",
-    "ShimmerTemplate",
+    "ElaShimmerShapeType",
+    "ElaShimmerTemplateType",
     "imageCardElements",
     "avatarTextRowElements",
     "textBlockElements",
@@ -78,7 +78,7 @@ _LIGHT_HIGHLIGHT_ALPHA = 218
 _DISABLED_HIGHLIGHT_ALPHA = 18
 
 
-class ShimmerShape(IntEnum):
+class ElaShimmerShapeType(IntEnum):
     """单个骨架元素的形状。"""
 
     Rectangle = 0
@@ -87,7 +87,7 @@ class ShimmerShape(IntEnum):
     Line = 3
 
 
-class ShimmerTemplate(IntEnum):
+class ElaShimmerTemplateType(IntEnum):
     """内置排版模板。"""
 
     Custom = 0
@@ -100,11 +100,11 @@ class ShimmerTemplate(IntEnum):
 class ShimmerElement:
     """一块骨架。
 
-    :param rect: 相对控件左上角的矩形（控件尺寸变化时会整体重排）。
-    :param radius: 圆角；``-1`` 表示用默认（``RoundedRect``→4px，``Line``→半高药丸）。
+    ``rect`` 相对控件左上角（尺寸变化时整体重排）；``radius=-1`` 用默认值
+    （``RoundedRect``→4px，``Line``→半高药丸）。
     """
 
-    shape: ShimmerShape = ShimmerShape.RoundedRect
+    shape: ElaShimmerShapeType = ElaShimmerShapeType.RoundedRect
     rect: QRectF = field(default_factory=QRectF)
     radius: float = -1.0
 
@@ -156,12 +156,12 @@ def _elementPath(element: ShimmerElement) -> QPainterPath:  # noqa: N802
     rect = element.rect
     if rect.isEmpty():
         return path
-    if element.shape == ShimmerShape.Rectangle:
+    if element.shape == ElaShimmerShapeType.Rectangle:
         path.addRect(rect)
-    elif element.shape == ShimmerShape.Circle:
+    elif element.shape == ElaShimmerShapeType.Circle:
         path.addEllipse(rect)
     else:
-        if element.shape == ShimmerShape.Line:
+        if element.shape == ElaShimmerShapeType.Line:
             radius = element.radius if element.radius >= 0 else rect.height() / 2.0
         else:
             radius = element.radius if element.radius >= 0 else _CONTROL_RADIUS
@@ -286,7 +286,7 @@ def textBlockElements(area: QRectF, lineCount: int = 3) -> List[ShimmerElement]:
             ratio = 0.76
         elements.append(
             ShimmerElement(
-                shape=ShimmerShape.Line,
+                shape=ElaShimmerShapeType.Line,
                 rect=QRectF(
                     bounds.left(),
                     top + index * lineStep,
@@ -317,13 +317,13 @@ def avatarTextRowElements(area: QRectF) -> List[ShimmerElement]:  # noqa: N802
     top1 = center.y() - lineGap / 2.0 - 12.0
     top2 = center.y() + lineGap / 2.0
     return [
-        ShimmerElement(shape=ShimmerShape.Circle, rect=avatar),
+        ShimmerElement(shape=ElaShimmerShapeType.Circle, rect=avatar),
         ShimmerElement(
-            shape=ShimmerShape.Line,
+            shape=ElaShimmerShapeType.Line,
             rect=QRectF(textLeft, top1, textWidth * 0.78, 12.0),
         ),
         ShimmerElement(
-            shape=ShimmerShape.Line,
+            shape=ElaShimmerShapeType.Line,
             rect=QRectF(textLeft, top2, textWidth * 0.52, 12.0),
         ),
     ]
@@ -336,15 +336,15 @@ def imageCardElements(
     bounds = _templateBounds(area)
     if bounds.isEmpty():
         return []
-    return [ShimmerElement(shape=ShimmerShape.RoundedRect, rect=bounds, radius=radius)]
+    return [ShimmerElement(shape=ElaShimmerShapeType.RoundedRect, rect=bounds, radius=radius)]
 
 
-def _buildTemplate(template: ShimmerTemplate, area: QRectF) -> List[ShimmerElement]:  # noqa: N802
-    if template == ShimmerTemplate.TextBlock:
+def _buildTemplate(template: ElaShimmerTemplateType, area: QRectF) -> List[ShimmerElement]:  # noqa: N802
+    if template == ElaShimmerTemplateType.TextBlock:
         return textBlockElements(area)
-    if template == ShimmerTemplate.AvatarTextRow:
+    if template == ElaShimmerTemplateType.AvatarTextRow:
         return avatarTextRowElements(area)
-    if template == ShimmerTemplate.ImageCard:
+    if template == ElaShimmerTemplateType.ImageCard:
         return imageCardElements(area)
     return []
 
@@ -355,7 +355,7 @@ class ElaShimmer(ElaThemeWidget):
     典型用法（列表项加载中）::
 
         sh = ElaShimmer(parent)
-        sh.setTemplate(ShimmerTemplate.AvatarTextRow)
+        sh.setTemplate(ElaShimmerTemplateType.AvatarTextRow)
         sh.resize(240, 56)
 
     或用静态入口自绘（列表 delegate / 表格单元格里铺多块）::
@@ -376,7 +376,7 @@ class ElaShimmer(ElaThemeWidget):
         self._animation_enabled = True
         self._progress = 0.0
         self._cycle_duration = Duration.VerySlow * 2
-        self._template = ShimmerTemplate.TextBlock
+        self._template = ElaShimmerTemplateType.TextBlock
         self._elements: List[ShimmerElement] = []
         self._area = QRectF()
         self._timer = QTimer(self)
@@ -454,12 +454,12 @@ class ElaShimmer(ElaThemeWidget):
 
     # -- 排版 ---------------------------------------------------------------
 
-    def shimmerTemplate(self) -> ShimmerTemplate:
+    def shimmerTemplate(self) -> ElaShimmerTemplateType:
         return self._template
 
     def setTemplate(self, template) -> None:  # noqa: N802
         """切换内置模板（会清掉 ``Custom`` 的手工元素）。"""
-        template = ShimmerTemplate(template)
+        template = ElaShimmerTemplateType(template)
         if template == self._template:
             return
         self._template = template
@@ -474,7 +474,7 @@ class ElaShimmer(ElaThemeWidget):
 
     def setElements(self, elements: List[ShimmerElement]) -> None:  # noqa: N802
         """设手工元素（自动切到 ``Custom`` 模板）。"""
-        self._template = ShimmerTemplate.Custom
+        self._template = ElaShimmerTemplateType.Custom
         self._elements = list(elements or [])
         self.templateChanged.emit(self._template)
         self.update()
@@ -484,15 +484,15 @@ class ElaShimmer(ElaThemeWidget):
 
         刻意**不**切回某个模板：调用方表达的是「我自己管排版」，不是「给我默认那个」。
         """
-        self._template = ShimmerTemplate.Custom
+        self._template = ElaShimmerTemplateType.Custom
         self._elements = []
         self.templateChanged.emit(self._template)
         self.update()
 
     def sizeHint(self) -> QSize:  # noqa: N802
-        if self._template == ShimmerTemplate.AvatarTextRow:
+        if self._template == ElaShimmerTemplateType.AvatarTextRow:
             return QSize(240, 56)
-        if self._template == ShimmerTemplate.ImageCard:
+        if self._template == ElaShimmerTemplateType.ImageCard:
             return QSize(240, 140)
         return QSize(240, 72)
 
@@ -509,7 +509,7 @@ class ElaShimmer(ElaThemeWidget):
         ``elements()``」会拿到上一次（构造时的默认尺寸）算出的、甚至空的结果。
         懒算让 ``elements()`` / ``paintEvent`` 两条路都拿到与当前尺寸一致的结果。
         """
-        if self._template is ShimmerTemplate.Custom:
+        if self._template is ElaShimmerTemplateType.Custom:
             return
         area = QRectF(self.rect())
         if area == self._area:
@@ -524,7 +524,7 @@ class ElaShimmer(ElaThemeWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
-        if self._template is not ShimmerTemplate.Custom:
+        if self._template is not ElaShimmerTemplateType.Custom:
             self._invalidateLayout()
 
     def _onTick(self) -> None:  # noqa: N802

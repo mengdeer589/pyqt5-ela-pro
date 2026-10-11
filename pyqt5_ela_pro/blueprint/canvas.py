@@ -58,7 +58,7 @@ from .model import (
     ElaBlueprintGraph,
     ElaBlueprintNode,
     ElaEdge,
-    ElaPinDirection,
+    ElaPinDirectionType,
     _finite,
     types_compatible,
 )
@@ -778,9 +778,9 @@ class ElaBlueprintCanvas(QWidget):
         """在磁吸半径内找最近的兼容引脚（方向相反 + 类型兼容 + 非本节点）。"""
         src_nid, src_pin = self._wire_src
         want_dir = (
-            ElaPinDirection.Input
-            if src_pin.direction is ElaPinDirection.Output
-            else ElaPinDirection.Output
+            ElaPinDirectionType.Input
+            if src_pin.direction is ElaPinDirectionType.Output
+            else ElaPinDirectionType.Output
         )
         radius = MAGNET_R / self._zoom
         probe = QRectF(scene_pt, scene_pt).adjusted(-radius, -radius, radius, radius)
@@ -793,11 +793,11 @@ class ElaBlueprintCanvas(QWidget):
                 continue
             pins = (
                 widget.node.inputs
-                if want_dir is ElaPinDirection.Input
+                if want_dir is ElaPinDirectionType.Input
                 else widget.node.outputs
             )
             for pin in pins:
-                if src_pin.direction is ElaPinDirection.Output:
+                if src_pin.direction is ElaPinDirectionType.Output:
                     ok = types_compatible(src_pin.data_type, pin.data_type)
                 else:
                     ok = types_compatible(pin.data_type, src_pin.data_type)
@@ -826,7 +826,7 @@ class ElaBlueprintCanvas(QWidget):
         if target is not None:
             dirty.append(self._wire_ring_rect(target))
             tgt_nid, tgt_pin = target
-            if src_pin.direction is ElaPinDirection.Output:
+            if src_pin.direction is ElaPinDirectionType.Output:
                 self.graph.add_edge(src_nid, src_pin.id, tgt_nid, tgt_pin.id)
             else:
                 self.graph.add_edge(tgt_nid, tgt_pin.id, src_nid, src_pin.id)
@@ -836,9 +836,9 @@ class ElaBlueprintCanvas(QWidget):
             self._pending_wire = (src_nid, src_pin, scene_pt)
             menu = ElaNodeCreationMenu(self, owner=self._owner)
             want_dir = (
-                ElaPinDirection.Input
-                if src_pin.direction is ElaPinDirection.Output
-                else ElaPinDirection.Output
+                ElaPinDirectionType.Input
+                if src_pin.direction is ElaPinDirectionType.Output
+                else ElaPinDirectionType.Output
             )
             menu.type_chosen.connect(self._create_node_for_wire)
             menu.popup_at(
@@ -857,19 +857,19 @@ class ElaBlueprintCanvas(QWidget):
         src_nid, src_pin, scene_pt = pending
         node = self.add_node_at(type_name, scene_pt)
         want_dir = (
-            ElaPinDirection.Input
-            if src_pin.direction is ElaPinDirection.Output
-            else ElaPinDirection.Output
+            ElaPinDirectionType.Input
+            if src_pin.direction is ElaPinDirectionType.Output
+            else ElaPinDirectionType.Output
         )
-        pins = node.inputs if want_dir is ElaPinDirection.Input else node.outputs
+        pins = node.inputs if want_dir is ElaPinDirectionType.Input else node.outputs
         for pin in pins:
-            if src_pin.direction is ElaPinDirection.Output:
+            if src_pin.direction is ElaPinDirectionType.Output:
                 ok = types_compatible(src_pin.data_type, pin.data_type)
             else:
                 ok = types_compatible(pin.data_type, src_pin.data_type)
             if not ok:
                 continue
-            if src_pin.direction is ElaPinDirection.Output:
+            if src_pin.direction is ElaPinDirectionType.Output:
                 self.graph.add_edge(src_nid, src_pin.id, node.id, pin.id)
             else:
                 self.graph.add_edge(node.id, pin.id, src_nid, src_pin.id)
@@ -1200,8 +1200,7 @@ class ElaBlueprintCanvas(QWidget):
     def _paint_contents(self, p: QPainter, dirty_view: QRect = None) -> None:
         """画布全部自绘内容：背景 / 网格 / 选中发光 / 边 / 临时线 / 框选。
 
-        :param p: 目标画笔（控件坐标系，调用方已开抗锯齿）
-        :param dirty_view: 局部重绘脏矩形（控件坐标）；``None`` 表示整幅
+        ``dirty_view`` 是控件坐标的局部重绘脏矩形，``None`` 表示整幅。
         """
         p.fillRect(self.rect(), QColor(str(T("color.bg.base"))))
         self._draw_grid(p)

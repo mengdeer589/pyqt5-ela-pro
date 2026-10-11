@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 import pytest
+from _qthelpers import wait_for_clipboard as _wait_for_clipboard
 from PyQt5.QtGui import QColor, QContextMenuEvent
 from PyQt5.QtWidgets import QApplication, QPlainTextEdit
 from PyQt5ElaWidgetTools import ElaMenu, ElaThemeType, eTheme
@@ -247,12 +248,17 @@ class TestCopyAll:
     def test_copy_all(self, view, qapp, requires_clipboard):
         view.append(lines("a", "b"))
         view.copyAll()
-        assert qapp.clipboard().text() == "a\nb"
+        assert _wait_for_clipboard(qapp, "a\nb", view.copyAll) == "a\nb"
 
     def test_copy_all_empty(self, view, qapp, requires_clipboard):
         qapp.clipboard().setText("sentinel")
+        # 哨兵得先确认真的落盘，否则「读回空串」可能只是写被丢弃 / 读失败，白测
+        sent = _wait_for_clipboard(
+            qapp, "sentinel", lambda: qapp.clipboard().setText("sentinel")
+        )
+        assert sent == "sentinel"
         view.copyAll()
-        assert qapp.clipboard().text() == ""
+        assert _wait_for_clipboard(qapp, "", view.copyAll) == ""
 
     def test_selected_text_empty(self, view):
         view.append("hello\n")
@@ -263,16 +269,26 @@ class TestCopyAll:
         qapp.processEvents()  # 渲染是按帧合并的，得先让事件循环跑一轮
         view.selectAll()
         assert view.copySelection() is True
-        assert qapp.clipboard().text() == "alpha\nbeta"
+        assert (
+            _wait_for_clipboard(qapp, "alpha\nbeta", view.copySelection)
+            == "alpha\nbeta"
+        )
 
     def test_copy_selection_without_selection(self, view, qapp, requires_clipboard):
         # 剪贴板是进程级共享状态，先写哨兵值再断言「没被动过」，
         # 不要直接断言为空（会被上一个用例的残留污染）
         qapp.clipboard().setText("sentinel")
+        assert (
+            _wait_for_clipboard(
+                qapp, "sentinel", lambda: qapp.clipboard().setText("sentinel")
+            )
+            == "sentinel"
+        )
         view.append("hello\n")
         qapp.processEvents()
         assert view.copySelection() is False
-        assert qapp.clipboard().text() == "sentinel"
+        # 只轮询、绝不重发：重发哨兵等于把「没被改」的证据覆盖掉
+        assert _wait_for_clipboard(qapp, "sentinel") == "sentinel"
 
     def test_select_all_then_clear_selection(self, view, qapp):
         view.append(lines("a", "b"))

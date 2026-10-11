@@ -88,7 +88,7 @@ def _reflow_toasts(anchor) -> None:
         y += toast.height() + _TOAST_GAP
 
 
-class _ToastType(IntEnum):
+class ElaToastType(IntEnum):
     Success = 0
     Info = 1
     Warning = 2
@@ -100,7 +100,7 @@ class ElaToast(ElaThemeWidget):
 
     def __init__(
         self,
-        toast_type: _ToastType,
+        toast_type: ElaToastType,
         text: str,
         display_msec: int,
         parent: Optional[QWidget] = None,
@@ -133,7 +133,6 @@ class ElaToast(ElaThemeWidget):
         self._icon_font = QFont("ElaAwesome")
         self._text_font = QFont()
 
-        # Size
         self._text_font.setPixelSize(14)
         fm = QFontMetrics(self._text_font)
         tw = fm.horizontalAdvance(text)
@@ -141,8 +140,7 @@ class ElaToast(ElaThemeWidget):
         self.setFixedHeight(48)
         self.setFixedWidth(total_w + self._shadow_border * 2)
 
-        # Position: centered at top of parent window or screen.
-        # 同一锚点下已有 toast 时向下顺延，避免连发多条完全重叠。
+        # 顶部居中；同一锚点下已有 toast 时向下顺延，避免连发多条完全重叠。
         anchor = parent if parent is not None else None
         self._toast_anchor = anchor
         _prune_toasts(anchor)
@@ -200,52 +198,32 @@ class ElaToast(ElaThemeWidget):
     def success(
         text: str, display_msec: int = 2000, parent: Optional[QWidget] = None
     ) -> None:
-        """显示成功提示。
-
-        :param text: 提示文字
-        :param display_msec: 显示时长（毫秒），默认 2000
-        :param parent: 父控件（用于定位）
-        """
-        toast = ElaToast(_ToastType.Success, text, display_msec, parent)
+        """成功提示。``parent`` 决定定位锚点（缺省为屏幕）。"""
+        toast = ElaToast(ElaToastType.Success, text, display_msec, parent)
         toast._present()
 
     @staticmethod
     def info(
         text: str, display_msec: int = 2000, parent: Optional[QWidget] = None
     ) -> None:
-        """显示信息提示。
-
-        :param text: 提示文字
-        :param display_msec: 显示时长（毫秒），默认 2000
-        :param parent: 父控件（用于定位）
-        """
-        toast = ElaToast(_ToastType.Info, text, display_msec, parent)
+        """信息提示。``parent`` 决定定位锚点（缺省为屏幕）。"""
+        toast = ElaToast(ElaToastType.Info, text, display_msec, parent)
         toast._present()
 
     @staticmethod
     def warning(
         text: str, display_msec: int = 2000, parent: Optional[QWidget] = None
     ) -> None:
-        """显示警告提示。
-
-        :param text: 提示文字
-        :param display_msec: 显示时长（毫秒），默认 2000
-        :param parent: 父控件（用于定位）
-        """
-        toast = ElaToast(_ToastType.Warning, text, display_msec, parent)
+        """警告提示。``parent`` 决定定位锚点（缺省为屏幕）。"""
+        toast = ElaToast(ElaToastType.Warning, text, display_msec, parent)
         toast._present()
 
     @staticmethod
     def error(
         text: str, display_msec: int = 2000, parent: Optional[QWidget] = None
     ) -> None:
-        """显示错误提示。
-
-        :param text: 提示文字
-        :param display_msec: 显示时长（毫秒），默认 2000
-        :param parent: 父控件（用于定位）
-        """
-        toast = ElaToast(_ToastType.Error, text, display_msec, parent)
+        """错误提示。``parent`` 决定定位锚点（缺省为屏幕）。"""
+        toast = ElaToast(ElaToastType.Error, text, display_msec, parent)
         toast._present()
 
     # ── Internal ──────────────────────────────────────────
@@ -302,28 +280,26 @@ class ElaToast(ElaThemeWidget):
         # 于是 toast 看起来比别的弹层「扁」一层。这里补上。
         paintOverlayShadow(painter, self.rect(), margin=sb, radius=br)
 
-        # Background
         painter.setPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBorder))
         painter.setBrush(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBase))
         painter.drawRoundedRect(fg, br, br)
 
-        # Indicator & icon
-        if self._toast_type == _ToastType.Success:
+        if self._toast_type == ElaToastType.Success:
             ind_color = QColor(0x0F, 0x7B, 0x0F)
             icon_enum = ElaIconType.IconName.Check
-        elif self._toast_type == _ToastType.Info:
+        elif self._toast_type == ElaToastType.Info:
             ind_color = eTheme.getThemeColor(
                 mode, ElaThemeType.ThemeColor.PrimaryNormal
             )
             icon_enum = ElaIconType.IconName.CircleInfo
-        elif self._toast_type == _ToastType.Warning:
+        elif self._toast_type == ElaToastType.Warning:
             ind_color = QColor(0xF7, 0x93, 0x0E)
             icon_enum = ElaIconType.IconName.CircleExclamation
         else:
             ind_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.StatusDanger)
             icon_enum = ElaIconType.IconName.CircleXmark
 
-        # Indicator bar (clip to foreground)
+        # 左侧 4px 语义色条，裁到圆角盒内
         clip_path = QPainterPath()
         clip_path.addRoundedRect(QRectF(fg), br, br)
         painter.save()
@@ -333,7 +309,6 @@ class ElaToast(ElaThemeWidget):
         painter.drawRect(QRect(fg.x(), fg.y(), 4, fg.height()))
         painter.restore()
 
-        # Icon
         self._icon_font.setPixelSize(16)
         painter.setFont(self._icon_font)
         painter.setPen(ind_color)
@@ -343,7 +318,6 @@ class ElaToast(ElaThemeWidget):
             chr(int(icon_enum)),
         )
 
-        # Text
         self._text_font.setPixelSize(14)
         painter.setFont(self._text_font)
         painter.setPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText))

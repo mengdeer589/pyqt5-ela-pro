@@ -61,7 +61,7 @@ class TestInit:
     def test_defaults(self, tray):
         assert tray.toolTip() == "tooltip text"
         assert tray.isVisible() is False
-        assert tray.state() == ElaTrayIcon.TrayState.Normal
+        assert tray.state() == ElaTrayIcon.ElaTrayStateType.Normal
         assert tray.menu() is None
 
     def test_empty_constructor(self, make):
@@ -81,25 +81,25 @@ class TestIcon:
 
     def test_set_icons_registers_all_three(self, tray):
         tray.setIcons(dot("#00ff00"), dot("#ffff00"), dot("#ff0000"))
-        assert tray.state() == ElaTrayIcon.TrayState.Normal
+        assert tray.state() == ElaTrayIcon.ElaTrayStateType.Normal
 
     def test_state_switch_changes_icon(self, tray):
         tray.setIcons(dot("#00ff00"), dot("#ffff00"), dot("#ff0000"))
         before = icon_key(tray.icon())
-        tray.setState(ElaTrayIcon.TrayState.Critical)
-        assert tray.state() == ElaTrayIcon.TrayState.Critical
+        tray.setState(ElaTrayIcon.ElaTrayStateType.Critical)
+        assert tray.state() == ElaTrayIcon.ElaTrayStateType.Critical
         assert icon_key(tray.icon()) != before
 
     def test_invalid_state_falls_back(self, tray):
         tray.setIcons(dot("#00ff00"), dot("#ffff00"), dot("#ff0000"))
-        tray.setState(ElaTrayIcon.TrayState.Warning)
+        tray.setState(ElaTrayIcon.ElaTrayStateType.Warning)
         tray.setState(999)  # 非法值
-        assert tray.state() == ElaTrayIcon.TrayState.Normal
+        assert tray.state() == ElaTrayIcon.ElaTrayStateType.Normal
 
     def test_unregistered_state_falls_back_to_normal(self, tray):
         tray.setIcons(normal=dot("#00ff00"))
-        tray.setState(ElaTrayIcon.TrayState.Critical)
-        assert tray.state() == ElaTrayIcon.TrayState.Critical
+        tray.setState(ElaTrayIcon.ElaTrayStateType.Critical)
+        assert tray.state() == ElaTrayIcon.ElaTrayStateType.Critical
         # 不崩溃，图标不为 null（回落到 normal）
 
 

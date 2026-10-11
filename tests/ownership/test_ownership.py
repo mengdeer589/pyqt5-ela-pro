@@ -16,7 +16,7 @@ from PyQt5 import sip
 from PyQt5.QtCore import QCoreApplication, QEvent, Qt
 from PyQt5.QtWidgets import QLabel, QWidget
 
-from pyqt5_ela_pro._ownership import ContentSlot, WidgetOwnership, releaseWidget
+from pyqt5_ela_pro._ownership import ContentSlot, ElaWidgetOwnershipType, releaseWidget
 
 
 @pytest.fixture
@@ -50,9 +50,9 @@ class TestSetWidget:
 
     def test_default_ownership_is_borrowed(self, host):
         slot = ContentSlot(host, "t")
-        assert slot.ownership() == WidgetOwnership.Borrowed
+        assert slot.ownership() == ElaWidgetOwnershipType.Borrowed
         slot.setWidget(QLabel("x"))
-        assert slot.ownership() == WidgetOwnership.Borrowed
+        assert slot.ownership() == ElaWidgetOwnershipType.Borrowed
 
     def test_rejects_self(self, host):
         assert ContentSlot(host, "t").setWidget(host) is False
@@ -77,7 +77,7 @@ class TestSetWidget:
         content = QLabel("x")
         content.setParent(original)
         slot = ContentSlot(host, "t")
-        slot.setWidget(content, WidgetOwnership.Reparented)
+        slot.setWidget(content, ElaWidgetOwnershipType.Reparented)
         assert slot._originalParent is original
 
     def test_top_level_content_is_demoted_to_child(self, host):
@@ -94,21 +94,21 @@ class TestSetWidget:
         """重复挂同一控件不重复 reparent，只改策略。"""
         content = QLabel("x")
         slot = ContentSlot(host, "t")
-        slot.setWidget(content, WidgetOwnership.Borrowed)
+        slot.setWidget(content, ElaWidgetOwnershipType.Borrowed)
         changes = []
         slot.ownershipChanged.connect(lambda o: changes.append(o.name))
-        slot.setWidget(content, WidgetOwnership.Owned)
+        slot.setWidget(content, ElaWidgetOwnershipType.Owned)
         assert content.parentWidget() is host
-        assert slot.ownership() == WidgetOwnership.Owned
+        assert slot.ownership() == ElaWidgetOwnershipType.Owned
         assert changes == ["Owned"]
 
     def test_same_policy_emits_nothing(self, host):
         content = QLabel("x")
         slot = ContentSlot(host, "t")
-        slot.setWidget(content, WidgetOwnership.Owned)
+        slot.setWidget(content, ElaWidgetOwnershipType.Owned)
         changes = []
         slot.ownershipChanged.connect(lambda o: changes.append(o.name))
-        slot.setWidget(content, WidgetOwnership.Owned)
+        slot.setWidget(content, ElaWidgetOwnershipType.Owned)
         assert changes == []
 
     def test_setting_none_clears(self, host):
@@ -123,7 +123,7 @@ class TestReleaseAndTake:
     def test_borrowed_returns_parentless(self, host):
         content = QLabel("x")
         slot = ContentSlot(host, "t")
-        slot.setWidget(content, WidgetOwnership.Borrowed)
+        slot.setWidget(content, ElaWidgetOwnershipType.Borrowed)
         slot.releaseWidget()
         assert content.parentWidget() is None
 
@@ -132,7 +132,7 @@ class TestReleaseAndTake:
         content = QLabel("x")
         content.setParent(original)
         slot = ContentSlot(host, "t")
-        slot.setWidget(content, WidgetOwnership.Reparented)
+        slot.setWidget(content, ElaWidgetOwnershipType.Reparented)
         slot.releaseWidget()
         assert content.parentWidget() is original
 
@@ -140,14 +140,14 @@ class TestReleaseAndTake:
         """原 parent 为 None 时退化成 Borrowed，不能凭空造一个。"""
         content = QLabel("x")
         slot = ContentSlot(host, "t")
-        slot.setWidget(content, WidgetOwnership.Reparented)
+        slot.setWidget(content, ElaWidgetOwnershipType.Reparented)
         slot.releaseWidget()
         assert content.parentWidget() is None
 
     def test_owned_deletes(self, host, qapp):
         content = QLabel("x")
         slot = ContentSlot(host, "t")
-        slot.setWidget(content, WidgetOwnership.Owned)
+        slot.setWidget(content, ElaWidgetOwnershipType.Owned)
         slot.releaseWidget()
         _flush(content)
         assert sip.isdeleted(content)
@@ -156,7 +156,7 @@ class TestReleaseAndTake:
         """析构路径要这个：Qt 的 parent-child 删除会在宿主析构**之后**处理。"""
         content = QLabel("x")
         slot = ContentSlot(host, "t")
-        slot.setWidget(content, WidgetOwnership.Owned)
+        slot.setWidget(content, ElaWidgetOwnershipType.Owned)
         slot.releaseWidget(deleteOwned=False)
         assert sip.isdeleted(content) is False
         assert content.parentWidget() is None
@@ -164,7 +164,7 @@ class TestReleaseAndTake:
     def test_take_returns_parentless_and_never_deletes(self, host, qapp):
         content = QLabel("x")
         slot = ContentSlot(host, "t")
-        slot.setWidget(content, WidgetOwnership.Owned)
+        slot.setWidget(content, ElaWidgetOwnershipType.Owned)
         got = slot.takeWidget()
         _flush(got)
         assert got is content
@@ -177,15 +177,15 @@ class TestReleaseAndTake:
         content = QLabel("x")
         content.setParent(original)
         slot = ContentSlot(host, "t")
-        slot.setWidget(content, WidgetOwnership.Reparented)
+        slot.setWidget(content, ElaWidgetOwnershipType.Reparented)
         got = slot.takeWidget()
         assert got.parentWidget() is None
 
     def test_take_resets_ownership(self, host):
         slot = ContentSlot(host, "t")
-        slot.setWidget(QLabel("x"), WidgetOwnership.Owned)
+        slot.setWidget(QLabel("x"), ElaWidgetOwnershipType.Owned)
         slot.takeWidget()
-        assert slot.ownership() == WidgetOwnership.Borrowed
+        assert slot.ownership() == ElaWidgetOwnershipType.Borrowed
         assert slot.widget() is None
 
     def test_release_on_empty_slot_is_noop(self, host):
@@ -216,7 +216,7 @@ class TestExternalDestruction:
         content.deleteLater()
         _flush(content)
         assert slot.widget() is None
-        assert slot.ownership() == WidgetOwnership.Borrowed
+        assert slot.ownership() == ElaWidgetOwnershipType.Borrowed
         assert seen[-1] is None
 
     def test_slot_survives_content_destruction(self, host, qapp):
@@ -240,19 +240,19 @@ class TestExternalDestruction:
 
 class TestFreeFunction:
     def test_release_widget_tolerates_none(self):
-        releaseWidget(None, WidgetOwnership.Owned)
+        releaseWidget(None, ElaWidgetOwnershipType.Owned)
 
     def test_release_widget_tolerates_deleted(self, qapp):
         content = QLabel("x")
         content.deleteLater()
         _flush(content)
-        releaseWidget(content, WidgetOwnership.Owned)  # 不得抛
+        releaseWidget(content, ElaWidgetOwnershipType.Owned)  # 不得抛
 
     def test_release_widget_borrowed_clears_parent(self, host):
         content = QLabel("x")
         content.setParent(host)
-        releaseWidget(content, WidgetOwnership.Borrowed)
+        releaseWidget(content, ElaWidgetOwnershipType.Borrowed)
         assert content.parentWidget() is None
 
     def test_release_widget_non_widget_is_tolerated(self):
-        releaseWidget(object(), WidgetOwnership.Borrowed)
+        releaseWidget(object(), ElaWidgetOwnershipType.Borrowed)

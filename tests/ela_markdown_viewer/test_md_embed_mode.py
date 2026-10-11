@@ -140,9 +140,11 @@ class TestEmbeddedMode:
     def test_extra_padding_applied(self, qapp):
         viewer = ElaMarkdownViewer()
         viewer.setEmbeddedMode(True)
+        viewer.show()
         viewer.setMarkdown(SHORT)
         qapp.processEvents()
         base = viewer.height()
+        assert base > 10, "先决条件：布局完成后高度必须贴合文档（不是 2px 细缝）"
         viewer.setEmbeddedExtra(20)
         qapp.processEvents()
         assert viewer.height() == base + 18  # 20 - 默认 2
@@ -182,3 +184,68 @@ class TestEmbeddedMode:
         assert last_rect.height() > 0
         assert viewer.height() >= last_rect.bottom()
         viewer.deleteLater()
+
+
+class TestEmbeddedHeightSlowLayout:
+    """慢机器时序护栏：不可信的测量值不得被 ``setFixedHeight`` 冻结。
+
+    真实故障形态（Win7 + 慢 CPU，偶发且能整轮可见）：查看器刚创建 / ``beginStream``
+    刚清空文档时页面还没完成首次布局，此时按占位宽度（实测 98px）折行测出的高度
+    一旦套用就被冻结，直到下一次流式 flush / 80ms 重排才纠正 —— 聊天里表现为
+    「思考内容与后续分段之间多出数行空白」。修复后：测量不可信时保留上一次高度，
+    由宽度变化时的同步重算（``resizeEvent``）与后续 flush 纠正。
+    """
+
+    TEXT = "先确认目标、约束与呈现格式，然后核对测试里钉住的不变量和边界条件。"
+    FLOW = "内容" * 300
+
+    def test_unlaid_out_measurement_is_not_frozen(self, qapp, make):
+        """布局未完成时测出的 0 高度不得把控件压成 2px 细缝。"""
+        viewer = make(ElaMarkdownViewer)
+        viewer.setEmbeddedMode(True)
+        viewer.setEmbeddedTrimBottom(True)
+        viewer.beginStream()
+        viewer.appendMarkdown(self.TEXT)
+
+        # 旧实现的确定性症状：beginStream 清空文档后首次 flush 测出 0 高度，
+        # setFixedHeight(2) 把正文整段压成细缝。
+        assert viewer.minimumHeight() > 2
+        assert viewer.maximumHeight() > 2
+
+        # 真实布局完成后按文档自愈，且内容没有被裁
+        viewer.show()
+        assert _wait_until(qapp, lambda: viewer.height() > 2)
+        document = viewer.document()
+        last_rect = document.documentLayout().blockBoundingRect(document.lastBlock())
+        assert viewer.height() >= last_rect.bottom() - 1
+
+    def test_first_chunk_lands_without_throttle_wait(self, qapp, make):
+        """首条分片不等 24ms 节流：屏幕上不留「空查看器」窗口。"""
+        viewer = make(ElaMarkdownViewer)
+        viewer.setEmbeddedMode(True)
+        viewer.show()
+        qapp.processEvents()
+
+        viewer.beginStream()
+        viewer.appendMarkdown("第一段正文")
+        # 刻意不 processEvents / 不等待定时器
+        assert viewer.document().toPlainText().strip() != ""
+
+    def test_width_change_resyncs_height_without_further_content(self, qapp, make):
+        """宽度变化后高度立即跟随重排后的文档，不必等 80ms 去抖或新分片。"""
+        viewer = make(ElaMarkdownViewer)
+        viewer.setEmbeddedMode(True)
+        viewer.show()
+        viewer.setMarkdown(self.FLOW)
+        qapp.processEvents()
+        wide_height = viewer.height()
+        wide_doc = viewer.document().size().height()
+        assert wide_height > 40
+
+        viewer.resize(240, viewer.height())
+        qapp.processEvents()  # 只跑投递事件，不等 80ms 重排定时器
+        narrow_doc = viewer.document().size().height()
+        assert narrow_doc > wide_doc, "前提：窄宽度下文档确实重排了"
+        assert abs(viewer.height() - narrow_doc) <= 4, (
+            f"宽度变化后高度应同步跟随文档：{viewer.height()} vs {narrow_doc:.1f}"
+        )

@@ -42,10 +42,7 @@ _BACKEND_PROG_IDS = {
 
 
 class ElaOfficeViewerMixin:
-    """Office 预览组件混入类，提供通用 load/close 逻辑。
-
-    子类必须设置 _appName 类属性。
-    """
+    """Office 预览组件混入类，提供通用 load/close 逻辑（子类须设置 ``_appName``）。"""
 
     _appName: str = ""
 
@@ -58,16 +55,12 @@ class ElaOfficeViewerMixin:
         self._axWidget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
     def load_file(self, path: str) -> bool:
-        """加载 Office 文档。
-
-        :param path: 文档路径
-        :return: 加载成功返回 True，失败返回 False
-        """
+        """加载 Office 文档，成功返回 ``True``。"""
         self.close()
 
         prog_ids = _BACKEND_PROG_IDS.get(self._backend, {}).get(self._appName, [])
 
-        # 1) 尝试直接用文档路径创建控件（COM 自动解析 handler）
+        # ① 直接用文档路径创建控件（COM 自动解析 handler）
         try:
             self._axWidget.setControl(path)
             self._axWidget.dynamicCall("SetVisible(bool)", False)
@@ -77,7 +70,7 @@ class ElaOfficeViewerMixin:
         except Exception:  # noqa
             pass
 
-        # 2) 回退：先创建应用实例再 Open
+        # ② 回退：先创建应用实例再 Open
         for prog_id in prog_ids:
             try:
                 self._axWidget.setControl(prog_id)
@@ -127,13 +120,7 @@ class ElaOfficeViewerMixin:
 
 
 class ElaWordViewer(ElaOfficeViewerMixin, ElaThemeWidget):
-    """Word 文档预览组件。
-
-    支持 ``.doc``、``.docx`` 格式。
-
-    :param parent: 父控件
-    :param backend: 渲染后端，``"office"``（默认）或 ``"wps"``
-    """
+    """Word 文档预览（``.doc`` / ``.docx``；``backend`` 取 ``"office"`` 或 ``"wps"``）。"""
 
     _appName = "word"
 
@@ -142,13 +129,7 @@ class ElaWordViewer(ElaOfficeViewerMixin, ElaThemeWidget):
 
 
 class ElaExcelViewer(ElaOfficeViewerMixin, ElaThemeWidget):
-    """Excel 文档预览组件。
-
-    支持 ``.xls``、``.xlsx`` 格式。
-
-    :param parent: 父控件
-    :param backend: 渲染后端，``"office"``（默认）或 ``"wps"``
-    """
+    """Excel 文档预览（``.xls`` / ``.xlsx``；``backend`` 取 ``"office"`` 或 ``"wps"``）。"""
 
     _appName = "excel"
 
@@ -157,13 +138,7 @@ class ElaExcelViewer(ElaOfficeViewerMixin, ElaThemeWidget):
 
 
 class ElaPowerPointViewer(ElaOfficeViewerMixin, ElaThemeWidget):
-    """PowerPoint 文档预览组件。
-
-    支持 ``.ppt``、``.pptx`` 格式。
-
-    :param parent: 父控件
-    :param backend: 渲染后端，``"office"``（默认）或 ``"wps"``
-    """
+    """PowerPoint 文档预览（``.ppt`` / ``.pptx``；``backend`` 取 ``"office"`` 或 ``"wps"``）。"""
 
     _appName = "ppt"
 

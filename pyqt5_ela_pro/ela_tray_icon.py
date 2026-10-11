@@ -48,7 +48,7 @@ class ElaTrayIcon(QObject):
     * ``errorOccurred(str)`` —— 气泡通知不可用等降级情形
     """
 
-    class TrayState(IntEnum):
+    class ElaTrayStateType(IntEnum):
         """三态图标：托盘唯一值得由组件代劳的状态表达。"""
 
         Normal = 0
@@ -56,7 +56,7 @@ class ElaTrayIcon(QObject):
         Critical = 2
 
     #: 全部合法状态
-    All = (TrayState.Normal, TrayState.Warning, TrayState.Critical)
+    All = (ElaTrayStateType.Normal, ElaTrayStateType.Warning, ElaTrayStateType.Critical)
 
     #: 托盘被激活（单击 / 双击 / 中键 / 右键）
     activated = pyqtSignal(int)
@@ -79,7 +79,7 @@ class ElaTrayIcon(QObject):
         self._tray.activated.connect(self._on_activated)
         self._tray.messageClicked.connect(self.messageClicked.emit)
         self._state_icons: dict = {}
-        self._state = self.TrayState.Normal
+        self._state = self.ElaTrayStateType.Normal
         self._visible = False
         if toolTip:
             self._tray.setToolTip(toolTip)
@@ -127,16 +127,16 @@ class ElaTrayIcon(QObject):
     ) -> None:
         """注册三态图标（``setState`` 据此切换；未注册的态回落到 normal）。"""
         if normal is not None:
-            self._state_icons[self.TrayState.Normal] = QIcon(normal)
+            self._state_icons[self.ElaTrayStateType.Normal] = QIcon(normal)
         if warning is not None:
-            self._state_icons[self.TrayState.Warning] = QIcon(warning)
+            self._state_icons[self.ElaTrayStateType.Warning] = QIcon(warning)
         if critical is not None:
-            self._state_icons[self.TrayState.Critical] = QIcon(critical)
+            self._state_icons[self.ElaTrayStateType.Critical] = QIcon(critical)
         self._applyState()
 
     def setState(self, state: int) -> None:  # noqa: N802 (Qt 命名)
         """切换三态图标（非法值回落 ``Normal``）。"""
-        value = self.TrayState(state) if state in self.All else self.TrayState.Normal
+        value = self.ElaTrayStateType(state) if state in self.All else self.ElaTrayStateType.Normal
         if value == self._state:
             return
         self._state = value
@@ -150,7 +150,7 @@ class ElaTrayIcon(QObject):
         if sip.isdeleted(self._tray):
             return
         icon = self._state_icons.get(self._state) or self._state_icons.get(
-            self.TrayState.Normal
+            self.ElaTrayStateType.Normal
         )
         if icon is not None:
             self._tray.setIcon(icon)
@@ -168,12 +168,6 @@ class ElaTrayIcon(QObject):
 
         Win7 等环境可能不支持气泡（``supportsMessages()`` 为 ``False``），
         此时**不发也不抛**，改发 ``errorOccurred`` 并返回 ``False``。
-
-        :param title: 通知标题
-        :param text: 通知正文
-        :param icon: ``QSystemTrayIcon.MessageIcon``
-        :param msecs: 显示时长（毫秒）
-        :returns: 真的发出气泡返回 ``True``，降级返回 ``False``
         """
         if not QSystemTrayIcon.supportsMessages():
             self.errorOccurred.emit("当前系统不支持气泡通知（已跳过）")

@@ -35,7 +35,7 @@ from .model import (
     ElaBlueprintNode,
     ElaEdge,
     ElaPin,
-    ElaPinDirection,
+    ElaPinDirectionType,
     types_compatible,
 )
 from .node_widget import ElaNodeWidget, ElaPinHandle, format_elapsed
@@ -51,7 +51,7 @@ from .viewport import gl_available
 
 __all__ = [
     # model
-    "ElaPinDirection",
+    "ElaPinDirectionType",
     "ElaPin",
     "ElaEdge",
     "ElaBlueprintNode",

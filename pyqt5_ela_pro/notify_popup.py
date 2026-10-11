@@ -34,15 +34,7 @@ from ._styles import SHADOW_MARGIN, paintOverlayShadow
 
 
 class ElaNotifyPopup(QWidget):
-    """右下角通知弹窗
-
-    从屏幕右下角滑入显示，支持自动超时关闭和鼠标悬停保持。
-
-    :param title: 通知标题
-    :param content: 通知内容
-    :param timeout: 超时时长（毫秒），默认 5000ms，0 表示不自动关闭
-    :param parent: 父组件
-    """
+    """右下角通知弹窗：滑入显示，支持自动超时关闭与鼠标悬停保持。"""
 
     closed = pyqtSignal()
 
@@ -150,12 +142,7 @@ class ElaNotifyPopup(QWidget):
     def showNotification(
         self, title: str = "", content: str = "", timeout: int = -1
     ) -> None:
-        """显示通知弹窗（带滑入动画）。
-
-        :param title: 通知标题
-        :param content: 通知内容
-        :param timeout: 超时时长（毫秒），-1 表示使用当前设置的超时时间
-        """
+        """显示通知弹窗（带滑入动画）；``timeout=-1`` 沿用当前设置。"""
         if title:
             self.setTitle(title)
         if content:
@@ -215,26 +202,15 @@ class ElaNotifyPopup(QWidget):
         super().leaveEvent(event)
 
     def setTitle(self, title: str) -> None:
-        """设置通知标题。
-
-        :param title: 标题文字
-        """
         self._title = title
         self._title_text.setText(title)
 
     def setContent(self, content: str) -> None:
-        """设置通知内容。
-
-        :param content: 内容文字
-        """
         self._content = content
         self._content_text.setText(content)
 
     def setTimeout(self, timeout: int) -> None:
-        """设置超时自动关闭时长。
-
-        :param timeout: 时长（毫秒），0 表示不自动关闭
-        """
+        """超时自动关闭时长（毫秒），0 = 不自动关闭。"""
         self._timeout = timeout
 
     def deleteLater(self) -> None:
@@ -288,14 +264,7 @@ class ElaNotifyManager:
     def showNotification(
         self, title: str = "", content: str = "", timeout: int = 5000
     ) -> None:
-        """创建并显示通知弹窗。
-
-        多条通知会从屏幕右下角向上堆叠避让。
-
-        :param title: 通知标题
-        :param content: 通知内容
-        :param timeout: 超时时长（毫秒），默认 5000
-        """
+        """创建并显示通知弹窗；多条通知从屏幕右下角向上堆叠避让。"""
         y_offset = sum(p.height() + 10 for p in self._popups)
         popup = ElaNotifyPopup(
             title=title, content=content, timeout=timeout, y_offset=y_offset
@@ -311,10 +280,5 @@ class ElaNotifyManager:
 
 
 def show_notify(title: str = "", content: str = "", timeout: int = 5000) -> None:
-    """快捷显示通知弹窗。
-
-    :param title: 通知标题
-    :param content: 通知内容
-    :param timeout: 超时时长（毫秒），默认 5000
-    """
+    """快捷显示通知弹窗。"""
     return ElaNotifyManager().showNotification(title, content, timeout)

@@ -23,8 +23,8 @@ from PyQt5.QtWidgets import QWidget
 from pyqt5_ela_pro._motion import (
     Duration,
     Easing,
-    MotionKind,
-    MotionMode,
+    ElaMotionKindType,
+    ElaMotionModeType,
     MotionPolicy,
     motion,
     start_transition,
@@ -58,13 +58,13 @@ class TestPolicyResolution:
     @pytest.mark.parametrize(
         "mode,kind,should,duration",
         [
-            (MotionMode.Full, MotionKind.Transition, True, 300),
-            (MotionMode.Full, MotionKind.Continuous, True, 300),
+            (ElaMotionModeType.Full, ElaMotionKindType.Transition, True, 300),
+            (ElaMotionModeType.Full, ElaMotionKindType.Continuous, True, 300),
             # Reduced 只压时长、只杀 Continuous
-            (MotionMode.Reduced, MotionKind.Transition, True, 50),
-            (MotionMode.Reduced, MotionKind.Continuous, False, 0),
-            (MotionMode.Disabled, MotionKind.Transition, False, 0),
-            (MotionMode.Disabled, MotionKind.Continuous, False, 0),
+            (ElaMotionModeType.Reduced, ElaMotionKindType.Transition, True, 50),
+            (ElaMotionModeType.Reduced, ElaMotionKindType.Continuous, False, 0),
+            (ElaMotionModeType.Disabled, ElaMotionKindType.Transition, False, 0),
+            (ElaMotionModeType.Disabled, ElaMotionKindType.Continuous, False, 0),
         ],
         ids=lambda v: v.name if hasattr(v, "name") else str(v),
     )
@@ -75,7 +75,7 @@ class TestPolicyResolution:
 
     def test_reduced_caps_rather_than_scales(self):
         """Reduced 取 min(全时长, 50)：本来就短的过渡不动，本来长的才被砍。"""
-        motion.setMode(MotionMode.Reduced)
+        motion.setMode(ElaMotionModeType.Reduced)
         assert motion.duration(30) == 30
         assert motion.duration(1000) == 50
 
@@ -84,34 +84,34 @@ class TestPolicyResolution:
 
     def test_local_disabled_overrides_full(self):
         """组件自身开关优先于全局：``local_enabled=False`` 时任何模式都不播。"""
-        for mode in MotionMode:
+        for mode in ElaMotionModeType:
             motion.setMode(mode)
-            assert motion.shouldAnimate(MotionKind.Transition, False) is False
+            assert motion.shouldAnimate(ElaMotionKindType.Transition, False) is False
             assert motion.duration(300, local_enabled=False) == 0
 
     def test_negative_duration_is_clamped(self):
-        motion.setMode(MotionMode.Full)
+        motion.setMode(ElaMotionModeType.Full)
         assert motion.duration(-100) == 0
 
     def test_plan_returns_snap_flag(self):
-        motion.setMode(MotionMode.Full)
+        motion.setMode(ElaMotionModeType.Full)
         assert motion.plan(300) == (300, False)
-        motion.setMode(MotionMode.Disabled)
+        motion.setMode(ElaMotionModeType.Disabled)
         assert motion.plan(300) == (0, True)
 
     def test_setMode_rejects_unknown_value(self):
-        motion.setMode(MotionMode.Full)
+        motion.setMode(ElaMotionModeType.Full)
         motion.setMode(999)
-        assert motion.mode() == MotionMode.Full
+        assert motion.mode() == ElaMotionModeType.Full
 
     def test_setMode_same_value_does_not_emit(self, qapp):
-        motion.setMode(MotionMode.Full)
+        motion.setMode(ElaMotionModeType.Full)
         seen: list = []
         motion.modeChanged.connect(seen.append)
-        motion.setMode(MotionMode.Full)
+        motion.setMode(ElaMotionModeType.Full)
         assert seen == []
-        motion.setMode(MotionMode.Reduced)
-        assert seen == [MotionMode.Reduced]
+        motion.setMode(ElaMotionModeType.Reduced)
+        assert seen == [ElaMotionModeType.Reduced]
 
     def test_system_probe_is_cached(self, monkeypatch):
         monkeypatch.setattr("pyqt5_ela_pro._motion._probe_system_reduced", lambda: True)
@@ -125,17 +125,17 @@ class TestPolicyResolution:
     def test_auto_mode_follows_system(self, monkeypatch):
         monkeypatch.setattr("pyqt5_ela_pro._motion._probe_system_reduced", lambda: True)
         policy = MotionPolicy()
-        assert policy.mode() == MotionMode.Reduced
+        assert policy.mode() == ElaMotionModeType.Reduced
 
     def test_override_system_pins_then_releases(self, monkeypatch):
         monkeypatch.setattr("pyqt5_ela_pro._motion._probe_system_reduced", lambda: True)
         policy = MotionPolicy()
         policy.setOverrideSystem(True)
-        assert policy.mode() == MotionMode.Reduced
-        policy.setMode(MotionMode.Full)
-        assert policy.mode() == MotionMode.Full
+        assert policy.mode() == ElaMotionModeType.Reduced
+        policy.setMode(ElaMotionModeType.Full)
+        assert policy.mode() == ElaMotionModeType.Full
         policy.setOverrideSystem(False)
-        assert policy.mode() == MotionMode.Reduced, "解除覆盖后重新跟随系统"
+        assert policy.mode() == ElaMotionModeType.Reduced, "解除覆盖后重新跟随系统"
 
 
 class TestEasingTokens:
@@ -169,7 +169,7 @@ class TestEasingTokens:
 
 class TestStartTransition:
     def test_full_mode_plays_normally(self, qapp):
-        motion.setMode(MotionMode.Full)
+        motion.setMode(ElaMotionModeType.Full)
         w = _Animated()
         ran = start_transition(w.anim, 300, on_complete=lambda: None)
         assert ran is True
@@ -178,7 +178,7 @@ class TestStartTransition:
 
     def test_disabled_snaps_to_end_value(self, qapp):
         """Disabled：终值当场落盘、收尾当场触发、动画不进 Running。"""
-        motion.setMode(MotionMode.Disabled)
+        motion.setMode(ElaMotionModeType.Disabled)
         w = _Animated()
         hits: list[int] = []
         ran = start_transition(w.anim, 300, on_complete=lambda: hits.append(1))
@@ -189,28 +189,28 @@ class TestStartTransition:
 
     def test_disabled_duration_is_positive_not_zero(self, qapp):
         """snap 路径时长必须为正：0 会让 start() 自己同步发 finished（实测）。"""
-        motion.setMode(MotionMode.Disabled)
+        motion.setMode(ElaMotionModeType.Disabled)
         w = _Animated()
         start_transition(w.anim, 300)
         assert w.anim.duration() > 0
 
     def test_reduced_caps_duration(self, qapp):
-        motion.setMode(MotionMode.Reduced)
+        motion.setMode(ElaMotionModeType.Reduced)
         w = _Animated()
         start_transition(w.anim, 1000)
         assert w.anim.duration() == 50
 
     def test_reduced_transition_still_runs(self, qapp):
-        motion.setMode(MotionMode.Reduced)
+        motion.setMode(ElaMotionModeType.Reduced)
         w = _Animated()
         assert start_transition(w.anim, 1000) is True
         assert w.v == pytest.approx(0.0), "Reduced 下过渡要真的播（只是变快）"
 
     def test_continuous_snaps_under_reduced(self, qapp):
         """装饰性动效（shake_window 走这条）在 Reduced 下整体不播。"""
-        motion.setMode(MotionMode.Reduced)
+        motion.setMode(ElaMotionModeType.Reduced)
         w = _Animated()
-        ran = start_transition(w.anim, 1000, kind=MotionKind.Continuous)
+        ran = start_transition(w.anim, 1000, kind=ElaMotionKindType.Continuous)
         assert ran is False
         assert w.v == pytest.approx(1.0)
 
@@ -220,7 +220,7 @@ class TestStartTransition:
         叠连接的代价：``tooltips`` 的 ``_onFadeOutFinished`` 会跑两遍 = 两次
         ``deleteLater()``。这里用 ``receivers()`` 直接数连接数。
         """
-        motion.setMode(MotionMode.Disabled)
+        motion.setMode(ElaMotionModeType.Disabled)
         w = _Animated()
         for _ in range(3):
             start_transition(w.anim, 300, on_complete=lambda: None)
@@ -228,7 +228,7 @@ class TestStartTransition:
 
     def test_each_transition_completes_once(self, qapp):
         """三次独立的过渡 = 三次收尾（不是叠连接，是三次各跑一次）。"""
-        motion.setMode(MotionMode.Disabled)
+        motion.setMode(ElaMotionModeType.Disabled)
         hits: list[int] = []
         for _ in range(3):
             w = _Animated()
@@ -236,14 +236,14 @@ class TestStartTransition:
         assert len(hits) == 3
 
     def test_no_completion_when_omitted(self, qapp):
-        motion.setMode(MotionMode.Disabled)
+        motion.setMode(ElaMotionModeType.Disabled)
         w = _Animated()
         start_transition(w.anim, 300)
         assert w.v == pytest.approx(1.0)
 
     def test_completion_exception_does_not_escape(self, qapp):
         """收尾跑在 Qt 回调链上，抛异常就是 0xC0000409 静默终止，必须被吞。"""
-        motion.setMode(MotionMode.Disabled)
+        motion.setMode(ElaMotionModeType.Disabled)
         w = _Animated()
 
         def boom() -> None:
@@ -256,7 +256,7 @@ class TestStartTransition:
             start_transition(object(), 300)
 
     def test_works_with_qvariantanimation(self, qapp):
-        motion.setMode(MotionMode.Disabled)
+        motion.setMode(ElaMotionModeType.Disabled)
         anim = QVariantAnimation()
         anim.setStartValue(0.0)
         anim.setEndValue(1.0)
@@ -265,7 +265,7 @@ class TestStartTransition:
         assert hits == [1]
 
     def test_deletion_policy_is_passed_through(self, qapp):
-        motion.setMode(MotionMode.Full)
+        motion.setMode(ElaMotionModeType.Full)
         w = _Animated()
         start_transition(
             w.anim,
@@ -285,8 +285,8 @@ _MOTION_SYMBOLS = {
     "start_transition",
     "Duration",
     "Easing",
-    "MotionMode",
-    "MotionKind",
+    "ElaMotionModeType",
+    "ElaMotionKindType",
     "MotionPolicy",
 }
 

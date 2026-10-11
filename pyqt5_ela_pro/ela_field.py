@@ -39,12 +39,12 @@ from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from PyQt5ElaWidgetTools import ElaIconType
 
-from ._ownership import ContentSlot, WidgetOwnership
+from ._ownership import ContentSlot, ElaWidgetOwnershipType
 from ._styles import ColorText, drawElaIcon
-from ._theme import StatusRole, currentMode, statusColor, text, textMuted
+from ._theme import ElaStatusRoleType, currentMode, statusColor, text, textMuted
 from .widget_base import ElaThemeWidget
 
-__all__ = ["ElaField", "FieldStatus"]
+__all__ = ["ElaField", "ElaFieldStatusType"]
 
 
 #: 行间距（标题↔编辑器、图标↔文字、标题↔``*``）一律 4px。
@@ -65,7 +65,7 @@ _ICON_HOST = 16
 _ICON_ALIGN = Qt.AlignmentFlag.AlignTop
 
 
-class FieldStatus(IntEnum):
+class ElaFieldStatusType(IntEnum):
     """校验状态。"""
 
     None_ = 0
@@ -79,15 +79,15 @@ class FieldStatus(IntEnum):
 #: 状态 → ElaAwesome 图标。**按语义挑，不按 codepoint 对齐** —— Fluent 用的是自带的
 #: FluentIcons 字体字形（``ErrorBadge12`` 等），本库用 ElaAwesome，名字对不上是必然的。
 _STATUS_ICONS = {
-    FieldStatus.Error: ElaIconType.IconName.CircleXmark,
-    FieldStatus.Warning: ElaIconType.IconName.TriangleExclamation,
-    FieldStatus.Success: ElaIconType.IconName.CircleCheck,
+    ElaFieldStatusType.Error: ElaIconType.IconName.CircleXmark,
+    ElaFieldStatusType.Warning: ElaIconType.IconName.TriangleExclamation,
+    ElaFieldStatusType.Success: ElaIconType.IconName.CircleCheck,
 }
 
 _ROLE_BY_STATUS = {
-    FieldStatus.Error: StatusRole.Error,
-    FieldStatus.Warning: StatusRole.Warning,
-    FieldStatus.Success: StatusRole.Success,
+    ElaFieldStatusType.Error: ElaStatusRoleType.Error,
+    ElaFieldStatusType.Warning: ElaStatusRoleType.Warning,
+    ElaFieldStatusType.Success: ElaStatusRoleType.Success,
 }
 
 
@@ -138,10 +138,10 @@ class ElaField(ElaThemeWidget):
     field.setLabel("用户名")
     field.setRequired(True)
     field.setHelperText("2-16 个字符")
-    field.setEditor(ElaLineEdit(parent))          # 或 setEditor(w, WidgetOwnership.Owned)
+    field.setEditor(ElaLineEdit(parent))          # 或 setEditor(w, ElaWidgetOwnershipType.Owned)
 
     # 校验失败时：
-    field.setStatus(FieldStatus.Error)
+    field.setStatus(ElaFieldStatusType.Error)
     field.setStatusText("该用户名已被占用")
     """
 
@@ -157,7 +157,7 @@ class ElaField(ElaThemeWidget):
         self._label = ""
         self._helper_text = ""
         self._status_text = ""
-        self._status = FieldStatus.None_
+        self._status = ElaFieldStatusType.None_
         self._required = False
 
         # 本控件**不是 tab stop**：tab 序列属于编辑器。显式 setFocus() 走 focusProxy 转发。
@@ -258,12 +258,12 @@ class ElaField(ElaThemeWidget):
 
     # -- 校验状态 -----------------------------------------------------------
 
-    def status(self) -> FieldStatus:
+    def status(self) -> ElaFieldStatusType:
         return self._status
 
     def setStatus(self, status) -> None:  # noqa: N802
         """设校验状态（**不**改状态文字；两件事分开，宿主可以只改色或只改文案）。"""
-        value = FieldStatus(status)
+        value = ElaFieldStatusType(status)
         if value == self._status:
             return
         self._status = value
@@ -285,7 +285,7 @@ class ElaField(ElaThemeWidget):
 
     def statusColor(self) -> QColor:  # noqa: N802
         """当前状态的呈现色（``None_`` 状态给弱化文字色）。"""
-        if self._status is FieldStatus.None_:
+        if self._status is ElaFieldStatusType.None_:
             return textMuted(currentMode())
         return statusColor(currentMode(), _ROLE_BY_STATUS[self._status])
 
@@ -299,15 +299,15 @@ class ElaField(ElaThemeWidget):
         """当前编辑器（已被外部销毁时返回 ``None``）。"""
         return self._slot.widget()
 
-    def editorOwnership(self) -> WidgetOwnership:  # noqa: N802
+    def editorOwnership(self) -> ElaWidgetOwnershipType:  # noqa: N802
         return self._slot.ownership()
 
     def setEditor(  # noqa: N802
-        self, widget: Optional[QWidget], ownership=WidgetOwnership.Borrowed
+        self, widget: Optional[QWidget], ownership=ElaWidgetOwnershipType.Borrowed
     ) -> bool:
         """挂载编辑器。返回是否成功（自挂 / 挂祖先会被拒）。
 
-        :param ownership: 释放策略，见 ``_ownership.WidgetOwnership``。默认
+        :param ownership: 释放策略，见 ``_ownership.ElaWidgetOwnershipType``。默认
             ``Borrowed``（字段不管生命周期，宿主自己管）。
         """
         current = self._slot.widget()
@@ -363,7 +363,7 @@ class ElaField(ElaThemeWidget):
 
     def _applyStatus(self) -> None:
         has_text = bool(self._status_text)
-        show_icon = has_text and self._status is not FieldStatus.None_
+        show_icon = has_text and self._status is not ElaFieldStatusType.None_
         self._status_row.setVisible(has_text)
         self._status_label.setVisible(has_text)
         self._status_icon.setVisible(show_icon)
@@ -386,5 +386,5 @@ class ElaField(ElaThemeWidget):
         mode = currentMode()
         self._caption.setTextColor(text(mode))
         self._helper.setTextColor(textMuted(mode))
-        self._required_mark.setTextColor(statusColor(mode, StatusRole.Error))
+        self._required_mark.setTextColor(statusColor(mode, ElaStatusRoleType.Error))
         self._applyStatus()

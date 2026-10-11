@@ -9,7 +9,7 @@ from pyqt5_ela_pro.blueprint import (
     ElaBlueprintNode,
     ElaEdge,
     ElaPin,
-    ElaPinDirection,
+    ElaPinDirectionType,
     types_compatible,
 )
 
@@ -34,17 +34,17 @@ class TestTypesCompatible:
 
 
 # ---------------------------------------------------------------------------
-# ElaPin / ElaPinDirection
+# ElaPin / ElaPinDirectionType
 # ---------------------------------------------------------------------------
 class TestPin:
     def test_to_from_dict_roundtrip(self):
-        pin = ElaPin("img", "图像", ElaPinDirection.Input, "image", multi=True)
+        pin = ElaPin("img", "图像", ElaPinDirectionType.Input, "image", multi=True)
         restored = ElaPin.from_dict(pin.to_dict())
         assert restored == pin
 
     def test_unknown_direction_falls_back_input(self):
         pin = ElaPin.from_dict({"id": "x", "name": "x", "direction": "bogus"})
-        assert pin.direction is ElaPinDirection.Input
+        assert pin.direction is ElaPinDirectionType.Input
 
 
 # ---------------------------------------------------------------------------
@@ -55,8 +55,8 @@ class TestNode:
         node = _mk_node()
         node.add_input("img", "图像", "image")
         node.add_output("img", "图像", "image")  # 同名 id 允许
-        assert node.pin("img", ElaPinDirection.Input) is not None
-        assert node.pin("img", ElaPinDirection.Output) is not None
+        assert node.pin("img", ElaPinDirectionType.Input) is not None
+        assert node.pin("img", ElaPinDirectionType.Output) is not None
         assert node.pin("img") is not None  # 无方向先输入后输出
 
     def test_status_validation_and_signal(self):

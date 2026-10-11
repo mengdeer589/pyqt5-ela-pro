@@ -135,18 +135,10 @@ def pin_color(data_type: str) -> str:
 class ElaNodeSpec:
     """节点类型描述（注册表条目）。
 
-    :param type_name: 类型唯一键（如 ``"resize"``）
-    :param title: 节点默认标题（创建节点时可再改）
-    :param category: 分类名（创建菜单按它分组）
-    :param inputs / outputs: 引脚字典列表，每个
-        ``{"id", "name", "data_type", "multi"}``（后三个可缺省）
-    :param accent: 标题栏强调色（令牌键如 ``"primary"`` 或 hex），
-        ``None`` 时使用默认灰色
-    :param body_builder: 自定义节点体构建器
-        ``Callable[[ElaBlueprintNode, QWidget], None]``，缺省 ``None``
-        表示按 properties 键值对展示
-    :param description: 描述文本（创建菜单 tooltip / 副标题）
-    :param owner: 命名空间标识（信息性，默认 None 即全局命名空间）
+    ``inputs`` / ``outputs`` 是引脚字典列表，每项 ``{"id", "name", "data_type",
+    "multi"}``（后三个可缺省，``id`` 必须非空）；``accent`` 是标题栏强调色
+    （令牌键或 hex，``None`` 用默认灰）；``body_builder`` 为 ``None`` 时按
+    properties 键值对展示节点体。
     """
 
     type_name: str
@@ -225,10 +217,15 @@ class ElaNodeRegistry:
         return a.inputs == b.inputs and a.outputs == b.outputs
 
     def unregister(self, type_name: str, owner: str = None) -> bool:
-        """注销节点类型；不存在返回 ``False``。"""
-        if owner is not None and self._specs.pop((owner, type_name), None) is not None:
-            return True
-        return self._specs.pop((None, type_name), None) is not None
+        """注销节点类型；不存在返回 ``False``。
+
+        **给了 ``owner`` 就只删那个命名空间里的那条**，删不到就返回 ``False`` ——
+        绝不退到全局那条：查询时「owner + 全局」是**读取**的宽松（找不到全局能
+        顶上），删除上这么宽松就等于「插件注销自己命名空间」把别人的全局类型删了，
+        之后 ``create()`` 直接 KeyError。
+        """
+        key = (owner, type_name)
+        return self._specs.pop(key, None) is not None
 
     def spec(self, type_name: str, owner: str = None):
         """按类型名取 ``ElaNodeSpec``，未注册返回 ``None``。

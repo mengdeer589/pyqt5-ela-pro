@@ -3,13 +3,13 @@ from __future__ import annotations
 import pytest
 from PyQt5.QtCore import QAbstractAnimation, QPropertyAnimation, QTimer
 
-from pyqt5_ela_pro._motion import MotionKind, MotionMode, motion, start_transition
+from pyqt5_ela_pro._motion import ElaMotionKindType, ElaMotionModeType, motion, start_transition
 
 
 @pytest.fixture
 def full_motion():
     previous = motion.mode()
-    motion.setMode(MotionMode.Full)
+    motion.setMode(ElaMotionModeType.Full)
     yield
     motion.setMode(previous)
 
@@ -28,24 +28,24 @@ class TestOnCompleteNoneCancels:
         anim = _anim()
         hits: list[int] = []
         start_transition(
-            anim, 40, kind=MotionKind.Transition, on_complete=lambda: hits.append(1)
+            anim, 40, kind=ElaMotionKindType.Transition, on_complete=lambda: hits.append(1)
         )
         # 第二段不传 on_complete —— 应取消收尾
-        start_transition(anim, 40, kind=MotionKind.Transition)
+        start_transition(anim, 40, kind=ElaMotionKindType.Transition)
         assert hits == [], "on_complete=None 没有取消上一次的收尾"
         anim._keep.deleteLater()  # type: ignore[attr-defined]
 
     def test_none_clears_the_slot_attribute(self, full_motion):
         anim = _anim()
-        start_transition(anim, 40, kind=MotionKind.Transition, on_complete=lambda: None)
-        start_transition(anim, 40, kind=MotionKind.Transition)
+        start_transition(anim, 40, kind=ElaMotionKindType.Transition, on_complete=lambda: None)
+        start_transition(anim, 40, kind=ElaMotionKindType.Transition)
         assert getattr(anim, "_ela_motion_slot", None) is None
         anim._keep.deleteLater()  # type: ignore[attr-defined]
 
     def test_repeated_none_is_idempotent(self, full_motion):
         anim = _anim()
         for _ in range(4):
-            start_transition(anim, 20, kind=MotionKind.Transition)
+            start_transition(anim, 20, kind=ElaMotionKindType.Transition)
         assert getattr(anim, "_ela_motion_slot", None) is None
         anim._keep.deleteLater()  # type: ignore[attr-defined]
 
@@ -53,7 +53,7 @@ class TestOnCompleteNoneCancels:
         anim = _anim()
         hits: list[int] = []
         start_transition(
-            anim, 40, kind=MotionKind.Transition, on_complete=lambda: hits.append(1)
+            anim, 40, kind=ElaMotionKindType.Transition, on_complete=lambda: hits.append(1)
         )
         assert getattr(anim, "_ela_motion_slot", None) is not None
         anim._keep.deleteLater()  # type: ignore[attr-defined]
@@ -63,10 +63,10 @@ class TestOnCompleteNoneCancels:
         anim = _anim()
         hits: list[int] = []
         start_transition(
-            anim, 40, kind=MotionKind.Transition, on_complete=lambda: hits.append(1)
+            anim, 40, kind=ElaMotionKindType.Transition, on_complete=lambda: hits.append(1)
         )
         hits.clear()
-        start_transition(anim, 40, kind=MotionKind.Transition)
+        start_transition(anim, 40, kind=ElaMotionKindType.Transition)
         assert hits == []
         anim._keep.deleteLater()  # type: ignore[attr-defined]
 
@@ -102,6 +102,6 @@ class TestNotifyPopupReplay:
 def test_deletion_policy_default_unchanged(full_motion):
     """顺带钉住：默认删除策略仍是 KeepWhenStopped。"""
     anim = _anim()
-    start_transition(anim, 40, kind=MotionKind.Transition)
+    start_transition(anim, 40, kind=ElaMotionKindType.Transition)
     assert isinstance(anim, QAbstractAnimation)
     anim._keep.deleteLater()  # type: ignore[attr-defined]

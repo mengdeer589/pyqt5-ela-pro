@@ -26,7 +26,7 @@
    ``removeWidget`` / ``addWidget`` 就是重入布局改结构 = 0xC0000005。Qt 会自己把项
    摘掉，**什么都不做就是对的**。
 
-对齐 Fluent-Qt 的 ``fluent::WidgetOwnership``，但去掉了它那条「原地改策略要先
+对齐 Fluent-Qt 的 ``fluent::ElaWidgetOwnershipType``，但去掉了它那条「原地改策略要先
 take」的限制 —— 那是 C++ 绑定下所有权不明确的产物，Python 里没有这层歧义。
 """
 
@@ -40,7 +40,7 @@ from PyQt5.QtCore import QObject, Qt, pyqtSignal
 from PyQt5.QtWidgets import QWidget
 
 
-class WidgetOwnership(IntEnum):
+class ElaWidgetOwnershipType(IntEnum):
     """容器释放内容控件时的策略。"""
 
     Borrowed = 0
@@ -55,7 +55,7 @@ class WidgetOwnership(IntEnum):
 
 def releaseWidget(  # noqa: N802 (与 Qt 命名一致)
     widget: Optional[QWidget],
-    ownership: WidgetOwnership,
+    ownership: ElaWidgetOwnershipType,
     originalParent: Optional[QWidget] = None,  # noqa: N803
     *,
     deleteOwned: bool = True,
@@ -76,11 +76,11 @@ def releaseWidget(  # noqa: N802 (与 Qt 命名一致)
     except (RuntimeError, TypeError):
         return
 
-    if ownership == WidgetOwnership.Owned and deleteOwned:
+    if ownership == ElaWidgetOwnershipType.Owned and deleteOwned:
         widget.deleteLater()
         return
     if (
-        ownership == WidgetOwnership.Reparented
+        ownership == ElaWidgetOwnershipType.Reparented
         and restoreParent
         and originalParent is not None
     ):
@@ -114,7 +114,7 @@ class ContentSlot(QObject):
         self._host = host
         self._name = name
         self._widget: Optional[QWidget] = None
-        self._ownership = WidgetOwnership.Borrowed
+        self._ownership = ElaWidgetOwnershipType.Borrowed
         self._originalParent: Optional[QWidget] = None
 
     def _aliveHost(self) -> Optional[QWidget]:  # noqa: N802
@@ -132,7 +132,7 @@ class ContentSlot(QObject):
         """当前内容控件；已被外部销毁时返回 ``None``。"""
         return self._widget
 
-    def ownership(self) -> WidgetOwnership:
+    def ownership(self) -> ElaWidgetOwnershipType:
         return self._ownership
 
     def hasWidget(self) -> bool:  # noqa: N802
@@ -141,7 +141,7 @@ class ContentSlot(QObject):
     # -- 挂载 ---------------------------------------------------------------
 
     def setWidget(  # noqa: N802
-        self, widget: Optional[QWidget], ownership=WidgetOwnership.Borrowed
+        self, widget: Optional[QWidget], ownership=ElaWidgetOwnershipType.Borrowed
     ) -> bool:
         """挂载内容。返回是否成功（自挂 / 挂祖先会被拒）。
 
@@ -159,7 +159,7 @@ class ContentSlot(QObject):
         if widget is host or (widget is not None and widget.isAncestorOf(host)):
             return False
         try:
-            ownership = WidgetOwnership(ownership)
+            ownership = ElaWidgetOwnershipType(ownership)
         except ValueError:
             return False
 
@@ -180,12 +180,12 @@ class ContentSlot(QObject):
             self._disconnectDestroyed()
             self._widget = None
             self._originalParent = None
-            self._ownership = WidgetOwnership.Borrowed
+            self._ownership = ElaWidgetOwnershipType.Borrowed
             releaseWidget(previous, previousOwnership, previousParent)
 
         self._disconnectDestroyed()
         self._widget = widget
-        self._ownership = ownership if widget is not None else WidgetOwnership.Borrowed
+        self._ownership = ownership if widget is not None else ElaWidgetOwnershipType.Borrowed
         # 原 parent 必须在 reparent **之前**记下，否则还原不回去。
         self._originalParent = widget.parentWidget() if widget is not None else None
 
@@ -212,12 +212,12 @@ class ContentSlot(QObject):
         self._widget = None
         original = self._originalParent
         self._originalParent = None
-        self._ownership = WidgetOwnership.Borrowed
+        self._ownership = ElaWidgetOwnershipType.Borrowed
         if widget is not None:
             widget.hide()
             releaseWidget(
                 widget,
-                WidgetOwnership.Owned,  # 走不到 Owned 分支：take 永不删除
+                ElaWidgetOwnershipType.Owned,  # 走不到 Owned 分支：take 永不删除
                 original,
                 deleteOwned=False,
                 restoreParent=False,
@@ -237,7 +237,7 @@ class ContentSlot(QObject):
         original = self._originalParent
         self._originalParent = None
         ownership = self._ownership
-        self._ownership = WidgetOwnership.Borrowed
+        self._ownership = ElaWidgetOwnershipType.Borrowed
         releaseWidget(
             widget,
             ownership,
@@ -267,7 +267,7 @@ class ContentSlot(QObject):
         """
         self._widget = None
         self._originalParent = None
-        self._ownership = WidgetOwnership.Borrowed
+        self._ownership = ElaWidgetOwnershipType.Borrowed
         self.widgetChanged.emit(None)
 
     def __repr__(self) -> str:  # pragma: no cover - 诊断用

@@ -100,13 +100,7 @@ class ElaSplitterHandle(_ThemeAwareMixin, QSplitterHandle):
 
 
 class ElaSplitter(QSplitter):
-    """ELA 主题风格的分割器
-
-    支持水平和垂直方向，自动响应主题切换，自定义 Handle 带 grip 效果。
-
-    :param orientation: Qt.Horizontal 或 Qt.Vertical
-    :param parent: 父组件
-    """
+    """ELA 主题风格的分割器：支持水平 / 垂直方向，Handle 带 grip 效果，跟随主题切换。"""
 
     def __init__(
         self,
@@ -154,15 +148,7 @@ def create_ela_splitter(
     sizes: Optional[list[int]] = None,
     parent: QWidget = None,
 ) -> QSplitter:
-    """将组件列表以 ELA 风格 splitter 分割。
-
-    :param widgets: 要分割的组件列表（至少 2 个）
-    :param orientation: Qt.Horizontal 或 Qt.Vertical
-    :param handle_thickness: 手柄粗细（默认 6px）
-    :param sizes: 每个子组件的初始尺寸（像素），可选
-    :param parent: 父组件
-    :returns: 配置好的 ElaSplitter
-    """
+    """将组件列表（至少 2 个）以 ELA 风格 splitter 分割，返回配置好的 ``ElaSplitter``。"""
     if len(widgets) < 2:
         raise ValueError("组件列表至少需要 2 个组件")
     if sizes is not None and len(sizes) != len(widgets):

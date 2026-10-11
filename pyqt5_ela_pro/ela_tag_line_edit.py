@@ -52,7 +52,8 @@ class ElaTagLineEdit(_ThemeAwareMixin, ElaLineEdit):
         self._title_font_size = 13
         self._is_error = False
 
-        self.setFixedHeight(38)
+        # 与上游 ElaLineEdit（35）同高
+        self.setFixedHeight(35)
         self._updateMargins()
 
         self.textChanged.connect(self._onTextChanged)
@@ -60,26 +61,14 @@ class ElaTagLineEdit(_ThemeAwareMixin, ElaLineEdit):
         self._theme_mode = eTheme.getThemeMode()
 
     def setTitle(self, title: str) -> None:
-        """设置标题文字。
-
-        :param title: 标题文字
-        """
         self._title_text = title
         self._updateMargins()
         self.update()
 
     def title(self) -> str:
-        """返回标题文字。
-
-        :return: 标题文字
-        """
         return self._title_text
 
     def setTitleFontSize(self, size: int) -> None:
-        """设置标题字体大小。
-
-        :param size: 字体大小（像素）
-        """
         self._title_font_size = size
         self._updateMargins()
         self.update()

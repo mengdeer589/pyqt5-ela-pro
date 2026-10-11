@@ -74,7 +74,7 @@ from PyQt5ElaWidgetTools import (
 from ._internal import execElaMenu
 from ._styles import editBorderlessStyle
 from .ela_button import ElaButton
-from .tooltips import ElaToolTipPosition, set_tooltip
+from .tooltips import ElaToolTipPositionType, set_tooltip
 from .widget_base import ElaThemeWidget
 
 # ── 常量 ────────────────────────────────────────────────────────────────
@@ -344,9 +344,8 @@ def registerTerminalTheme(name: str, light: dict, dark: dict) -> None:
 def unregisterTerminalTheme(name: str) -> None:
     """注销一套终端调色板。
 
-    :param name: 调色板名称；内置三套或当前默认套不可注销
-    :raises KeyError: 名称未注册
-    :raises ValueError: 内置调色板，或正在作为默认调色板
+    内置三套、或正在作为默认的那套不可注销（抛 ``ValueError``）；名称未注册抛
+    ``KeyError``。
     """
     if name in _BUILTIN_THEMES:
         raise ValueError(f"内置调色板 {name!r} 不可注销")
@@ -363,8 +362,8 @@ def unregisterTerminalTheme(name: str) -> None:
 class AnsiColor(NamedTuple):
     """一个 ANSI 颜色值（尚未解析成具体颜色）。
 
-    :param kind: ``"basic"``（0-15）/ ``"indexed"``（0-255）/ ``"rgb"``
-    :param value: ``basic`` / ``indexed`` 为色号；``rgb`` 为 ``0xRRGGBB``
+    ``kind`` 取 ``"basic"``（0-15）/ ``"indexed"``（0-255）/ ``"rgb"``；``value``
+    在前两者是色号，``"rgb"`` 时是 ``0xRRGGBB``。
     """
 
     kind: str
@@ -394,10 +393,7 @@ class TerminalSpan:
 
 
 class TerminalLine:
-    """一行终端输出（由若干 :class:`TerminalSpan` 组成）。
-
-    :param spans: 组成该行的样式片段
-    """
+    """一行终端输出（由若干 :class:`TerminalSpan` 组成）。"""
 
     __slots__ = ("spans", "_text")
 
@@ -447,10 +443,8 @@ class AnsiParser:
     # -- 公开 API ---------------------------------------------------------
 
     def feed(self, chunk: str) -> list:
-        """喂入一段原始文本，返回**本次收口**的完整行列表。
-
-        :param chunk: 原始输出分片（可含任意半截转义序列）
-        :returns: ``list[TerminalLine]``，未换行则为空
+        """喂入一段原始文本（可含任意半截转义序列），返回**本次收口**的完整行列表；
+        未换行则为空。
         """
         if not chunk:
             return []
@@ -514,9 +508,8 @@ class AnsiParser:
     # -- 转义序列切分 -----------------------------------------------------
 
     def _split_incomplete(self, data: str) -> tuple:
-        """把尾部未闭合的转义序列切出来留给下一片。
-
-        :returns: ``(待处理数据, 残留序列)``；残留超长时丢弃那个 ``ESC``。
+        """把尾部未闭合的转义序列切出来留给下一片，返回 ``(待处理数据, 残留序列)``；
+        残留超长时丢弃那个 ``ESC``。
         """
         index = data.rfind("\x1b")
         if index < 0:
@@ -550,7 +543,6 @@ class AnsiParser:
         # 简单两字节序列（ESC 7 / ESC c / ESC = …）或落单 ESC：立即可消费
         return True
 
-    @staticmethod
     @staticmethod
     def _has_terminator(tail: str, terminator: str) -> bool:
         return tail.find(terminator, 2) >= 0
@@ -801,9 +793,8 @@ def _spans_length(spans: list) -> int:
 
 
 def _split_spans(spans: list, pos: int) -> tuple:
-    """在字符偏移 ``pos`` 处切分 span 列表。
-
-    :returns: ``(前段, 后段)``；``pos`` 落在某个 span 中间时该 span 被切成两半。
+    """在字符偏移 ``pos`` 处切分 span 列表，返回 ``(前段, 后段)``；``pos`` 落在某个
+    span 中间时该 span 被切成两半。
     """
     head: list = []
     tail: list = []
@@ -859,9 +850,8 @@ def _first_param(params: str, default: int = _DEFAULT_CSI_PARAM) -> int:
 
 
 def _extended_color(values: list, index: int) -> tuple:
-    """解析 ``38/48;5;N`` 与 ``38/48;2;R;G;B``。
-
-    :returns: ``(颜色, 消耗的参数个数)``；格式不认识时颜色为 ``None``、步进为 1
+    """解析 ``38/48;5;N`` 与 ``38/48;2;R;G;B``，返回 ``(颜色, 消耗的参数个数)``；
+    格式不认识时颜色为 ``None``、步进为 1。
     """
     mode = values[index + 1] if index + 1 < len(values) else _ZERO
     if mode == 5 and index + 2 < len(values):
@@ -922,11 +912,9 @@ def _alive(widget) -> bool:  # noqa: ANN001
 
 
 def _resolve_palette(name: str, light: bool) -> dict:
-    """按名称 + 明暗解析出完整的 ``QColor`` 调色板。
+    """按名称 + 明暗解析出完整的 ``QColor`` 调色板（未注册名称回退到默认）。
 
-    :param name: 调色板名称，未注册时回退到默认
-    :param light: 是否取亮色档
-    :returns: ``{键: QColor}``；``foreground`` / ``background`` 缺省时取 eTheme 令牌
+    ``foreground`` / ``background`` 缺省时取 eTheme 令牌。
     """
     theme = _TERMINAL_THEMES.get(name) or _TERMINAL_THEMES[_DEFAULT_THEME_NAME]
     raw = theme["light" if light else "dark"]
@@ -1160,7 +1148,7 @@ class ElaTerminalView(ElaThemeWidget):
             )
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             btn.setToolTip(tip)
-            set_tooltip(btn, tip, ElaToolTipPosition.Top)
+            set_tooltip(btn, tip, ElaToolTipPositionType.Top)
             btn.clicked.connect(slot)
             lay.addWidget(btn)
             return btn
@@ -1276,10 +1264,7 @@ class ElaTerminalView(ElaThemeWidget):
             self.linesAppended.emit(len(lines))
 
     def appendLine(self, text: str) -> None:  # noqa: N802 (Qt 命名)
-        """追加一行（自动补换行，忽略文本自带的结尾换行）。
-
-        :param text: 一行文本
-        """
+        """追加一行（自动补换行，忽略文本自带的结尾换行）。"""
         self.append(text.rstrip("\r\n") + "\n")
 
     def clear(self) -> None:
@@ -1329,12 +1314,7 @@ class ElaTerminalView(ElaThemeWidget):
         return "\n".join(texts)
 
     def saveTo(self, path: str, encoding: str = "utf-8") -> bool:  # noqa: N802
-        """把全部内容写入文本文件。
-
-        :param path: 目标文件路径
-        :param encoding: 文件编码，默认 UTF-8
-        :returns: 成功返回 ``True``，路径不可写等情况返回 ``False``
-        """
+        """把全部内容写入文本文件（默认 UTF-8），路径不可写等情况返回 ``False``。"""
         try:
             payload = self.toPlainText()
             if payload:
@@ -1362,10 +1342,7 @@ class ElaTerminalView(ElaThemeWidget):
         return self._edit.textCursor().selectedText().replace("\u2029", "\n")
 
     def copySelection(self) -> bool:
-        """把当前选区复制到剪贴板。
-
-        :returns: 有选区并已复制返回 ``True``
-        """
+        """把当前选区复制到剪贴板，有选区并已复制才返回 ``True``。"""
         if not self.selectedText():
             return False
         self._edit.copy()
@@ -1527,6 +1504,12 @@ class ElaTerminalView(ElaThemeWidget):
         try:
             self._edit.moveCursor(QTextCursor.MoveOperation.End)
             self._edit.ensureCursorVisible()
+            # ``ensureCursorVisible`` 只保证「光标那行完整可见」，文档末尾恰好
+            # 抵住视口底边时它会差 1px（原先末尾总多一个空块把这个细节盖住了）。
+            # 「贴底」的契约是 ``value == maximum``，显式落到最大值。
+            bar = self._edit.verticalScrollBar()
+            if bar.value() < bar.maximum():
+                bar.setValue(bar.maximum())
         finally:
             self._auto_scrolling = False
 
@@ -1702,14 +1685,20 @@ class ElaTerminalView(ElaThemeWidget):
             return None
         return (tail.text, tuple((span.text, span.style) for span in tail.spans))
 
-    def _drop_tail_block(self) -> None:
+    def _drop_tail_block(self) -> bool:
         """摘掉文档末尾的尾块（若有）。
 
-        Qt 文档恒有 ≥1 个块，所以「只剩尾块」时摘完会留一个空块 —— 正好
-        给下一行复用，与首行 ``if index or self._doc_lines`` 的判断一致。
+        Qt 文档恒有 ≥1 个块，所以摘完会留一个**空块** —— 它正好是下一批内容的
+        复用位（``_render_rows`` 拿到 ``reuseLast=True`` 时把首行直接写进去，
+        不再 ``insertBlock``）。原先那个空块没人用，而 ``_render_rows`` 只按
+        ``_doc_lines`` 判断要不要插块，于是每次 ``\\r`` 重画都白白多留一个空块：
+        块数逐帧增长而 ``_doc_lines`` 不动，文档无界膨胀（长进度条能把文档撑到
+        上万块）。
+
+        :returns: 是否摘掉了尾块（``True`` = 末块现在是空的，可直接复用）
         """
         if not self._doc_tail:
-            return
+            return False
         cursor = QTextCursor(self._edit.document())
         cursor.movePosition(QTextCursor.MoveOperation.End)
         cursor.movePosition(
@@ -1718,29 +1707,39 @@ class ElaTerminalView(ElaThemeWidget):
         cursor.removeSelectedText()
         self._doc_tail = False
         self._doc_tail_key = None
+        return True
 
     def _render_rows(
         self,
         cursor: QTextCursor,
         lines: list,
         tail: Optional[TerminalLine],
+        *,
+        reuseLast: bool = False,
     ) -> None:
         """把 ``lines`` 与可选的「当前行」按顺序写进文档。
+
+        ``reuseLast=True`` 表示末块是空块（刚被 :meth:`_drop_tail_block` 摘空，
+        或文档刚清空），首批内容直接写进去。**末块不是空块时必须照常插块** ——
+        那时它装的是上一批的最后一行，插块才不会把两行接成一行。
 
         **全程用调用方给的同一个游标。** 曾经让「当前行」那段自建游标，结果
         外层游标停在旧位置，后面的 ``deletePreviousChar()`` 删错了地方 ——
         实测清空过滤词后渲染出 ``'keep me\\n\\ndrop m'``：多一个空块、尾行还
-        少了最后一个字符。Qt 文档恒有 ≥1 个空块，所以第一行/尾行在
-        ``_doc_lines == 0`` 时直接复用它，不额外 ``insertBlock``。
+        少了最后一个字符。
         """
+        # 末块为空有两种来源：刚被摘空的尾块（reuseLast），或文档本来就只有
+        # Qt 必有的那一个初始空块（``_doc_lines == 0``）。两种都能原地写首行 ——
+        # 判据只能是「末块是不是空的」，不能只看其中一个。
+        reuse = reuseLast or self._doc_lines == 0
         first = True
         for line in lines:
-            if not first or self._doc_lines:
+            if not (first and reuse):
                 cursor.insertBlock()
             self._render_line(cursor, line)
             first = False
         if tail is not None:
-            if not first or self._doc_lines:
+            if not (first and reuse):
                 cursor.insertBlock()
             self._render_line(cursor, tail)
 
@@ -1765,10 +1764,10 @@ class ElaTerminalView(ElaThemeWidget):
         self._auto_scrolling = True
         try:
             # 先摘尾块：新行要接在它**前面**，不摘就只能往尾块后面追加
-            self._drop_tail_block()
+            reuse = self._drop_tail_block()
             cursor = QTextCursor(self._edit.document())
             cursor.movePosition(QTextCursor.MoveOperation.End)
-            self._render_rows(cursor, lines, tail)
+            self._render_rows(cursor, lines, tail, reuseLast=reuse)
             self._doc_lines += len(lines)
             self._doc_tail = tail is not None
             self._doc_tail_key = tail_key
@@ -1823,11 +1822,11 @@ class ElaTerminalView(ElaThemeWidget):
             cursor.select(QTextCursor.SelectionType.Document)
             cursor.removeSelectedText()
             self._edit.document().clearUndoRedoStacks()
-            # 归零后再渲染：_render_rows 用它判断「能否复用文档自带的那一个
-            # 空块」，带着旧值会把第一行多插一个空块出来
+            # 归零后再渲染：``_render_rows`` 靠 ``reuseLast`` 判断「能否复用文档
+            # 自带的那一个空块」，末块此刻是清空后剩下的空块，可以直接写
             self._doc_lines = 0
             self._doc_tail = False
-            self._render_rows(cursor, rendered, tail)
+            self._render_rows(cursor, rendered, tail, reuseLast=True)
             self._doc_lines = len(rendered)
             self._doc_tail = tail is not None
             self._doc_tail_key = self._tail_snapshot(tail)

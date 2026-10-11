@@ -113,12 +113,8 @@ def formatValue(v) -> str:
 
 
 def niceTicks(vmin: float, vmax: float, segments: int = 5):
-    """数值轴 nice ticks。
-
-    :param vmin: 数据最小值
-    :param vmax: 数据最大值
-    :param segments: 目标段数，约 5 段
-    :return: ``(nice_min, nice_max, ticks)``，ticks 为含端点的刻度值列表
+    """数值轴 nice ticks，返回 ``(nice_min, nice_max, ticks)``；``segments`` 是目标
+    段数（约 5 段），``ticks`` 为含端点的刻度值列表。
     """
     vmin = float(vmin)
     vmax = float(vmax)

@@ -17,11 +17,8 @@ from typing import Any, Optional
 class ElaMenuItem:
     """一条菜单项 / 动作的定义（宿主自定义，组件不内置任何动作）。
 
-    :param id: 动作标识（由 ``actionTriggered`` 信号回传）
-    :param label: 动作显示名
-    :param icon: ``ElaIconType.IconName`` 图标（缺省时按消费者回落为纯文字）
-    :param tooltip: 悬停提示（缺省用 ``label``）
-    :param enabled: 是否在菜单中**显示**该动作（``False`` 表示整项不出现）
+    ``tooltip`` 缺省用 ``label``；``icon`` 缺省时消费者回落为纯文字；
+    ``enabled=False`` 的语义是**整项不显示**（不是置灰）。
     """
 
     id: str

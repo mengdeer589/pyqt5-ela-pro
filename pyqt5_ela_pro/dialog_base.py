@@ -12,12 +12,6 @@ from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QPushButton, QWidget, QVBoxLayout
 from PyQt5ElaWidgetTools import ElaContentDialog, ElaText, eTheme, ElaThemeType
 
-eTheme.setThemeColor(
-    ElaThemeType.ThemeMode.Light,
-    ElaThemeType.ThemeColor.DialogBase,
-    QColor("#fafafa"),
-)
-
 
 class ElaDialogBase(ElaContentDialog):
     """基于 ElaContentDialog 的对话框基类。
@@ -56,6 +50,15 @@ class ElaDialogBase(ElaContentDialog):
                 "parent=None 会导致进程崩溃。请传入宿主窗口，例如 "
                 "ElaDialogBase(parent=self.window())。"
             )
+        # 浅色主题下 DialogBase 槽位偏灰，这里把它调到本组件要的浅灰白。
+        # **必须在构造期写、不能放模块级**：模块级等于「import 本库就改掉宿主
+        # 的全局主题」，而且没有 NOTIFY 信号、宿主也还原不回去（resetAccentColor
+        # 只管强调色那一组）。放这里的作用域就是「用了本组件的对话框」。
+        eTheme.setThemeColor(
+            ElaThemeType.ThemeMode.Light,
+            ElaThemeType.ThemeColor.DialogBase,
+            QColor("#fafafa"),
+        )
         super().__init__(parent)
         self._titleWidget: Optional[ElaText] = None
         self._paramWidget: Optional[QWidget] = None
@@ -72,7 +75,6 @@ class ElaDialogBase(ElaContentDialog):
             if btn is not None:
                 btn.setVisible(False)
             else:
-                # Fallback: search by default text
                 for btn in self.findChildren(QPushButton):
                     if btn.text() == "minimum":
                         btn.setVisible(False)
@@ -96,19 +98,10 @@ class ElaDialogBase(ElaContentDialog):
         super().setCentralWidget(self._paramWidget)
 
     def setTitle(self, title: str) -> None:
-        """设置对话框标题。
-
-        :param title: 标题文本。
-        :type title: str
-        """
         self._titleWidget.setText(title)
 
     def setParamWidget(self, widget: QWidget) -> None:
-        """设置对话框主体内容组件。
-
-        :param widget: 内容 widget。
-        :type widget: QWidget
-        """
+        """设置主体内容组件（替换旧的，旧控件 ``deleteLater``）。"""
         while self._paramLay.count() > 2:
             item = self._paramLay.takeAt(2)
             old_widget = item.widget() if item else None

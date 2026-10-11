@@ -52,6 +52,7 @@ import math
 import mimetypes
 import os
 import re
+import sys
 from typing import Optional
 
 from PyQt5.QtCore import (
@@ -235,6 +236,11 @@ _SUMMARY_RE = re.compile(r"^<summary>(.*)</summary>\s*$", re.IGNORECASE)
 
 #: 任务列表：``- [x]`` / ``- [ ]`` → ☑ / ☐（保留列表标记与缩进）
 _TASK_LIST_RE = re.compile(r"^([ \t]*(?:[-+*]|\d+[.)])[ \t]+)\[([ xX])\][ \t]?")
+
+#: 空 alt 图片：``![](src)`` / ``![][ref]``。Qt 5.15 的 Markdown 导入器对 alt
+#: 为空的图片**整张静默丢弃**（``![ ](src)`` 就正常渲染），预处理时补一个空格。
+#: 只改「紧跟 ``(`` / ``[``」的形态，正文里字面量 ``![]`` 不受影响。
+_EMPTY_ALT_IMAGE_RE = re.compile(r"!\[\](?=[\(\[])")
 
 #: 行内下标 ``H~2~O`` / 上标 ``x^2^``（内容不含空白/方括号；不匹配 ``~~删除线~~``）
 _SUB_RE = re.compile(r"(?<!~)~([^~\s\[\]]+)~(?!~)")
@@ -428,6 +434,38 @@ _ANCHOR_HISTORY_CAP = 50
 #: 滚动跟随判定余量（像素）
 _SCROLL_MARGIN = 4
 
+#: 嵌入模式「真实布局完成」的视口宽度下限（像素）。低于该值说明首次布局还没跑。
+_EMBED_MIN_VALID_WIDTH = 8
+#: 文档 ``textWidth`` 与视口宽的容差（像素）：超过说明文档还没按当前宽度重排。
+_EMBED_WIDTH_SLACK = 2
+#: 嵌入模式高度同步诊断日志（``ELACHAT_DEBUG_LAYOUT=1`` 时每次测量打一行 stderr）。
+#:
+#: 慢机器上「思考内容 ↔ 后续分段之间多出数行空白」属于时序问题，本机很难复现；
+#: 打开该开关后把 stderr 里的 ``[ElaMarkdownViewer]`` 行留下来即可定位。
+_DEBUG_LAYOUT = os.environ.get("ELACHAT_DEBUG_LAYOUT", "").strip().lower() not in (
+    "",
+    "0",
+    "false",
+    "no",
+    "off",
+)
+
+
+def _clamp_pos(document: QTextDocument, position: int) -> int:
+    """把字符位置钳进文档合法区间（``0 .. characterCount - 1``）。
+
+    Qt 对越界位置只打一条 ``QTextCursor::setPosition`` 警告、光标原地不动 ——
+    随后的 ``movePosition`` / ``mergeCharFormat`` 就落在错误的位置上。本模块的
+    位置都取自文档自身，但异步路径（流式增量重建 / mermaid 回调）里文档可能在
+    取值与设值之间变小，统一钳一道，警告与错位都不会发生。
+    """
+    try:
+        limit = max(0, int(document.characterCount()) - 1)
+    except Exception:  # noqa: BLE001 —— 文档已析构等异常形态
+        return 0
+    return max(0, min(int(position), limit))
+
+
 #: 流式刷新间隔（毫秒）：按未稳定尾部大小自适应。
 #:
 #: 40ms 实测只有约 10.7 次视觉更新/秒 —— 不刷屏，但明显"跳"，读起来是分段
@@ -460,7 +498,7 @@ _PYGMENTS_STATE = {"loaded": False, "module": None}
 
 #: markdown 内置主题注册表：名称 → {"light": {...}, "dark": {...}}。
 #: 每套主题含 ``semantic``（标题 / 加粗 / 斜体 / 行内代码 / 链接 / 引用 /
-#: 列表 / 高亮底色）与 ``syntax``（13 个语法高亮 token 键）；结构色
+#: 列表勾选框 / 高亮底色）与 ``syntax``（13 个语法高亮 token 键）；结构色
 #: （背景 / 正文 / 边框）仍由 eTheme 令牌提供。用 :func:`registerMarkdownTheme`
 #: 可注册自定义主题，:func:`setDefaultMarkdownTheme` 改默认，查看器实例上
 #: ``setMarkdownTheme(name)`` 切换。
@@ -491,17 +529,22 @@ _MD_THEME_SYNTAX_KEYS = (
 )
 
 _MD_THEMES = {
-    # opencode 终端版（默认）：标题紫/橙、加粗橙、斜体黄、行内码绿、链接青
+    # opencode 终端版（默认）：标题紫/深橙、斜体黄、行内码绿、链接青；
+    # 加粗暗色橙、亮色与正文同色（列表文字一律正文色，见 _apply_fragment_colors）
     "opencode": {
         "light": {
             "semantic": {
-                "heading": "#d68c27",
-                "strong": "#d68c27",
+                # 标题加深到 5.25:1（原 #d68c27 在白底上只有 2.75:1）；加粗
+                # 回归正文色 —— 强调色只留给标题，避免「处处强调 = 没有强调」
+                "heading": "#9d5d00",
+                "strong": "#000000",
                 "emphasis": "#b0851f",
                 "code": "#3d9a57",
                 "link": "#318795",
                 "quote": "#b0851f",
-                "list": "#d68c27",
+                # list 现在只用于任务勾选框（Qt 的 bullet 用调色板绘制、
+                # 字符格式染不上，列表文字也不再整块上色，见 _apply_fragment_colors）
+                "list": "#9d5d00",
                 "mark": "#f2cc0c",
             },
             "syntax": {
@@ -740,9 +783,8 @@ def defaultMarkdownTheme() -> str:
 
 
 def setDefaultMarkdownTheme(name: str) -> bool:
-    """设置默认 markdown 主题（只影响之后新建的查看器，不重渲染已存在实例）。
-
-    :returns: 主题存在并设置成功返回 ``True``，未知名称返回 ``False``
+    """设置默认 markdown 主题（只影响之后新建的查看器，不重渲染已有实例）；
+    主题存在才返回 ``True``。
     """
     global _DEFAULT_MD_THEME
     if name not in _MD_THEMES:
@@ -754,14 +796,14 @@ def setDefaultMarkdownTheme(name: str) -> bool:
 def registerMarkdownTheme(
     name: str, light: Optional[dict] = None, dark: Optional[dict] = None
 ) -> None:
-    """注册 / 覆盖一套 markdown 主题。
+    """注册 / 覆盖一套 markdown 主题（``name`` 同名即覆盖）。
 
-    :param name: 主题名（覆盖同名主题；``"opencode"`` 亦可覆盖）
-    :param light/dark: ``{"semantic": {...}, "syntax": {...}}``，可省略或只给
-        部分键（其余键合并自 opencode 默认主题）。``semantic`` 的 8 个键为
-        ``heading`` / ``strong`` / ``emphasis`` / ``code`` / ``link`` /
-        ``quote`` / ``list``（列表项，含项目符号）/ ``mark``（``==高亮==``
-        底色的基色，与背景混合后使用）。
+    ``light`` / ``dark`` 是 ``{"semantic": {...}, "syntax": {...}}``，可省略或只
+    给部分键（其余合并自 opencode 默认主题）。``semantic`` 的 8 个键：
+    ``heading`` / ``strong`` / ``emphasis`` / ``code`` / ``link`` / ``quote`` /
+    ``list``（任务勾选框等列表标记；列表**文字**保持正文色 —— Qt 的 bullet 由
+    调色板绘制、字符格式染不上）/ ``mark``（``==高亮==`` 底色的基色，与背景混合
+    后使用）。
     """
     if not isinstance(name, str) or not name:
         raise ValueError("registerMarkdownTheme: 主题名不能为空")
@@ -1048,9 +1090,8 @@ def _stable_cut(text: str, committed: int = 0, allow_sentence: bool = False) -> 
 
 
 def _load_pygments():
-    """惰性导入 Pygments（缺失时返回 None，组件自动降级为纯代码块样式）。
-
-    :returns: ``(get_lexer_by_name, Token)`` 或 ``None``
+    """惰性导入 Pygments，返回 ``(get_lexer_by_name, Token)``；缺失时返回
+    ``None``（组件自动降级为纯代码块样式）。
     """
     if _PYGMENTS_STATE["loaded"]:
         return _PYGMENTS_STATE["module"]
@@ -1418,10 +1459,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
     # -- 内容 --------------------------------------------------------------
 
     def setMarkdown(self, text: str) -> None:
-        """设置 Markdown 内容（重置流式状态；超长文本自动分块渲染）。
-
-        :param text: Markdown 文本
-        """
+        """设置 Markdown 内容（重置流式状态；超长文本自动分块渲染）。"""
         self._stop_stream()
         self._cancel_large_render()
         self._expanded_code_blocks.clear()
@@ -1433,10 +1471,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
             self._render()
 
     def markdown(self) -> str:
-        """获取当前 Markdown 内容（与传入的文本一致）。
-
-        :returns: Markdown 文本
-        """
+        """当前 Markdown 内容（与传入的文本一致）。"""
         return self._source
 
     def clear(self) -> None:
@@ -1471,9 +1506,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return self._open_external_links
 
     def setExternalLinkSchemes(self, schemes) -> None:
-        """设置允许交给系统打开的 scheme 白名单（默认 http / https / mailto）。
-
-        :param schemes: scheme 字符串的可迭代对象；元素大小写不敏感。
+        """设置允许交给系统打开的 scheme 白名单（默认 http / https / mailto；
+        元素大小写不敏感）。
         """
         self._external_link_schemes = frozenset(
             str(s).strip().lower() for s in schemes if str(s).strip()
@@ -1484,17 +1518,10 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return self._external_link_schemes
 
     def scrollToAnchor(self, name: str) -> None:
-        """滚动到指定锚点。
-
-        :param name: 锚点名称
-        """
         self._text_browser.scrollToAnchor(name)
 
     def backToPreviousAnchor(self) -> bool:
-        """返回上一个内部锚点跳转前的位置。
-
-        :returns: 是否成功返回（历史为空时 ``False``）
-        """
+        """回到上一个内部锚点跳转前的位置；历史为空返回 ``False``。"""
         if not self._anchor_back_stack:
             return False
         value = self._anchor_back_stack.pop()
@@ -1635,10 +1662,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
     # -- 占位 / 缩放 / 搜索 / 图片 / 导出 ----------------------------------
 
     def setPlaceholderText(self, text: str) -> None:
-        """设置内容为空时的居中占位文本（如"正在生成…"）。
-
-        :param text: 占位文本，空字符串关闭
-        """
+        """内容为空时的居中占位文本（如"正在生成…"），空字符串关闭。"""
         self._placeholder = text or ""
         self.update()
 
@@ -1647,10 +1671,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return self._placeholder
 
     def setZoomFactor(self, factor: float) -> None:
-        """设置缩放系数（相对于默认字号，同时影响公式尺寸）。
-
-        :param factor: 缩放系数（限制在 0.25-4.0）
-        """
+        """缩放系数（相对默认字号，同时影响公式尺寸），夹在 0.25–4.0。"""
         factor = max(0.25, min(4.0, float(factor)))
         if abs(factor - self._zoom_factor) < 1e-6:
             return
@@ -1674,12 +1695,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self.setZoomFactor(self._zoom_factor - step)
 
     def searchText(self, text: str, caseSensitive: bool = False) -> int:
-        """高亮全部匹配并选中第一处。
-
-        :param text: 搜索文本
-        :param caseSensitive: 是否区分大小写
-        :returns: 匹配数量
-        """
+        """高亮全部匹配并选中第一处，返回匹配数量。"""
         self.clearSearch()
         if not text:
             return 0
@@ -1705,11 +1721,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return len(self._search_selections)
 
     def findNext(self, backward: bool = False) -> bool:
-        """在 ``searchText`` 的匹配间跳转（循环）。
-
-        :param backward: 是否向前查找
-        :returns: 是否成功跳转
-        """
+        """在 :meth:`searchText` 的匹配间循环跳转，返回是否成功跳转。"""
         if not self._search_selections:
             return False
         current = self._text_browser.textCursor().selectionStart()
@@ -1732,10 +1744,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._text_browser.setExtraSelections([])
 
     def setBaseUrl(self, url) -> None:
-        """设置图片等资源的基准路径（本地目录或 URL）。
-
-        :param url: 本地目录路径字符串 / URL 字符串 / ``QUrl``
-        """
+        """图片等资源的基准路径（本地目录路径串 / URL 串 / ``QUrl``）。"""
         if isinstance(url, QUrl):
             qurl = QUrl(url)
         elif isinstance(url, str):
@@ -1755,10 +1764,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return self._base_url
 
     def setRemoteImagesEnabled(self, on: bool) -> None:
-        """设置是否允许加载远程（http/https）图片，默认关闭。
-
-        :param on: ``True`` 允许，``False`` 拦截并显示占位文本
-        """
+        """是否允许加载远程（http/https）图片，默认关闭；``False`` 时拦截并显示占位文本。"""
         self._remote_images_enabled = bool(on)
         self._text_browser.remote_images_enabled = bool(on)
         if self._source:
@@ -1769,10 +1775,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return self._remote_images_enabled
 
     def toHtml(self, embedImages: bool = False) -> str:
-        """导出当前渲染结果为 HTML。
-
-        :param embedImages: ``True`` 时把公式 / Mermaid / 本地图片内嵌为
-            data URI（单文件分享用；远程图片保持原样），默认关闭
+        """导出当前渲染结果为 HTML；``embedImages=True`` 时把公式 / Mermaid /
+        本地图片内嵌成 data URI（单文件分享用，远程图片保持原样），默认关闭。
         """
         html = self.document().toHtml()
         if not embedImages:
@@ -1921,12 +1925,10 @@ class ElaMarkdownViewer(ElaThemeWidget):
     ) -> bool:
         """把当前渲染结果导出为 PDF 文件。
 
-        :param path: 目标文件路径
-        :param pageSize: 纸张，``"A4"`` / ``"Letter"`` 等
-            :class:`QPageSize.PageSizeId` 名称，或直接传 :class:`QPageSize`
-        :param marginsMm: 页边距（毫米）：单值表示四边一致，
-            二元组 ``(水平, 垂直)`` 或四元组 ``(左, 上, 右, 下)``
-        :returns: 是否导出成功
+        ``pageSize`` 是纸张（``"A4"`` / ``"Letter"`` 等
+        :class:`QPageSize.PageSizeId` 名称，或直接传 :class:`QPageSize`）；
+        ``marginsMm`` 是页边距（毫米）：单值表示四边一致，二元组 ``(水平, 垂直)``
+        或四元组 ``(左, 上, 右, 下)``。
         """
         if not path:
             return False
@@ -1960,9 +1962,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
     def printDocument(self, printer=None) -> bool:
         """打印当前渲染内容。
 
-        :param printer: 已配置的 :class:`QPrinter`；为 ``None`` 时弹出
-            系统打印对话框（取消返回 ``False``）
-        :returns: 是否完成打印
+        ``printer`` 为已配置的 :class:`QPrinter`；``None`` 时弹系统打印对话框
+        （取消返回 ``False``）。
         """
         try:
             if printer is None:
@@ -1989,10 +1990,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
             self._mermaid_renderer.clearCache()
 
     def setHighlightCacheSize(self, size: int) -> None:
-        """设置代码高亮缓存条数上限。
-
-        :param size: 缓存条数上限（<=0 时清空并停止缓存）
-        """
+        """代码高亮缓存条数上限（``<= 0`` 时清空并停止缓存）。"""
         self._highlight_cache_cap = max(0, int(size))
         while (
             self._highlight_cache
@@ -2054,6 +2052,14 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._stream_source += chunk
         self._source = self._stream_source
 
+        # 首个分片不走节流：此刻文档还是空的，等一个 24ms 节拍会在屏幕上留下
+        # 「空查看器」窗口（慢机器上更久）；越早渲染，布局越早拿到真实内容与
+        # 高度。只在文档为空且定时器空闲时走这条快路径，不会变成逐片全量渲染。
+        if not self._stream_timer.isActive() and (
+            self._text_browser.document().characterCount() <= 1
+        ):
+            self._stream_flush()
+            return
         if self._stream_timer.isActive():
             return
         tail_len = len(self._stream_source) - self._stream_committed
@@ -2079,10 +2085,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return self._stream_active
 
     def setStickToBottom(self, on: bool) -> None:
-        """设置贴底时是否自动跟随滚动。
-
-        :param on: ``True`` 时内容在底部则追加后自动滚到底
-        """
+        """贴底时是否自动跟随滚动（``True`` = 内容在底部则追加后自动滚到底）。"""
         self._stick_to_bottom = bool(on)
 
     def stickToBottom(self) -> bool:
@@ -2178,18 +2181,19 @@ class ElaMarkdownViewer(ElaThemeWidget):
             and timer.elapsed() < _LARGE_RENDER_BUDGET_MS
         ):
             chunk = self._large_render_chunks[self._large_render_index]
-            cursor = QTextCursor(document)
-            cursor.movePosition(QTextCursor.MoveOperation.End)
-            if document.characterCount() > 1:
-                cursor.insertBlock(QTextBlockFormat(), QTextCharFormat())
             first_chunk = self._large_render_index == 0
             if first_chunk:
                 self._allow_front_matter = True
             try:
-                cursor.insertFragment(self._render_fragment(chunk, document))
+                fragment, block_format = self._render_fragment(chunk, document)
             finally:
                 if first_chunk:
                     self._allow_front_matter = False
+            cursor = QTextCursor(document)
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            if document.characterCount() > 1:
+                cursor.insertBlock(block_format, QTextCharFormat())
+            cursor.insertFragment(fragment)
             self._large_render_index += 1
         self.renderingProgress.emit(int(self._large_render_index * 100 / total))
         if self._large_render_index >= total:
@@ -2263,7 +2267,9 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 # _paint_code_card_chrome 访问已析构的表对象（0xC0000409 静默 abort）。
                 self._rebuild_code_buttons([])
                 cursor = QTextCursor(document)
-                position = min(self._stream_tail_pos, document.characterCount() - 1)
+                position = max(
+                    0, min(self._stream_tail_pos, document.characterCount() - 1)
+                )
                 cursor.setPosition(position)
                 cursor.movePosition(
                     QTextCursor.MoveOperation.End, QTextCursor.MoveMode.KeepAnchor
@@ -2275,11 +2281,12 @@ class ElaMarkdownViewer(ElaThemeWidget):
             # 提交新稳定段（只渲染一次）
             if cut > self._stream_committed:
                 segment = self._stream_source[self._stream_committed : cut]
+                fragment, block_format = self._render_fragment(segment, document)
                 cursor = QTextCursor(document)
                 cursor.movePosition(QTextCursor.MoveOperation.End)
                 if document.characterCount() > 1:
-                    cursor.insertBlock(QTextBlockFormat(), QTextCharFormat())
-                cursor.insertFragment(self._render_fragment(segment, document))
+                    cursor.insertBlock(block_format, QTextCharFormat())
+                cursor.insertFragment(fragment)
                 self._stream_committed = cut
 
             self._stream_tail_pos = document.characterCount() - 1
@@ -2289,9 +2296,10 @@ class ElaMarkdownViewer(ElaThemeWidget):
             if tail:
                 cursor = QTextCursor(document)
                 cursor.movePosition(QTextCursor.MoveOperation.End)
+                tail_fragment, tail_block_format = self._render_fragment(tail, document)
                 if document.characterCount() > 1:
-                    cursor.insertBlock(QTextBlockFormat(), QTextCharFormat())
-                cursor.insertFragment(self._render_fragment(tail, document))
+                    cursor.insertBlock(tail_block_format, QTextCharFormat())
+                cursor.insertFragment(tail_fragment)
         finally:
             browser.setUpdatesEnabled(True)
 
@@ -2305,12 +2313,16 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._sync_code_buttons()
         self._schedule_layout_refresh()
 
-    def _render_fragment(self, text: str, resource_doc: QTextDocument):
+    def _render_fragment(self, text: str, resource_doc: QTextDocument) -> tuple:
         """把一段 Markdown 渲染为可插入主文档的片段。
 
         使用临时文档走与全量渲染完全相同的管线（代码/表格/公式/主题色），
         因此片段插入后与一次性渲染结果一致；公式图片资源注册在主文档上，
         片段插入后仍可解析。
+
+        :returns: ``(片段, 片段首块的 QTextBlockFormat)``。``insertFragment`` 把片段
+            首块并入光标所在块**并沿用该块自己的格式**，所以造分块必须用首块格式，
+            否则这一段的段距 / 行高 / 标题属性全丢。
         """
         scratch = QTextDocument()
         scratch.setDefaultStyleSheet(self._document_css())
@@ -2319,15 +2331,15 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._render_into(scratch, text, resource_doc=resource_doc)
         cursor = QTextCursor(scratch)
         cursor.select(QTextCursor.SelectionType.Document)
-        return QTextDocumentFragment(cursor)
+        fragment = QTextDocumentFragment(cursor)
+        first = scratch.firstBlock()
+        block_format = first.blockFormat() if first.isValid() else QTextBlockFormat()
+        return fragment, block_format
 
     # -- 外观 --------------------------------------------------------------
 
     def setCodeFontFamily(self, family: str) -> None:
-        """设置代码字体族。
-
-        :param family: 字体族名称，空字符串恢复系统等宽字体
-        """
+        """代码字体族；空字符串恢复系统等宽字体。"""
         if family:
             self._code_font_family = family
         else:
@@ -2340,10 +2352,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return self._code_font_family
 
     def setCodeBlockCollapseLines(self, lines: int) -> None:
-        """设置超长代码块折叠行数（0 表示关闭折叠）。
-
-        :param lines: 折叠后显示的行数
-        """
+        """超长代码块折叠后的行数（``0`` 关闭折叠）。"""
         self._code_collapse_lines = max(0, int(lines))
         if self._source:
             self._render()
@@ -2353,10 +2362,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return self._code_collapse_lines
 
     def setLineNumbersEnabled(self, on: bool) -> None:
-        """设置代码块行号显示（默认关闭；复制内容不含行号）。
-
-        :param on: 是否显示行号
-        """
+        """代码块行号显示（默认关闭；复制内容不含行号）。"""
         on = bool(on)
         if on == self._line_numbers_enabled:
             return
@@ -2372,10 +2378,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
         """覆盖代码高亮 token 颜色（``None`` 清除覆盖、回到主题自带配色）。
 
         可用键：``keyword/constant/type/function/class/decorator/builtin/
-        attribute/tag/string/number/comment/operator``（未提供的键保留主题默认；
+        attribute/tag/string/number/comment/operator``（未提供的键保留主题默认，
         覆盖对浅 / 深两套同时生效）。
-
-        :param colors: ``{token 类型: 颜色字符串}``
         """
         overrides = {}
         if colors:
@@ -2392,9 +2396,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
     def setMarkdownTheme(self, name: str) -> bool:
         """切换 markdown 主题（内置 / 已注册），立即重渲染已有内容。
 
-        :param name: :func:`markdownThemes` 里的主题名
-        :returns: 切换成功（或本来就是该主题）返回 ``True``；未知名称返回
-            ``False`` 且不改动当前主题
+        切换成功（或本来就是该主题）返回 ``True``；未知名称返回 ``False`` 且
+        不改动当前主题。
         """
         if name not in _MD_THEMES:
             return False
@@ -2409,10 +2412,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return self._md_theme
 
     def setTableZebra(self, on: bool) -> None:
-        """设置表格斑马纹（数据行奇偶淡底）。
-
-        :param on: 是否启用
-        """
+        """表格斑马纹（数据行奇偶淡底）。"""
         on = bool(on)
         if on == self._table_zebra:
             return
@@ -2425,10 +2425,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return self._table_zebra
 
     def setTableColumnWidths(self, widths: Optional[list] = None) -> None:
-        """按百分比设置 Markdown 表格列宽（``None`` 恢复自动）。
-
-        :param widths: 每列百分比（如 ``[60, 40]``）；
-            数量与表格列数不一致时该表忽略设置
+        """按百分比设置表格列宽（``None`` 恢复自动）；数量与表格列数不一致时
+        该表忽略设置。
         """
         if widths is None:
             self._table_column_widths = None
@@ -2454,18 +2452,10 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return list(self._table_column_widths)
 
     def setBorderRadius(self, r: int) -> None:
-        """设置圆角半径。
-
-        :param r: 圆角半径（像素）
-        """
         self._border_radius = max(0, r)
         self.update()
 
     def borderRadius(self) -> int:
-        """获取圆角半径。
-
-        :returns: 圆角半径（像素）
-        """
         return self._border_radius
 
     # -- 嵌入模式 ----------------------------------------------------------
@@ -2477,9 +2467,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
 
         - 不再自绘背景（由父容器提供底色）；
         - 两个滚动条始终隐藏，滚轮事件交给外层容器；
-        - 文档高度变化（含流式追加）时自动调整控件高度。
-
-        :param on: 是否启用（默认关闭，关闭后恢复原有行为）
+        - 文档高度变化（含流式追加）时自动调整控件高度（默认关闭，关闭后恢复原有行为）。
         """
         on = bool(on)
         if on == self._embedded:
@@ -2506,9 +2494,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return self._embedded
 
     def setEmbeddedExtra(self, extra: int) -> None:
-        """设置嵌入模式高度余量（像素，默认 2）。
-
-        :param extra: 追加到文档高度上的余量，避免取整误差触发内部滚动
+        """嵌入模式高度余量（像素，默认 2）：追加到文档高度上，避免取整误差
+        触发内部滚动。
         """
         self._embedded_extra = max(0, int(extra))
         self._sync_embedded_height()
@@ -2537,19 +2524,47 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return self._embedded_trim_bottom
 
     def _sync_embedded_height(self) -> None:
-        """嵌入模式下按文档高度更新控件高度（幂等，仅变化时应用）。"""
+        """嵌入模式下按文档高度更新控件高度（幂等，仅变化时应用）。
+
+        **测量值不可信时宁可不动**（保留上一次高度）。三道护栏对应同一条慢机器
+        时序：查看器刚创建 / 文档刚被清空时布局还没跑，此时按占位宽度（实测
+        98px，不是 0）折行测出的高度一旦 ``setFixedHeight`` 就被冻结，直到下一
+        次流式 flush 或 80ms 重排才纠正 —— 慢 CPU 上事件循环被分片占满，这个
+        窗口会拉长到肉眼可见（「思考内容与后续分段之间多出数行空白」）。护栏：
+
+        - 视口宽小于真实布局下限（首次布局还没跑）；
+        - 文档 ``textWidth`` 与视口宽不符（还没按当前宽度重排，``document.size()``
+          是旧宽度的测量值）；
+        - ``_source`` 非空却测出 0 高度（``beginStream`` 清空后布局未跑，套用会
+          把控件压成 2px 细缝）。
+        """
         if not self._embedded:
             return
         document = self._text_browser.document()
         margins = self._text_browser.contentsMargins()
+        viewport_width = self._text_browser.viewport().width()
+        text_width = document.textWidth()
         content = document.size().height()
         if self._embedded_trim_bottom:
             content = min(content, self._embedded_content_bottom(document))
+        reliable = (
+            viewport_width > _EMBED_MIN_VALID_WIDTH
+            and (
+                text_width <= 0
+                or abs(text_width - viewport_width) <= _EMBED_WIDTH_SLACK
+            )
+            and (content > 0 or not self._source)
+        )
         height = (
-            int(math.ceil(content + margins.top() + margins.bottom()))
+            int(math.ceil(max(0.0, content) + margins.top() + margins.bottom()))
             + self._embedded_extra
         )
         height = max(1, height)
+        if not reliable:
+            self._debug_height_sync(
+                "skipped(unreliable)", height, viewport_width, text_width, content
+            )
+            return
         if self._embedded_trim_bottom:
             # 裁剪后控件高度小于文档高度，内部出现可滚动范围：必须把滚动位置
             # 归零（否则 QTextBrowser 会贴底显示文末边距、并裁掉首行上边距）。
@@ -2557,8 +2572,37 @@ class ElaMarkdownViewer(ElaThemeWidget):
             if bar.value() != 0:
                 bar.setValue(0)
         if self.minimumHeight() == height and self.maximumHeight() == height:
+            self._debug_height_sync(
+                "unchanged", height, viewport_width, text_width, content
+            )
             return
+        self._debug_height_sync("applied", height, viewport_width, text_width, content)
         self.setFixedHeight(height)
+
+    def _debug_height_sync(
+        self,
+        action: str,
+        height: int,
+        viewport_width: int,
+        text_width: float,
+        content: float,
+    ) -> None:
+        """嵌入高度同步诊断日志（``ELACHAT_DEBUG_LAYOUT=1`` 时输出到 stderr）。"""
+        if not _DEBUG_LAYOUT:
+            return
+        sys.stderr.write(
+            "[ElaMarkdownViewer] height sync %s: height=%d viewportW=%d textW=%.1f"
+            " content=%.1f srcLen=%d streaming=%s\n"
+            % (
+                action,
+                height,
+                viewport_width,
+                text_width,
+                content,
+                len(self._source),
+                self._stream_active,
+            )
+        )
 
     @staticmethod
     def _embedded_content_bottom(document: QTextDocument) -> float:
@@ -2615,9 +2659,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
     ) -> None:
         """完整渲染管线（主文档与流式片段临时文档共用）。
 
-        :param document: 目标文档
-        :param source: Markdown 源文
-        :param resource_doc: 公式图片资源注册文档（缺省为目标文档）
+        ``resource_doc`` 是公式图片的资源注册文档，缺省为目标文档。
         """
         processed, maths = extract_math(source, self._math_mark)
         processed = self._preprocess(processed)
@@ -2644,10 +2686,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
 
     @staticmethod
     def _collect_footnote_defs(lines: list[str]) -> tuple[list, set]:
-        """收集围栏之外的脚注定义行。
-
-        :returns: ``(defs, indices)``：``[(id, text)]`` 与定义行号集合
-        """
+        """收集围栏之外的脚注定义行，返回 ``[(id, text)]`` 与定义行号集合。"""
         defs: list[tuple[str, str]] = []
         indices: set[int] = set()
         seen: set[str] = set()
@@ -2675,7 +2714,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         - 未闭合的块标记 ``pending``（流式期间标签显示"思考中…"）；
         - 内容行原样保留（渲染后按展开状态隐藏或展示）。
 
-        :returns: ``(改写后的行, [(kind, label, pending)])``
+        返回 ``(改写后的行, [(kind, label, pending)])``。
         """
         result: list[str] = []
         folds: list[dict] = []
@@ -2833,6 +2872,9 @@ class ElaMarkdownViewer(ElaThemeWidget):
         def transform(segment: str) -> str:
             if not segment:
                 return segment
+
+            # 空 alt 图片补一个空格，否则 Qt 导入器整张丢弃（见正则注释）
+            segment = _EMPTY_ALT_IMAGE_RE.sub("![ ]", segment)
 
             def replace_ref(match):
                 fid = match.group(1)
@@ -3333,7 +3375,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
             cursor = QTextCursor(document)
             cursor.setPosition(block.position())
             cursor.setPosition(
-                block.position() + max(block.length() - 1, 0),
+                _clamp_pos(document, block.position() + max(block.length() - 1, 0)),
                 QTextCursor.MoveMode.KeepAnchor,
             )
             cursor.mergeCharFormat(anchor_fmt)
@@ -3371,7 +3413,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 cursor = QTextCursor(document)
                 cursor.setPosition(block.position())
                 cursor.setPosition(
-                    block.position() + max(block.length() - 1, 0),
+                    _clamp_pos(document, block.position() + max(block.length() - 1, 0)),
                     QTextCursor.MoveMode.KeepAnchor,
                 )
                 cursor.mergeCharFormat(fmt)
@@ -3472,7 +3514,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 edit = QTextCursor(document)
                 edit.setPosition(fragment.position())
                 edit.setPosition(
-                    fragment.position() + fragment.length(),
+                    _clamp_pos(document, fragment.position() + fragment.length()),
                     QTextCursor.MoveMode.KeepAnchor,
                 )
                 fmt = QTextCharFormat()
@@ -3665,7 +3707,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
             if fragment.isValid() and fragment.text():
                 edit.setPosition(fragment.position())
                 edit.setPosition(
-                    fragment.position() + fragment.length(),
+                    _clamp_pos(document, fragment.position() + fragment.length()),
                     QTextCursor.MoveMode.KeepAnchor,
                 )
                 fmt = QTextCharFormat()
@@ -3688,7 +3730,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
             ):
                 edit.setPosition(fragment.position())
                 edit.setPosition(
-                    fragment.position() + fragment.length(),
+                    _clamp_pos(document, fragment.position() + fragment.length()),
                     QTextCursor.MoveMode.KeepAnchor,
                 )
                 fmt = QTextCharFormat()
@@ -4039,9 +4081,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
     # -- 推理块折叠 --------------------------------------------------------
 
     def setReasoningTag(self, tag: Optional[str]) -> None:
-        """设置推理块标签名（``None`` 关闭折叠，标签内容按原文渲染）。
-
-        :param tag: 标签名（默认 ``"think"``，即 `` ... `` 语法）
+        """推理块标签名（默认 ``"think"``，即 `` ... `` 语法）；``None`` 关闭折叠，
+        标签内容按原文渲染。
         """
         self._reasoning_tag = tag
         if self._source:
@@ -4243,8 +4284,10 @@ class ElaMarkdownViewer(ElaThemeWidget):
         document = self.document()
         for start, end in reversed(ranges):
             cursor = QTextCursor(document)
-            cursor.setPosition(start)
-            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            cursor.setPosition(_clamp_pos(document, start))
+            cursor.setPosition(
+                _clamp_pos(document, end), QTextCursor.MoveMode.KeepAnchor
+            )
             if image is None:
                 self._record_issue("mermaid", code)
                 self._insert_code_card(cursor, "mermaid", code)
@@ -4561,9 +4604,14 @@ class ElaMarkdownViewer(ElaThemeWidget):
         - 链接 → 链接色 + 下划线（TUI 风格；URL 仍走 tooltip）
         - 删除线 → 次级色（保留删除线，比 TUI 的"仅变灰"在 GUI 更清晰）
         - 加粗 → strong 色；斜体 → emphasis 色
-        - 列表项 → list 色（**含项目符号**：Qt 的 bullet / 编号用块内首个
-          片段的前景色绘制，所以染片段即染标记，不用自绘）
-        - 其余正文 → 正文色
+        - 其余正文（含列表项文字）→ 正文色
+
+        **列表项不整块上色**：Qt 5.15 的 ``drawListItem`` 里，bullet（disc /
+        circle / square）用的是 ``context.palette.Text``，字符格式根本染不上；
+        只有数字 / 字母序号读 ``bl.charFormat()``。整块染色只会得到「文字变了
+        色、符号反而还是原色」的反效果 —— 列表文字保持正文色、符号跟随控件
+        前景色；``list`` 语义只留给任务勾选框（``☑ / ☐`` 是文本字形、能染色，
+        见 :meth:`_style_task_markers`）。
 
         标题 / 行内代码等已有显式前景色的片段**不覆盖**（由各自阶段负责）。
         全部改写合并进一个编辑块，逐片段开销只有几个格式读取。
@@ -4573,8 +4621,6 @@ class ElaMarkdownViewer(ElaThemeWidget):
 
         block = document.begin()
         while block.isValid():
-            # 列表项整块取 list 色（bullet / 编号跟随块内首片段前景色）
-            in_list = block.textList() is not None
             iterator = block.begin()
             while not iterator.atEnd():
                 fragment = iterator.fragment()
@@ -4590,14 +4636,14 @@ class ElaMarkdownViewer(ElaThemeWidget):
                             color = self._md_strong_color
                         elif fmt.fontItalic():
                             color = self._md_emphasis_color
-                        elif in_list:
-                            color = self._md_list_color
                         else:
                             color = self._text_color
                     if color is not None:
                         edit_cursor.setPosition(fragment.position())
                         edit_cursor.setPosition(
-                            fragment.position() + fragment.length(),
+                            _clamp_pos(
+                                document, fragment.position() + fragment.length()
+                            ),
                             QTextCursor.MoveMode.KeepAnchor,
                         )
                         char_format = QTextCharFormat()
@@ -4716,7 +4762,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         cursor = QTextCursor(document)
         cursor.setPosition(fragment.position())
         cursor.setPosition(
-            fragment.position() + fragment.length(),
+            _clamp_pos(document, fragment.position() + fragment.length()),
             QTextCursor.MoveMode.KeepAnchor,
         )
         scaled = QTextImageFormat()
@@ -4748,7 +4794,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         cursor = QTextCursor(document)
         cursor.setPosition(fragment.position())
         cursor.setPosition(
-            fragment.position() + fragment.length(),
+            _clamp_pos(document, fragment.position() + fragment.length()),
             QTextCursor.MoveMode.KeepAnchor,
         )
         cursor.removeSelectedText()
@@ -5129,7 +5175,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 if segment_end <= segment_start:
                     continue
                 cursor = QTextCursor(document)
-                cursor.setPosition(block_start + segment_start)
+                cursor.setPosition(_clamp_pos(document, block_start + segment_start))
                 start_rect = browser.cursorRect(cursor)
                 if not start_rect.isValid():
                     continue
@@ -5231,9 +5277,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
             painter.restore()
 
     def _update_code_button_hover(self, pos, pressed: bool = False) -> None:
-        """鼠标移动时显示所在代码块的复制按钮，其余隐藏。
-
-        :param pressed: 事件是否携带按下按键（拖选文本时不弹按钮）
+        """鼠标移动时显示所在代码块的复制按钮，其余隐藏；``pressed`` 为真
+        （拖选文本）时不弹按钮。
         """
         if pressed or QApplication.mouseButtons() != Qt.MouseButton.NoButton:
             # 拖选文本期间不弹出按钮，避免遮挡选择
@@ -5278,9 +5323,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._copy_text(self._code_table_text(table))
         button = self._code_buttons[index]
         button.setIcon(self._code_check_icon())
-        single_shot_on(
-            self, 1000, lambda: self._restore_code_button_icon(button)
-        )
+        single_shot_on(self, 1000, lambda: self._restore_code_button_icon(button))
 
     def _restore_code_button_icon(self, button: QToolButton) -> None:
         try:
@@ -5291,6 +5334,16 @@ class ElaMarkdownViewer(ElaThemeWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802 (Qt 命名)
         super().resizeEvent(event)
+        if self._embedded:
+            # 宽度变化后**同步**校正一次嵌入高度：不能只依赖 80ms 去抖 ——
+            # 慢机器上按旧宽度冻住的高度会一直留到下一次流式 flush / 重排
+            # （表现为「思考内容与后续分段之间多出数行空白」）。先激活内层
+            # 布局让浏览器落到新尺寸、文档按新宽度重排，再测量；测不准时
+            # _sync_embedded_height 会自己跳过并保留旧值。
+            layout = self.layout()
+            if layout is not None:
+                layout.activate()
+            self._sync_embedded_height()
         self._schedule_layout_refresh()
 
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:

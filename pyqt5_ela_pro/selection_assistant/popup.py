@@ -24,7 +24,7 @@ from PyQt5ElaWidgetTools import ElaIconButton, ElaThemeType, eTheme
 
 from .._styles import SHADOW_MARGIN, paintOverlayShadow
 from ..ela_button import ElaButton
-from ..tooltips import ElaToolTipPosition, set_tooltip
+from ..tooltips import ElaToolTipPositionType, set_tooltip
 from ..widget_base import ElaThemeWidget
 from ..menu_item import ElaMenuItem
 
@@ -195,7 +195,7 @@ class ElaSelectionPopup(ElaThemeWidget):
             )
         # 只使用库内 ElaToolTip（不设置 setToolTip，避免任何原生提示框），
         # 位置放在动作条下方，避免遮挡上方选中的文字
-        set_tooltip(button, tooltip, ElaToolTipPosition.Bottom)
+        set_tooltip(button, tooltip, ElaToolTipPositionType.Bottom)
         button.clicked.connect(
             lambda _checked=False, actionId=action.id: self._on_clicked(actionId)
         )

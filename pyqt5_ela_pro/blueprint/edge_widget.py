@@ -22,7 +22,7 @@ from PyQt5.QtCore import QObject, QPointF, QRectF, Qt
 from PyQt5.QtGui import QColor, QPainter, QPainterPath, QPen
 
 from ._tokens import T
-from .model import ElaPinDirection
+from .model import ElaPinDirectionType
 from .registry import pin_color
 
 __all__ = ["bezier_path", "ElaEdgeWidget", "ElaTempWire"]
@@ -127,13 +127,13 @@ class ElaEdgeWidget(QObject):
     def source_pos(self) -> QPointF:
         """输出端引脚的场景坐标（取不到时回退节点左上角）。"""
         return self.canvas.pin_scene_pos(
-            self.edge.from_node, self.edge.from_pin, ElaPinDirection.Output
+            self.edge.from_node, self.edge.from_pin, ElaPinDirectionType.Output
         )
 
     def target_pos(self) -> QPointF:
         """输入端引脚的场景坐标。"""
         return self.canvas.pin_scene_pos(
-            self.edge.to_node, self.edge.to_pin, ElaPinDirection.Input
+            self.edge.to_node, self.edge.to_pin, ElaPinDirectionType.Input
         )
 
     def _ensure_path(self) -> None:
@@ -190,7 +190,7 @@ class ElaEdgeWidget(QObject):
         if self._base_color is None:
             node = self.canvas.graph.node(self.edge.from_node)
             pin = (
-                node.pin(self.edge.from_pin, ElaPinDirection.Output)
+                node.pin(self.edge.from_pin, ElaPinDirectionType.Output)
                 if node is not None
                 else None
             )
@@ -253,13 +253,7 @@ class ElaEdgeWidget(QObject):
 
 
 class ElaTempWire(QObject):
-    """引脚拖拽中的临时连线。
-
-    :param start: 起始引脚的场景坐标
-    :param data_type: 起始引脚数据类型（决定线条颜色）
-
-    ``magnet`` 置真时线条加粗高亮（磁吸到兼容引脚的反馈）。
-    """
+    """引脚拖拽中的临时连线；``magnet`` 置真 = 磁吸到兼容引脚的反馈（加粗实线）。"""
 
     def __init__(self, start: QPointF, data_type: str = "any", parent=None):
         super().__init__(parent)

@@ -59,7 +59,8 @@ class TestElaSplitButtonInit:
         assert btn.elaIcon() == icon
 
     def test_fixed_height(self, btn):
-        assert btn.height() == 35
+        """与按钮族一致（ElaPushButton V3.0 / ElaButton middle 都是 30）。"""
+        assert btn.height() == 30
 
     def test_mouse_tracking_enabled(self, btn):
         assert btn.hasMouseTracking() is True

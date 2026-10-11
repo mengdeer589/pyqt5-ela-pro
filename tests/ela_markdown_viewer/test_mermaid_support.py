@@ -10,6 +10,7 @@ import threading
 import time
 
 import pytest
+from _qthelpers import wait_for_clipboard as _wait_for_clipboard
 from _qthelpers import wait_until as _wait_until
 from PyQt5.QtGui import QColor, QImage, QTextCursor, QTextTable
 
@@ -212,6 +213,61 @@ class TestMermaidRendererUnit:
         assert renderer.lookup("C", "light") == (False, None)
         renderer.deleteLater()
 
+    def test_inflight_result_of_old_backend_is_discarded(self, qapp):
+        """在途渲染的结果不得回填缓存、也不得喂给新请求的回调。
+
+        ``setRenderer`` / ``setThemeVariables`` 都走 ``clearCache``，但已提交的
+        ``_RenderTask`` 照跑。没有代次判定时它回来会写缓存、还会 ``pop`` 掉同一
+        key 上**新**请求的回调 —— 新请求拿到旧后端的图，它自己的真图永远送不到。
+        """
+        gate = threading.Event()
+        old_calls = []
+        new_calls = []
+
+        def _tagged(width: int, color: str) -> QImage:
+            image = QImage(width, 100, QImage.Format_ARGB32)
+            image.fill(QColor(color))
+            return image
+
+        def slow_old(code, theme):
+            old_calls.append(theme)
+            gate.wait(2.0)
+            return _tagged(111, "gold")  # 旧后端：宽度 111
+
+        def fast_new(code, theme):
+            new_calls.append(theme)
+            return _tagged(222, "steelblue")  # 新后端：宽度 222
+
+        renderer = ElaMermaidRenderer()
+        renderer.setRenderer(slow_old)
+        first = []
+        renderer.request("D", "light", first.append)  # 旧后端的在途任务
+        # 确保旧任务**已经进了**旧后端（_render_function 是在工作线程里读的，
+        # 换后端太早的话它会读到新的）
+        assert _wait_until(qapp, lambda: bool(old_calls))
+
+        # 换后端（= clearCache），再对同一 (code, theme) 发起新请求
+        renderer.setRenderer(fast_new)
+        assert first == [None], "换后端时在途回调以 None 交付"
+        second = []
+        renderer.request("D", "light", second.append)
+
+        # 旧任务此刻才回来：必须被整条丢弃
+        gate.set()
+        assert _wait_until(qapp, lambda: bool(new_calls))
+        assert _wait_until(qapp, lambda: bool(second))
+        for _ in range(20):  # 给旧任务一点时间回填（若有 bug，这里会写进去）
+            qapp.processEvents()
+            _wait_until(qapp, lambda: False, timeout_ms=5)
+
+        assert second and second[0] is not None, "新请求只应收到新后端的结果"
+        assert second[0].width() == 222, "收到的是旧后端的图（迟到结果没被丢弃）"
+        assert new_calls == ["light"]
+        known, image = renderer.lookup("D", "light")
+        assert known and image is not None
+        assert image.width() == 222, "缓存里必须是新后端渲的图"
+        renderer.deleteLater()
+
 
 class TestMermaidViewerIntegration:
     def test_placeholder_then_image(self, qapp):
@@ -270,7 +326,12 @@ class TestMermaidViewerIntegration:
         actions["复制 Mermaid 源码"].trigger()
         qapp.processEvents()
         assert received == [source]
-        assert qapp.clipboard().text() == source
+        assert (
+            _wait_for_clipboard(
+                qapp, source, lambda: actions["复制 Mermaid 源码"].trigger()
+            )
+            == source
+        )
         menu.deleteLater()
         v.close()
         v.deleteLater()

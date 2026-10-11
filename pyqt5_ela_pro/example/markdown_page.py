@@ -649,10 +649,8 @@ class MarkdownPage(ExamplePage):
     ):
         """给查看器叠加交互工具条：搜索高亮、缩放、复制全文、导出 PDF。
 
-        :param main_layout: 页面主布局
-        :param viewer: ElaMarkdownViewer 实例
-        :param status_label: 链接/操作状态文本（``None`` 时自动创建并加入布局）
-        :param confirm_external: 外链是否二次确认后打开
+        ``status_label`` 为 ``None`` 时自动创建并加入布局；``confirm_external``
+        决定外链是否二次确认后打开。
         """
         search = ElaLineEdit(self)
         search.setPlaceholderText("搜索并高亮：输入关键词")

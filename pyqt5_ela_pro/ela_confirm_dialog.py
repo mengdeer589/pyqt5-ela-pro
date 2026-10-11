@@ -263,43 +263,27 @@ class ElaConfirmDialog(_ThemeAwareMixin, QDialog):
     # ── Public API ────────────────────────────────────────
 
     def setTitle(self, title: str) -> None:
-        """设置对话框标题文字。
-
-        :param title: 标题文字
-        """
         self._title = title
         self.update()
 
     def title(self) -> str:
-        """获取对话框标题文字。
-
-        :returns: 标题文字
-        """
         return self._title
 
     def setContent(self, content: str) -> None:
-        """设置对话框正文内容（隐藏时按换行后的高度重算窗口大小）。
-
-        :param content: 正文文字
-        """
+        """正文；隐藏时按换行后的高度重算窗口大小。"""
         self._content = content
         self._refresh_size()
         self.update()
 
     def content(self) -> str:
-        """获取对话框正文内容。
-
-        :returns: 正文文字
-        """
         return self._content
 
     def sizeHint(self) -> QSize:
         """按**换行后的正文高度**给出窗口大小。
 
-        原先没有覆写：类调用 ``show()`` 永远只有最小尺寸 288×158，正文区固定
-        50px —— 8 行文案实测需要 144px，**一大半被裁掉**（用户看不到自己在
-        确认什么）。正文超过 ``_CONTENT_MAX_H`` 的部分仍裁切（无边框弹框
-        没有滚动条，400px 够常规确认文案）。
+        没有它，类调用 ``show()`` 只有最小尺寸 288×158、正文区固定 50px
+        —— 8 行文案实测需要 144px，**一大半被裁掉**（用户看不到自己在确认什么）。
+        超过 ``_CONTENT_MAX_H`` 的部分仍裁切（无边框弹框没有滚动条）。
         """
         sm = self._shadow_margin
         font = self.font()
@@ -320,33 +304,17 @@ class ElaConfirmDialog(_ThemeAwareMixin, QDialog):
             self.adjustSize()
 
     def setBorderRadius(self, radius: int) -> None:
-        """设置窗口圆角半径。
-
-        :param radius: 圆角半径（像素）
-        """
         self._border_radius = radius
         self.update()
 
     def borderRadius(self) -> int:
-        """获取窗口圆角半径。
-
-        :returns: 圆角半径（像素）
-        """
         return self._border_radius
 
     def setPosition(self, position: str) -> None:
-        """设置弹窗位置，``"bottom"`` 在父组件下方，``"top"`` 在父组件上方。
-
-        :param position: ``"bottom"`` 或 ``"top"``
-        """
         self._position = position
         self.update()
 
     def position(self) -> str:
-        """获取弹窗位置。
-
-        :returns: ``"bottom"`` 或 ``"top"``
-        """
         return self._position
 
     def show(
@@ -357,15 +325,9 @@ class ElaConfirmDialog(_ThemeAwareMixin, QDialog):
     ) -> bool:
         """模态显示确认对话框（类调用）或普通显示（实例调用）。
 
-        类调用：``ElaConfirmDialog.show(parent, title, message, position)``
-        返回 ``True`` 表示点击了确认，``False`` 表示取消。
-        实例调用：``dlg.show()`` 显示窗口，返回 ``False``（与类调用统一成
-        布尔语义，便于 ``if dlg.show():`` 这类写法）。
-
-        :param title: 标题
-        :param message: 正文内容
-        :param position: 弹窗位置，``"bottom"`` 在下方 / ``"top"`` 在上方
-        :return: 类调用时返回是否确认；实例调用时返回 ``False``
+        类调用 ``ElaConfirmDialog.show(parent, title, message, position)`` 返回
+        ``True`` = 点了确认；实例调用 ``dlg.show()`` 返回 ``False``（两种调用统一
+        成布尔语义，便于 ``if dlg.show():``）。
         """
         if isinstance(self, ElaConfirmDialog):
             super().show()
@@ -434,9 +396,8 @@ class ElaConfirmDialog(_ThemeAwareMixin, QDialog):
     def reject(self) -> None:
         """取消（按钮 / ``Escape`` / 程序化关闭都走这里）。
 
-        ``cancelled`` 与 ``confirmed`` 对称（都无条件发）—— 原先只在
-        ``_onCancel`` 里发，Escape 关掉弹框时宿主收不到信号（类调用路径
-        不受影响，返回值仍是 ``False``）。
+        ``cancelled`` 与 ``confirmed`` 对称且无条件发 —— 原先只在 ``_onCancel``
+        里发，Escape 关掉弹框时宿主收不到信号。
         """
         self.cancelled.emit()
         super().reject()
@@ -485,7 +446,6 @@ class ElaConfirmDialog(_ThemeAwareMixin, QDialog):
             title_text,
         )
 
-        # Content
         content_font = self.font()
         content_font.setPixelSize(self._content_pixel_size)
         content_font.setWeight(QFont.Weight.Normal)
@@ -500,7 +460,6 @@ class ElaConfirmDialog(_ThemeAwareMixin, QDialog):
                 self._content,
             )
 
-        # Separator line above buttons
         painter.setPen(
             QPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBorder), 1)
         )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PyQt5.QtCore import QCoreApplication, QEvent
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import QWidget
 
 from pyqt5_ela_pro.dialog_base import ElaDialogBase
@@ -14,6 +15,42 @@ class TestElaDialogBase:
     def test_dialog_base_module_imports(self):
         """Test that dialog_base module can be imported."""
         assert ElaDialogBase is not None
+
+    def test_import_does_not_mutate_global_theme(self, qapp):
+        """import 本库不得改宿主的全局主题槽位。
+
+        浅色 ``DialogBase`` 的调整原先写在模块级，等于「import pyqt5_ela_pro 就
+        覆盖宿主配色」，而且没有 NOTIFY 信号、宿主还原不回去（``resetAccentColor``
+        只管强调色）。现在写在 ``__init__`` 里，作用域限于用了本组件的对话框。
+        """
+        from PyQt5ElaWidgetTools import ElaThemeType, eTheme
+
+        before = QColor(eTheme.getThemeColor(ElaThemeType.ThemeMode.Light,
+                                             ElaThemeType.ThemeColor.DialogBase))
+        import importlib
+
+        importlib.reload(importlib.import_module("pyqt5_ela_pro.dialog_base"))
+        after = QColor(eTheme.getThemeColor(ElaThemeType.ThemeMode.Light,
+                                            ElaThemeType.ThemeColor.DialogBase))
+        assert after.name() == before.name()
+
+    def test_instance_sets_light_dialog_base(self, qapp):
+        """构造本组件的对话框时，浅色 DialogBase 应被调到本组件要的浅灰白。"""
+        from PyQt5ElaWidgetTools import ElaThemeType, eTheme
+
+        parent = QWidget()
+        QColor(eTheme.setThemeColor(
+            ElaThemeType.ThemeMode.Light,
+            ElaThemeType.ThemeColor.DialogBase,
+            QColor("#123456"),
+        ))
+        dlg = ElaDialogBase(parent=parent)
+        color = eTheme.getThemeColor(
+            ElaThemeType.ThemeMode.Light, ElaThemeType.ThemeColor.DialogBase
+        )
+        assert QColor(color).name() == "#fafafa"
+        dlg.deleteLater()
+        parent.deleteLater()
 
     def test_create_with_default_buttons(self, qapp):
         parent = QWidget()

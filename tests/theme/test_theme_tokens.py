@@ -27,9 +27,11 @@ _D = ElaThemeType.ThemeMode.Dark
 _TC = ElaThemeType.ThemeColor
 
 #: 上游出厂值（用于验证派生能还原）。改动 eTheme 上游默认值时这里要一起改。
+#: 暗色 primary 在 V3.0 由 `#4cc2ff` 改为 `#4abcf7`（hover / press 未变），
+#: 暗色派生步长已按新基点重新反解（见 `_theme._ACCENT_STEPS`）。
 _FACTORY = {
     _L: {"primary": "#0067c0", "hover": "#1975c5", "press": "#3183ca"},
-    _D: {"primary": "#4cc2ff", "hover": "#47b1e8", "press": "#42a1d2"},
+    _D: {"primary": "#4abcf7", "hover": "#47b1e8", "press": "#42a1d2"},
 }
 
 
@@ -150,44 +152,69 @@ class TestAccentDerivation:
 class TestStatusColor:
     def test_error_uses_upstream_native_token(self):
         native = QColor(eTheme.getThemeColor(_L, _TC.StatusDanger)).name()
-        assert T.statusColor(_L, T.StatusRole.Error).name() == native
+        assert T.statusColor(_L, T.ElaStatusRoleType.Error).name() == native
 
     def test_neutral_falls_back_to_muted_text(self):
-        assert T.statusColor(_L, T.StatusRole.Neutral).name() == T.textMuted(_L).name()
+        assert T.statusColor(_L, T.ElaStatusRoleType.Neutral).name() == T.textMuted(_L).name()
 
     def test_warning_and_success_keep_their_own_hues(self):
         """状态色的语义来自**色相**，不能跟着强调色走。
 
         强调色是蓝时若从它派生，Success 会变成一片深蓝 —— 语义完全消失。
         """
-        warn = T.statusColor(_L, T.StatusRole.Warning)
-        succ = T.statusColor(_L, T.StatusRole.Success)
+        warn = T.statusColor(_L, T.ElaStatusRoleType.Warning)
+        succ = T.statusColor(_L, T.ElaStatusRoleType.Success)
         assert warn != succ
         # 警告偏琥珀（hue ~40°）、成功偏绿（hue ~120°）
         assert 0.03 < warn.getHslF()[0] < 0.17
         assert 0.20 < succ.getHslF()[0] < 0.45
 
     def test_status_unaffected_by_accent_change(self):
-        before = [T.statusColor(_L, r).name() for r in T.StatusRole]
+        before = [T.statusColor(_L, r).name() for r in T.ElaStatusRoleType]
         T.setAccentColor(QColor("#c0392b"))
-        after = [T.statusColor(_L, r).name() for r in T.StatusRole]
+        after = [T.statusColor(_L, r).name() for r in T.ElaStatusRoleType]
         assert before == after
 
     def test_status_differs_between_modes(self):
-        for role in (T.StatusRole.Warning, T.StatusRole.Success):
+        for role in (T.ElaStatusRoleType.Warning, T.ElaStatusRoleType.Success):
             assert T.statusColor(_L, role).name() != T.statusColor(_D, role).name()
 
     def test_illegal_role_falls_back_to_neutral(self):
         assert (
             T.statusColor(_L, 99).name()
-            == T.statusColor(_L, T.StatusRole.Neutral).name()
+            == T.statusColor(_L, T.ElaStatusRoleType.Neutral).name()
         )
 
     def test_accepts_bare_int(self):
         assert (
-            T.statusColor(_L, int(T.StatusRole.Error)).name()
-            == T.statusColor(_L, T.StatusRole.Error).name()
+            T.statusColor(_L, int(T.ElaStatusRoleType.Error)).name()
+            == T.statusColor(_L, T.ElaStatusRoleType.Error).name()
         )
+
+
+class TestNoneMeansCurrentMode:
+    """``mode=None`` 是「当前模式」，不是「浅色」（回归：暗色下取浅色档会给反答案）。"""
+
+    @pytest.fixture
+    def dark(self):
+        previous = eTheme.getThemeMode()
+        eTheme.setThemeMode(ElaThemeType.ThemeMode.Dark)
+        yield
+        eTheme.setThemeMode(previous)
+
+    @pytest.mark.parametrize(
+        "role",
+        [T.ElaStatusRoleType.Warning, T.ElaStatusRoleType.Success],
+        ids=["warning", "success"],
+    )
+    def test_status_color_follows_current_mode(self, dark, role):
+        assert T.statusColor(None, role).name() == T.statusColor(_D, role).name()
+        assert T.statusColor(None, role).name() != T.statusColor(_L, role).name()
+
+    def test_text_on_accent_follows_current_mode(self, dark):
+        """暗色强调色是亮青 —— 按浅色档算会给出白字，实际该给黑字。"""
+        assert T.textOnAccent().name() == T.textOnAccent(T.accent(_D)).name()
+        assert T.textOnAccent().name() != T.textOnAccent(T.accent(_L)).name()
 
 
 class TestPaletteAndForeground:
@@ -267,9 +294,9 @@ class TestShadowHelpers:
 
     def test_toast_shadow_border_uses_shared_constant(self, qapp):
         from pyqt5_ela_pro._styles import SHADOW_MARGIN
-        from pyqt5_ela_pro.ela_toast import ElaToast, _ToastType
+        from pyqt5_ela_pro.ela_toast import ElaToast, ElaToastType
 
-        toast = ElaToast(_ToastType.Info, "x", 1000)
+        toast = ElaToast(ElaToastType.Info, "x", 1000)
         try:
             assert toast._shadow_border == SHADOW_MARGIN
         finally:

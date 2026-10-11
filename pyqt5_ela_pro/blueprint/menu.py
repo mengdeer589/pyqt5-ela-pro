@@ -29,7 +29,7 @@ from PyQt5ElaWidgetTools import (
 )
 
 from ._tokens import theme_changed_slot
-from .model import ElaPinDirection, types_compatible
+from .model import ElaPinDirectionType, types_compatible
 from .registry import ElaNodeRegistry
 
 __all__ = ["ElaNodeCreationMenu", "ElaNodeContextMenu"]
@@ -89,7 +89,7 @@ class ElaNodeCreationMenu(QDialog):
     拖线到空白松开的场景可传 ``compatible`` 过滤：
 
         # 只列出拥有「Input 且兼容 image」引脚的节点类型
-        menu.popup_at(pos, compatible=(ElaPinDirection.Input, "image"))
+        menu.popup_at(pos, compatible=(ElaPinDirectionType.Input, "image"))
 
     :param parent: 父控件
     :param owner: 命名空间标识（缺省 None 列全部类型）；给定时只列出
@@ -181,7 +181,7 @@ class ElaNodeCreationMenu(QDialog):
     def popup_at(self, global_pos: QPoint, compatible=None) -> None:
         """在全局坐标弹出菜单，搜索框聚焦。
 
-        :param compatible: 可选 ``(ElaPinDirection, data_type)``——只列出
+        :param compatible: 可选 ``(ElaPinDirectionType, data_type)``——只列出
             拥有该方向且类型兼容引脚的节点类型（拖线建节点时传入）。
         """
         self._compatible = compatible
@@ -198,10 +198,10 @@ class ElaNodeCreationMenu(QDialog):
         if self._compatible is None:
             return True
         direction, data_type = self._compatible
-        pins = spec.inputs if direction is ElaPinDirection.Input else spec.outputs
+        pins = spec.inputs if direction is ElaPinDirectionType.Input else spec.outputs
         for pd in pins:
             pd_type = pd.get("data_type", "any")
-            if direction is ElaPinDirection.Input:
+            if direction is ElaPinDirectionType.Input:
                 if types_compatible(data_type, pd_type):
                     return True
             else:

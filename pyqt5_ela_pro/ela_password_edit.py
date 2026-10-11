@@ -49,10 +49,6 @@ class ElaPasswordEdit(ElaLineEdit):
         super().deleteLater()
 
     def set_is_password_visible(self, visible: bool) -> None:
-        """设置密码是否可见。
-
-        :param visible: 是否显示明文密码
-        """
         self._is_password_visible = visible
         self.setEchoMode(
             QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password
@@ -60,10 +56,6 @@ class ElaPasswordEdit(ElaLineEdit):
         self._update_eye_icon()
 
     def is_password_visible(self) -> bool:
-        """当前密码是否可见。
-
-        :returns: 明文显示状态
-        """
         return self._is_password_visible
 
     def _on_toggle_visibility(self, _checked: bool = False) -> None:

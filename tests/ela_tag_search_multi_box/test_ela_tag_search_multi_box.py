@@ -29,8 +29,9 @@ class TestElaTagSearchMultiBoxInit:
     def test_initialization_with_title(self, make):
         assert make(ElaTagSearchMultiBox, title="语言")._title_text == "语言"
 
-    def test_fixed_height_is_38(self, box):
-        assert box.height() == 38
+    def test_fixed_height_is_30(self, box):
+        """与上游 ElaComboBox V3.0（35→30）的触发框同高。"""
+        assert box.height() == 30
 
     def test_max_visible_items_is_10(self, box):
         assert box.maxVisibleItems() == 10
@@ -80,6 +81,29 @@ class TestElaTagSearchMultiBoxHelpers:
     def test_pre_init_popup_runs_safely(self, box):
         """_pre_init_popup 必须在未创建弹层时也不报错。"""
         _pre_init_popup(box)
+
+
+class TestElaTagSearchMultiBoxSelection:
+    """``setCurrentSelection`` 与 :class:`ElaTagMultiBox` 同款：吃 str 或 list。"""
+
+    @pytest.fixture
+    def filled(self, make):
+        box = make(ElaTagSearchMultiBox, title="语言")
+        box.addItems(["Python", "C++", "北京"])
+        return box
+
+    def test_single_string_is_one_selection(self, filled):
+        filled.setCurrentSelection("Python")
+        assert filled.currentSelection() == ["Python"]
+
+    def test_list_selection(self, filled):
+        filled.setCurrentSelection(["Python", "北京"])
+        assert sorted(filled.currentSelection()) == sorted(["Python", "北京"])
+
+    def test_string_is_not_split_into_characters(self, filled):
+        """回归：基类 ``list(selection)`` 会把 "Python" 拆成 6 个字母。"""
+        filled.setCurrentSelection("C++")
+        assert filled.currentSelection() == ["C++"]
 
 
 class TestElaTagSearchMultiBoxPinyinSearch:

@@ -74,10 +74,10 @@ from ._theme import (
 )
 from .widget_base import ElaThemeWidget
 
-__all__ = ["ElaSelectorBar", "SelectorBarItem", "SelectorBarOverflow"]
+__all__ = ["ElaSelectorBar", "SelectorBarItem", "ElaSelectorBarOverflowType"]
 
 
-class SelectorBarOverflow(IntEnum):
+class ElaSelectorBarOverflowType(IntEnum):
     """溢出时的交互方式。"""
 
     ScrollButtons = 0
@@ -89,10 +89,8 @@ class SelectorBarOverflow(IntEnum):
 
 @dataclass
 class SelectorBarItem:
-    """一个分段。
-
-    :param data: 任意负载（宿主用），本控件不解释它。
-    :param selected: **派生镜像** —— 由 ``setSelectedIndex`` 统一写，外部不要直接改。
+    """一个分段；``data`` 是任意负载（本控件不解释），``selected`` 是由
+    ``setSelectedIndex`` 统一写的**派生镜像**，外部不要直接改。
     """
 
     text: str = ""
@@ -126,7 +124,7 @@ class _Metrics:
     itemFontPx = 14
 
 
-class _Hit(IntEnum):
+class ElaHitType(IntEnum):
     """命中目标。``None_`` 也涵盖「命中了但不可交互」（禁用项）。"""
 
     None_ = 0
@@ -158,7 +156,7 @@ class ElaSelectorBar(ElaThemeWidget):
         super().__init__(parent)
         self._items: List[SelectorBarItem] = []
         self._selected_index = -1
-        self._overflow_behavior = SelectorBarOverflow.ScrollButtons
+        self._overflow_behavior = ElaSelectorBarOverflowType.ScrollButtons
         self._item_font_px = _Metrics.itemFontPx
 
         # 懒布局：几何按需重算，重算前标脏。
@@ -177,9 +175,9 @@ class ElaSelectorBar(ElaThemeWidget):
         # 只连一次（见 _animateIndicator 的说明）
         self._indicator_anim.valueChanged.connect(self._onIndicatorValue)
 
-        self._pressed = _Hit.None_
+        self._pressed = ElaHitType.None_
         self._pressed_index = -1
-        self._hovered = _Hit.None_
+        self._hovered = ElaHitType.None_
         self._hovered_index = -1
 
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
@@ -407,11 +405,11 @@ class ElaSelectorBar(ElaThemeWidget):
 
     # -- 溢出 ---------------------------------------------------------------
 
-    def overflowBehavior(self) -> SelectorBarOverflow:  # noqa: N802
+    def overflowBehavior(self) -> ElaSelectorBarOverflowType:  # noqa: N802
         return self._overflow_behavior
 
     def setOverflowBehavior(self, behavior) -> None:  # noqa: N802
-        value = SelectorBarOverflow(behavior)
+        value = ElaSelectorBarOverflowType(behavior)
         if value == self._overflow_behavior:
             return
         self._overflow_behavior = value
@@ -603,7 +601,7 @@ class ElaSelectorBar(ElaThemeWidget):
 
         button = _Metrics.overflowButtonWidth
         if self._overflown:
-            if self._overflow_behavior == SelectorBarOverflow.ScrollButtons:
+            if self._overflow_behavior == ElaSelectorBarOverflowType.ScrollButtons:
                 self._overflow_back_rect = QRect(
                     0, top, button, _Metrics.itemVisualHeight
                 )
@@ -642,7 +640,7 @@ class ElaSelectorBar(ElaThemeWidget):
             self._indicator_rect = mirror(self._indicator_rect)
 
     def _overflowReserve(self) -> float:  # noqa: N802
-        if self._overflow_behavior == SelectorBarOverflow.ScrollButtons:
+        if self._overflow_behavior == ElaSelectorBarOverflowType.ScrollButtons:
             return float(_Metrics.overflowButtonWidth * 2)
         return float(_Metrics.overflowButtonWidth)
 
@@ -777,23 +775,23 @@ class ElaSelectorBar(ElaThemeWidget):
 
     # -- 命中测试 -----------------------------------------------------------
     def _hitTest(self, pos) -> tuple:
-        """返回 ``(_Hit, index)``。不可交互的命中一律归一化成 ``(_Hit.None_, -1)``。"""
+        """返回 ``(ElaHitType, index)``。不可交互的命中一律归一化成 ``(ElaHitType.None_, -1)``。"""
         self._ensureLayout()
         point = QRectF(pos.x(), pos.y(), 1, 1)
         if self._overflown:
-            if self._overflow_behavior == SelectorBarOverflow.ScrollButtons:
+            if self._overflow_behavior == ElaSelectorBarOverflowType.ScrollButtons:
                 if self._overflow_back_rect.contains(point.toRect()):
-                    return _Hit.OverflowBack, -1
+                    return ElaHitType.OverflowBack, -1
                 if self._overflow_forward_rect.contains(point.toRect()):
-                    return _Hit.OverflowForward, -1
+                    return ElaHitType.OverflowForward, -1
             elif self._overflow_more_rect.contains(point.toRect()):
-                return _Hit.OverflowMore, -1
+                return ElaHitType.OverflowMore, -1
         for index in self._visible:
             if self._item_rects[index].contains(point.toRect()):
                 if self._selectableIndex(index):
-                    return _Hit.Item, index
-                return _Hit.None_, -1
-        return _Hit.None_, -1
+                    return ElaHitType.Item, index
+                return ElaHitType.None_, -1
+        return ElaHitType.None_, -1
 
     # -- 事件 ---------------------------------------------------------------
 
@@ -810,25 +808,25 @@ class ElaSelectorBar(ElaThemeWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         hit, index = self._hitTest(event.pos())
         pressed, pressed_index = self._pressed, self._pressed_index
-        self._pressed, self._pressed_index = _Hit.None_, -1
+        self._pressed, self._pressed_index = ElaHitType.None_, -1
         self.update()
         # 按下与抬起必须是**同一个目标**才激活 —— 按下后拖走 = 取消。
-        if hit is not pressed or (hit is _Hit.Item and index != pressed_index):
+        if hit is not pressed or (hit is ElaHitType.Item and index != pressed_index):
             return
-        if hit is _Hit.OverflowBack:
+        if hit is ElaHitType.OverflowBack:
             self.scrollOverflow(-1)
-        elif hit is _Hit.OverflowForward:
+        elif hit is ElaHitType.OverflowForward:
             self.scrollOverflow(1)
-        elif hit is _Hit.OverflowMore:
+        elif hit is ElaHitType.OverflowMore:
             hidden = self.hiddenItemIndexes()
             if hidden:
                 self.overflowActivated.emit(list(hidden))
-        elif hit is _Hit.Item:
+        elif hit is ElaHitType.Item:
             self._activateIndex(index)
 
     def leaveEvent(self, event) -> None:  # noqa: N802
-        self._hovered, self._hovered_index = _Hit.None_, -1
-        self._pressed, self._pressed_index = _Hit.None_, -1
+        self._hovered, self._hovered_index = ElaHitType.None_, -1
+        self._pressed, self._pressed_index = ElaHitType.None_, -1
         self.update()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
@@ -925,7 +923,7 @@ class ElaSelectorBar(ElaThemeWidget):
         rect = self._item_rects[index]
         if rect.isEmpty():
             return
-        if self._hovered is _Hit.Item and self._hovered_index == index:
+        if self._hovered is ElaHitType.Item and self._hovered_index == index:
             # 悬浮底用一层极淡的强调色（8%），不用 QSS。
             painter.fillRect(rect, blend(surfaceRaised(mode), accent(mode), 0.08))
 
@@ -961,7 +959,7 @@ class ElaSelectorBar(ElaThemeWidget):
         painter.setFont(self._itemFont())
         metrics = painter.fontMetrics()
         rtl = self.layoutDirection() == Qt.LayoutDirection.RightToLeft
-        if self._overflow_behavior == SelectorBarOverflow.ScrollButtons:
+        if self._overflow_behavior == ElaSelectorBarOverflowType.ScrollButtons:
             # 到头了**置灰而不是隐藏** —— 按钮位置恒定，控件宽度不随状态跳动。
             self._paintChevron(
                 painter, self._overflow_back_rect, not self.canScrollBack(), rtl

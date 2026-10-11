@@ -255,9 +255,7 @@ class InputSelectPage(ExamplePage):
         roller_layout = QHBoxLayout()
         roller_layout.setSpacing(15)
         roller = ElaRoller(self)
-        roller.setProperty(
-            "pItemList", ["选项 A", "选项 B", "选项 C", "选项 D", "选项 E", "选项 F"]
-        )
+        roller.setItemList(["选项 A", "选项 B", "选项 C", "选项 D", "选项 E", "选项 F"])
         roller.setCurrentIndex(2)
         roller.setFixedWidth(140)
         roller.setMaxVisibleItems(5)

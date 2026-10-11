@@ -32,7 +32,7 @@ from PyQt5.QtWidgets import QFrame, QVBoxLayout, QWidget
 from .._motion import start_idle_loop
 from ._spinner import SpinnerArc
 from ._tokens import T, theme_changed_slot
-from .model import ElaBlueprintNode, ElaPinDirection
+from .model import ElaBlueprintNode, ElaPinDirectionType
 from .registry import ElaNodeRegistry, pin_color
 
 logger = logging.getLogger(__name__)
@@ -325,11 +325,11 @@ class ElaNodeWidget(QFrame):
         # 引脚逻辑坐标缓存 + 布局版本
         self._pin_offsets = {}
         for i, pin in enumerate(self.node.inputs):
-            self._pin_offsets[(ElaPinDirection.Input, pin.id)] = QPointF(
+            self._pin_offsets[(ElaPinDirectionType.Input, pin.id)] = QPointF(
                 0.0, TITLE_H + i * PIN_ROW_H + PIN_ROW_H / 2
             )
         for i, pin in enumerate(self.node.outputs):
-            self._pin_offsets[(ElaPinDirection.Output, pin.id)] = QPointF(
+            self._pin_offsets[(ElaPinDirectionType.Output, pin.id)] = QPointF(
                 w, TITLE_H + i * PIN_ROW_H + PIN_ROW_H / 2
             )
         self._layout_rev += 1
@@ -376,7 +376,7 @@ class ElaNodeWidget(QFrame):
             return QPointF(c)
         # 回退：布局缓存尚未建立时的直接计算
         w = self.node.size.width()
-        if pin.direction is ElaPinDirection.Input:
+        if pin.direction is ElaPinDirectionType.Input:
             idx = self.node.inputs.index(pin)
             return QPointF(0.0, TITLE_H + idx * PIN_ROW_H + PIN_ROW_H / 2)
         idx = self.node.outputs.index(pin)
@@ -385,13 +385,13 @@ class ElaNodeWidget(QFrame):
     def pin_widget(self, pin_id: str, direction=None):
         """返回引脚热区控件（供画布取全局坐标 / 命中检测）。
 
-        :param direction: 可选 ``ElaPinDirection``；输入 / 输出同名 id 时
+        :param direction: 可选 ``ElaPinDirectionType``；输入 / 输出同名 id 时
             必须指定方向；省略时按先输入后输出返回首个命中。
         """
         if direction is not None:
             return self._handles.get((direction, pin_id))
-        return self._handles.get((ElaPinDirection.Input, pin_id)) or self._handles.get(
-            (ElaPinDirection.Output, pin_id)
+        return self._handles.get((ElaPinDirectionType.Input, pin_id)) or self._handles.get(
+            (ElaPinDirectionType.Output, pin_id)
         )
 
     def sync_pins(self) -> list:

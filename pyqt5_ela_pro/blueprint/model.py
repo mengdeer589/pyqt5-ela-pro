@@ -1,7 +1,7 @@
 """
 蓝图数据模型（纯数据与信号，不涉及界面绘制）。
 
-- ``ElaPinDirection`` / ``ElaPin``：引脚方向与引脚描述；
+- ``ElaPinDirectionType`` / ``ElaPin``：引脚方向与引脚描述；
 - ``ElaEdge``：一条输出引脚到输入引脚的连线；
 - ``ElaBlueprintNode``：节点（引脚、属性、运行状态、耗时），可 JSON 序列化；
 - ``ElaBlueprintGraph``：图容器，负责增删查与 ``add_edge`` 全量校验
@@ -24,7 +24,7 @@ from PyQt5.QtCore import QObject, QPointF, QSizeF, pyqtSignal
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "ElaPinDirection",
+    "ElaPinDirectionType",
     "ElaPin",
     "ElaEdge",
     "ElaBlueprintNode",
@@ -38,7 +38,7 @@ def _new_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
-class ElaPinDirection(Enum):
+class ElaPinDirectionType(Enum):
     """引脚方向：``Input`` 输入 / ``Output`` 输出。"""
 
     Input = "input"
@@ -88,18 +88,13 @@ def _as_bool(value, default: bool = False) -> bool:
 class ElaPin:
     """引脚描述。
 
-    :param id: 节点内唯一 id（如 ``"out"``）
-    :param name: 显示名（如 ``"开始"``）
-    :param direction: ``ElaPinDirection.Input`` / ``Output``
-    :param data_type: 数据类型键，决定颜色（见 registry.PIN_COLORS），
-        缺省 ``"any"`` 表示通配
-    :param multi: 仅对输入引脚有意义：是否允许多连接（缺省 False，
-        此时新连线会自动替换旧连线）
+    ``data_type`` 决定颜色（见 ``registry.PIN_COLORS``），``"any"`` 为通配；
+    ``multi`` 只对输入引脚有意义 —— 为 ``False`` 时新连线自动替换旧连线。
     """
 
     id: str
     name: str
-    direction: ElaPinDirection
+    direction: ElaPinDirectionType
     data_type: str = "any"
     multi: bool = False
 
@@ -130,14 +125,14 @@ class ElaPin:
         pin_id = str(pin_id)
         raw_dir = data.get("direction", "input")
         try:
-            direction = ElaPinDirection(raw_dir)
+            direction = ElaPinDirectionType(raw_dir)
         except ValueError:
             logger.warning(
                 "未知引脚方向 %r（引脚 %r），回退 input",
                 raw_dir,
                 pin_id,
             )
-            direction = ElaPinDirection.Input
+            direction = ElaPinDirectionType.Input
         return cls(
             id=pin_id,
             name=str(data.get("name") or pin_id),
@@ -298,7 +293,7 @@ class ElaBlueprintNode(QObject):
         pin = ElaPin(
             pin_id,
             name if name is not None else pin_id,
-            ElaPinDirection.Input,
+            ElaPinDirectionType.Input,
             data_type,
             multi,
         )
@@ -313,7 +308,7 @@ class ElaBlueprintNode(QObject):
         pin = ElaPin(
             pin_id,
             name if name is not None else pin_id,
-            ElaPinDirection.Output,
+            ElaPinDirectionType.Output,
             data_type,
             multi,
         )
@@ -321,14 +316,11 @@ class ElaBlueprintNode(QObject):
         self.changed.emit()
         return pin
 
-    def pin(self, pin_id: str, direction: "ElaPinDirection" = None):
-        """按 id 查找引脚，找不到返回 ``None``。
-
-        :param direction: 可选方向过滤；省略方向时按先输入后输出返回首个命中。
-        """
-        if direction is ElaPinDirection.Input:
+    def pin(self, pin_id: str, direction: "ElaPinDirectionType" = None):
+        """按 id 找引脚，找不到返回 ``None``；省略 ``direction`` 时按先输入后输出取首个命中。"""
+        if direction is ElaPinDirectionType.Input:
             return next((p for p in self.inputs if p.id == pin_id), None)
-        if direction is ElaPinDirection.Output:
+        if direction is ElaPinDirectionType.Output:
             return next((p for p in self.outputs if p.id == pin_id), None)
         for pin in self.inputs + self.outputs:
             if pin.id == pin_id:

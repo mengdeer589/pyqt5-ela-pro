@@ -30,11 +30,11 @@ from PyQt5.QtCore import QObject, pyqtSignal
 from pyqt5_ela_pro.chat import ElaChatWidget
 from pyqt5_ela_pro.chat.journal import JOURNAL_VERSION, ElaChatTurnJournal
 from pyqt5_ela_pro.chat.message import (
-    ElaChatPartKind,
-    ElaChatRole,
+    ElaChatPartKindType,
+    ElaChatRoleType,
     ElaChatStats,
-    ElaChatStatus,
-    ElaChatToolStatus,
+    ElaChatStatusType,
+    ElaChatToolStatusType,
 )
 
 
@@ -65,8 +65,8 @@ class TestCrashRecovery:
         journal = ElaChatTurnJournal(messageId=5).begin(5)
         journal.reasoning("想").text("答")
         message = ElaChatTurnJournal.fromLines([journal.dumps()]).message()
-        assert message.status != ElaChatStatus.Streaming
-        assert all(part.status != ElaChatStatus.Streaming for part in message.parts), (
+        assert message.status != ElaChatStatusType.Streaming
+        assert all(part.status != ElaChatStatusType.Streaming for part in message.parts), (
             f"残留 streaming: {[(p.kind, p.status) for p in message.parts]}"
         )
 
@@ -80,8 +80,8 @@ class TestCrashRecovery:
 
         message = ElaChatTurnJournal.fromLines([journal.dumps()]).message()
         byName = {call.name: call.status for call in message.tool_calls}
-        assert byName["read"] == ElaChatToolStatus.Aborted
-        assert byName["bash"] == ElaChatToolStatus.Done
+        assert byName["read"] == ElaChatToolStatusType.Aborted
+        assert byName["bash"] == ElaChatToolStatusType.Done
         assert message.text == "部分答案"
 
     def test_error_crash_marks_tools_error(self, qapp):
@@ -92,16 +92,16 @@ class TestCrashRecovery:
 
         message = ElaChatTurnJournal.fromLines([journal.dumps()]).message()
         assert message.error == "断了"
-        assert message.tool_calls[0].status == ElaChatToolStatus.Error
+        assert message.tool_calls[0].status == ElaChatToolStatusType.Error
 
     def test_settle_open_can_be_disabled(self, qapp):
         """忠实重放（不结算）供需要保留 streaming 语义的场景使用。"""
         journal = ElaChatTurnJournal(messageId=1).begin(1)
         journal.text("流式中")
         faithful = ElaChatTurnJournal.fromEvents(journal.events())
-        assert faithful.message().parts[0].status == ElaChatStatus.Streaming
+        assert faithful.message().parts[0].status == ElaChatStatusType.Streaming
         settled = ElaChatTurnJournal.fromLines([journal.dumps()])
-        assert settled.message().parts[0].status == ElaChatStatus.Done
+        assert settled.message().parts[0].status == ElaChatStatusType.Done
 
     def test_mid_turn_message_is_usable_directly(self, qapp):
         """正在记录的 journal 自己就能给出「已收到的部分」（无需序列化往返）。"""
@@ -111,7 +111,7 @@ class TestCrashRecovery:
         message = journal.message()
         assert message.id == 8
         assert message.text == "已经写完的部分，还在写"
-        assert message.status == ElaChatStatus.Streaming
+        assert message.status == ElaChatStatusType.Streaming
 
     def test_multi_line_blob_accepted(self, qapp):
         """``fh.read()`` 的整段文本（含换行）也能直接喂进去。"""
@@ -177,8 +177,8 @@ class TestTolerance:
         ]
         message = ElaChatTurnJournal.fromLines(lines).message()
         assert message.id == 0
-        assert message.role == ElaChatRole.Assistant
-        assert message.status in ElaChatStatus.All
+        assert message.role == ElaChatRoleType.Assistant
+        assert message.status in ElaChatStatusType.All
 
     def test_empty_log_gives_empty_message(self, qapp):
         message = ElaChatTurnJournal.fromLines([]).message()
@@ -317,7 +317,7 @@ class TestReplayIntoView:
         assert message.duration_ms == 2000.0
         assert message.stats.total_tokens == 99
         assert [(c.name, c.status) for c in message.tool_calls] == [
-            ("grep", ElaChatToolStatus.Done)
+            ("grep", ElaChatToolStatusType.Done)
         ]
         # 界面上的气泡也必须有内容（不只是数据层）
         bubble = chat.chatView().bubble(messageId)
@@ -338,7 +338,7 @@ class TestReplayIntoView:
         qapp.processEvents()
         bubble = chat.chatView().bubble(messageId)
         assert bubble.text() == "答到一半"
-        assert all(part.status != ElaChatStatus.Streaming for part in bubble.parts())
+        assert all(part.status != ElaChatStatusType.Streaming for part in bubble.parts())
         assert bubble.hasPendingText() is False
         chat.deleteLater()
         qapp.processEvents()
@@ -402,11 +402,11 @@ class TestWorkerWiring:
         worker.chunkReceived.emit(
             SimpleNamespace(reasoning_content="思考中", answer_content="")
         )
-        assert journal.message().parts[0].status == ElaChatStatus.Streaming
+        assert journal.message().parts[0].status == ElaChatStatusType.Streaming
         worker.chunkReceived.emit(
             SimpleNamespace(reasoning_content="", answer_content="答案")
         )
-        assert journal.message().parts[0].status == ElaChatStatus.Done
+        assert journal.message().parts[0].status == ElaChatStatusType.Done
         journal.end("done")
 
     def test_tool_dispatch(self, qapp):
@@ -422,9 +422,9 @@ class TestWorkerWiring:
         journal.end("done")
 
         calls = {c.name: (c.status, c.result) for c in journal.message().tool_calls}
-        assert calls["read"] == (ElaChatToolStatus.Done, "文件内容")
+        assert calls["read"] == (ElaChatToolStatusType.Done, "文件内容")
         # 'Error:' 前缀自动判失败（与 binder 同）
-        assert calls["bash"] == (ElaChatToolStatus.Error, "Error: 炸了")
+        assert calls["bash"] == (ElaChatToolStatusType.Error, "Error: 炸了")
 
     def test_junk_payloads_ignored(self, qapp):
         worker = self._Worker()
@@ -460,7 +460,7 @@ class TestWorkerWiring:
         assert stats.prompt_tokens == 11
         assert stats.completion_tokens == 7
         assert stats.total_tokens == 18
-        assert stats.cached_tokens == 3
+        assert stats.cache_read_tokens == 3
         assert stats.ttft_ms == 120.0
         assert stats.tps == 30.0
 
@@ -492,8 +492,8 @@ class TestPartKind:
         journal.stats(ElaChatStats())
         journal.end("done")
         kinds = {part.kind for part in journal.message().parts}
-        assert kinds <= set(ElaChatPartKind.All)
-        assert ElaChatPartKind.Reasoning in kinds
-        assert ElaChatPartKind.Text in kinds
-        assert ElaChatPartKind.Tool in kinds
-        assert ElaChatPartKind.Stats in kinds
+        assert kinds <= set(ElaChatPartKindType.All)
+        assert ElaChatPartKindType.Reasoning in kinds
+        assert ElaChatPartKindType.Text in kinds
+        assert ElaChatPartKindType.Tool in kinds
+        assert ElaChatPartKindType.Stats in kinds

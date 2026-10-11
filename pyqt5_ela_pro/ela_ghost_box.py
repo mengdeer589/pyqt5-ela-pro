@@ -48,7 +48,6 @@ from PyQt5.QtGui import (
     QPixmap,
 )
 from PyQt5.QtWidgets import (
-    QComboBox,
     QHBoxLayout,
     QStyledItemDelegate,
     QStyleOptionViewItem,
@@ -57,7 +56,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5ElaWidgetTools import ElaIcon, ElaIconType, ElaThemeType, eTheme
 
-from ._internal import POPUP_FOOTER_OBJECT_NAME
+from ._internal import POPUP_FOOTER_OBJECT_NAME, hideComboboxPopup
 from ._motion import Duration, Easing, start_transition
 from .combo_box import ElaSearchBox, _match_item, _split_keyword
 
@@ -355,7 +354,8 @@ class ElaGhostBox(ElaSearchBox):
         # setItemDelegate 不转移所有权：必须保 Python 引用，否则 GC 后崩溃
         self._delegate = _GhostHeaderDelegate(self)
         self.setItemDelegate(self._delegate)
-        self.setFixedHeight(28)
+        # 与上游 ElaComboBox V3.0（35→30）的触发框同高，整套组合框族统一 30
+        self.setFixedHeight(30)
 
         # 第三参（parent）**不传 self**：让动画成为「自己动的对象」的子对象，等于让
         # 目标销毁连带销毁仍在运行的动画，针对它的 finished 发射可能还挂在队列里 ——
@@ -417,10 +417,7 @@ class ElaGhostBox(ElaSearchBox):
     # ── 分组建模 ─────────────────────────────────────────────────
 
     def addGroup(self, label: str) -> int:
-        """追加一个分组标题行（不可选中、不可点击），返回其行号。
-
-        :param label: 分组标题文字。
-        """
+        """追加一个分组标题行（不可选中、不可点击），返回其行号。"""
         super().addItem(str(label))
         row = self.count() - 1
         model = self.model()
@@ -507,11 +504,7 @@ class ElaGhostBox(ElaSearchBox):
         """关闭弹窗。"""
         self._popup_open = False
         self._animate_expand(False)
-        if self.parentWidget() is None:
-            # 上游 C++ hide 动画的结束回调会无条件
-            # QApplication::sendEvent(parentWidget(), ...)，无父控件时空指针崩溃
-            # （裸 ElaComboBox 复现）—— 这种情况直接走 Qt 原生关闭，跳过动画。
-            QComboBox.hidePopup(self)
+        if hideComboboxPopup(self):
             return
         super().hidePopup()
 
@@ -523,11 +516,8 @@ class ElaGhostBox(ElaSearchBox):
         icon: _IconSource = None,
         key: str = "",
     ) -> QWidget:
-        """在弹层底部固定区追加一个按钮，返回按钮句柄。
-
-        :param text: 按钮文字。
-        :param icon: 图标（``ElaIconType.IconName`` / ``QIcon`` / ``QPixmap``）。
-        :param key: 点击时随 ``footerTriggered`` 上报的标识。
+        """在弹层底部固定区追加按钮，返回按钮句柄；``key`` 是点击时随
+        ``footerTriggered`` 上报的标识。
         """
         footer = self._ensure_footer()
         button = _GhostFooterButton(text, icon, key, footer)

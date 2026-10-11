@@ -10,7 +10,7 @@ import pyqt5_ela_pro.blueprint.viewport as vp_mod
 from pyqt5_ela_pro.blueprint import (
     ElaBlueprintCanvas,
     ElaNodeCreationMenu,
-    ElaPinDirection,
+    ElaPinDirectionType,
     ElaTempWire,
     bezier_path,
     format_elapsed,
@@ -204,7 +204,7 @@ class TestCreationMenu:
         menu = ElaNodeCreationMenu(canvas)
         menu.popup_at(
             canvas.mapToGlobal(canvas.rect().topLeft()),
-            compatible=(ElaPinDirection.Input, "image"),
+            compatible=(ElaPinDirectionType.Input, "image"),
         )
         types = menu.matching_types()
         assert "img_sink" in types and "img_src" not in types

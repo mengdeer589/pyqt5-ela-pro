@@ -7,7 +7,7 @@ name = "pyqt5-ela-pro"
 dynamic = ["version"]
 description = "PyQt5 extension widgets based on PyQt5ElaWidgetTools"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 license = "MIT"
 authors = [
     {name = "pyqt5-ela-pro contributors"}
@@ -19,9 +19,6 @@ classifiers = [
 
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -39,7 +36,7 @@ all = [
     "comtypes>=1.4.0",
     "pygments>=2.15",
     "tsdownsample>=0.1.5.1",
-    "mermaidx>=0.9; python_version >= '3.10'",
+    "mermaidx>=0.9",
     "orjson>=3.9",
     "polars>=1.0",
 ]
@@ -67,7 +64,7 @@ version = {attr = "pyqt5_ela_pro._version.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]
-exclude = ["ElaWidgetTools*", "PyQt*", "PyQt-Fluent*", "PyQt-SiliconUI*", "build*", "dist*", "*.egg-info"]
+exclude = ["PyQt*", "PyQt-Fluent*", "PyQt-SiliconUI*", "build*", "dist*", "*.egg-info"]
 include = ["pyqt5_ela_pro*"]
 
 [tool.setuptools.package-data]
@@ -78,6 +75,16 @@ pyqt5_ela_pro = []
 
 [tool.uv]
 required-environments="sys_platform == 'win32' and platform_machine == 'AMD64'"
+
+# 开发期用本地编译的轮子（`uv run` / `uv sync` 都会按它锁定环境）。
+# **不影响 `uv build --wheel` 的发布元数据**：tool.uv.sources 只被 uv 用于
+# 本项目的依赖解析，发布时读的仍是 [project].dependencies 里的版本约束。
+# 本地轮子每次重编译后哈希会变，**必须刷新 lock 才能同步**：
+#   uv lock --refresh-package pyqt5-elawidgettools && uv sync
+# （普通 `uv lock` 不重读路径源，会留下旧哈希 → uv run 报 Hash mismatch）。
+# 版本号升级时记得同步改 dependencies 的 `==0.12.1` 与本路径。
+[tool.uv.sources]
+pyqt5-elawidgettools = { path = "PyElaWidgetTools/dist/pyqt5_elawidgettools-0.12.1-cp37-abi3-win_amd64.whl" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

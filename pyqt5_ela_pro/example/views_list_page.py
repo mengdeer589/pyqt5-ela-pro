@@ -6,7 +6,7 @@
 数据源**的组件，归「数据与图表」分组；这一页只放结构性视图。
 """
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtWidgets import QHBoxLayout, QWidget
 from PyQt5.QtGui import QStandardItem, QStandardItemModel
 from PyQt5ElaWidgetTools import (
@@ -14,6 +14,7 @@ from PyQt5ElaWidgetTools import (
     ElaKeyBinder,
     ElaListView,
     ElaPivot,
+    ElaPushButton,
     ElaScrollBar,
     ElaSuggestBox,
     ElaTabBar,
@@ -225,7 +226,11 @@ class ViewsListPage(ExamplePage):
                 "02. PyQt5ElaWidgetTools - ElaPivot Pivot标签", self._demoPivot
             )
         )
-        self._addInfoText("Pivot标签组件，适合切换视图", parent_layout)
+        self._addInfoText(
+            "Pivot标签组件，适合切换视图；V3.0 起可用 setTextPixelSize / "
+            "setCurrentTitle / clearPivot",
+            parent_layout,
+        )
         pivot = ElaPivot(self)
         pivot.setPivotSpacing(8)
         pivot.setMarkWidth(75)
@@ -235,6 +240,20 @@ class ViewsListPage(ExamplePage):
         pivot.appendPivot("正在下载")
         pivot.setCurrentIndex(0)
         parent_layout.addWidget(pivot)
+        nav = QHBoxLayout()
+        nav.setSpacing(8)
+        for text, callback in (
+            ("字号 12", lambda: pivot.setTextPixelSize(12)),
+            ("字号 20", lambda: pivot.setTextPixelSize(20)),
+            ("跳到「下载视频」", lambda: pivot.setCurrentTitle("下载视频")),
+            ("clearPivot", pivot.clearPivot),
+        ):
+            btn = ElaPushButton(text, self)
+            btn.setFixedWidth(120)
+            btn.clicked.connect(callback)
+            nav.addWidget(btn)
+        nav.addStretch()
+        parent_layout.addLayout(nav)
         parent_layout.addSpacing(20)
 
     def _demoTabBar(self, parent_layout):
@@ -243,12 +262,26 @@ class ViewsListPage(ExamplePage):
                 "03. PyQt5ElaWidgetTools - ElaTabBar 标签栏", self._demoTabBar
             )
         )
-        self._addInfoText("标签栏组件", parent_layout)
+        self._addInfoText(
+            "标签栏组件；页签溢出时用 locateCurrentTab() 把当前页签滚进视野",
+            parent_layout,
+        )
         tab_bar = ElaTabBar(self)
-        tab_bar.addTab("标签1")
-        tab_bar.addTab("标签2")
-        tab_bar.addTab("标签3")
+        for i in range(1, 11):
+            tab_bar.addTab(f"标签{i}")
         parent_layout.addWidget(tab_bar)
+        nav = QHBoxLayout()
+        nav.setSpacing(8)
+        for text, callback in (
+            ("切到第 8 个", lambda: tab_bar.setCurrentIndex(7)),
+            ("定位当前页签", tab_bar.locateCurrentTab),
+        ):
+            btn = ElaPushButton(text, self)
+            btn.setFixedWidth(120)
+            btn.clicked.connect(callback)
+            nav.addWidget(btn)
+        nav.addStretch()
+        parent_layout.addLayout(nav)
         parent_layout.addSpacing(20)
 
     def _demoTabWidget(self, parent_layout):
@@ -257,23 +290,32 @@ class ViewsListPage(ExamplePage):
                 "04. PyQt5ElaWidgetTools - ElaTabWidget 标签页", self._demoTabWidget
             )
         )
-        self._addInfoText("标签页组件，包含多个页面", parent_layout)
+        self._addInfoText(
+            "标签页组件；setTabSize 自定义页签尺寸，locateCurrentTab 滚动到当前页签",
+            parent_layout,
+        )
         tab_widget = ElaTabWidget(self)
         tab_widget.setFixedHeight(200)
         tab_widget.setIsTabTransparent(True)
-        page1 = ElaText("新标签页1", self)
-        page1.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        font_page = page1.font()
-        font_page.setPixelSize(32)
-        page1.setFont(font_page)
-        page2 = ElaText("新标签页2", self)
-        page2.setFont(font_page)
-        page2.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        page3 = ElaText("新标签页3", self)
-        page3.setFont(font_page)
-        page3.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        tab_widget.addTab(page1, "新标签页1")
-        tab_widget.addTab(page2, "新标签页2")
-        tab_widget.addTab(page3, "新标签页3")
+        for i in range(1, 11):
+            page = ElaText(f"新标签页{i}", self)
+            page.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            font_page = page.font()
+            font_page.setPixelSize(32)
+            page.setFont(font_page)
+            tab_widget.addTab(page, f"新标签页{i}")
         parent_layout.addWidget(tab_widget)
+        nav = QHBoxLayout()
+        nav.setSpacing(8)
+        for text, callback in (
+            ("切到第 8 个", lambda: tab_widget.setCurrentIndex(7)),
+            ("定位当前页签", tab_widget.locateCurrentTab),
+            ("页签宽 140", lambda: tab_widget.setTabSize(QSize(140, 30))),
+        ):
+            btn = ElaPushButton(text, self)
+            btn.setFixedWidth(120)
+            btn.clicked.connect(callback)
+            nav.addWidget(btn)
+        nav.addStretch()
+        parent_layout.addLayout(nav)
         parent_layout.addSpacing(20)

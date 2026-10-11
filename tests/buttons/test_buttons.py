@@ -1,8 +1,9 @@
-"""``ElaLongPressButton`` / ``ElaProgressButton`` 测试：初值 / setter / 信号 / 析构。"""
+"""``ElaLongPressButton`` / ``ElaProgressButton`` 测试：初值 / setter / 信号 / 几何 / 析构。"""
 
 from __future__ import annotations
 
 import pytest
+from _pixels import skip_if_no_pixels
 from PyQt5.QtGui import QColor
 
 from pyqt5_ela_pro.ela_long_press_button import ElaLongPressButton as ElaLongPressBtn
@@ -94,3 +95,42 @@ class TestElaProgressButton:
     def test_delete_later_disconnects_theme(self, make):
         """析构要断开主题信号。"""
         make(ElaProgressButton).deleteLater()
+
+
+class TestButtonGeometryAlignment:
+    """与上游 ``ElaPushButton`` V3.0 对齐：控件高 30 / 面内缩 1（共用 ``_FACE_INSET``）。
+
+    回归：``ElaProgressButton`` 曾写死 ``setFixedHeight(38)`` + 面内缩 3；
+    ``ElaLongPressButton`` 的进度分支也按旧内缩 3 画 → 长按开始瞬间按钮面
+    比空闲态（上游 V3.0 的 1px 内缩）矮 4px。
+    """
+
+    def test_widget_heights(self, make):
+        assert make(ElaProgressButton).height() == 30
+        assert make(ElaLongPressBtn).height() == 30
+
+    def test_long_press_face_height_same_in_both_states(self, make, qapp):
+        """进度分支（自绘）与空闲态（上游 paint）的可见面高度必须一致。"""
+        btn = make(ElaLongPressBtn, text="按住")
+        btn.setFixedWidth(120)
+        btn.show()
+        qapp.processEvents()
+
+        def face_rows():
+            image = btn.grab().toImage()
+            x = 8
+            return [
+                y for y in range(image.height()) if image.pixelColor(x, y).alpha() > 200
+            ]
+
+        idle_rows = face_rows()
+        btn._progress = 0.6
+        btn.update()
+        qapp.processEvents()
+        hold_rows = face_rows()
+
+        skip_if_no_pixels(
+            {str(y) for y in idle_rows} | {str(y) for y in hold_rows},
+            "长按按钮面像素",
+        )
+        assert abs(len(idle_rows) - len(hold_rows)) <= 2, (idle_rows, hold_rows)

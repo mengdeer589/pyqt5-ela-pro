@@ -38,7 +38,7 @@ from PyQt5ElaWidgetTools import ElaIconType
 
 from ._styles import drawCoverPixmap, drawElaIcon
 from ._theme import (
-    StatusRole,
+    ElaStatusRoleType,
     accent,
     border,
     chartPalette,
@@ -51,7 +51,7 @@ from ._theme import (
 )
 from .widget_base import ElaThemeWidget
 
-__all__ = ["ElaAvatar", "AvatarPresence", "AvatarShape", "AvatarSize"]
+__all__ = ["ElaAvatar", "ElaAvatarPresenceType", "ElaAvatarShapeType", "ElaAvatarSizeType"]
 
 
 #: 「圆角方」的圆角（对齐 Fluent ``CornerRadius::Control``）。
@@ -84,7 +84,7 @@ _DISABLED_IMAGE_ALPHA = 0.55
 SURFACE_PROPERTY = "pyqt5SurfaceColor"
 
 
-class AvatarSize(IntEnum):
+class ElaAvatarSizeType(IntEnum):
     """尺寸档位。控件被**硬锁**在该档位，不会被布局拉伸。"""
 
     Small = 24
@@ -93,7 +93,7 @@ class AvatarSize(IntEnum):
     ExtraLarge = 56
 
 
-class AvatarShape(IntEnum):
+class ElaAvatarShapeType(IntEnum):
     Circular = 0
     """圆形（默认）。"""
 
@@ -101,7 +101,7 @@ class AvatarShape(IntEnum):
     """4px 圆角方。"""
 
 
-class AvatarPresence(IntEnum):
+class ElaAvatarPresenceType(IntEnum):
     """在线状态。"""
 
     None_ = 0
@@ -114,14 +114,14 @@ class AvatarPresence(IntEnum):
     Offline = 5
 
 
-#: 状态 → ``StatusRole``。``Offline`` 刻意不走角色：它的语义是「不可用」而不是
+#: 状态 → ``ElaStatusRoleType``。``Offline`` 刻意不走角色：它的语义是「不可用」而不是
 #: 「危险」，用 ``textDisabled``（灰）比用红/黄更准确。
 _PRESENCE_ROLE = {
-    AvatarPresence.Available: StatusRole.Success,
-    AvatarPresence.Away: StatusRole.Warning,
-    AvatarPresence.Busy: StatusRole.Error,
-    AvatarPresence.DoNotDisturb: StatusRole.Error,
-    AvatarPresence.Offline: None,
+    ElaAvatarPresenceType.Available: ElaStatusRoleType.Success,
+    ElaAvatarPresenceType.Away: ElaStatusRoleType.Warning,
+    ElaAvatarPresenceType.Busy: ElaStatusRoleType.Error,
+    ElaAvatarPresenceType.DoNotDisturb: ElaStatusRoleType.Error,
+    ElaAvatarPresenceType.Offline: None,
 }
 
 #: 状态圆点直径按档位：24→6 / 32→8 / 40→8 / 56→10。
@@ -206,7 +206,7 @@ class ElaAvatar(ElaThemeWidget):
         av = ElaAvatar(parent)
         av.setName("John Smith")     # 自动出 "JS"
         av.setImage(pixmap)          # 有图就用图（cover 裁剪，不是拉伸）
-        av.setPresence(AvatarPresence.Available)
+        av.setPresence(ElaAvatarPresenceType.Available)
     """
 
     nameChanged = pyqtSignal(str)
@@ -223,9 +223,9 @@ class ElaAvatar(ElaThemeWidget):
         self._name = ""
         self._initials = ""
         self._image: Optional[QPixmap] = None
-        self._shape = AvatarShape.Circular
-        self._size = AvatarSize.Medium
-        self._presence = AvatarPresence.None_
+        self._shape = ElaAvatarShapeType.Circular
+        self._size = ElaAvatarSizeType.Medium
+        self._presence = ElaAvatarPresenceType.None_
         self._background_color = QColor()
         self._foreground_color = QColor()
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -300,22 +300,22 @@ class ElaAvatar(ElaThemeWidget):
 
     # -- 外观 ---------------------------------------------------------------
 
-    def shape(self) -> AvatarShape:
+    def shape(self) -> ElaAvatarShapeType:
         return self._shape
 
     def setShape(self, shape) -> None:  # noqa: N802
-        value = AvatarShape(shape)
+        value = ElaAvatarShapeType(shape)
         if value == self._shape:
             return
         self._shape = value
         self.shapeChanged.emit(value)
         self.update()
 
-    def avatarSize(self) -> AvatarSize:
+    def avatarSize(self) -> ElaAvatarSizeType:
         return self._size
 
     def setAvatarSize(self, size) -> None:  # noqa: N802
-        value = AvatarSize(size)
+        value = ElaAvatarSizeType(size)
         if value == self._size:
             return
         self._size = value
@@ -327,11 +327,11 @@ class ElaAvatar(ElaThemeWidget):
         """当前档位的边长（px）。"""
         return int(self._size)
 
-    def presence(self) -> AvatarPresence:
+    def presence(self) -> ElaAvatarPresenceType:
         return self._presence
 
     def setPresence(self, presence) -> None:  # noqa: N802
-        value = AvatarPresence(presence)
+        value = ElaAvatarPresenceType(presence)
         if value == self._presence:
             return
         self._presence = value
@@ -396,7 +396,7 @@ class ElaAvatar(ElaThemeWidget):
         )
         if rect.isEmpty():
             return path
-        if self._shape == AvatarShape.Circular:
+        if self._shape == ElaAvatarShapeType.Circular:
             path.addEllipse(rect)
         else:
             path.addRoundedRect(rect, _SQUARE_RADIUS, _SQUARE_RADIUS)
@@ -519,7 +519,7 @@ class ElaAvatar(ElaThemeWidget):
 
         # 6. 状态圆点：先把「环」画成周围表面的颜色（这是 Avatar 画的，不是徽标画的），
         #    再把圆点画在正中。环的存在是为了在深色头像上把点分离出来。
-        if self._presence is not AvatarPresence.None_:
+        if self._presence is not ElaAvatarPresenceType.None_:
             geometry = self._presenceGeometry()
             host_px = geometry.width()
             dot = host_px - _PRESENCE_RING * 2
@@ -553,7 +553,7 @@ class ElaAvatar(ElaThemeWidget):
         ``Offline`` 走 ``textDisabled``（灰）而不是任何角色色：它的语义是「不可用」而
         不是「危险」。用红或黄会让一排灰色离线用户看起来像一片告警。
         """
-        if self._presence is AvatarPresence.None_:
+        if self._presence is ElaAvatarPresenceType.None_:
             return QColor()
         role = _PRESENCE_ROLE[self._presence]
         if role is None:

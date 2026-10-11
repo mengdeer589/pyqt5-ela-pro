@@ -96,10 +96,10 @@ def _subtle_primary(mode) -> QColor:
 
 
 def chart_token(mode, key):
-    """读取单个令牌值：颜色返回 QColor（实时主题），数值返回 int/float。
+    """读取单个令牌值：颜色返回 ``QColor``（实时主题），数值返回 int/float。
 
-    :param mode: 主题模式（eTheme.getThemeMode() 返回值）
-    :param key: 源库令牌键，如 ``"color.bg.base"`` / ``"font.xs"``
+    ``mode`` 是主题模式（``eTheme.getThemeMode()`` 返回值），``key`` 是令牌键
+    （如 ``"color.bg.base"`` / ``"font.xs"``）。
     """
     if key == "color.primary.subtle":
         return _subtle_primary(mode)

@@ -79,10 +79,7 @@ def _has_non_text_format(clipboard) -> bool:
 
 
 class ElaClipboardCapture(QObject):
-    """模拟 Ctrl+C 的异步取词器（不阻塞 UI，不预先改动剪贴板）。
-
-    :param parent: 父对象
-    """
+    """模拟 ``Ctrl+C`` 的异步取词器（不阻塞 UI，不预先改动剪贴板）。"""
 
     #: 取词成功（参数：选中文本）
     captured = pyqtSignal(str)

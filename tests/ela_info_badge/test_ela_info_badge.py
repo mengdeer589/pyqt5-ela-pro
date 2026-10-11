@@ -25,8 +25,8 @@ class TestElaInfoBadgeInit:
     @pytest.mark.parametrize(
         ("attr", "expected"),
         [
-            ("_badge_mode", ElaInfoBadge.BadgeMode.Dot),
-            ("_severity", ElaInfoBadge.Severity.Attention),
+            ("_badge_mode", ElaInfoBadge.ElaBadgeModeType.Dot),
+            ("_severity", ElaInfoBadge.ElaSeverityType.Attention),
             ("_value", 0),
             ("_max_value", 99),
             ("_target", None),
@@ -40,12 +40,12 @@ class TestElaInfoBadgeInit:
 
     def test_initialization_with_value(self, make):
         badge = make(ElaInfoBadge, value=5)
-        assert badge._badge_mode == ElaInfoBadge.BadgeMode.Value
+        assert badge._badge_mode == ElaInfoBadge.ElaBadgeModeType.Value
         assert badge._value == 5
 
     def test_initialization_with_icon(self, make):
         badge = make(ElaInfoBadge, icon=ElaIconType.IconName.Gear)
-        assert badge._badge_mode == ElaInfoBadge.BadgeMode.Icon
+        assert badge._badge_mode == ElaInfoBadge.ElaBadgeModeType.Icon
         assert badge._icon == ElaIconType.IconName.Gear
 
 
@@ -53,9 +53,9 @@ class TestElaInfoBadgeEnums:
     @pytest.mark.parametrize(
         ("member", "expected"),
         [
-            (ElaInfoBadge.BadgeMode.Dot, 0),
-            (ElaInfoBadge.BadgeMode.Value, 1),
-            (ElaInfoBadge.BadgeMode.Icon, 2),
+            (ElaInfoBadge.ElaBadgeModeType.Dot, 0),
+            (ElaInfoBadge.ElaBadgeModeType.Value, 1),
+            (ElaInfoBadge.ElaBadgeModeType.Icon, 2),
         ],
     )
     def test_badge_mode_values(self, member, expected):
@@ -64,11 +64,11 @@ class TestElaInfoBadgeEnums:
     @pytest.mark.parametrize(
         ("member", "expected"),
         [
-            (ElaInfoBadge.Severity.Attention, 0),
-            (ElaInfoBadge.Severity.Informational, 1),
-            (ElaInfoBadge.Severity.Success, 2),
-            (ElaInfoBadge.Severity.Caution, 3),
-            (ElaInfoBadge.Severity.Critical, 4),
+            (ElaInfoBadge.ElaSeverityType.Attention, 0),
+            (ElaInfoBadge.ElaSeverityType.Informational, 1),
+            (ElaInfoBadge.ElaSeverityType.Success, 2),
+            (ElaInfoBadge.ElaSeverityType.Caution, 3),
+            (ElaInfoBadge.ElaSeverityType.Critical, 4),
         ],
     )
     def test_severity_values(self, member, expected):
@@ -77,11 +77,11 @@ class TestElaInfoBadgeEnums:
 
 class TestElaInfoBadgeMode:
     def test_badge_mode_default(self, badge):
-        assert badge.badgeMode() == ElaInfoBadge.BadgeMode.Dot
+        assert badge.badgeMode() == ElaInfoBadge.ElaBadgeModeType.Dot
 
     def test_set_badge_mode(self, badge):
-        badge.setBadgeMode(ElaInfoBadge.BadgeMode.Value)
-        assert badge.badgeMode() == ElaInfoBadge.BadgeMode.Value
+        badge.setBadgeMode(ElaInfoBadge.ElaBadgeModeType.Value)
+        assert badge.badgeMode() == ElaInfoBadge.ElaBadgeModeType.Value
 
 
 class TestElaInfoBadgeValue:
@@ -103,7 +103,7 @@ class TestElaInfoBadgeMaxValue:
         assert badge.maxValue() == 999
 
     def test_max_value_overflow_displays_plus(self, badge):
-        badge.setBadgeMode(ElaInfoBadge.BadgeMode.Value)
+        badge.setBadgeMode(ElaInfoBadge.ElaBadgeModeType.Value)
         badge.setValue(150)
         badge.setMaxValue(99)
         text = (
@@ -125,14 +125,14 @@ class TestElaInfoBadgeIcon:
 
 class TestElaInfoBadgeSeverity:
     def test_severity_default(self, badge):
-        assert badge.severity() == ElaInfoBadge.Severity.Attention
+        assert badge.severity() == ElaInfoBadge.ElaSeverityType.Attention
 
     def test_set_severity(self, badge):
-        badge.setSeverity(ElaInfoBadge.Severity.Success)
-        assert badge.severity() == ElaInfoBadge.Severity.Success
+        badge.setSeverity(ElaInfoBadge.ElaSeverityType.Success)
+        assert badge.severity() == ElaInfoBadge.ElaSeverityType.Success
 
     def test_set_severity_all_values(self, badge):
-        for s in ElaInfoBadge.Severity:
+        for s in ElaInfoBadge.ElaSeverityType:
             badge.setSeverity(s)
             assert badge.severity() == s
 

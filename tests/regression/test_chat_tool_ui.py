@@ -32,9 +32,9 @@ from pyqt5_ela_pro.chat.blocks import (
 )
 from pyqt5_ela_pro.chat.bubble import ElaChatBubble
 from pyqt5_ela_pro.chat.message import (
-    ElaChatRole,
+    ElaChatRoleType,
     ElaChatToolCall,
-    ElaChatToolStatus,
+    ElaChatToolStatusType,
 )
 
 
@@ -227,7 +227,7 @@ def _bubble(qapp) -> ElaChatBubble:
     host.show()
     qapp.processEvents()
     _HOSTS.append(host)
-    bubble = ElaChatBubble(ElaChatRole.Assistant, "", host)
+    bubble = ElaChatBubble(ElaChatRoleType.Assistant, "", host)
     bubble.resize(600, 400)
     bubble.show()
     qapp.processEvents()
@@ -320,7 +320,7 @@ class TestPolicyInjection:
         card.setResult("boom", ok=False)
         qapp.processEvents()
         assert card.isOpened() is True, "失败原因必须可见"
-        assert card.status() == ElaChatToolStatus.Error
+        assert card.status() == ElaChatToolStatusType.Error
         bubble.deleteLater()
         qapp.processEvents()
 
@@ -387,7 +387,7 @@ class TestViewLevelPolicy:
     def test_policy_applies_to_new_messages(self, qapp):
         view = self._view(qapp)
         view.setToolDefaultOpen(lambda name, args, ok: name == "bash")
-        messageId = view.addMessage(ElaChatRole.Assistant, "")
+        messageId = view.addMessage(ElaChatRoleType.Assistant, "")
         qapp.processEvents()
         bashId = view.addToolCall(messageId, "bash", "{}")
         pyId = view.addToolCall(messageId, "python", "{}")
@@ -399,7 +399,7 @@ class TestViewLevelPolicy:
     def test_policy_applies_to_messages_created_before_setter(self, qapp):
         """先有消息、后设策略 —— 也要生效（与 setToolGrouping 同语义）。"""
         view = self._view(qapp)
-        messageId = view.addMessage(ElaChatRole.Assistant, "")
+        messageId = view.addMessage(ElaChatRoleType.Assistant, "")
         qapp.processEvents()
         view.addToolCall(messageId, "python", "{}")
         qapp.processEvents()
@@ -411,7 +411,7 @@ class TestViewLevelPolicy:
             "改策略不得弹开已存在的卡片"
         )
         # 但之后的卡片走新策略
-        newerId = view.addMessage(ElaChatRole.Assistant, "")
+        newerId = view.addMessage(ElaChatRoleType.Assistant, "")
         qapp.processEvents()
         newCall = view.addToolCall(newerId, "python", "{}")
         qapp.processEvents()

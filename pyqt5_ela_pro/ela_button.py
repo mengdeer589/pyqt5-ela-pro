@@ -35,7 +35,6 @@ from PyQt5ElaWidgetTools import eApp, eTheme, ElaThemeType, ElaIcon, ElaIconType
 from ._internal import _ThemeAwareMixin
 from ._colors import get_color_scheme
 from ._motion import Duration, start_idle_loop, start_transition
-from ._styles import paintOverlayShadow
 from ._theme import accent as theme_accent, blend
 from .svg_icon import svg_icon_loader, svg_to_pixmap
 
@@ -66,30 +65,30 @@ ElaButtonSize = Literal["small", "middle", "large"]
 
 # ── Size presets ─────────────────────────────────────────────
 
-#: 可见按钮面的阴影边距（px）。与上游 ``ElaPushButton`` 的 ``_shadowBorderWidth``
-#: 同值：控件高 38 → 可见面 32，两种按钮混排时高度一致。
-_SHADOW_MARGIN = 3
+#: 可见按钮面与控件边缘的内缩（px）。与上游 ``ElaPushButton`` V3.0 的
+#: ``rect().adjusted(1, 1, -1, -1)`` 同值：控件高 30 → 可见面 28。
+_FACE_INSET = 1
 
 #: ``fontDelta`` 是相对 ``eApp.getFontPixelSize()`` 的偏移；middle 与上游
 #: ``ElaPushButton``（``eApp + 2``）一致。
-#: 高度 30/38/46 → 可见面 24/32/40（对齐 Ant Design 与上游 ElaPushButton）。
+#: 高度 22/30/38 → 可见面 20/28/36（档距保持 8；middle 与上游 V3.0 逐值一致）。
 _SIZE_MAP: dict[str, dict[str, int]] = {
     "small": {
-        "height": 30,
+        "height": 22,
         "fontDelta": 0,
         "paddingH": 12,
         "iconSize": 14,
         "radius": 4,
     },
     "middle": {
-        "height": 38,
+        "height": 30,
         "fontDelta": 2,
         "paddingH": 16,
         "iconSize": 16,
         "radius": 6,
     },
     "large": {
-        "height": 46,
+        "height": 38,
         "fontDelta": 4,
         "paddingH": 20,
         "iconSize": 18,
@@ -104,18 +103,9 @@ _SIZE_MAP: dict[str, dict[str, int]] = {
 class ElaButton(_ThemeAwareMixin, QPushButton):
     """统一风格按钮组件。
 
-    支持 6 种变体、16 种色彩主题、3 种尺寸，自动适配深浅色主题。
-    尺寸与上游 ``ElaPushButton`` 对齐：可见按钮面内缩 3px 阴影边距
-    （控件高 38 → 面 32），middle 字号 = ``eApp.getFontPixelSize() + 2``。
-
-    :param text: 按钮文本
-    :param icon: 图标名称 (ElaIconType.IconName)
-    :param iconSize: 图标大小，默认 16
-    :param variant: 变体样式
-    :param color: 色彩主题
-    :param danger: 是否使用危险色（覆盖 color 参数）
-    :param size: 尺寸规格
-    :param parent: 父控件
+    支持 6 种变体、16 种色彩主题、3 种尺寸，自动适配深浅色主题。取值范围见
+    :data:`ElaButtonVariant` / :data:`ElaButtonColor` / :data:`ElaButtonSize`；
+    尺寸与上游 ``ElaPushButton`` 对齐（见 :data:`_SIZE_MAP`）。
     """
 
     def __init__(
@@ -136,7 +126,7 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         self._danger = danger
         self._border_radius = 6
         self._padding_h = 16
-        self._size_height = 38
+        self._size_height = 30
         self._icon_name: Optional[ElaIconType.IconName] = icon
         self._icon_size = iconSize
         #: SVG 图标源：SVG 源码字符串，或 :class:`ElaSvgIconLoader` 里的图标名
@@ -162,63 +152,32 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
     # ── Public API ────────────────────────────────────────
 
     def setVariant(self, variant: ElaButtonVariant) -> None:
-        """设置按钮变体样式。
-
-        :param variant: 变体，可选 ``"outlined"`` / ``"dashed"`` / ``"solid"`` / ``"filled"`` / ``"text"`` / ``"link"``
-        """
         self._variant = variant
         self.update()
 
     def variant(self) -> str:
-        """获取当前变体样式。
-
-        :returns: 变体名称
-        """
         return self._variant
 
     def setColor(self, color: ElaButtonColor) -> None:
-        """设置色彩主题。
-
-        :param color: 色彩名称（如 ``"primary"`` / ``"danger"`` / ``"blue"`` 等 16 种）
-        """
         self._color_name = color
         self.update()
 
     def color(self) -> str:
-        """获取当前色彩主题。
-
-        :returns: 色彩名称
-        """
         return self._color_name
 
     def setDanger(self, danger: bool) -> None:
-        """设置是否启用危险模式（覆盖 ``color`` 参数）。
-
-        :param danger: 是否启用危险色
-        """
+        """启用危险色（覆盖 :meth:`setColor`）。"""
         self._danger = danger
         self.update()
 
     def isDanger(self) -> bool:
-        """当前是否为危险模式。
-
-        :returns: 危险模式状态
-        """
         return self._danger
 
     def setButtonSize(self, size: ElaButtonSize) -> None:
-        """设置按钮尺寸。
-
-        :param size: 尺寸，可选 ``"small"`` / ``"middle"`` / ``"large"``
-        """
         self._apply_size(size)
         self.update()
 
     def buttonSize(self) -> str:
-        """获取当前按钮尺寸。
-
-        :returns: 尺寸名称
-        """
         h = self.height()
         for name, cfg in _SIZE_MAP.items():
             if cfg["height"] == h:
@@ -226,11 +185,6 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         return "middle"
 
     def setElaIcon(self, iconName: ElaIconType.IconName, iconSize: int = 16) -> None:
-        """设置按钮图标（ElaAwesome 图标）。
-
-        :param iconName: ElaAwesome 图标名称
-        :param iconSize: 图标像素大小，默认 16
-        """
         self._icon_name = iconName
         self._icon_size = iconSize
         self._svg_source = None
@@ -239,31 +193,15 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         self.update()
 
     def setSvgIcon(self, source: str, iconSize: Optional[int] = None) -> bool:
-        """设置 **第三方 SVG** 图标，颜色跟随当前主题（文字色 / 禁用色）。
+        """设置 **第三方 SVG** 图标，颜色跟随当前主题文字色 / 禁用色。
 
-        这是本库唯一能在按钮里放非 ElaAwesome 图标的入口 —— 其余按钮
-        （``ElaProgressButton`` / ``ElaChatToolButton`` / 上游 ``ElaPushButton``）
-        只认 ``ElaIconType.IconName`` 枚举，而 :meth:`setIcon` 在本控件上是
-        **静默无效**的（本控件自绘，只读 ``_icon_name`` / ``_svg_source``）。
+        ``source`` 按是否含 ``<svg`` 自动分「SVG 源码」与「图标名」两种形态，
+        名字形态需宿主自己 ``svg_icon_loader().loadFromFile(...)`` 加载图标包。
+        SVG 里的 ``<<<COLOR_CODE>>>`` 占位符替换成当前文字色。与
+        :meth:`setElaIcon` 互斥（两套图标语义并存说不清谁生效）。
 
-        ``source`` 两种形态自动判别：
-
-        * **SVG 源码**（含 ``<svg``）→ 直接渲染；
-        * **图标名** → 去 :func:`svg_icon_loader` 里取，宿主需先
-          ``svg_icon_loader().loadFromFile(...)`` 加载自己的图标包（本库不
-          自带图标集）。
-
-        SVG 里的 ``<<<COLOR_CODE>>>`` 占位符会被替换成当前主题文字色，所以
-        多色图标请用占位符标出该跟随主题的部分。
-
-        与 :meth:`setElaIcon` **互斥**：设了 SVG 就清掉 ElaAwesome 图标，反之
-        亦然（不这样做会两套图标语义并存、谁生效说不清）。
-
-        :param source: SVG 源码字符串，或图标包里的图标名
-        :param iconSize: 图标像素大小，默认沿用当前值（16）
-        :returns: 图标名形态且图标包里**找不到**该名字时返回 ``False``
-            （此时只画文字，并已 ``warnings.warn`` 一次 —— 静默少一个图标会
-            让用户去查图标名，而不是查「图标包没加载」）
+        :returns: 图标名形态且图标包里找不到该名字时返回 ``False``（只画文字，
+            并已 ``warnings.warn`` 一次）
         """
         self._svg_source = source or None
         self._svg_is_name = bool(source) and "<svg" not in source
@@ -286,25 +224,17 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         return found
 
     def clearSvgIcon(self) -> None:
-        """清掉 SVG 图标（回到无图标状态）。"""
         self._svg_source = None
         self._svg_is_name = False
         self.updateGeometry()
         self.update()
 
     def svgIcon(self) -> Optional[str]:
-        """当前 SVG 图标源（``None`` 表示没设）。"""
         return self._svg_source
 
     def setIcon(self, icon) -> None:  # noqa: N802 (Qt 命名)
-        """**本控件不支持** ``QPushButton.setIcon``，调用只会静默失效。
-
-        ``paintEvent`` 只读 ``_icon_name`` / ``_svg_source``，``QPushButton``
-        自己那套 ``icon()`` 根本不参与绘制。这里覆写成警告，避免「设了没反应」
-        这种最难查的失败。
-
-        :raises RuntimeError: 恒定抛出，消息里给出正确入口
-        """
+        """**恒抛** ``RuntimeError``：本控件自绘，只读 ``_icon_name`` /
+        ``_svg_source``，``QPushButton.setIcon`` 设了不会画。"""
         del icon
         raise RuntimeError(
             "ElaButton 自绘，不支持 QPushButton.setIcon（会静默不画）。"
@@ -313,18 +243,10 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         )
 
     def setBorderRadius(self, radius: int) -> None:
-        """设置圆角半径。
-
-        :param radius: 圆角半径（像素）
-        """
         self._border_radius = radius
         self.update()
 
     def borderRadius(self) -> int:
-        """获取圆角半径。
-
-        :returns: 圆角半径（像素）
-        """
         return self._border_radius
 
     # ── Internal ──────────────────────────────────────────
@@ -345,20 +267,18 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
     def sizeHint(self) -> QSize:
         """按文字 / 图标与内边距计算合适宽度（不再依赖样式默认值）。
 
-        宽度是**控件**宽度：可见按钮面还要内缩 ``_SHADOW_MARGIN``（与上游
-        ``ElaPushButton`` 的阴影边距一致），所以面宽 = 控件宽 − 2×margin。
+        宽度是**控件**宽度：可见按钮面还要内缩 ``_FACE_INSET``（与上游
+        ``ElaPushButton`` V3.0 的面内缩一致），所以面宽 = 控件宽 − 2×inset。
         """
         fm = self.fontMetrics()
         face_width = fm.horizontalAdvance(self.text())
         if self._icon_name is not None or self._svg_source or self._loading:
             face_width += self._icon_size + (8 if self.text() else 0)
         face_width += 2 * self._padding_h
-        return QSize(max(64, face_width) + 2 * _SHADOW_MARGIN, self._size_height)
+        return QSize(max(64, face_width) + 2 * _FACE_INSET, self._size_height)
 
     def minimumSizeHint(self) -> QSize:
-        return QSize(
-            max(48, 2 * self._padding_h) + 2 * _SHADOW_MARGIN, self._size_height
-        )
+        return QSize(max(48, 2 * self._padding_h) + 2 * _FACE_INSET, self._size_height)
 
     def _svg_pixmap_for_paint(self, color: QColor):
         """按当前文字色渲染 SVG 图标；取不到时返回 ``None``（只画文字）。
@@ -391,14 +311,13 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         self._theme_mode = mode
         self.update()
 
-    # ── Color helpers ─────────────────────────────────────
+    # ── ElaChipColorType helpers ─────────────────────────────────────
 
     def _neutral_text(self) -> QColor:
-        """Default text color for 'default' color in neutral situations."""
         return QColor(0xE0, 0xE0, 0xE0) if self._is_dark() else QColor(0x1F, 0x1F, 0x1F)
 
     def _neutral_border(self) -> QColor:
-        """Gray border for 'default' outlined normal state (ElaPushButton 风格)."""
+        """default 变体的描边色，与上游 ``ElaPushButton`` 同款。"""
         return eTheme.getThemeColor(self._theme_mode, ElaThemeType.BasicBorder)
 
     def _disabled_bg(self) -> QColor:
@@ -530,10 +449,7 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         self.update()
 
     def setLoading(self, loading: bool = True) -> None:  # noqa: N802 (Qt 命名)
-        """加载态：左侧显示旋转指示器，期间不响应点击。
-
-        :param loading: 是否进入加载态
-        """
+        """加载态：左侧显示旋转指示器，期间不响应点击。"""
         if loading == self._loading:
             return
         self._loading = loading
@@ -545,10 +461,6 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
         self.update()
 
     def isLoading(self) -> bool:  # noqa: N802 (Qt 命名)
-        """当前是否处于加载态。
-
-        :returns: 加载态
-        """
         return self._loading
 
     # ── Paint ─────────────────────────────────────────────
@@ -562,9 +474,9 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
 
             w = self.width()
             h = self.height()
-            # 可见按钮面：与上游 ElaPushButton 一样留出阴影边距（控件高 38 → 面 32）
-            fw = w - 2 * _SHADOW_MARGIN
-            fh = h - 2 * _SHADOW_MARGIN
+            # 可见按钮面：与上游 ElaPushButton V3.0 一样内缩 1px（控件高 30 → 面 28）
+            fw = w - 2 * _FACE_INSET
+            fh = h - 2 * _FACE_INSET
             br = self._border_radius
 
             disabled = not self.isEnabled()
@@ -575,17 +487,11 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
             is_default = cname == "default"
             scheme = self._scheme()
 
-            # 阴影与上游同款；text / link 没有面，画阴影会像悬空的框
-            if variant not in ("text", "link"):
-                paintOverlayShadow(
-                    painter, self.rect(), margin=_SHADOW_MARGIN, radius=br
-                )
-
             path = QPainterPath()
             path.addRoundedRect(
                 QRectF(
-                    _SHADOW_MARGIN + 0.5,
-                    _SHADOW_MARGIN + 0.5,
+                    _FACE_INSET + 0.5,
+                    _FACE_INSET + 0.5,
                     fw - 1.0,
                     fh - 1.0,
                 ),
@@ -644,8 +550,8 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawRoundedRect(
                     QRectF(
-                        _SHADOW_MARGIN - 1.0,
-                        _SHADOW_MARGIN - 1.0,
+                        _FACE_INSET - 1.0,
+                        _FACE_INSET - 1.0,
                         fw + 2.0,
                         fh + 2.0,
                     ),
@@ -666,11 +572,11 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
                 tw = fm.horizontalAdvance(btn_text) if btn_text else 0
                 if tw:
                     total_w = icon_sz.width() + spacing + tw
-                    sx = _SHADOW_MARGIN + (fw - total_w) // 2
+                    sx = _FACE_INSET + (fw - total_w) // 2
                 else:
                     # 纯图标按钮：只居中图标本身（含 spacing 会向左偏）
-                    sx = _SHADOW_MARGIN + (fw - icon_sz.width()) // 2
-                iy = _SHADOW_MARGIN + (fh - icon_sz.height()) // 2
+                    sx = _FACE_INSET + (fw - icon_sz.width()) // 2
+                iy = _FACE_INSET + (fh - icon_sz.height()) // 2
                 ir = QRect(sx, iy, icon_sz.width(), icon_sz.height())
                 if loading:
                     spin_pen = QPen(text_color, 2)
@@ -685,7 +591,7 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
                     icon = ElaIcon.getInstance().getElaIcon(icon_name, text_color)
                     painter.drawPixmap(ir, icon.pixmap(icon_sz))
                 if tw:
-                    tr = QRect(ir.right() + spacing, _SHADOW_MARGIN, tw, fh)
+                    tr = QRect(ir.right() + spacing, _FACE_INSET, tw, fh)
                     painter.drawText(
                         tr,
                         Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
@@ -699,15 +605,15 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
                         )
             else:
                 painter.drawText(
-                    QRect(_SHADOW_MARGIN, _SHADOW_MARGIN, fw, fh),
+                    QRect(_FACE_INSET, _FACE_INSET, fw, fh),
                     Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter,
                     btn_text,
                 )
                 if variant == "link" and hovered and not disabled:
                     fm = painter.fontMetrics()
                     tw = fm.horizontalAdvance(btn_text)
-                    tx = _SHADOW_MARGIN + (fw - tw) // 2
-                    ty = _SHADOW_MARGIN + fh // 2 + fm.ascent() // 2 + 2
+                    tx = _FACE_INSET + (fw - tw) // 2
+                    ty = _FACE_INSET + fh // 2 + fm.ascent() // 2 + 2
                     painter.setPen(QPen(text_color, 1))
                     painter.drawLine(tx, ty, tx + tw, ty)
         finally:

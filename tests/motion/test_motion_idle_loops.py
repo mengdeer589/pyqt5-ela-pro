@@ -19,8 +19,8 @@ from PyQt5.QtWidgets import QWidget
 import pyqt5_ela_pro._motion as _motion
 
 from pyqt5_ela_pro._motion import (
-    MotionKind,
-    MotionMode,
+    ElaMotionKindType,
+    ElaMotionModeType,
     idle_loop_running,
     motion,
     start_idle_loop,
@@ -31,7 +31,7 @@ from pyqt5_ela_pro._motion import (
 @pytest.fixture
 def reduced_motion():
     previous = motion.mode()
-    motion.setMode(MotionMode.Reduced)
+    motion.setMode(ElaMotionModeType.Reduced)
     yield
     motion.setMode(previous)
 
@@ -39,7 +39,7 @@ def reduced_motion():
 @pytest.fixture
 def disabled_motion():
     previous = motion.mode()
-    motion.setMode(MotionMode.Disabled)
+    motion.setMode(ElaMotionModeType.Disabled)
     yield
     motion.setMode(previous)
 
@@ -60,7 +60,7 @@ class TestStartIdleLoop:
         assert t.isActive()
         assert t.interval() == 50
 
-    @pytest.mark.parametrize("mode", [MotionMode.Reduced, MotionMode.Disabled])
+    @pytest.mark.parametrize("mode", [ElaMotionModeType.Reduced, ElaMotionModeType.Disabled])
     def test_reduced_and_disabled_stop(self, qapp, mode):
         previous = motion.mode()
         motion.setMode(mode)
@@ -107,12 +107,12 @@ class TestStartIdleLoop:
         t = _timer(qapp)
         start_idle_loop(t, 50, on_stop=lambda: hits.append(1))
         assert hits == []
-        motion.setMode(MotionMode.Reduced)
+        motion.setMode(ElaMotionModeType.Reduced)
         try:
             assert t.isActive() is False
             assert hits == [1]
         finally:
-            motion.setMode(MotionMode.Full)
+            motion.setMode(ElaMotionModeType.Full)
 
     def test_on_stop_not_called_when_never_running(self, qapp, reduced_motion):
         """本来就没在跑 → 无需重画，不该调 on_stop。"""
@@ -121,11 +121,11 @@ class TestStartIdleLoop:
         start_idle_loop(t, 50, on_stop=lambda: hits.append(1))
         assert hits == [1], "启动时该停会调一次"
         hits.clear()
-        motion.setMode(MotionMode.Disabled)
+        motion.setMode(ElaMotionModeType.Disabled)
         try:
             assert hits == [], "本来没在跑，切策略不该再触发重画"
         finally:
-            motion.setMode(MotionMode.Full)
+            motion.setMode(ElaMotionModeType.Full)
 
     def test_on_stop_exception_does_not_escape(self, qapp, reduced_motion):
         """on_stop 跑在 modeChanged 的 Qt 回调链上，抛异常就是 0xC0000409。"""
@@ -149,8 +149,8 @@ class TestStartIdleLoop:
         from _qthelpers import wait_until
 
         wait_until(qapp, lambda: _sip.isdeleted(host), timeout_ms=500, use_qwait=True)
-        motion.setMode(MotionMode.Reduced)  # 不应抛出
-        motion.setMode(MotionMode.Full)
+        motion.setMode(ElaMotionModeType.Reduced)  # 不应抛出
+        motion.setMode(ElaMotionModeType.Full)
 
     def test_idle_loop_running_handles_deleted(self, qapp):
         from PyQt5 import sip
@@ -171,11 +171,11 @@ class TestStartIdleLoop:
         t = _timer(qapp)
         for _ in range(4):
             start_idle_loop(t, 50, on_stop=lambda: hits.append(1))
-        motion.setMode(MotionMode.Reduced)
+        motion.setMode(ElaMotionModeType.Reduced)
         try:
             assert len(hits) == 1
         finally:
-            motion.setMode(MotionMode.Full)
+            motion.setMode(ElaMotionModeType.Full)
 
     def test_registry_does_not_pin_owner(self, qapp, motion_full):
         """登记表**不能**强引用住 ``on_stop`` 的宿主（bound method 会钉住整个控件）。
@@ -283,8 +283,8 @@ class TestStartTransitionTimer:
 
     def test_transition_kind_is_preserved_under_reduced(self, qapp, reduced_motion):
         """过渡与持续动效的分野：Reduced 压过渡但杀持续动效。"""
-        assert motion.shouldAnimate(MotionKind.Transition) is True
-        assert motion.shouldAnimate(MotionKind.Continuous) is False
+        assert motion.shouldAnimate(ElaMotionKindType.Transition) is True
+        assert motion.shouldAnimate(ElaMotionKindType.Continuous) is False
 
 
 # ── 真实组件的静态基态 ──────────────────────────────────────

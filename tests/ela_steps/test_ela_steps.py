@@ -1,4 +1,4 @@
-"""``ElaSteps`` 测试：初值 / 当前步夹取 / 标题列表 / 前进后退 / 主题。"""
+"""``ElaSteps`` 测试：初值 / 当前步夹取 / 标题列表 / 前进后退 / 方向 / 主题。"""
 
 from __future__ import annotations
 
@@ -135,6 +135,50 @@ class TestElaStepsNavigation:
         s.currentStepChanged.connect(received.append)
         getattr(s, nav)()
         assert emitted in received
+
+
+class TestElaStepsOrientation:
+    def test_default_is_horizontal(self, s):
+        assert s.orientation() == "horizontal"
+        assert s.height() == 70
+
+    @pytest.mark.parametrize("orientation", ["horizontal", "vertical"])
+    def test_round_trip(self, s, orientation):
+        s.step_titles = _THREE
+        s.setOrientation(orientation)
+        assert s.orientation() == orientation
+
+    def test_invalid_orientation_raises(self, s):
+        with pytest.raises(ValueError, match="orientation"):
+            s.setOrientation("diagonal")
+
+    def test_vertical_height_grows_with_steps(self, s):
+        s.setOrientation("vertical")
+        heights = []
+        for count in (1, 2, 3):
+            s.step_titles = ["标题"] * count
+            heights.append(s.height())
+        assert heights[0] < heights[1] < heights[2]
+        # 行距恒定：每多一步加的高度相同
+        assert heights[1] - heights[0] == heights[2] - heights[1]
+
+    def test_switching_back_restores_horizontal_height(self, s):
+        s.step_titles = _THREE
+        s.setOrientation("vertical")
+        assert s.height() > 70
+        s.setOrientation("horizontal")
+        assert s.orientation() == "horizontal"
+        assert s.height() == 70
+
+    @pytest.mark.parametrize("orientation", ["horizontal", "vertical"])
+    def test_paint_smoke(self, qapp, s, orientation):
+        s.step_titles = _THREE
+        s.setCurrentStep(1)
+        s.setOrientation(orientation)
+        s.resize(320, s.height())
+        s.show()
+        qapp.processEvents()
+        assert not s.grab().isNull()
 
 
 class TestElaStepsTheme:

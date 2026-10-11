@@ -16,9 +16,9 @@ from __future__ import annotations
 import pytest
 from PyQt5.QtWidgets import QWidget
 
-from pyqt5_ela_pro._motion import MotionMode, motion
+from pyqt5_ela_pro._motion import ElaMotionModeType, motion
 from pyqt5_ela_pro.ela_side_drawer import ElaDrawer
-from pyqt5_ela_pro.ela_toast import ElaToast, _ToastType
+from pyqt5_ela_pro.ela_toast import ElaToast, ElaToastType
 from pyqt5_ela_pro.notify_popup import ElaNotifyPopup
 
 
@@ -26,7 +26,7 @@ from pyqt5_ela_pro.notify_popup import ElaNotifyPopup
 def disabled_motion():
     """本模块全部用例都跑 ``Disabled``（同步落终值，收尾当场可断言）。"""
     previous = motion.mode()
-    motion.setMode(MotionMode.Disabled)
+    motion.setMode(ElaMotionModeType.Disabled)
     yield
     motion.setMode(previous)
 
@@ -84,7 +84,7 @@ class TestToastClosePath:
         已释放的包装器 → RuntimeError 穿过 C++ 边界 = 0xC0000409 静默终止。
         """
         toast = make(  # noqa: F841  (交给 qt_cleanup 回收)
-            ElaToast, _ToastType.Info, "提示", 2000
+            ElaToast, ElaToastType.Info, "提示", 2000
         )
         assert toast._dwell_timer.parent() is toast
         assert toast._dwell_timer.isSingleShot()
@@ -93,7 +93,7 @@ class TestToastClosePath:
         """提前销毁 toast 后，事件循环跑过 dwell 时长不得静默终止。"""
         from _qthelpers import wait_until
 
-        toast = ElaToast(_ToastType.Info, "提示", 10)
+        toast = ElaToast(ElaToastType.Info, "提示", 10)
         toast._run_animation()
         toast.deleteLater()
         wait_until(qapp, lambda: True, timeout_ms=5, use_qwait=True)
@@ -103,7 +103,7 @@ class TestToastClosePath:
         """Disabled 下淡出同步落终值（windowOpacity → 0）。"""
         from _qthelpers import wait_until
 
-        toast = ElaToast(_ToastType.Info, "提示", 1)
+        toast = ElaToast(ElaToastType.Info, "提示", 1)
         toast.show()
         qapp.processEvents()
         toast._startFadeOut()

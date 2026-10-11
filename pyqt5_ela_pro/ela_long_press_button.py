@@ -30,6 +30,7 @@ from PyQt5ElaWidgetTools import (
 )
 
 from ._internal import _ThemeAwareMixin
+from .ela_button import _FACE_INSET
 
 
 class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
@@ -91,35 +92,19 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         return timer
 
     def setDuration(self, ms: int) -> None:
-        """设置长按触发所需的时长（毫秒）。
-
-        :param ms: 时长，必须大于 0
-        """
+        """长按触发所需的时长（毫秒），必须 > 0。"""
         if ms > 0:
             self._duration = ms
 
     def duration(self) -> int:
-        """返回长按触发所需的时长（毫秒）。
-
-        :return: 时长（毫秒）
-        """
         return self._duration
 
     def setProgressColor(self, color: QColor) -> None:
-        """设置进度条填充颜色。
-
-        :param color: 进度条颜色
-        """
         self._custom_progress_color = True
         self._progress_color = color
         self.update()
 
     def setElaIcon(self, icon, iconSize: int = 16) -> None:
-        """设置图标。
-
-        :param icon: 图标名称（``ElaIconType.IconName``）
-        :param iconSize: 图标大小，默认 16
-        """
         self._icon_name = icon
         self._icon_size = iconSize
         self.setIcon(ElaIcon.getInstance().getElaIcon(icon, QColor(255, 255, 255)))
@@ -151,17 +136,10 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         super().deleteLater()
 
     def progressColor(self) -> QColor:
-        """返回进度条填充颜色。
-
-        :return: 进度条颜色
-        """
         return self._progress_color
 
     def progress(self) -> float:
-        """返回当前进度值。
-
-        :return: 进度值，范围 0.0 ~ 1.0
-        """
+        """当前进度，范围 0.0 ~ 1.0。"""
         return self._progress
 
     def _stepLength(self) -> float:
@@ -229,12 +207,12 @@ class ElaLongPressButton(_ThemeAwareMixin, ElaPushButton):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
-        shadow_border = 3
+        face_inset = _FACE_INSET
         rect = QRect(
-            shadow_border,
-            shadow_border,
-            self.width() - 2 * shadow_border,
-            self.height() - 2 * shadow_border,
+            face_inset,
+            face_inset,
+            self.width() - 2 * face_inset,
+            self.height() - 2 * face_inset,
         )
 
         bg_color = self._getCurrentBgColor()

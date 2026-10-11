@@ -137,10 +137,7 @@ _SIZE_RE = re.compile(
 
 
 def svg_size(svg: str) -> tuple:
-    """从 SVG 文本提取原始宽高（``viewBox`` 优先，其次 width/height 属性）。
-
-    :returns: ``(width, height)``，无法解析时为 ``(0.0, 0.0)``
-    """
+    """从 SVG 文本提取原始宽高（``viewBox`` 优先，其次 width/height），失败返回 ``(0.0, 0.0)``。"""
     match = _VIEWBOX_RE.search(svg or "")
     if match:
         return float(match.group(1)), float(match.group(2))
@@ -153,11 +150,8 @@ def svg_size(svg: str) -> tuple:
 def adaptive_zoom(
     svg: str, max_px: Optional[float], default: float = _MAX_ZOOM
 ) -> float:
-    """按目标显示宽度计算光栅化倍率（窄图超采样、宽图降采样省时省内存）。
-
-    :param svg: SVG 文本（读取 ``viewBox`` 得到原始宽度）
-    :param max_px: 目标显示宽度（像素）；``None``/``<=0`` 时返回 ``default``
-    :returns: ``[_MIN_ZOOM, _MAX_ZOOM]`` 区间内的倍率
+    """按目标显示宽度算光栅化倍率（窄图超采样、宽图降采样），结果夹在
+    ``[_MIN_ZOOM, _MAX_ZOOM]``；``max_px`` 缺省或非正时返回 ``default``。
     """
     if not max_px or max_px <= 0:
         return default
@@ -305,6 +299,8 @@ class _RenderTask(QRunnable):
         self._renderer = weakref.ref(renderer)
         self._code = code
         self._theme = theme
+        # 发起时的代次：回来时若已推进（``clearCache``），结果整条丢弃
+        self._generation = renderer.currentGeneration()
 
     def run(self) -> None:  # pragma: no cover - 线程内执行
         error = None
@@ -319,7 +315,7 @@ class _RenderTask(QRunnable):
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
         try:
-            renderer._notify(self._code, self._theme, image, error)
+            renderer._notify(self._code, self._theme, image, error, self._generation)
         except RuntimeError:
             # 渲染在途中宿主被关掉了 —— 静默丢弃，这是正常路径不是错误
             pass
@@ -370,14 +366,14 @@ _POOL_SHUTDOWN_MS = 300
 
 
 class ElaMermaidRenderer(QObject):
-    """Mermaid 异步渲染器（可选依赖 mermaidx，支持自定义渲染函数）。
+    """Mermaid 异步渲染器（可选依赖 ``mermaidx``，``cache_cap <= 0`` 表示不缓存）。"""
 
-    :param cache_cap: 缓存条数上限（<=0 表示不缓存）
-    :param parent: 父对象
-    """
-
-    #: 渲染完成（参数：源码、主题、``QImage`` 或 ``None`` 表示失败、失败原因）
+    #: 渲染完成（参数：源码、主题、``QImage`` 或 ``None`` 表示失败、失败原因）。
+    #: **只发「当前代次」的结果** —— 已作废的在途任务由内部信号丢弃，走不到这里。
     rendered = pyqtSignal(str, str, object, str)
+
+    #: 内部：工作线程 → GUI 线程，多带一个「发起代次」用于作废判定（不是公共契约）
+    _renderedInternal = pyqtSignal(str, str, object, str, int)
 
     def __init__(
         self,
@@ -390,6 +386,11 @@ class ElaMermaidRenderer(QObject):
         self._cache_cap = max(0, int(cache_cap))
         self._inflight: set = set()
         self._callbacks: dict = {}
+        #: 渲染代次：``clearCache``（换渲染器 / 换 themeVariables）时自增，用来作废
+        #: **在途**任务的回填。没有它，旧任务回来后会写缓存、还会 ``pop`` 掉同一
+        #: key 上**新**请求的回调 —— 新请求拿到旧渲染器的图，而它自己的真图因为
+        #: 回调已被消费而永远送不到。
+        self._generation = 0
         self._override: Optional[Callable] = None
         self._last_error: Optional[str] = None
         self._logged_errors: set = set()
@@ -411,15 +412,13 @@ class ElaMermaidRenderer(QObject):
         # 改成独立对象 + ``_cleanup`` 显式收，走「有上限的等待」而不是无限等。
         self._pool = QThreadPool()
         self._pool.setMaxThreadCount(2)
-        self.rendered.connect(self._on_rendered)
+        self._renderedInternal.connect(self._on_rendered)
 
     # -- 主题 --------------------------------------------------------------
 
     def setThemeVariables(self, theme: str, variables: Optional[dict] = None) -> None:
-        """覆盖指定主题的 mermaid ``themeVariables``（``None`` 恢复内置美化配色）。
-
-        :param theme: 主题键（``"light"`` / ``"dark"``）
-        :param variables: 变量字典（如 ``{"primaryColor": "#F6F8FA"}``）
+        """覆盖指定主题（``"light"`` / ``"dark"``）的 mermaid ``themeVariables``，
+        ``None`` 恢复内置美化配色。
         """
         if variables is None:
             self._theme_variables[theme] = dict(
@@ -436,10 +435,7 @@ class ElaMermaidRenderer(QObject):
     # -- 配置 --------------------------------------------------------------
 
     def setRenderer(self, renderer: Optional[Callable]) -> None:
-        """设置自定义渲染函数 ``(code, theme) -> QImage | None``。
-
-        :param renderer: 渲染函数；``None`` 表示使用内置 mermaidx 后端
-        """
+        """设置自定义渲染函数 ``(code, theme) -> QImage | None``，``None`` 回到内置后端。"""
         self._override = renderer
         self.clearCache()
 
@@ -510,10 +506,7 @@ class ElaMermaidRenderer(QObject):
     # -- 缓存 / 请求 --------------------------------------------------------
 
     def lookup(self, code: str, theme: str):
-        """查询缓存。
-
-        :returns: ``(known, image)``；``known=True, image=None`` 表示此前渲染失败
-        """
+        """查缓存，返回 ``(known, image)``；``known=True`` 且 ``image=None`` = 此前渲染失败。"""
         key = (code, theme)
         if key not in self._cache:
             return False, None
@@ -559,14 +552,18 @@ class ElaMermaidRenderer(QObject):
         self._pool.start(_RenderTask(self, code, theme))
 
     def clearCache(self) -> None:
-        """清空渲染缓存与待回调。
+        """清空渲染缓存与待回调，**并作废在途任务**（代次 +1）。
 
         **在途回调以 ``None`` 交付而不是直接丢掉。** 模块 docstring 把
         ``request(..., lambda img: ...)`` 当作对外用法，而 ``setRenderer()`` /
         ``setThemeVariables()`` 都会走到这里 —— 渲染在途时调用它们，宿主的
         ``cb`` 之前是**永远不会被调用**（不是被取消，是消失），那是个静默破坏
         契约的坑，调用方只能靠超时兜。
+
+        在途任务的结果**整条丢弃**（不写缓存、不触发回调）：它是用旧的渲染器 /
+        旧的 themeVariables 渲染的，写回缓存等于「换后端」之后继续用旧图。
         """
+        self._generation += 1
         self._cache.clear()
         for key, callbacks in list(self._callbacks.items()):
             for callback in list(callbacks):
@@ -576,7 +573,9 @@ class ElaMermaidRenderer(QObject):
                     pass
             self._callbacks.pop(key, None)
         # 在途的 key 一并清掉：否则某个 mermaid 图卡住后，该 (code, theme) 的
-        # 每次 request 都只往 _callbacks 追加然后 return，列表无界增长
+        # 每次 request 都只往 _callbacks 追加然后 return，列表无界增长。
+        # 作废靠代次判定，不靠这个集合 —— 否则旧任务回来时会顺手 discard 掉新任务
+        # 刚登记的同一个 key。
         self._inflight.clear()
 
     def deleteLater(self) -> None:  # noqa: N802 (Qt 命名)
@@ -599,14 +598,23 @@ class ElaMermaidRenderer(QObject):
 
     # -- 内部 --------------------------------------------------------------
 
+    def currentGeneration(self) -> int:  # noqa: N802 (与 Qt 命名一致)
+        """当前渲染代次（``_RenderTask`` 发起时记录，回来时比对）。"""
+        return self._generation
+
     def _notify(
-        self, code: str, theme: str, image, error: Optional[str] = None
+        self, code: str, theme: str, image, error: Optional[str] = None, generation: int = 0
     ) -> None:  # 工作线程
-        self.rendered.emit(code, theme, image, error or "")
+        self._renderedInternal.emit(code, theme, image, error or "", int(generation))
 
     def _on_rendered(
-        self, code: str, theme: str, image, error: str = ""
+        self, code: str, theme: str, image, error: str = "", generation: int = 0
     ) -> None:  # GUI 线程
+        if int(generation) != self._generation:
+            # 代次已推进（clearCache 换过渲染器 / themeVariables）：这张图是用旧
+            # 后端渲的，整条丢弃 —— 不写缓存、不碰回调、不清 _inflight
+            # （那个 key 可能属于新一代的在途任务）。
+            return
         key = (code, theme)
         self._inflight.discard(key)
         self._last_error = error or None
@@ -626,3 +634,6 @@ class ElaMermaidRenderer(QObject):
                 callback(image)
             except Exception:
                 pass
+        # 内部信号处理完再对外发：宿主的槽看到的已经是「缓存已更新、回调已交付」
+        # 之后的状态（`_on_rendered` 在构造期最先连接，直接发会排在宿主槽前面）。
+        self.rendered.emit(code, theme, image, error)

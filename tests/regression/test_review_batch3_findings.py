@@ -34,7 +34,7 @@ from pyqt5_ela_pro.blueprint.model import ElaBlueprintNode
 # ===================================================================== chat
 from pyqt5_ela_pro.chat.binder import ElaChatStreamBinder
 from pyqt5_ela_pro.chat.bubble import ElaChatBubble
-from pyqt5_ela_pro.chat.message import ElaChatRole
+from pyqt5_ela_pro.chat.message import ElaChatRoleType
 from pyqt5_ela_pro.chat import ElaChatWidget
 from pyqt5_ela_pro.selection_assistant import capture as capture_mod
 from pyqt5_ela_pro.selection_assistant.capture import ElaClipboardCapture
@@ -50,13 +50,13 @@ class TestStopGenerationOrdering:
         w.show()
         qapp.processEvents()
         v = w.chatView()
-        w.addMessage(ElaChatRole.User, "q1")
+        w.addMessage(ElaChatRoleType.User, "q1")
         w.beginAssistantMessage()
 
         repl = {}
 
         def on_stop():
-            w.addMessage(ElaChatRole.User, "q2")
+            w.addMessage(ElaChatRoleType.User, "q2")
             repl["id"] = w.beginAssistantMessage()
 
         w.stopRequested.connect(on_stop)
@@ -75,7 +75,7 @@ class TestStopGenerationOrdering:
         w.resize(600, 400)
         w.show()
         qapp.processEvents()
-        w.addMessage(ElaChatRole.User, "q1")
+        w.addMessage(ElaChatRoleType.User, "q1")
         first = w.beginAssistantMessage()
         w.setGenerating(True)
         w.stopGeneration()
@@ -102,7 +102,7 @@ class TestQueueDrainsAfterError:
         qapp.processEvents()
         fin = []
         w.generationFinished.connect(lambda *a: fin.append(1))
-        w.addMessage(ElaChatRole.User, "q1")
+        w.addMessage(ElaChatRoleType.User, "q1")
         mid = w.beginAssistantMessage()
         w.chatView().appendText(mid, "x")
         # 走 widget 的 setMessageError：只有它会在出错后发 generationFinished
@@ -119,7 +119,7 @@ class TestQueueDrainsAfterError:
         w.resize(600, 400)
         w.show()
         qapp.processEvents()
-        w.addMessage(ElaChatRole.User, "q1")
+        w.addMessage(ElaChatRoleType.User, "q1")
         mid = w.beginAssistantMessage()
         w.chatView().setMessageError(mid, "boom")
         fin = []

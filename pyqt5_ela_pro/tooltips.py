@@ -73,7 +73,7 @@ STATETOOLTIP_SUCCESS_COLOR_LIGHT: str = "#4CAF50"
 STATETOOLTIP_SUCCESS_COLOR_DARK: str = "#66BB6A"
 
 
-class ElaToolTipPosition(Enum):
+class ElaToolTipPositionType(Enum):
     """提示框相对于目标 widget 的显示位置枚举。"""
 
     Top = 0
@@ -104,13 +104,7 @@ class ElaToolTipPosition(Enum):
 class ElaToolTip(QWidget):
     """轻量级悬浮提示组件。
 
-    绘制一个带圆角和阴影的背景框，内部包含文本。
-    通过 :py:meth:`showAt` 指定目标 widget 和显示位置。
-
-    :param text: 提示文本内容。
-    :type text: str
-    :param parent: 父级 widget，默认为 ``None``（顶级窗口）。
-    :type parent: QWidget, optional
+    圆角阴影背景框 + 文本标签，通过 :meth:`showAt` 指定目标 widget 与显示位置。
     """
 
     def __init__(self, text: str = "", parent: Optional[QWidget] = None) -> None:
@@ -119,6 +113,11 @@ class ElaToolTip(QWidget):
         self._borderRadius = TOOLTIP_BORDER_RADIUS
         self._shadowBorderWidth = TOOLTIP_SHADOW_BORDER_WIDTH
         self._currentTheme = eTheme.getThemeMode()
+        #: 多行模式（配合 ``_max_width``）：长文本折行而不是拉成超宽单行
+        self._word_wrap = False
+        self._max_width = 0
+        #: 自定义内容控件（非 None 时隐藏文本标签、尺寸跟随它）
+        self._content_widget: Optional[QWidget] = None
 
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -154,8 +153,80 @@ class ElaToolTip(QWidget):
         self._apply_text_color()
         self.update()
 
+    def setWordWrap(self, on: bool) -> None:  # noqa: N802 (Qt 命名)
+        """多行模式：长文本折行。与 :meth:`setMaxWidth` 配合使用。"""
+        self._word_wrap = bool(on)
+        self._label.setWordWrap(self._word_wrap)
+        self._updateSize()
+
+    def setMaxWidth(self, width: int) -> None:  # noqa: N802 (Qt 命名)
+        """最大宽度（像素，``0`` = 不限）。只影响折行布局，不截断文本。"""
+        self._max_width = max(0, int(width))
+        self._updateSize()
+
+    def setContentWidget(self, widget: Optional[QWidget]) -> None:  # noqa: N802
+        """用任意控件当提示内容（对齐上游 ``ElaToolTip.setCustomWidget``）。
+
+        - ``None`` / 传自身会被忽略（与上游同）；
+        - **替换时旧控件会被 ``deleteLater()``** —— 提示框持有内容控件的所有权，
+          提示框销毁（``remove_tooltip`` / ``deleteLater``）时内容一并销毁；
+        - 设置后文本标签隐藏，弹体尺寸跟随 ``widget.sizeHint()``（无效时取
+          ``widget.size()``）。
+        """
+        if widget is None or widget is self or widget is self._content_widget:
+            return
+        old = self._content_widget
+        if old is not None:
+            old.hide()
+            old.setParent(None)
+            old.deleteLater()
+        self._content_widget = widget
+        widget.setParent(self)
+        self._label.hide()
+        self._updateSize()
+
+    def contentWidget(self) -> Optional[QWidget]:  # noqa: N802 (Qt 命名)
+        """当前自定义内容控件（未设置时为 ``None``，此时显示文本标签）。"""
+        return self._content_widget
+
     def _updateSize(self) -> None:
-        """根据标签内容更新 tooltip 的固定尺寸。"""
+        """根据内容更新 tooltip 的固定尺寸（自定义控件 / 多行折行 / 单行）。"""
+        if self._content_widget is not None:
+            widget = self._content_widget
+            # 显式 setFixedSize 的内容控件以固定尺寸为准 —— layout 的 sizeHint 可能
+            # 小于固定尺寸，按 hint 定弹体会让内容溢出被裁（实测两行卡片裁掉尾字）。
+            if widget.minimumSize() == widget.maximumSize():
+                hint = widget.size()
+            else:
+                hint = widget.sizeHint()
+            if not hint.isValid() or hint.isEmpty():
+                hint = widget.size()
+            width = max(1, hint.width()) + 24
+            height = max(1, hint.height()) + 16
+            widget.setGeometry(12, 8, width - 24, height - 16)
+            self.setFixedSize(width, height)
+            return
+        if self._word_wrap and self._max_width > 0:
+            inner = max(1, self._max_width - 24)
+            metrics = self._label.fontMetrics()
+            rect = metrics.boundingRect(
+                QRect(0, 0, inner, 0), Qt.TextFlag.TextWordWrap, self._text
+            )
+            if rect.width() > inner:
+                # 无空格的长串（URL / base64 / 一长串英文）按词边界折不开 ——
+                # 退回「任意位置换行」，否则文本会被裁掉
+                rect = metrics.boundingRect(
+                    QRect(0, 0, inner, 0), Qt.TextFlag.TextWrapAnywhere, self._text
+                )
+            width = min(self._max_width, rect.width() + 24)
+            height = rect.height() + 16
+            self._label.setFixedSize(max(0, width - 24), max(0, height - 16))
+            self.setFixedSize(width, height)
+            self._label.move(12, 8)
+            return
+        # 回到单行布局前必须清掉上一轮的固定尺寸，否则 adjustSize 不再生效
+        self._label.setMinimumSize(0, 0)
+        self._label.setMaximumSize(16777215, 16777215)
         self._label.adjustSize()
         width = self._label.width() + 24
         height = self._label.height() + 16
@@ -163,21 +234,11 @@ class ElaToolTip(QWidget):
         self._label.move(12, 8)
 
     def setText(self, text: str) -> None:
-        """设置提示文本。
-
-        :param text: 新的提示文本。
-        :type text: str
-        """
         self._text = text
         self._label.setText(text)
         self._updateSize()
 
     def paintEvent(self, _a0: Optional[QPaintEvent]) -> None:
-        """绘制提示框背景和阴影。
-
-        :param _a0: 绘制事件。
-        :type _a0: QPaintEvent, optional
-        """
         painter = QPainter(self)
         painter.setRenderHints(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
@@ -201,18 +262,9 @@ class ElaToolTip(QWidget):
         )
 
     def showAt(
-        self, widget: QWidget, position: ElaToolTipPosition = ElaToolTipPosition.Top
+        self, widget: QWidget, position: ElaToolTipPositionType = ElaToolTipPositionType.Top
     ) -> None:
-        """在指定 widget 附近显示提示框。
-
-        根据 *position* 计算提示框的理想位置，使其位于目标 widget
-        的上、下、左、右或其他角落位置。
-
-        :param widget: 目标 widget，提示框将显示在其附近。
-        :type widget: QWidget
-        :param position: 相对于目标 widget 的显示位置，默认为 ``TOP``。
-        :type position: ElaToolTipPosition
-        """
+        """在指定 widget 附近按 *position* 显示（最后会收敛进屏幕工作区）。"""
         if not self.isWindow():
             self.setParent(None)
 
@@ -222,28 +274,28 @@ class ElaToolTip(QWidget):
             return
         widgetRect = QRect(globalPos, widget.size())
 
-        if position == ElaToolTipPosition.Top:
+        if position == ElaToolTipPositionType.Top:
             x = widgetRect.center().x() - self.width() // 2
             y = widgetRect.top() - self.height() - 6
-        elif position == ElaToolTipPosition.Bottom:
+        elif position == ElaToolTipPositionType.Bottom:
             x = widgetRect.center().x() - self.width() // 2
             y = widgetRect.bottom() + 6
-        elif position == ElaToolTipPosition.Left:
+        elif position == ElaToolTipPositionType.Left:
             x = widgetRect.left() - self.width() - 6
             y = widgetRect.center().y() - self.height() // 2
-        elif position == ElaToolTipPosition.Right:
+        elif position == ElaToolTipPositionType.Right:
             x = widgetRect.right() + 6
             y = widgetRect.center().y() - self.height() // 2
-        elif position == ElaToolTipPosition.TopLeft:
+        elif position == ElaToolTipPositionType.TopLeft:
             x = widgetRect.left()
             y = widgetRect.top() - self.height() - 6
-        elif position == ElaToolTipPosition.TopRight:
+        elif position == ElaToolTipPositionType.TopRight:
             x = widgetRect.right() - self.width()
             y = widgetRect.top() - self.height() - 6
-        elif position == ElaToolTipPosition.BottomLeft:
+        elif position == ElaToolTipPositionType.BottomLeft:
             x = widgetRect.left()
             y = widgetRect.bottom() + 6
-        elif position == ElaToolTipPosition.BottomRight:
+        elif position == ElaToolTipPositionType.BottomRight:
             x = widgetRect.right() - self.width()
             y = widgetRect.bottom() + 6
         else:
@@ -251,25 +303,16 @@ class ElaToolTip(QWidget):
             y = widgetRect.top() - self.height() - 6
 
         above = position in (
-            ElaToolTipPosition.Top,
-            ElaToolTipPosition.TopLeft,
-            ElaToolTipPosition.TopRight,
+            ElaToolTipPositionType.Top,
+            ElaToolTipPositionType.TopLeft,
+            ElaToolTipPositionType.TopRight,
         )
         x, y = self._clamp_to_screen(x, y, widget, above)
         self.move(int(x), int(y))
         self.show()
 
     def _clamp_to_screen(self, x: int, y: int, widget: QWidget, above: bool) -> tuple:
-        """把提示框收敛到目标 widget 所在屏幕的工作区内。
-
-        上方放不下翻到下方、下方放不下翻到上方，水平方向收敛到边缘。
-
-        :param x: 期望左上角 x
-        :param y: 期望左上角 y
-        :param widget: 目标 widget
-        :param above: 期望位置是否在 widget 上方
-        :returns: 收敛后的 ``(x, y)``
-        """
+        """把提示框收敛到目标 widget 所在屏幕的工作区：上方放不下翻到下方、反之亦然。"""
         try:
             screen = QApplication.screenAt(widget.mapToGlobal(widget.rect().center()))
             if screen is None:
@@ -298,36 +341,17 @@ _filter_dict: weakref.WeakKeyDictionary[QWidget, _TooltipEventFilter] = (
 
 
 class _TooltipEventFilter(QObject):
-    """事件过滤器，监听目标 widget 的进入/离开事件以显示或隐藏提示框。
-
-    :param tooltip: 要显示的 ``ElaToolTip`` 实例。
-    :type tooltip: ElaToolTip
-    :param position: 提示框的显示位置。
-    :type position: ElaToolTipPosition
-    :param target_widget: 安装此过滤器的目标 widget。
-    :type target_widget: QWidget
-    """
+    """事件过滤器，监听目标 widget 的进入 / 离开以显示或隐藏提示框。"""
 
     def __init__(
-        self, tooltip: ElaToolTip, position: ElaToolTipPosition, target_widget: QWidget
+        self, tooltip: ElaToolTip, position: ElaToolTipPositionType, target_widget: QWidget
     ) -> None:
         super().__init__(target_widget)
         self._tooltip: weakref.ref[ElaToolTip] = weakref.ref(tooltip)
         self._position = position
 
     def eventFilter(self, a0: Optional[QObject], a1: Optional[QEvent]) -> bool:
-        """事件过滤实现。进入时显示提示框，离开时隐藏。
-
-        已绑定自定义 ``ElaToolTip`` 的控件会吞掉 ``QEvent.ToolTip``，
-        避免 Qt 原生 ``QToolTip`` 与自定义提示同时弹出（双提示）。
-
-        :param a0: 事件源对象。
-        :type a0: QObject, optional
-        :param a1: 事件对象。
-        :type a1: QEvent, optional
-        :return: 通常返回 ``False`` 表示不拦截事件。
-        :rtype: bool
-        """
+        """进入显示、离开隐藏；``QEvent.ToolTip`` 一律吞掉（否则原生提示会一起弹出）。"""
         tooltip = self._tooltip()
         if tooltip is None or a0 is None or a1 is None:
             return False
@@ -343,14 +367,7 @@ class _TooltipEventFilter(QObject):
 
 
 def remove_tooltip_from_dict(widget: QWidget) -> None:
-    """从全局字典中移除指定 widget 对应的 tooltip 并销毁。
-
-    此函数为内部使用，通常不需要直接调用。
-    :py:func:`remove_tooltip` 会自动调用本函数。
-
-    :param widget: 目标 widget。
-    :type widget: QWidget
-    """
+    """内部用：从全局字典移除并销毁 widget 的 tooltip（:func:`remove_tooltip` 会调）。"""
     if widget in _tooltip_dict:
         tooltip = _tooltip_dict.pop(widget)
         try:
@@ -363,29 +380,36 @@ def remove_tooltip_from_dict(widget: QWidget) -> None:
 
 
 def set_tooltip(
-    widget: QWidget, text: str, position: ElaToolTipPosition = ElaToolTipPosition.Top
+    widget: QWidget,
+    text: str,
+    position: ElaToolTipPositionType = ElaToolTipPositionType.Top,
+    *,
+    maxWidth: int = 0,
+    wordWrap: bool = False,
+    contentWidget: Optional[QWidget] = None,
 ) -> None:
-    """为指定 widget 绑定悬浮提示。
+    """为 widget 绑定悬浮提示。
 
-    在 widget 上安装事件过滤器，当鼠标进入时自动显示提示框，
-    离开时隐藏。多次调用同一 widget 会先移除旧提示再创建新提示。
+    装上事件过滤器，鼠标进入显示、离开隐藏；同一 widget 重复调用会先移除旧的。
+    绑定后会吞掉 ``QEvent.ToolTip``（原生 ``QToolTip`` 与自定义提示会同时弹出）。
 
-    :param widget: 要绑定提示的 widget。
-    :type widget: QWidget
-    :param text: 提示文本内容。
-    :type text: str
-    :param position: 提示框相对于 widget 的显示位置，默认为 ``TOP``。
-    :type position: ElaToolTipPosition
+    ``maxWidth`` / ``wordWrap`` 用于长文本：默认单行（宽度=文本宽度），超长
+    文本会拉成一条远宽于屏幕的横条；开启折行后按 ``maxWidth`` 换行。
 
-    Example::
-
-        btn = QPushButton("Hover me")
-        set_tooltip(btn, "这是一段提示文字", ToolTipPosition.TOP)
+    ``contentWidget`` 给定时用该控件替代文本（透传
+    :meth:`ElaToolTip.setContentWidget`，此时忽略 ``text`` / ``maxWidth`` /
+    ``wordWrap`` 的展示，控件所有权归提示框）。
     """
     if widget in _tooltip_dict:
         remove_tooltip(widget)
 
     tooltip = ElaToolTip(text, widget.window())
+    if wordWrap:
+        tooltip.setWordWrap(True)
+    if maxWidth:
+        tooltip.setMaxWidth(maxWidth)
+    if contentWidget is not None:
+        tooltip.setContentWidget(contentWidget)
     _tooltip_dict[widget] = tooltip
 
     filter_instance = _TooltipEventFilter(tooltip, position, widget)
@@ -402,11 +426,7 @@ def set_tooltip(
 
 
 def remove_tooltip(widget: QWidget) -> None:
-    """解除指定 widget 的悬浮提示绑定。
-
-    :param widget: 要解除提示绑定的 widget。
-    :type widget: QWidget
-    """
+    """解除 widget 的悬浮提示绑定。"""
     if widget in _filter_dict:
         widget.removeEventFilter(_filter_dict[widget])
         del _filter_dict[widget]
@@ -417,27 +437,7 @@ def remove_tooltip(widget: QWidget) -> None:
 
 
 class ElaStateToolTip(ElaThemeWidget):
-    """带状态指示的提示组件。
-
-    支持两种状态：加载中（显示旋转图标）和完成（显示对勾图标）。
-    提供淡出动画和关闭信号。
-
-    :param title: 提示标题。
-    :type title: str
-    :param content: 提示内容文本。
-    :type content: str
-    :param parent: 父级 widget。
-    :type parent: QWidget, optional
-
-    Signals:
-        closed: 提示框被关闭时发射此信号。
-
-    Example::
-
-        tooltip = ElaStateToolTip("正在加载", "请稍候...", self)
-        tooltip.closed.connect(on_closed)
-        tooltip.show()
-    """
+    """带状态指示的提示组件：加载中（旋转图标）/ 完成（对勾），带淡出动画与 ``closed`` 信号。"""
 
     closed = pyqtSignal()
 

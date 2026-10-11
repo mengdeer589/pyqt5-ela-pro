@@ -35,8 +35,6 @@ class ElaUploadArea(ElaThemeWidget):
     """文件上传区域。
 
     支持拖拽和点击选择文件，可配置后缀过滤、大小限制、数量限制。
-
-    :param parent: 父控件
     """
 
     filesSelected = pyqtSignal(list)
@@ -75,147 +73,74 @@ class ElaUploadArea(ElaThemeWidget):
     # ── Public API ────────────────────────────────────────
 
     def setTitle(self, text: str) -> None:
-        """设置拖拽区标题文字。
-
-        :param text: 标题文字
-        """
         self._title = text
         self.update()
 
     def title(self) -> str:
-        """获取拖拽区标题文字。
-
-        :returns: 标题文字
-        """
         return self._title
 
     def setSubTitle(self, text: str) -> None:
-        """设置拖拽区副标题文字。
-
-        :param text: 副标题文字
-        """
         self._sub_title = text
         self.update()
 
     def subTitle(self) -> str:
-        """获取拖拽区副标题文字。
-
-        :returns: 副标题文字
-        """
         return self._sub_title
 
     def setBorderRadius(self, r: int) -> None:
-        """设置圆角半径。
-
-        :param r: 圆角半径（像素）
-        """
         self._border_radius = r
         self.update()
 
     def borderRadius(self) -> int:
-        """获取圆角半径。
-
-        :returns: 圆角半径（像素）
-        """
         return self._border_radius
 
     def setAcceptedSuffixes(self, suffixes: list[str]) -> None:
-        """设置可接受的文件后缀列表。
-
-        :param suffixes: 后缀列表，如 ``[".txt", ".py"]``
-        """
         self._accepted_suffixes = list(suffixes)
 
     def acceptedSuffixes(self) -> list[str]:
-        """获取可接受的文件后缀列表（**副本**）。
+        """可接受的后缀列表（**副本**）。
 
-        :returns: 后缀列表
+        返回内部列表等于开了一条绕过 :meth:`setAcceptedSuffixes` 的后门 ——
+        ``_validateFile`` 直接读 ``_normalized_suffixes()``，宿主 append 一下
+        就能让任意后缀通过校验。
         """
-        # 返回**副本**（与 ``selectedFiles()`` 一致）：把内部列表交出去等于
-        # 开了一条绕过 ``setAcceptedSuffixes`` 的后门，而 ``_validateFile``
-        # 直接读 ``_normalized_suffixes()`` —— 宿主 append 一下就能让任意
-        # 后缀通过校验。
         return list(self._accepted_suffixes)
 
     def setMaxFileCount(self, n: int) -> None:
-        """设置最大文件数量（0 表示不限制）。
-
-        :param n: 最大数量
-        """
+        """最大文件数量（0 = 不限制）。"""
         self._max_file_count = n
 
     def maxFileCount(self) -> int:
-        """获取最大文件数量。
-
-        :returns: 最大数量
-        """
         return self._max_file_count
 
     def setMaxFileSize(self, size: int) -> None:
-        """设置单个文件最大字节数（0 表示不限制）。
-
-        :param size: 最大字节数
-        """
+        """单个文件最大字节数（0 = 不限制）。"""
         self._max_file_size = size
 
     def maxFileSize(self) -> int:
-        """获取单个文件最大字节数。
-
-        :returns: 最大字节数
-        """
         return self._max_file_size
 
     def setMultiple(self, multi: bool) -> None:
-        """设置是否允许选择多个文件。
-
-        :param multi: 是否多选
-        """
         self._is_multiple = multi
 
     def isMultiple(self) -> bool:
-        """当前是否允许选择多个文件。
-
-        :returns: 多选状态
-        """
         return self._is_multiple
 
     def setDialogTitle(self, title: str) -> None:
-        """设置文件选择对话框标题。
-
-        :param title: 对话框标题
-        """
         self._dialog_title = title
 
     def dialogTitle(self) -> str:
-        """获取文件选择对话框标题。
-
-        :returns: 对话框标题
-        """
         return self._dialog_title
 
     def setAcceptedMimeFilter(self, filter_str: str) -> None:
-        """设置文件选择对话框的 MIME 过滤字符串。
-
-        :param filter_str: MIME 过滤字符串，如 ``"Text (*.txt)"``
-        """
         self._mime_filter = filter_str
 
     def acceptedMimeFilter(self) -> str:
-        """获取文件选择对话框的 MIME 过滤字符串。
-
-        :returns: MIME 过滤字符串
-        """
         return self._mime_filter
 
     def selectedFiles(self) -> list[str]:
-        """获取已选择的文件路径列表。
-
-        :returns: 文件路径列表
-        """
         return list(self._file_paths)
 
     def clearFiles(self) -> None:
-        """清空已选择的文件列表。"""
         self._file_paths.clear()
         self.update()
 

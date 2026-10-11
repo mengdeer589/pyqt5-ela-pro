@@ -30,7 +30,7 @@ from pyqt5_ela_pro import (
     svg_to_pixmap,
     svg_icon_loader,
     Duration,
-    MotionMode,
+    ElaMotionModeType,
     motion,
 )
 from pyqt5_ela_pro.svg_icon import (
@@ -220,7 +220,7 @@ class AnimationIconPage(ExamplePage):
         )
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(15)
-        for mode in (MotionMode.Full, MotionMode.Reduced, MotionMode.Disabled):
+        for mode in (ElaMotionModeType.Full, ElaMotionModeType.Reduced, ElaMotionModeType.Disabled):
             btn = ElaPushButton(mode.name, self)
             btn.setFixedWidth(100)
             btn.clicked.connect(self._onModeClicked, mode)

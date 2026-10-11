@@ -29,11 +29,7 @@ from .widget_base import ElaThemeWidget
 class ElaGroupBox(ElaThemeWidget):
     """主题感知分组框。
 
-    全 QPainter 自绘圆角边框，居中标题文字，自动适配深浅色主题。
-
-    :param title: 标题文字
-    :param border_radius: 边框圆角半径
-    :param parent: 父控件
+    全QPainter 自绘圆角边框，居中标题文字，自动适配深浅色主题。
     """
 
     def __init__(
@@ -54,33 +50,17 @@ class ElaGroupBox(ElaThemeWidget):
     # ── Public API ────────────────────────────────────────
 
     def setTitle(self, title: str) -> None:
-        """设置分组框标题。
-
-        :param title: 标题文字
-        """
         self._title = title
         self.update()
 
     def title(self) -> str:
-        """获取分组框标题。
-
-        :returns: 标题文字
-        """
         return self._title
 
     def setBorderRadius(self, radius: int) -> None:
-        """设置圆角半径。
-
-        :param radius: 圆角半径（像素）
-        """
         self._border_radius = radius
         self.update()
 
     def borderRadius(self) -> int:
-        """获取圆角半径。
-
-        :returns: 圆角半径（像素）
-        """
         return self._border_radius
 
     # ── Internal ──────────────────────────────────────────
@@ -101,22 +81,18 @@ class ElaGroupBox(ElaThemeWidget):
         br = self._border_radius
         mode = self._theme_mode
 
-        # Title sizing
         fm = QFontMetrics(self.font())
         title_text_w = fm.horizontalAdvance(self._title) if self._title else 0
         title_h = fm.height()
 
-        # Colors
         bg_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicPress)
         border_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicBaseLine)
         title_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicText)
 
-        # Widget background
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(bg_color)
         painter.drawRect(self.rect())
 
-        # Frame border (rounded rect)
         margin = 2
         frame_top = title_h // 2 + 2
         frame_rect = QRectF(
@@ -131,7 +107,7 @@ class ElaGroupBox(ElaThemeWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(path)
 
-        # Title background gap
+        # 标题压在边框上：先按底色挖掉一段边框
         if self._title:
             pad = 12
             gap_w = min(title_text_w + pad * 2, w)
@@ -141,7 +117,6 @@ class ElaGroupBox(ElaThemeWidget):
             painter.setBrush(bg_color)
             painter.drawRect(gap_rect)
 
-            # Title text
             painter.setPen(title_color)
             title_font = self.font()
             painter.setFont(title_font)

@@ -380,7 +380,7 @@ class AppShellPage(ExamplePage):
         ok = self._tray.notify(
             "通知标题",
             "这是一条来自托盘的气泡通知。",
-            ElaTrayIcon.TrayState.Normal,
+            ElaTrayIcon.ElaTrayStateType.Normal,
             3000,
         )
         self._log_line(
@@ -431,9 +431,9 @@ class AppShellPage(ExamplePage):
         layout.setSpacing(8)
 
         for label, state in (
-            ("正常", ElaTrayIcon.TrayState.Normal),
-            ("警告", ElaTrayIcon.TrayState.Warning),
-            ("错误", ElaTrayIcon.TrayState.Critical),
+            ("正常", ElaTrayIcon.ElaTrayStateType.Normal),
+            ("警告", ElaTrayIcon.ElaTrayStateType.Warning),
+            ("错误", ElaTrayIcon.ElaTrayStateType.Critical),
         ):
             btn = ElaButton(
                 label, variant="outlined", color="primary", size="small", parent=row

@@ -17,11 +17,11 @@ from PyQt5.QtWidgets import QWidget, QVBoxLayout, QGraphicsDropShadowEffect
 from PyQt5ElaWidgetTools import eTheme, ElaThemeType
 
 from ._motion import Duration, Easing, start_transition
-from ._ownership import ContentSlot, WidgetOwnership
+from ._ownership import ContentSlot, ElaWidgetOwnershipType
 from .widget_base import ElaThemeWidget
 
 
-class ElaDrawerPosition(IntEnum):
+class ElaDrawerPositionType(IntEnum):
     Left = 0
     Right = 1
     Top = 2
@@ -32,7 +32,7 @@ class ElaDrawerPanel(QWidget):
     def __init__(
         self,
         corner_radius: int = 12,
-        position: ElaDrawerPosition = ElaDrawerPosition.Right,
+        position: ElaDrawerPositionType = ElaDrawerPositionType.Right,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -41,26 +41,14 @@ class ElaDrawerPanel(QWidget):
         self._bg_color = QColor(0, 0, 0, 0)
 
     def setBgColor(self, color: QColor) -> None:
-        """设置面板背景色。
-
-        :param color: 背景色
-        """
         self._bg_color = color
         self.update()
 
-    def setPosition(self, position: ElaDrawerPosition) -> None:
-        """设置面板位置。
-
-        :param position: 位置方向
-        """
+    def setPosition(self, position: ElaDrawerPositionType) -> None:
         self._position = position
         self.update()
 
     def setCornerRadius(self, radius: int) -> None:
-        """设置面板圆角半径。
-
-        :param radius: 圆角半径（像素）
-        """
         self._corner_radius = int(radius)
         self.update()
 
@@ -73,21 +61,21 @@ class ElaDrawerPanel(QWidget):
         r = self._corner_radius
         w, h = self.width(), self.height()
 
-        if self._position == ElaDrawerPosition.Left:
+        if self._position == ElaDrawerPositionType.Left:
             path.moveTo(w, r)
             path.quadTo(w, 0, w - r, 0)
             path.lineTo(0, 0)
             path.lineTo(0, h)
             path.lineTo(w - r, h)
             path.quadTo(w, h, w, h - r)
-        elif self._position == ElaDrawerPosition.Right:
+        elif self._position == ElaDrawerPositionType.Right:
             path.moveTo(0, r)
             path.quadTo(0, 0, r, 0)
             path.lineTo(w, 0)
             path.lineTo(w, h)
             path.lineTo(r, h)
             path.quadTo(0, h, 0, h - r)
-        elif self._position == ElaDrawerPosition.Top:
+        elif self._position == ElaDrawerPositionType.Top:
             path.moveTo(r, h)
             path.quadTo(0, h, 0, h - r)
             path.lineTo(0, 0)
@@ -115,10 +103,6 @@ class ElaDrawerDim(QWidget):
         self._bg_color = QColor(0, 0, 0, 102)
 
     def setBgColor(self, color: QColor) -> None:
-        """设置遮罩背景色。
-
-        :param color: 背景色
-        """
         self._bg_color = color
         palette = self.palette()
         palette.setColor(self.backgroundRole(), color)
@@ -134,22 +118,14 @@ class ElaDrawerDim(QWidget):
 
 
 class ElaDrawer(ElaThemeWidget):
-    """
-    SiliconUI 风格侧边抽屉组件。
-
-    特性：
-    - 支持上下左右四个方向滑入
-    - 半透明遮罩层，点击可关闭
-    - 平滑动画效果
-    - 支持主题适配
-    """
+    """SiliconUI 风格侧边抽屉：四向滑入、半透明遮罩（点击可关）、平滑动画。"""
 
     closed = pyqtSignal()
     opened = pyqtSignal()
 
     def __init__(
         self,
-        position: ElaDrawerPosition = ElaDrawerPosition.Right,
+        position: ElaDrawerPositionType = ElaDrawerPositionType.Right,
         drawer_size: int = 360,
         parent: Optional[QWidget] = None,
     ) -> None:
@@ -174,11 +150,11 @@ class ElaDrawer(ElaThemeWidget):
 
         shadow = QGraphicsDropShadowEffect(self._drawer_widget)
         shadow.setColor(QColor(0, 0, 0, 60))
-        if self._position == ElaDrawerPosition.Left:
+        if self._position == ElaDrawerPositionType.Left:
             shadow.setOffset(4, 0)
-        elif self._position == ElaDrawerPosition.Right:
+        elif self._position == ElaDrawerPositionType.Right:
             shadow.setOffset(-4, 0)
-        elif self._position == ElaDrawerPosition.Top:
+        elif self._position == ElaDrawerPositionType.Top:
             shadow.setOffset(0, 4)
         else:
             shadow.setOffset(0, -4)
@@ -212,26 +188,26 @@ class ElaDrawer(ElaThemeWidget):
         self._dim_widget.setBgColor(dim_color)
 
     def _getStartRect(self, parent: QWidget) -> QRect:
-        if self._position == ElaDrawerPosition.Left:
+        if self._position == ElaDrawerPositionType.Left:
             return QRect(-self._drawer_size, 0, self._drawer_size, parent.height())
-        elif self._position == ElaDrawerPosition.Right:
+        elif self._position == ElaDrawerPositionType.Right:
             return QRect(parent.width(), 0, self._drawer_size, parent.height())
-        elif self._position == ElaDrawerPosition.Top:
+        elif self._position == ElaDrawerPositionType.Top:
             return QRect(0, -self._drawer_size, parent.width(), self._drawer_size)
         else:  # Bottom
             return QRect(0, parent.height(), parent.width(), self._drawer_size)
 
     def _getEndRect(self, parent: QWidget) -> QRect:
-        if self._position == ElaDrawerPosition.Left:
+        if self._position == ElaDrawerPositionType.Left:
             return QRect(0, 0, self._drawer_size, parent.height())
-        elif self._position == ElaDrawerPosition.Right:
+        elif self._position == ElaDrawerPositionType.Right:
             return QRect(
                 parent.width() - self._drawer_size,
                 0,
                 self._drawer_size,
                 parent.height(),
             )
-        elif self._position == ElaDrawerPosition.Top:
+        elif self._position == ElaDrawerPositionType.Top:
             return QRect(0, 0, parent.width(), self._drawer_size)
         else:  # Bottom
             return QRect(
@@ -245,20 +221,13 @@ class ElaDrawer(ElaThemeWidget):
         """当前内容组件（已被外部销毁时返回 ``None``）。"""
         return self._content_slot.widget()
 
-    def contentOwnership(self) -> WidgetOwnership:
+    def contentOwnership(self) -> ElaWidgetOwnershipType:
         """内容组件的所有权策略，默认 ``Borrowed``。"""
         return self._content_slot.ownership()
 
     def setContentWidget(
-        self, widget: QWidget, ownership=WidgetOwnership.Borrowed
+        self, widget: QWidget, ownership=ElaWidgetOwnershipType.Borrowed
     ) -> "ElaDrawer":
-        """设置抽屉内容组件。
-
-        :param widget: 内容组件
-        :param ownership: ``Borrowed``（默认，释放时无父交还）/ ``Reparented``
-            （放回原 parent）/ ``Owned``（抽屉负责 ``deleteLater``）
-        :returns: 自身（支持链式调用）
-        """
         current = self._content_slot.widget()
         if current is not None:
             self._main_layout.removeWidget(current)
@@ -277,20 +246,10 @@ class ElaDrawer(ElaThemeWidget):
         return self._content_slot.takeWidget()
 
     def setDrawerSize(self, size: int) -> "ElaDrawer":
-        """设置抽屉宽度/高度。
-
-        :param size: 尺寸（像素）
-        :returns: 自身（支持链式调用）
-        """
         self._drawer_size = size
         return self
 
     def setCornerRadius(self, radius: int) -> "ElaDrawer":
-        """设置抽屉面板圆角半径。
-
-        :param radius: 圆角半径（像素）
-        :returns: 自身（支持链式调用）
-        """
         self._corner_radius = int(radius)
         # 必须下发给真正绘制圆角的子面板：paintEvent 读的是
         # ``_drawer_widget._corner_radius``，只改抽屉自身的字段没有任何效果。
@@ -300,20 +259,10 @@ class ElaDrawer(ElaThemeWidget):
         return self
 
     def setCloseOnDimClicked(self, on: bool) -> "ElaDrawer":
-        """设置点击遮罩层是否关闭抽屉。
-
-        :param on: 是否关闭
-        :returns: 自身（支持链式调用）
-        """
         self._close_on_dim_clicked = on
         return self
 
     def setAnimationDuration(self, duration: int) -> "ElaDrawer":
-        """设置动画时长。
-
-        :param duration: 时长（毫秒）
-        :returns: 自身（支持链式调用）
-        """
         self._animation_duration = duration
         self._show_anim.setDuration(duration)
         self._hide_anim.setDuration(duration)
@@ -321,10 +270,6 @@ class ElaDrawer(ElaThemeWidget):
         return self
 
     def isOpened(self) -> bool:
-        """当前抽屉是否已打开。
-
-        :returns: 打开状态
-        """
         return self._is_opened
 
     def _on_content_changed(self, widget) -> None:

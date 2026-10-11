@@ -5,11 +5,19 @@ from __future__ import annotations
 from PyQt5.QtCore import Qt, QStringListModel, QModelIndex
 from PyQt5.QtWidgets import QWidget
 
+import pytest
+from _qthelpers import wait_until as _wait_until
+
+from pyqt5_ela_pro._internal import hideComboboxPopup
 from pyqt5_ela_pro.combo_box import (
     ElaSearchProxyModel,
     ElaSearchMultiBox,
     ElaSearchBox,
 )
+from pyqt5_ela_pro.ela_tag_box import ElaTagBox
+from pyqt5_ela_pro.ela_tag_multi_box import ElaTagMultiBox
+from pyqt5_ela_pro.ela_tag_search_box import ElaTagSearchBox
+from pyqt5_ela_pro.ela_tag_search_multi_box import ElaTagSearchMultiBox
 
 
 class TestElaSearchProxyModel:
@@ -228,6 +236,65 @@ class TestElaSearchMultiBox:
         assert box.searchVisible() is True
         box.setSearchVisible(False)
         assert box.searchVisible() is False
+
+
+class TestHidePopupWithoutParent:
+    """无父控件关弹层不得走上游那条会崩的分支。
+
+    ``ElaComboBox::hidePopup`` / ``ElaMultiSelectComboBox::hidePopup`` 的收起
+    动画结束回调无条件 ``QApplication::sendEvent(parentWidget(), ...)`` ——
+    本机实测 ``QApplication.sendEvent(None, event)`` 直接访问冲突
+    （进程退出码 -1073741819，无 traceback）。所以每个组合框子类的
+    ``hidePopup`` 都要先过 ``_internal.hideComboboxPopup``。
+
+    判据钉**可观测契约**而不是「崩不崩」：崩不崩取决于平台 / 动画有没有跑完
+    （上游要等弹出动画结束才把 ``_isAllowHidePopup`` 置真），offscreen 下常常
+    走不到那条分支 —— 靠「没崩」当断言等于没测。
+    """
+
+    def test_helper_takes_over_when_parentless(self, qapp, make):
+        box = make(ElaSearchBox)
+        box.addItems(["北京", "上海"])
+        box.show()
+        box.showPopup()
+        assert box.parentWidget() is None
+        assert hideComboboxPopup(box) is True, "无父控件必须由本库接管"
+        assert box.isVisible() is False or box.view().isVisible() is False
+
+    def test_helper_defers_to_upstream_when_parented(self, qapp, make, window_widget):
+        box = make(ElaSearchBox, window_widget)
+        assert box.parentWidget() is window_widget
+        assert hideComboboxPopup(box) is False, "有父控件必须走上游（保留收起动画）"
+
+    @pytest.mark.parametrize(
+        "factory",
+        [
+            lambda: ElaSearchBox(),
+            lambda: ElaSearchMultiBox(),
+            lambda: ElaTagBox(),
+            lambda: ElaTagSearchBox(),
+            lambda: ElaTagMultiBox(),
+            lambda: ElaTagSearchMultiBox(),
+        ],
+        ids=[
+            "search-box",
+            "search-multi-box",
+            "tag",
+            "tag-search",
+            "tag-multi",
+            "tag-search-multi",
+        ],
+    )
+    def test_every_combo_subclass_guards_hide_popup(self, qapp, make, factory):
+        """六个子类都要在 hidePopup 里接上守卫（漏一个就回到崩溃路径）。"""
+        box = make(factory)
+        assert box.parentWidget() is None
+        box.addItems(["北京", "上海"])
+        box.show()
+        box.showPopup()
+        box.hidePopup()
+        _wait_until(qapp, lambda: False, timeout_ms=800)
+        qapp.processEvents()
 
 
 class TestElaSearchBox:

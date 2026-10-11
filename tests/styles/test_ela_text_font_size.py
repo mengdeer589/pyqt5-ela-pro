@@ -4,14 +4,16 @@
 ``ElaText.h``）。这是个静默的坑：不报错、不崩，只是「大」，而且只在某一张卡 /
 某一页冒出来，整块的比例就崩掉。
 
-**合规写法有三条**，缺一不可漏判：
+**合规写法有四条**，缺一不可漏判：
 
 * ``setTextPixelSize(px)`` —— 点字号，最常用；
 * ``setTextStyle(ElaTextType...)`` —— 上游的语义档位（``ela_spotlight`` /
   ``splash_screen`` 走这条）；
 * ``setFont(QFont(...))`` —— 直接换字体。**注意它会覆盖点字号**
   （``setTextPixelSize(18)`` 之后再来一句 ``setFont(QFont(f, 18, Bold))``，
-  ``pixelSize()`` 就变回 ``-1``、改用 18 *磅*），所以这一条也算「已定字号」。
+  ``pixelSize()`` 就变回 ``-1``、改用 18 *磅*），所以这一条也算「已定字号」；
+* ``ElaText("文字", 12, parent)`` —— 构造的**第二位置参数**就是点字号
+  （上游签名 ``ElaText(text, pixelSize, parent)``），建出来就是定好的字号。
 
 守卫查两种形状：① ``x = ElaText(...)`` 而 ``x`` 在该作用域内没定过字号；
 ② ``ElaText(...)`` 作为实参**直接交给另一个调用**（如
@@ -55,6 +57,24 @@ def _is_text_call(node: ast.AST) -> bool:
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id in _TEXT_CLASSES
+    )
+
+
+def _has_positional_size(call: ast.Call) -> bool:
+    """``ElaText(text, 12, parent)`` / ``ElaText(text, pixelSize=12)`` —— 构造即定字号。"""
+    if len(call.args) >= 2:
+        second = call.args[1]
+        if (
+            isinstance(second, ast.Constant)
+            and isinstance(second.value, int)
+            and not isinstance(second.value, bool)
+        ):
+            return True
+    return any(
+        kw.arg == "pixelSize"
+        and isinstance(kw.value, ast.Constant)
+        and isinstance(kw.value.value, int)
+        for kw in call.keywords
     )
 
 
@@ -102,6 +122,8 @@ def _offenders() -> list[str]:
             for sub in ast.walk(scope):
                 if not (isinstance(sub, ast.Assign) and _is_text_call(sub.value)):
                     continue
+                if _has_positional_size(sub.value):
+                    continue
                 for target in sub.targets:
                     name = _target_name(target)
                     if name and name not in sized:
@@ -139,6 +161,8 @@ def _inline_arg_offenders(tree: ast.AST, rel: str) -> list[str]:
     found: list[str] = []
     for node in ast.walk(tree):
         if not _is_text_call(node):
+            continue
+        if _has_positional_size(node):
             continue
         parent = parents.get(id(node))
         if not (isinstance(parent, ast.Call) and parent.func is not node):

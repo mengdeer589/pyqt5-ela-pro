@@ -25,7 +25,7 @@ class TestElaChipInit:
             ("_is_closable", False),
             ("_is_checkable", False),
             ("_is_checked", False),
-            ("_chip_color", ElaChip.Color.Default),
+            ("_chip_color", ElaChip.ElaChipColorType.Default),
         ],
     )
     def test_initialization_with_defaults(self, chip, attr, expected):
@@ -101,14 +101,14 @@ class TestElaChipCheckable:
 
 class TestElaChipColor:
     def test_color_default(self, chip):
-        assert chip.color() == ElaChip.Color.Default
+        assert chip.color() == ElaChip.ElaChipColorType.Default
 
     def test_set_color_primary(self, chip):
-        chip.setColor(ElaChip.Color.Primary)
-        assert chip.color() == ElaChip.Color.Primary
+        chip.setColor(ElaChip.ElaChipColorType.Primary)
+        assert chip.color() == ElaChip.ElaChipColorType.Primary
 
     def test_set_color_all_values(self, chip):
-        for c in ElaChip.Color:
+        for c in ElaChip.ElaChipColorType:
             chip.setColor(c)
             assert chip.color() == c
 
@@ -140,7 +140,7 @@ class TestElaChipContrast:
     """
 
     @pytest.mark.parametrize(
-        "color", list(ElaChip.Color), ids=[c.name for c in ElaChip.Color]
+        "color", list(ElaChip.ElaChipColorType), ids=[c.name for c in ElaChip.ElaChipColorType]
     )
     @pytest.mark.parametrize(
         "mode",
@@ -178,7 +178,7 @@ class TestElaChipContrast:
 class TestElaChipStates:
     def test_selected_uses_solid_fill(self, make):
         chip = make(ElaChip, text="标签")
-        chip.setColor(ElaChip.Color.Blue)
+        chip.setColor(ElaChip.ElaChipColorType.Blue)
         chip.setCheckable(True)
         chip.setChecked(True)
         scheme = get_color_scheme("blue", chip._theme_mode)
@@ -188,7 +188,7 @@ class TestElaChipStates:
 
     def test_hover_tint_is_stronger(self, make):
         chip = make(ElaChip, text="标签")
-        chip.setColor(ElaChip.Color.Blue)
+        chip.setColor(ElaChip.ElaChipColorType.Blue)
         idle, _b, fg = chip._resolve_colors(False, False)
         hover, _b2, fg2 = chip._resolve_colors(True, False)
         press, _b3, _fg3 = chip._resolve_colors(True, True)

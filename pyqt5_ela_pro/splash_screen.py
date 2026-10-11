@@ -72,30 +72,25 @@ class ElaSplashScreen(ElaThemeWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFixedSize(580, 400)
 
-        # Title
         self._title_text = ElaText(self)
         self._title_text.setTextStyle(ElaTextType.TextStyle.TitleLarge)
         self._title_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Subtitle
         self._subtitle_text = ElaText(self)
         self._subtitle_text.setTextStyle(ElaTextType.TextStyle.Subtitle)
         self._subtitle_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._subtitle_text.setWordWrap(True)
         self._subtitle_text.setMinimumWidth(400)
 
-        # Status
         self._status_text = ElaText(self)
         self._status_text.setTextStyle(ElaTextType.TextStyle.Body)
         self._status_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Progress bar
         self._progress_bar = ElaProgressBar(self)
         self._progress_bar.setMinimum(0)
         self._progress_bar.setMaximum(100)
         self._progress_bar.setFixedHeight(24)
 
-        # Progress ring
         self._progress_ring = ElaProgressRing(self)
         self._progress_ring.setFixedSize(48, 48)
         self._progress_ring.setIsBusying(True)
@@ -118,165 +113,77 @@ class ElaSplashScreen(ElaThemeWidget):
     # ── Public API ────────────────────────────────────────
 
     def setBorderRadius(self, r: int) -> None:
-        """设置窗口圆角半径。
-
-        :param r: 圆角半径（像素）
-        """
         self._border_radius = r
         self.update()
 
     def borderRadius(self) -> int:
-        """获取窗口圆角半径。
-
-        :returns: 圆角半径（像素）
-        """
         return self._border_radius
 
     def setTitle(self, title: str) -> None:
-        """设置标题文字。
-
-        :param title: 标题
-        """
         self._title_text.setText(title)
 
     def title(self) -> str:
-        """获取标题文字。
-
-        :returns: 标题
-        """
         return self._title_text.text()
 
     def setSubTitle(self, text: str) -> None:
-        """设置副标题文字。
-
-        :param text: 副标题
-        """
         self._subtitle_text.setText(text)
 
     def subTitle(self) -> str:
-        """获取副标题文字。
-
-        :returns: 副标题
-        """
         return self._subtitle_text.text()
 
     def setStatusText(self, text: str) -> None:
-        """设置状态文字。
-
-        :param text: 状态文字
-        """
         self._status_text.setText(text)
 
     def statusText(self) -> str:
-        """获取状态文字。
-
-        :returns: 状态文字
-        """
         return self._status_text.text()
 
     def setLogo(self, logo: QPixmap) -> None:
-        """设置 Logo 图片。
-
-        :param logo: Logo 像素图
-        """
         self._logo = logo
         self.update()
 
     def logo(self) -> QPixmap:
-        """获取 Logo 图片。
-
-        :returns: Logo 像素图
-        """
         return self._logo
 
     def setMinimum(self, n: int) -> None:
-        """设置进度最小值。
-
-        :param n: 最小值
-        """
         self._minimum = n
         self._progress_bar.setMinimum(n)
 
     def minimum(self) -> int:
-        """获取进度最小值。
-
-        :returns: 最小值
-        """
         return self._minimum
 
     def setMaximum(self, n: int) -> None:
-        """设置进度最大值。
-
-        :param n: 最大值
-        """
         self._maximum = n
         self._progress_bar.setMaximum(n)
 
     def maximum(self) -> int:
-        """获取进度最大值。
-
-        :returns: 最大值
-        """
         return self._maximum
 
     def setValue(self, n: int) -> None:
-        """设置当前进度值。
-
-        :param n: 进度值
-        """
         self._value = n
         self._progress_bar.setValue(n)
         self._progress_ring.setValue(n)
 
     def value(self) -> int:
-        """获取当前进度值。
-
-        :returns: 进度值
-        """
         return self._value
 
     def setShowProgressBar(self, show: bool) -> None:
-        """设置是否显示进度条。
-
-        :param show: 是否显示
-        """
         self._is_show_progress_bar = show
         self._progress_bar.setVisible(show)
 
     def isShowProgressBar(self) -> bool:
-        """当前是否显示进度条。
-
-        :returns: 显示状态
-        """
         return self._is_show_progress_bar
 
     def setShowProgressRing(self, show: bool) -> None:
-        """设置是否显示进度环。
-
-        :param show: 是否显示
-        """
         self._is_show_progress_ring = show
         self._progress_ring.setVisible(show)
 
     def isShowProgressRing(self) -> bool:
-        """当前是否显示进度环。
-
-        :returns: 显示状态
-        """
         return self._is_show_progress_ring
 
     def setClosable(self, closable: bool) -> None:
-        """设置是否可关闭。
-
-        :param closable: 是否可关闭
-        """
         self._is_closable = closable
 
     def isClosable(self) -> bool:
-        """当前是否可关闭。
-
-        :returns: 可关闭状态
-        """
         return self._is_closable
 
     def show(self) -> None:
@@ -299,10 +206,7 @@ class ElaSplashScreen(ElaThemeWidget):
         self.closed.emit()
 
     def finish(self, main_window: QWidget) -> None:
-        """淡出关闭并显示主窗口。
-
-        :param main_window: 主窗口实例
-        """
+        """淡出关闭并显示主窗口。"""
         if self._fade_timer.isActive() or self._fade_settled:
             return
         self._fade_target = main_window
@@ -319,8 +223,7 @@ class ElaSplashScreen(ElaThemeWidget):
     def _settleFadeOut(self) -> None:
         """淡出收尾：关自己 + 把主窗口顶到前台。
 
-        正常路径由计时器走到 0 时调，被动效策略 snap 时由 ``finish`` 直接调 ——
-        收尾只能有一个入口，否则 snap 与正常播放两条路会各做一半。
+        正常路径与动效 snap 都走这一个入口，否则两条路会各做一半。
         """
         self._fade_timer.stop()
         self._fade_settled = True
@@ -375,10 +278,8 @@ class ElaSplashScreen(ElaThemeWidget):
         sb = 6
         fg = QRect(sb, sb, self.width() - 2 * sb, self.height() - 2 * sb)
 
-        # Shadow
         eTheme.drawEffectShadow(painter, self.rect(), sb, br)
 
-        # Background
         path = QPainterPath()
         path.addRoundedRect(QRectF(fg), br, br)
         painter.setClipPath(path)
@@ -386,7 +287,6 @@ class ElaSplashScreen(ElaThemeWidget):
         painter.setBrush(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.DialogBase))
         painter.drawRoundedRect(QRectF(fg), br, br)
 
-        # Logo
         if not self._logo.isNull():
             ls = min(80, min(fg.width(), fg.height()) // 3)
             lr = QRect(fg.x() + (fg.width() - ls) // 2, fg.y() + 30, ls, ls)
@@ -400,7 +300,6 @@ class ElaSplashScreen(ElaThemeWidget):
                 ),
             )
 
-        # Border
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(
             QPen(eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PopupBorder), 1)

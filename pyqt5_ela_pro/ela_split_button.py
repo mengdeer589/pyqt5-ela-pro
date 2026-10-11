@@ -37,16 +37,14 @@ from PyQt5ElaWidgetTools import eTheme, ElaThemeType, ElaIconType, ElaMenu
 
 from .widget_base import ElaThemeWidget
 
+#: 控件高度：与按钮族一致（ElaPushButton V3.0 / ElaButton middle 都是 30）
+_HEIGHT = 30
+
 
 class ElaSplitButton(ElaThemeWidget):
-    """拆分按钮。
+    """拆分按钮：左侧为主操作区域（文字 + 可选图标），右侧为下拉箭头。
 
-    左侧为主操作区域（文字 + 可选图标），右侧为下拉箭头。
-    点击左侧发出 ``clicked()`` 信号，点击右侧弹出菜单。
-
-    :param text: 按钮文字
-    :param icon: ElaAwesome 图标名称
-    :param parent: 父控件
+    点击左侧发出 ``clicked()``，点击右侧弹出菜单。
     """
 
     clicked = pyqtSignal()
@@ -70,7 +68,7 @@ class ElaSplitButton(ElaThemeWidget):
         self._is_right_pressed = False
 
         self.setObjectName("ElaSplitButton")
-        self.setFixedHeight(35)
+        self.setFixedHeight(_HEIGHT)
         self.setMouseTracking(True)
         self._icon_font = QFont("ElaAwesome")
         self._arrow_font = QFont("ElaAwesome")
@@ -82,64 +80,33 @@ class ElaSplitButton(ElaThemeWidget):
     # ── Public API ────────────────────────────────────────
 
     def setText(self, text: str) -> None:
-        """设置按钮文字。
-
-        :param text: 文字内容
-        """
         self._text = text
         self.updateGeometry()
         self.update()
 
     def text(self) -> str:
-        """获取按钮文字。
-
-        :returns: 文字内容
-        """
         return self._text
 
     def setElaIcon(self, icon: ElaIconType.IconName) -> None:
-        """设置按钮图标。
-
-        :param icon: ElaAwesome 图标名称
-        """
         self._icon = icon
         self.updateGeometry()
         self.update()
 
     def elaIcon(self) -> ElaIconType.IconName:
-        """获取当前图标。
-
-        :returns: ElaAwesome 图标名称
-        """
         return self._icon
 
     def setBorderRadius(self, radius: int) -> None:
-        """设置圆角半径。
-
-        :param radius: 圆角半径（像素）
-        """
         self._border_radius = radius
         self.update()
 
     def borderRadius(self) -> int:
-        """获取圆角半径。
-
-        :returns: 圆角半径（像素）
-        """
         return self._border_radius
 
     def setMenu(self, menu: ElaMenu) -> None:
-        """设置下拉菜单（点击右侧箭头时弹出）。
-
-        :param menu: ElaMenu 实例
-        """
+        """点击右侧箭头时弹出。"""
         self._menu = menu
 
     def menu(self) -> Optional[ElaMenu]:
-        """获取当前下拉菜单。
-
-        :returns: ElaMenu 实例，未设置时返回 None
-        """
         return self._menu
 
     # ── Internal ──────────────────────────────────────────
@@ -315,4 +282,4 @@ class ElaSplitButton(ElaThemeWidget):
             0 if (not self._text or self._icon == ElaIconType.IconName.None_) else 8
         )
         left_w = icon_w + spacing + text_w + 20
-        return QSize(left_w + self._dropdown_width, 35)
+        return QSize(left_w + self._dropdown_width, _HEIGHT)

@@ -16,13 +16,13 @@ import pytest
 from PyQt5.QtCore import QRectF
 from PyQt5.QtGui import QColor, QPainter, QPixmap
 
-from pyqt5_ela_pro._motion import MotionMode, motion
+from pyqt5_ela_pro._motion import ElaMotionModeType, motion
 from pyqt5_ela_pro._theme import blend, surface
 from pyqt5_ela_pro.ela_shimmer import (
     ElaShimmer,
     ShimmerElement,
-    ShimmerShape,
-    ShimmerTemplate,
+    ElaShimmerShapeType,
+    ElaShimmerTemplateType,
     _darkCanvas,
     _normalizeProgress,
     avatarTextRowElements,
@@ -165,12 +165,12 @@ class TestTemplates:
     def test_line_shape_is_a_full_pill(self):
         """``Line`` 的默认圆角是半高 —— 全圆角药丸。"""
         els = textBlockElements(QRectF(0, 0, 240, 72), 3)
-        assert all(e.shape == ShimmerShape.Line for e in els)
+        assert all(e.shape == ElaShimmerShapeType.Line for e in els)
         assert abs(els[0].rect.height() / 2.0 - 6.0) < 1e-9
 
     def test_avatar_text_row_starts_with_a_circle(self):
         els = avatarTextRowElements(QRectF(0, 0, 240, 56))
-        assert els[0].shape == ShimmerShape.Circle
+        assert els[0].shape == ElaShimmerShapeType.Circle
         assert len(els) == 3
 
     def test_avatar_extent_is_capped_at_32(self):
@@ -185,7 +185,7 @@ class TestTemplates:
     def test_image_card_is_one_filled_rounded_rect(self):
         els = imageCardElements(QRectF(0, 0, 240, 140))
         assert len(els) == 1
-        assert els[0].shape == ShimmerShape.RoundedRect
+        assert els[0].shape == ElaShimmerShapeType.RoundedRect
 
     @pytest.mark.parametrize(
         "builder", [textBlockElements, avatarTextRowElements, imageCardElements]
@@ -207,23 +207,23 @@ class TestTemplates:
         assert builder(QRectF(0, 0, 0, 0)) == []
 
     def test_custom_clears_template_state(self, shimmer):
-        shimmer.setTemplate(ShimmerTemplate.TextBlock)
+        shimmer.setTemplate(ElaShimmerTemplateType.TextBlock)
         shimmer.setElements(
-            [ShimmerElement(shape=ShimmerShape.Circle, rect=QRectF(0, 0, 10, 10))]
+            [ShimmerElement(shape=ElaShimmerShapeType.Circle, rect=QRectF(0, 0, 10, 10))]
         )
-        assert shimmer.shimmerTemplate() == ShimmerTemplate.Custom
+        assert shimmer.shimmerTemplate() == ElaShimmerTemplateType.Custom
         assert len(shimmer.elements()) == 1
 
     def test_clear_elements_does_not_fall_back_to_a_template(self, shimmer):
         """清空表达的是「我自己管排版」，不是「给我默认那个」。"""
         shimmer.clearElements()
-        assert shimmer.shimmerTemplate() == ShimmerTemplate.Custom
+        assert shimmer.shimmerTemplate() == ElaShimmerTemplateType.Custom
         assert shimmer.elements() == []
 
     def test_custom_elements_are_not_relaid_out_on_resize(self, shimmer):
         """手工元素的坐标是调用方给的，resize 不许改写。"""
         rect = QRectF(5, 5, 30, 30)
-        shimmer.setElements([ShimmerElement(shape=ShimmerShape.Circle, rect=rect)])
+        shimmer.setElements([ShimmerElement(shape=ElaShimmerShapeType.Circle, rect=rect)])
         shimmer.resize(400, 200)
         shimmer.elements()
         assert shimmer.elements()[0].rect == rect
@@ -245,9 +245,9 @@ class TestLazyLayout:
     @pytest.mark.parametrize(
         ("template", "width", "height"),
         [
-            (ShimmerTemplate.TextBlock, 240, 72),
-            (ShimmerTemplate.AvatarTextRow, 240, 56),
-            (ShimmerTemplate.ImageCard, 240, 140),
+            (ElaShimmerTemplateType.TextBlock, 240, 72),
+            (ElaShimmerTemplateType.AvatarTextRow, 240, 56),
+            (ElaShimmerTemplateType.ImageCard, 240, 140),
         ],
     )
     def test_size_hint_per_template(self, make, template, width, height):
@@ -336,7 +336,7 @@ class TestMotionPolicyIntegration:
         shimmer.show()
         previous = motion.mode()
         try:
-            motion.setMode(MotionMode.Reduced)
+            motion.setMode(ElaMotionModeType.Reduced)
             assert shimmer.isAnimationRunning() is False
         finally:
             motion.setMode(previous)
@@ -345,7 +345,7 @@ class TestMotionPolicyIntegration:
         shimmer.show()
         previous = motion.mode()
         try:
-            motion.setMode(MotionMode.Disabled)
+            motion.setMode(ElaMotionModeType.Disabled)
             assert shimmer.isAnimationRunning() is False
         finally:
             motion.setMode(previous)
@@ -356,7 +356,7 @@ class TestMotionPolicyIntegration:
         shimmer.setShimmerProgress(0.5)
         previous = motion.mode()
         try:
-            motion.setMode(MotionMode.Disabled)
+            motion.setMode(ElaMotionModeType.Disabled)
         finally:
             motion.setMode(previous)
         assert shimmer.shimmerProgress() == 0.0
@@ -411,7 +411,7 @@ class TestPaintSafety:
         )
 
     def test_empty_rect_element_is_skipped(self, shimmer):
-        els = [ShimmerElement(shape=ShimmerShape.Line, rect=QRectF())]
+        els = [ShimmerElement(shape=ElaShimmerShapeType.Line, rect=QRectF())]
         _render(els, shimmerPalette(QColor("#ececec")))
 
     def test_paint_on_a_live_widget(self, shimmer, qapp):

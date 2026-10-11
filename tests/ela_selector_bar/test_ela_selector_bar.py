@@ -18,12 +18,12 @@ import pytest
 from PyQt5.QtCore import QEvent, QPoint, Qt
 from PyQt5.QtGui import QKeyEvent
 
-from pyqt5_ela_pro._motion import MotionMode, motion
+from pyqt5_ela_pro._motion import ElaMotionModeType, motion
 from pyqt5_ela_pro.ela_selector_bar import (
     _Metrics,
     ElaSelectorBar,
     SelectorBarItem,
-    SelectorBarOverflow,
+    ElaSelectorBarOverflowType,
 )
 
 
@@ -425,7 +425,7 @@ class TestIndicatorAnimation:
         bar.snapIndicator()
         previous = motion.mode()
         try:
-            motion.setMode(MotionMode.Reduced)
+            motion.setMode(ElaMotionModeType.Reduced)
             bar.setSelectedIndex(3)
             bar.snapIndicator()
         finally:
@@ -440,7 +440,7 @@ class TestIndicatorAnimation:
         bar.snapIndicator()
         previous = motion.mode()
         try:
-            motion.setMode(MotionMode.Disabled)
+            motion.setMode(ElaMotionModeType.Disabled)
             bar.setSelectedIndex(2)
         finally:
             motion.setMode(previous)
@@ -495,7 +495,7 @@ class TestOverflow:
 
     def test_more_button_behavior_reserves_one_slot(self, make):
         bar = self._many(make)
-        bar.setOverflowBehavior(SelectorBarOverflow.MoreButton)
+        bar.setOverflowBehavior(ElaSelectorBarOverflowType.MoreButton)
         assert bar._overflow_more_rect.width() == _Metrics.overflowButtonWidth
         assert bar._overflow_back_rect.isEmpty() is True
 
@@ -723,7 +723,7 @@ class TestRtl:
 
     def test_overflow_buttons_mirror(self, make):
         bar = _bar(make, width=300, texts=[f"项{n}" for n in range(24)])
-        bar.setOverflowBehavior(SelectorBarOverflow.ScrollButtons)
+        bar.setOverflowBehavior(ElaSelectorBarOverflowType.ScrollButtons)
         bar.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         assert bar._overflow_back_rect.left() > bar._overflow_forward_rect.left()
 
@@ -738,10 +738,10 @@ class TestPaintSafety:
     @pytest.mark.parametrize(
         ("behavior", "rtl", "width", "count", "overflowing"),
         [
-            (SelectorBarOverflow.ScrollButtons, False, 520, 4, False),
-            (SelectorBarOverflow.ScrollButtons, False, 300, 24, True),
-            (SelectorBarOverflow.MoreButton, False, 300, 24, True),
-            (SelectorBarOverflow.ScrollButtons, True, 300, 24, True),
+            (ElaSelectorBarOverflowType.ScrollButtons, False, 520, 4, False),
+            (ElaSelectorBarOverflowType.ScrollButtons, False, 300, 24, True),
+            (ElaSelectorBarOverflowType.MoreButton, False, 300, 24, True),
+            (ElaSelectorBarOverflowType.ScrollButtons, True, 300, 24, True),
         ],
     )
     def test_every_mode_paints(

@@ -37,18 +37,15 @@ class ElaInfoBadge(ElaThemeWidget):
 
     可附加到任意控件的右上角，支持 Dot / Value / Icon 三种显示模式，
     以及 Attention / Informational / Success / Caution / Critical 五种严重级别。
-
-    :param value: 数值模式时的初始值，为 ``None`` 时不启用数值模式
-    :param icon: 图标模式时的图标，为 ``None`` 时不启用图标模式
-    :param parent: 父控件
+    ``value`` / ``icon`` 构造参数决定初始进入哪种模式。
     """
 
-    class BadgeMode(IntEnum):
+    class ElaBadgeModeType(IntEnum):
         Dot = 0
         Value = 1
         Icon = 2
 
-    class Severity(IntEnum):
+    class ElaSeverityType(IntEnum):
         Attention = 0
         Informational = 1
         Success = 2
@@ -63,8 +60,8 @@ class ElaInfoBadge(ElaThemeWidget):
     ) -> None:
         super().__init__(parent)
 
-        self._badge_mode = self.BadgeMode.Dot
-        self._severity = self.Severity.Attention
+        self._badge_mode = self.ElaBadgeModeType.Dot
+        self._severity = self.ElaSeverityType.Attention
         self._value = 0
         self._max_value = 99
         self._icon: ElaIconType.IconName = ElaIconType.IconName.None_
@@ -75,96 +72,54 @@ class ElaInfoBadge(ElaThemeWidget):
         self._icon_font = QFont("ElaAwesome")
 
         if value is not None:
-            self._badge_mode = self.BadgeMode.Value
+            self._badge_mode = self.ElaBadgeModeType.Value
             self._value = value
         elif icon is not None:
-            self._badge_mode = self.BadgeMode.Icon
+            self._badge_mode = self.ElaBadgeModeType.Icon
             self._icon = icon
 
     # ── Public API ────────────────────────────────────────
 
     def setBadgeMode(self, mode: int) -> None:
-        """设置角标显示模式。
-
-        :param mode: ``ElaInfoBadge.BadgeMode`` 枚举值
-        """
         self._badge_mode = mode
         self._updateGeometry()
         self.update()
 
     def badgeMode(self) -> int:
-        """获取当前角标模式。
-
-        :returns: ``ElaInfoBadge.BadgeMode`` 枚举值
-        """
         return self._badge_mode
 
     def setValue(self, value: int) -> None:
-        """设置数值模式下的显示值。
-
-        :param value: 数值
-        """
         self._value = value
         self._updateGeometry()
         self.update()
 
     def value(self) -> int:
-        """获取当前显示值。
-
-        :returns: 数值
-        """
         return self._value
 
     def setMaxValue(self, max_value: int) -> None:
-        """设置数值上限（超出时显示 ``{max_value}+``）。
-
-        :param max_value: 上限值
-        """
+        """超出上限时显示 ``{max_value}+``。"""
         self._max_value = max_value
         self.update()
 
     def maxValue(self) -> int:
-        """获取数值上限。
-
-        :returns: 上限值
-        """
         return self._max_value
 
     def setElaIcon(self, icon: ElaIconType.IconName) -> None:
-        """设置图标模式下的图标。
-
-        :param icon: ElaAwesome 图标名称
-        """
         self._icon = icon
         self.update()
 
     def elaIcon(self) -> ElaIconType.IconName:
-        """获取当前图标。
-
-        :returns: ElaAwesome 图标名称
-        """
         return self._icon
 
     def setSeverity(self, severity: int) -> None:
-        """设置严重级别（影响角标颜色）。
-
-        :param severity: ``ElaInfoBadge.Severity`` 枚举值
-        """
+        """影响角标颜色。"""
         self._severity = severity
         self.update()
 
     def severity(self) -> int:
-        """获取当前严重级别。
-
-        :returns: ``ElaInfoBadge.Severity`` 枚举值
-        """
         return self._severity
 
     def attachTo(self, target: QWidget) -> None:
-        """将角标附加到目标控件的右上角。
-
-        :param target: 目标控件
-        """
         if self._target:
             self._target.removeEventFilter(self)
         self._target = target
@@ -187,13 +142,13 @@ class ElaInfoBadge(ElaThemeWidget):
 
     def _getSeverityColor(self) -> QColor:
         mode = eTheme.getThemeMode()
-        if self._severity == self.Severity.Attention:
+        if self._severity == self.ElaSeverityType.Attention:
             return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.StatusDanger)
-        if self._severity == self.Severity.Informational:
+        if self._severity == self.ElaSeverityType.Informational:
             return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.PrimaryNormal)
-        if self._severity == self.Severity.Success:
+        if self._severity == self.ElaSeverityType.Success:
             return QColor(0x0F, 0x7B, 0x0F)
-        if self._severity == self.Severity.Caution:
+        if self._severity == self.ElaSeverityType.Caution:
             return QColor(0x9D, 0x5D, 0x00)
         return eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.StatusDanger)
 
@@ -235,14 +190,14 @@ class ElaInfoBadge(ElaThemeWidget):
         badge_color = self._getSeverityColor()
         r = QRectF(1, 1, self.width() - 2, self.height() - 2)
 
-        if self._badge_mode == self.BadgeMode.Dot:
+        if self._badge_mode == self.ElaBadgeModeType.Dot:
             painter.setPen(QPen(Qt.GlobalColor.white, 2))
             painter.setBrush(badge_color)
             painter.drawEllipse(r)
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawEllipse(r.adjusted(1, 1, -1, -1))
 
-        elif self._badge_mode == self.BadgeMode.Value:
+        elif self._badge_mode == self.ElaBadgeModeType.Value:
             h = r.height()
             painter.setPen(QPen(Qt.GlobalColor.white, 2))
             painter.setBrush(badge_color)
@@ -262,7 +217,7 @@ class ElaInfoBadge(ElaThemeWidget):
             painter.setPen(Qt.GlobalColor.white)
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, text)
 
-        elif self._badge_mode == self.BadgeMode.Icon:
+        elif self._badge_mode == self.ElaBadgeModeType.Icon:
             painter.setPen(QPen(Qt.GlobalColor.white, 2))
             painter.setBrush(badge_color)
             painter.drawEllipse(r)
@@ -278,9 +233,9 @@ class ElaInfoBadge(ElaThemeWidget):
         painter.end()
 
     def sizeHint(self) -> QSize:
-        if self._badge_mode == self.BadgeMode.Dot:
+        if self._badge_mode == self.ElaBadgeModeType.Dot:
             return QSize(10, 10)
-        if self._badge_mode == self.BadgeMode.Value:
+        if self._badge_mode == self.ElaBadgeModeType.Value:
             text = (
                 str(self._value)
                 if self._value <= self._max_value

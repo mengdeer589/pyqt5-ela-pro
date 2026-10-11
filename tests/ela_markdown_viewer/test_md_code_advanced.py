@@ -6,6 +6,7 @@ Covers: long code collapse/expand, line numbers, custom token palette.
 from __future__ import annotations
 
 import pytest
+from _qthelpers import wait_for_clipboard as _wait_for_clipboard
 from PyQt5.QtCore import QUrl
 from PyQt5.QtTest import QTest
 
@@ -69,7 +70,10 @@ class TestCodeCollapse:
 
         v._copy_code_block(0)
         qapp.processEvents()
-        assert qapp.clipboard().text() == LONG_CODE
+        assert (
+            _wait_for_clipboard(qapp, LONG_CODE, lambda: v._copy_code_block(0))
+            == LONG_CODE
+        )
         v.close()
         v.deleteLater()
 
@@ -148,7 +152,11 @@ class TestLineNumbers:
 
         v._copy_code_block(0)
         qapp.processEvents()
-        assert qapp.clipboard().text() == "x = 1\ny = 2"
+        expected = "x = 1\ny = 2"
+        assert (
+            _wait_for_clipboard(qapp, expected, lambda: v._copy_code_block(0))
+            == expected
+        )
         v.close()
         v.deleteLater()
 

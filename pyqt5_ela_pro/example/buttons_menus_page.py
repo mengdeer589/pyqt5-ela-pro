@@ -449,7 +449,7 @@ class ButtonsMenusPage(ExamplePage):
             )
         )
         self._addInfoText(
-            "Ant Design 风格按钮 — 6 种变体 × 16 色主题；可见面高度 24/32/40，"
+            "Ant Design 风格按钮 — 6 种变体 × 16 色主题；可见面高度 20/28/36，"
             "键盘 Tab 聚焦有 accent focus ring，setLoading(True) 显示加载指示器",
             parent_layout,
         )

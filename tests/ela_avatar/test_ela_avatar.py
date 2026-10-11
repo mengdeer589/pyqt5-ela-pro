@@ -21,7 +21,7 @@ from PyQt5.QtGui import QColor, QPainter, QPixmap
 
 from pyqt5_ela_pro._styles import drawCoverPixmap
 from pyqt5_ela_pro._theme import (
-    StatusRole,
+    ElaStatusRoleType,
     chartPalette,
     currentMode,
     relativeLuminance,
@@ -34,9 +34,9 @@ from pyqt5_ela_pro.ela_avatar import (
     _PRESENCE_DOT,
     _PRESENCE_RING,
     SURFACE_PROPERTY,
-    AvatarPresence,
-    AvatarShape,
-    AvatarSize,
+    ElaAvatarPresenceType,
+    ElaAvatarShapeType,
+    ElaAvatarSizeType,
     ElaAvatar,
     contrastingText,
     deriveInitials,
@@ -55,10 +55,10 @@ class TestSizeTiers:
     @pytest.mark.parametrize(
         ("tier", "extent"),
         [
-            (AvatarSize.Small, 24),
-            (AvatarSize.Medium, 32),
-            (AvatarSize.Large, 40),
-            (AvatarSize.ExtraLarge, 56),
+            (ElaAvatarSizeType.Small, 24),
+            (ElaAvatarSizeType.Medium, 32),
+            (ElaAvatarSizeType.Large, 40),
+            (ElaAvatarSizeType.ExtraLarge, 56),
         ],
     )
     def test_each_tier_has_its_extent(self, avatar, tier, extent):
@@ -67,20 +67,20 @@ class TestSizeTiers:
 
     def test_size_is_hard_locked(self, avatar):
         """头像不是可拉伸控件 —— 让布局去拉只会得到椭圆。"""
-        avatar.setAvatarSize(AvatarSize.Large)
+        avatar.setAvatarSize(ElaAvatarSizeType.Large)
         assert avatar.minimumSize() == avatar.size()
         assert avatar.maximumSize() == avatar.size()
 
     def test_hints_match_extent(self, avatar):
-        for tier in AvatarSize:
+        for tier in ElaAvatarSizeType:
             avatar.setAvatarSize(tier)
             assert avatar.sizeHint().width() == tier.value
             assert avatar.sizeHint().height() == tier.value
             assert avatar.minimumSizeHint() == avatar.sizeHint()
 
     def test_default_is_medium_circular(self, avatar):
-        assert avatar.avatarSize() is AvatarSize.Medium
-        assert avatar.shape() is AvatarShape.Circular
+        assert avatar.avatarSize() is ElaAvatarSizeType.Medium
+        assert avatar.shape() is ElaAvatarShapeType.Circular
 
 
 class TestInitials:
@@ -204,10 +204,10 @@ class TestPresence:
     @pytest.mark.parametrize(
         ("presence", "role"),
         [
-            (AvatarPresence.Available, StatusRole.Success),
-            (AvatarPresence.Away, StatusRole.Warning),
-            (AvatarPresence.Busy, StatusRole.Error),
-            (AvatarPresence.DoNotDisturb, StatusRole.Error),
+            (ElaAvatarPresenceType.Available, ElaStatusRoleType.Success),
+            (ElaAvatarPresenceType.Away, ElaStatusRoleType.Warning),
+            (ElaAvatarPresenceType.Busy, ElaStatusRoleType.Error),
+            (ElaAvatarPresenceType.DoNotDisturb, ElaStatusRoleType.Error),
         ],
     )
     def test_status_colors_come_from_the_token_layer(self, avatar, presence, role):
@@ -216,12 +216,12 @@ class TestPresence:
 
     def test_offline_is_grey_not_alarming(self, avatar):
         """离线是「不可用」不是「危险」—— 用红/黄会让一排灰用户看着像一片告警。"""
-        avatar.setPresence(AvatarPresence.Offline)
+        avatar.setPresence(ElaAvatarPresenceType.Offline)
         assert avatar._presenceColor().name() == textDisabled(currentMode()).name()
 
     def test_none_presence_has_no_color(self, avatar):
         """那一档本来就不画点，色值无意义 —— 但**读色必须安全**（探针/测试都会读）。"""
-        avatar.setPresence(AvatarPresence.None_)
+        avatar.setPresence(ElaAvatarPresenceType.None_)
         assert avatar._presenceColor().isValid() is False
 
     @pytest.mark.parametrize(("extent", "dot"), [(24, 6), (32, 8), (40, 8), (56, 10)])
@@ -230,15 +230,15 @@ class TestPresence:
 
     def test_presence_box_is_dot_plus_two_pixels_each_side(self, avatar):
         """环宽 = 2px/边 —— 这是深色头像上圆点能被分离出来的原因。"""
-        avatar.setAvatarSize(AvatarSize.Medium)
-        avatar.setPresence(AvatarPresence.Available)
+        avatar.setAvatarSize(ElaAvatarSizeType.Medium)
+        avatar.setPresence(ElaAvatarPresenceType.Available)
         box = avatar._presenceGeometry()
         dot = _PRESENCE_DOT[32]
         assert box.width() == dot + _PRESENCE_RING * 2
 
     def test_presence_is_flush_to_the_bottom_right_corner(self, avatar):
-        avatar.setAvatarSize(AvatarSize.Medium)
-        avatar.setPresence(AvatarPresence.Available)
+        avatar.setAvatarSize(ElaAvatarSizeType.Medium)
+        avatar.setPresence(ElaAvatarPresenceType.Available)
         box = avatar._presenceGeometry()
         # 用 x+width 而不是 ``QRect.right()``：后者的 right() 是**闭区间**下标，
         # 会比 ``widget.width()`` 少 1，写 ``== width()`` 永远不成立。
@@ -246,14 +246,14 @@ class TestPresence:
         assert box.y() + box.height() == avatar.height()
 
     def test_no_presence_means_no_color_read(self, avatar):
-        assert avatar.presence() is AvatarPresence.None_
+        assert avatar.presence() is ElaAvatarPresenceType.None_
 
     def test_signal_fires_on_change(self, avatar):
         seen = []
         avatar.presenceChanged.connect(seen.append)
-        avatar.setPresence(AvatarPresence.Away)
-        avatar.setPresence(AvatarPresence.Away)
-        assert seen == [AvatarPresence.Away]
+        avatar.setPresence(ElaAvatarPresenceType.Away)
+        avatar.setPresence(ElaAvatarPresenceType.Away)
+        assert seen == [ElaAvatarPresenceType.Away]
 
 
 class TestSurroundingSurface:
@@ -334,8 +334,8 @@ class TestPaintSafety:
         """Qt 5.14 加的 ``QPixmap.deviceIndependentSize()`` 在 PyQt5 里没暴露。"""
         assert not hasattr(QPixmap(4, 4), "deviceIndependentSize")
 
-    @pytest.mark.parametrize("tier", list(AvatarSize))
-    @pytest.mark.parametrize("shape", list(AvatarShape))
+    @pytest.mark.parametrize("tier", list(ElaAvatarSizeType))
+    @pytest.mark.parametrize("shape", list(ElaAvatarShapeType))
     @pytest.mark.parametrize(
         "content",
         ["none", "image", "initials", "presence", "all"],
@@ -358,7 +358,7 @@ class TestPaintSafety:
         if content in ("initials", "all"):
             a.setName("John Smith")
         if content in ("presence", "all"):
-            a.setPresence(AvatarPresence.Busy)
+            a.setPresence(ElaAvatarPresenceType.Busy)
         a.show()
         assert a.grab().isNull() is False
 

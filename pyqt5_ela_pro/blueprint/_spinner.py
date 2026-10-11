@@ -23,13 +23,7 @@ __all__ = ["SpinnerArc"]
 
 
 class SpinnerArc(QWidget):
-    """旋转圈加载指示器（QTimer 驱动圆弧旋转）。
-
-    :param size: 直径（px），默认 32
-    :param line_width: 弧线线宽，默认 ``size // 8``（至少 2）
-    :param speed: 每帧步进角度（度），默认 10
-    :param interval: 帧间隔（ms），默认 16
-    """
+    """旋转圈加载指示器（``QTimer`` 驱动圆弧旋转，线宽默认 ``size // 8``）。"""
 
     def __init__(self, size=32, line_width=None, speed=10.0, interval=16, parent=None):
         super().__init__(parent)

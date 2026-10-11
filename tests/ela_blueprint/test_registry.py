@@ -76,6 +76,22 @@ class TestOwnerNamespace:
         assert clean_registry.spec("g1", owner="plug") is not None
         assert clean_registry.spec("p1", owner="plug") is not None
 
+    def test_unregister_with_owner_does_not_touch_global(self, clean_registry):
+        """带 owner 注销不得退到全局那条（否则插件能删掉别人的全局类型）。"""
+        clean_registry.register(_spec("shared"), owner=None)
+        clean_registry.register(_spec("shared"), owner="plugin_a")
+
+        assert clean_registry.unregister("shared", owner="plugin_a") is True
+        assert clean_registry.spec("shared", owner=None) is not None, (
+            "全局定义被误删"
+        )
+        assert clean_registry.unregister("shared", owner="plugin_a") is False
+
+    def test_unregister_global_needs_no_owner(self, clean_registry):
+        clean_registry.register(_spec("only_global"), owner=None)
+        assert clean_registry.unregister("only_global") is True
+        assert clean_registry.spec("only_global") is None
+
 
 class TestQuery:
     def test_categories_order_unique(self, clean_registry):

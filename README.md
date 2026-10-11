@@ -21,7 +21,7 @@ PyQt5 extension widget library based on PyQt5ElaWidgetTools.
 |---|---|
 | 输入、容器、展示、对话框等原生组件 | 上游 [ElaWidgetTools](https://github.com/Liniyous/ElaWidgetTools) C++ + [PyQt5-ElaWidgetTools](https://github.com/HIllya51/PyElaWidgetTools) 绑定 |
 | `ElaSplitter`、`ElaPagination`、`ElaToast`、`ElaSpotlight`、`ElaSteps`、`ElaTimeline`、`ElaRatingControl`、`ElaInfoBadge`、`ElaChip`、`ElaDropDownButton`、`ElaSplitButton`、`ElaPasswordEdit`、`ElaConfirmDialog`、`ElaMarkdownViewer`、`ElaUploadArea`、`ElaSplashScreen` | [ElaWidgetTools（RainbowCandyX fork）](https://github.com/RainbowCandyX/ElaWidgetTools) C++ 源码移植 |
-| `ElaDrawer` | PyQt-SiliconUI `SiLayerDrawer` 设计（内容槽走 `WidgetOwnership` 三态） |
+| `ElaDrawer` | PyQt-SiliconUI `SiLayerDrawer` 设计（内容槽走 `ElaWidgetOwnershipType` 三态） |
 | `ElaDrawerArea` | 上游 `PyQt5ElaWidgetTools.ElaDrawerArea` 子类化修复（自定义标题栏点击展开/收起） |
 | `ElaButton`、`ElaDivider`、`ElaChip` 等 | Ant Design 风格自研（对照 ElaWidgetTools 既有组件） |
 | `ElaChartWidget`（`charts/`） | InstructionX_UIKit `charts`（类 ECharts `setOption` 引擎）移植 |
@@ -47,7 +47,7 @@ PyQt5 extension widget library based on PyQt5ElaWidgetTools.
 - 所有下拉框组件均提供 `items` 属性获取选项列表
 
 ### 按钮
-- **ElaButton** — 统一按钮组件（6 种变体、16 色主题、Ant Design 风格；可见面 24/32/40、键盘 focus ring、`setLoading` 加载态）
+- **ElaButton** — 统一按钮组件（6 种变体、16 色主题、Ant Design 风格；可见面 20/28/36，与上游 `ElaPushButton` V3.0 的 30/28 逐值对齐、键盘 focus ring、`setLoading` 加载态）
 - **ElaDropDownButton** — 下拉按钮（点击弹出 ElaMenu）
 - **ElaSplitButton** — 拆分按钮（主操作 + 下拉菜单）
 - **ElaLongPressButton** — 长按触发（防误触）
@@ -73,7 +73,7 @@ PyQt5 extension widget library based on PyQt5ElaWidgetTools.
   大数据降采样需 `tsdownsample`）
 - **ElaDashboardGauge** — 仪表盘组件（全 QPainter 自绘，指针动画，颜色分段）
 - **ElaPlotWidget** — pyqtgraph 绘图控件（主题感知，可选依赖 pyqtgraph）
-- **ElaTimeline** — 时间线（时间戳、标题、正文、可选图标）
+- **ElaTimeline** — 时间线（时间戳、标题、正文、可选图标；垂直/水平）
 - **ElaMarkdownViewer** — Markdown 查看器：主题自适应、Typora 结构排版
   （标题层级字号 / 1.6 倍行高 / 引用块浅底色 / 无边框代码卡片 / 图片居中）、
   **多套 markdown 配色主题**（内置 `opencode`（默认）/ `github` / `solarized` /
@@ -204,11 +204,21 @@ PyQt5 extension widget library based on PyQt5ElaWidgetTools.
   「已压缩 N 条历史」，**没给就说「已压缩历史」**（`0` 的含义是「不知道」，不是
   「压了 0 条」）。**库不实现压缩算法**（摘要模板 / 收缩循环 / 词元估算都依赖
   provider 侧），只负责「能表达 + 能持久化」；压不压、压哪段由宿主决定
-- **上下文占用指示器（`view.setContextUsage(used, window, costUsd)`）** —
-  右上角小圆环（非进度条：占用是标量不是过程），三档配色（<60% 弱化 /
-  60~85% 警示 / >85% 危险），hover 显示花费 / 百分比 / 词元数。数据全由宿主
+- **上下文占用指示器（`chatInput().setContextUsage(used, window, costUsd)`）** —
+  输入区底部工具栏里的小圆环（与「清空上下文」同排的**默认组件**，无数据时
+  画空底环、`window<=0` 按 0%；非进度条：
+  占用是标量不是过程），三档配色（<60% 弱化 / 60~85% 警示 / >85% 危险），
+  hover 显示花费 / 百分比 / 词元数，**可点击**（发 `contextUsageClicked`，弹面板归宿主），
+  `setContextUsageVisible(on)` 控显隐。
+  数据全由宿主
   提供，**不进 `ElaChatStats`**（那个字段的 `merge()` 是各步求和语义，上下文
   占用是当前值）
+- **会话统计（`view.sessionStats(limit=0)` → `ElaChatSessionStats`）** —
+  计数（总 / 用户 / 助手）、当前上下文的四路词元（输入 / 输出 / 推理 /
+  缓存读 + 写）与合计、使用率（给了 `limit` 时）、会话累计成本、最后活动时间；
+  口径对齐 opencode `getSessionContext`（取**最后一条有 tokens 的助手消息的
+  最后一步**，不是全会话求和）。省事可以直接把 `total_tokens` /
+  `total_cost_usd` 喂给上面的上下文圆环
 - **成本（`ElaChatStats.cost_usd` / `ModelPricing` / `stats_cost`）** —
   定价表不烤进库（价格会变、还分上下文长度阶梯），库只提供换算纯函数：
   `output` 与 `reasoning` 同价、按输入侧总量选阶梯档、最后除以 1e6。
@@ -273,7 +283,8 @@ PyQt5 extension widget library based on PyQt5ElaWidgetTools.
   步骤用量（`setStepStats` 追加 `StatsBadge`）、附件条
   （`AttachmentStrip`）、底部（`MessageMeta` 整轮耗时 +
   `MessageActions` 悬停淡入的复制 / 撤回 / 重新生成，占位不变、
-  消息区不跳动，按钮带 ElaToolTip 提示）；助手流式
+  消息区不跳动，按钮带 ElaToolTip 提示；复制落定弹 `ElaMessageBar`
+  确认，默认开、`setCopyNotificationEnabled` 可关）；助手流式
   `beginStream` / `appendText` / `endStream`（`streamFinished` 信号），
   `parts()` 返回当前分段快照；免责提示可单条改
   （`setDisclaimer` / `setDisclaimerVisible`，用户气泡恒不显示）
@@ -286,9 +297,14 @@ PyQt5 extension widget library based on PyQt5ElaWidgetTools.
 - **ElaChatStreamBinder** — 流式事件 → 组件映射器（宿主接入推荐入口）：
   构造传 `worker` 即**自动接线**（`llmStarted` / `chunkReceived` /
   `toolStarted` / `toolEnded` / `statsReady` / `emptyTurn`，也可稍后
-  `connectWorker(worker)`）；`startTurn(prompt, regenerate=False)` 与
-  `finish(status)` 对称地闭环回合（建助手消息 + `beginTurn` + 驱动后端，
-  后端未就绪返回 `False` 且不建空消息）；`shutdownOnClose(window)`
+  `connectWorker(worker)`）；`startTurn(prompt, regenerate=False,
+  attachments=None)` 返回**回合 token**，把它交给
+  `finish(turn, status=None)` 闭环回合（建助手消息 + `beginTurn` + 驱动后端，
+  后端未就绪返回 `None` 且不建空消息；**认不出的迟到收尾直接丢弃并返回
+  `None`** —— 后端 `cancel()` 是异步的，旧回合的 `turnFinished` 可能在新回合
+  开起来之后才到；**重新生成要把
+  `message.attachments` 一起传**，否则模型看不见用户上传的文件）；
+  `shutdownOnClose(window)`
   在窗口关闭 / 销毁时自动 `worker.shutdown()`（宿主免写 `closeEvent`）；
   细粒度 API：`beginTurn` /
   `beginRound`（第 2 轮起自动分步）、`reasoning` / `answer` /
@@ -298,15 +314,20 @@ PyQt5 extension widget library based on PyQt5ElaWidgetTools.
   `toolCallStarted(toolCall)` / `toolCallEnded(toolCall, result)`
   （直接接 OpenAI 风格 `tool_call` dict 信号）；`stats(usage, ttftMs, tps)`
   （兼容 OpenAI `usage` / `ElaChatStats`）、`error` / `emptyTurn`；
-  `cancel()` 记录停止（收尾思考段），此后 `finish(status=None)` 自动按
-  `Stopped` / `Done` 收尾（显式传参优先）；`finish(status=None)`（补整轮耗时、
+  `cancel()` 记录停止（收尾思考段），此后 `finish(turn)` 自动按
+  `Stopped` / `Done` 收尾（显式传参优先）；`finish(turn, status=None)`（补整轮耗时、
   结束消息、返回 `ElaChatTurnSummary` 摘要：状态 / 是否输出过正文 /
-  `finish_reason` / 耗时，幂等）
+  `finish_reason` / 耗时；同一 token 二次调用属陈旧收尾，返回 `None`）
 - **ElaChatAsyncWorker** — 异步后端 worker 基类（QThread + asyncio 事件
   循环 + 命令队列 + 取消收尾），信号契约与 `ElaChatMockBackend` 同构；
-  子类只需实现 `_setup()`（初始化后端）、`_stream_turn(prompt)`（异步
-  分片迭代器）与可选的 `_rollback_turn` / `_after_turn` / `_reset_backend`，
-  线程安全命令 `ask` / `regenerate` / `reset` / `cancel` / `shutdown`
+  子类只需实现 `_setup()`（初始化后端）、`_stream_turn(prompt,
+  attachments)`（异步分片迭代器）与可选的 `_rollback_turn(prompt,
+  attachments)` / `_after_turn` / `_reset_backend`，
+  线程安全命令 `ask(text, attachments=None)` / `regenerate(text,
+  attachments=None)` / `reset` / `cancel` / `shutdown`（附件原样透传，
+  后端要什么格式由子类决定）。`ask` / `regenerate` 返回**回合 token**
+  （未就绪 `None`），`turnFinished` 载荷原样带回 —— 宿主直接
+  `worker.turnFinished.connect(binder.finish)` 即可，无需手动转发
 - **ElaChatMockBackend** — 模拟后端（QTimer，无线程 / 无模型服务）：
   信号与真实 worker 同构（`ready` / `llmStarted` / `chunkReceived` /
   `toolStarted` / `toolEnded` / `statsReady` / `turnFinished` 等），
@@ -342,7 +363,7 @@ PyQt5 extension widget library based on PyQt5ElaWidgetTools.
 **接入真实 AI 后端（推荐：交给 ElaChatStreamBinder）**：
 
 ```python
-from pyqt5_ela_pro.chat import ElaChatStatus, ElaChatStreamBinder
+from pyqt5_ela_pro.chat import ElaChatStatusType, ElaChatStreamBinder
 
 binder = ElaChatStreamBinder(chat, worker=worker)     # 自动接机械信号
 binder.shutdownOnClose(window)                        # 关窗自动收尾后端
@@ -350,15 +371,19 @@ binder.shutdownOnClose(window)                        # 关窗自动收尾后端
 worker.ready.connect(on_ready)                        # UI 状态归宿主
 worker.failed.connect(on_failed)
 worker.errorOccurred.connect(on_error)
-worker.turnFinished.connect(on_turn_finished)
+worker.turnFinished.connect(binder.finish)             # 载荷就是回合 token
 
 def on_submit(text, attachments):
-    if not binder.startTurn(text):                    # 建消息 + 重置计时 + ask
+    # 建消息 + 重置计时 + ask；附件原样送进后端（要附件就接 messageSubmittedFull）
+    if binder.startTurn(text, attachments=attachments) is None:
         status_bar.setStatus("后端未就绪", level="error")
+    # startTurn 返回回合 token；worker.turnFinished 原样带回，直接 finish 即可
 
-def on_turn_finished():
-    summary = binder.finish()          # cancel 过自动 Stopped，否则 Done
-    if summary.status == ElaChatStatus.Stopped:
+def on_turn_finished(turn):
+    summary = binder.finish(turn)         # cancel 过自动 Stopped，否则 Done
+    if summary is None:                    # 认不出的迟到收尾，已被丢弃
+        return
+    if summary.status == ElaChatStatusType.Stopped:
         status_bar.setStatus("已停止（保留已输出内容）")
     elif summary.isEmptyReply():
         status_bar.setStatus("模型未返回正文", level="error")
@@ -370,9 +395,10 @@ def on_stop():                         # chat.stopRequested → 宿主停止
 
 未接后端时可先用 `ElaChatMockBackend` 跑通 UI（信号同构，直接替换
 `worker`）；真实异步后端（OpenAI 兼容流式 SDK 等）可继承
-`ElaChatAsyncWorker`，只写 `_setup()` / `_stream_turn()` 即可获得线程、
+`ElaChatAsyncWorker`，只写 `_setup()` / `_stream_turn(prompt,
+attachments)` 即可获得线程、
 事件循环、命令队列与取消收尾；停止按钮连接 `binder.cancel()` +
-`worker.cancel()`（组件只负责 UI 收尾，`binder.finish()` 会自动按
+`worker.cancel()`（组件只负责 UI 收尾，`binder.finish(turn)` 会自动按
 `Stopped` 收尾）。
 
 **宿主侧会话操作**（组件内完成，后端中止 / 历史回滚仍归宿主）：
@@ -380,6 +406,10 @@ def on_stop():                         # chat.stopRequested → 宿主停止
 ```python
 target = chat.undoMessage(messageId)          # 删该条及其后 + 原文/附件回填
 userMessage = chat.regenerateFrom(messageId)  # 删原回答，返回前置用户消息
+# 重新生成：附件必须一起带上（快照里就有）
+binder.startTurn(
+    userMessage.text, attachments=userMessage.attachments, regenerate=True
+)
 chat.setAutoSendQueue(True)                   # 回合结束自动续发队首（默认开）
 chat.sendNextQueued()                         # 或手动触发
 ```
@@ -425,7 +455,7 @@ chat.sendNextQueued()                         # 或手动触发
 - **ElaSelectionResultDialog** — 结果对话框（点「翻译 / 解释 / 总结」这类要跑
   模型的动作后弹出，实时显示流式 Markdown；参照 Cherry Studio 的 selection action
   window）。基类是上游 **`ElaWidget`** 而非自绘 `QWidget`：ElaWidget 自带 ElaAppBar
-  （图标 + 标题 + 窗口按钮）、无边框窗口的阴影（`QEvent::Show` 时补
+  （图标 + 标题 + 窗口按钮）、窗口阴影（`QEvent::Show` 时补
   `WS_THICKFRAME`，Win7 另加 `CS_DROPSHADOW`）、拖动、边缘缩放、Mica 背景与主题
   适配，所以本组件零 QSS、零 `paintEvent` 自绘、零阴影边距常量；窗口按钮只留
   「置顶 + 关闭」（`StayTopButtonHint` 上游画的是图钉，就是这种面板该有的 pin）。
@@ -438,13 +468,15 @@ chat.sendNextQueued()                         # 或手动触发
   `beginStream()` / `appendMarkdown(chunk, turn)` / `endStream(turn)` 推进
   （`turn` 是 turn token，被中止回合的迟到分片会被丢弃），另有 `setResult()` /
   `setError()`；信号 `finished` / `closed` / **`stopRequested`** /
-  `regenerateRequested` / `copied`。取消走 `stopRequested` —— **宿主必须在那里
+  `regenerateRequested` / `copied` / `plainCopied`。取消走 `stopRequested` —— **宿主必须在那里
   abort 自己的后端**（Cherry Studio 缺这一步：停止按钮点了不真停，只靠 renderer
   进程死亡顺带杀掉 fetch）；关窗 / 停止 / 流式中 Esc 三条路径都发它，且被中止的
   半句话**不算结果**（`finished` 不发、复制保持禁用）。Esc 分流：流式中=停止、
-  空闲=关闭；`Ctrl+C` 复制。划词原文预览单行按宽度省略，一次划几百万字也不卡
+  空闲=关闭；**`Ctrl+C` 复制纯文本**（渲染后文本，去掉 Markdown 标记 —— 默认行为），
+  原始 Markdown 源走「复制 Markdown」按钮 / `Ctrl+Shift+C`。划词原文预览单行按宽度省略，一次划几百万字也不卡
   （省略只在前 400 字上算：实测全文 64 万字 `elidedText` 要 153ms/次，截断后
-  0.086ms/次），要原文取 `selectedText()`
+  0.086ms/次），要原文取 `selectedText()`；悬浮提示折行有界（最长 400 字、
+  宽 480px），不会拉成横贯屏幕的单行条
 - **ElaMouseMonitor / ElaClipboardCapture** — 监视与取词后端（可注入假实现，
   测试无需真实输入）；`ElaMouseMonitor` 尊重系统主 / 次键互换
   （`SM_SWAPBUTTON`）；`ElaClipboardCapture` 通过「基准文本 + 轮询变化」
@@ -516,7 +548,7 @@ def on_action(actionId, text, pos):
 ### 导航与布局
 - **ElaDivider** — 分割线（水平/垂直，支持文字，实线/虚线）
 - **ElaGroupBox** — 分组框（圆角边框、居中标题）
-- **ElaSteps** — 步骤条（多步引导，已完成/当前/待办三种状态）
+- **ElaSteps** — 步骤条（多步引导，已完成/当前/待办三种状态；水平/垂直）
 - **ElaPagination** — 分页（页码按钮、省略号、跳转输入框）
 - **ElaSplitter** — 主题感知分割器（自定义 Handle 带 grip 悬停效果）
 - **ElaDrawer** — 四方向侧边抽屉
@@ -536,7 +568,7 @@ def on_action(actionId, text, pos):
 - **fade_in / fade_out** — 淡入淡出动画
 - **shake_window** — 窗口抖动（纯装饰，`Reduced` / `Disabled` 下整体不播）
 - **ElaAnimatedMixin** — 为对话框注入 `fade_in()` / `fade_out()` 方法
-- **motion** — 全局动效策略单例（`MotionMode.Full` / `Reduced` / `Disabled`），默认跟随系统「关闭动画」设置
+- **motion** — 全局动效策略单例（`ElaMotionModeType.Full` / `Reduced` / `Disabled`），默认跟随系统「关闭动画」设置
 - **Duration / Easing** — 时长与缓动令牌（组件引用令牌而非写字面量）
 - **start_transition** — 按策略启动一次过渡动画（收尾只有一个注册点）
 - **start_transition_timer** — 同上，但给 `QTimer` 手搓插值的过渡（无 `QAbstractAnimation` 时用）
@@ -612,7 +644,7 @@ pyqt5_ela_pro/              # 核心组件包
   animation.py              # fade_in / fade_out / shake_window / ElaAnimatedMixin
   _motion.py                # 全局动效策略（motion / Duration / Easing / start_transition）
   _theme.py                 # 语义令牌层（surface / text / accent / statusColor / setAccentColor）
-  _ownership.py             # 内容所有权协议（WidgetOwnership 三态 / ContentSlot）
+  _ownership.py             # 内容所有权协议（ElaWidgetOwnershipType 三态 / ContentSlot）
   ela_shimmer.py            # ElaShimmer 骨架屏（微光加载占位）
   ela_field.py              # ElaField 表单字段外壳（标题 / 必填 / 编辑器槽 / 辅助文字 / 校验状态）
   ela_avatar.py             # ElaAvatar 头像（图片 / 首字母 / 图标三级回退 + 在线状态）
@@ -734,9 +766,9 @@ pyqt5_ela_pro/              # 核心组件包
 | `start_transition_timer(timer)` | 同上，给 `QTimer` 手搓插值的过渡；返回 `False` 时调用方要自己落终值 |
 | `start_idle_loop(timer, ms, on_stop=)` | 启动持续动效循环；`Reduced` 下停掉，`on_stop` 落到静态基态 |
 | `surface(mode)` / `text(mode)` / `accent(mode)` | 语义令牌（`surface`/`surfaceRaised`/`surfacePopup`/`surfaceDialog`/`border`/`text`/`textMuted`/`accent`…） |
-| `statusColor(mode, StatusRole.X)` | 校验/提示状态色（`Neutral`/`Error`/`Warning`/`Success`） |
+| `statusColor(mode, ElaStatusRoleType.X)` | 校验/提示状态色（`Neutral`/`Error`/`Warning`/`Success`） |
 | `setAccentColor(color)` | 换强调色，**并一并派生写入 hover/press/开关圆点**（换色后需自行触发重绘） |
-| `motion.setMode(MotionMode.Reduced)` | 全局动效：状态过渡压到 ≤50ms、持续动效停止 |
+| `motion.setMode(ElaMotionModeType.Reduced)` | 全局动效：状态过渡压到 ≤50ms、持续动效停止 |
 | `set_tooltip(widget, text, position, theme)` | 设置自定义工具提示 |
 | `remove_tooltip(widget)` | 移除自定义工具提示 |
 | `svg_to_icon(svg_data, size, color)` | SVG **字符串**转 QIcon（首参是 SVG 源码，不是文件路径）；`color` 替换图里的 `<<<COLOR_CODE>>>` 占位符 |
@@ -756,7 +788,8 @@ pyqt5_ela_pro/              # 核心组件包
 | **ElaThemeWidget** | 基类 | 主题感知基础控件 |
 | **ElaAnimatedMixin** | 动画 | 注入 `fade_in()` / `fade_out()` 方法的混入类 |
 | **MotionPolicy**（`motion`） | 动画 | 全局动效策略单例，默认跟随系统 `SPI_GETCLIENTAREAANIMATION` |
-| **StatusRole**（`statusColor`） | 主题 | 校验/提示语义状态色（`Neutral`/`Error`/`Warning`/`Success`） |
+| **ElaStatusRoleType**（`statusColor`） | 主题 | 校验/提示语义状态色（`Neutral`/`Error`/`Warning`/`Success`） |
+| **ElaMotionModeType / ElaMotionKindType** | 动画 | 动效策略三档（`Full`/`Reduced`/`Disabled`）与动效种类（`Transition`/`Continuous`） |
 | **ElaSearchBox** | 输入 | 可搜索单选下拉框 |
 | **ElaSearchMultiBox** | 输入 | 可搜索多选下拉框 |
 | **ElaTagBox** | 输入 | Tag 样式单选下拉框 |
@@ -775,33 +808,33 @@ pyqt5_ela_pro/              # 核心组件包
 | **ElaMessageDialog** | 弹窗 | 消息确认对话框 |
 | **ElaConfirmDialog** | 弹窗 | 全 QPainter 自绘确认对话框 |
 | **ElaDialogBase** | 弹窗 | 可定制按钮的对话框基类 |
-| **ElaToast** | 弹窗 | 通知提示（成功/信息/警告/错误，淡入淡出自动关闭） |
+| **ElaToast** | 弹窗 | 通知提示（成功/信息/警告/错误，淡入淡出自动关闭；等级枚举 `ElaToastType`） |
 | **ElaNotifyPopup** | 弹窗 | 弹出通知控件 |
 | **ElaNotifyManager** | 弹窗 | 通知队列管理（排队 / 去重 / 逐条弹出；`show_notify()` 是它的自由函数入口） |
 | **ElaSearchProxyModel** | 下拉框 | 搜索框的过滤代理模型（中文原文 / 全拼 / 首字母匹配，由 `ElaSearchBox` 系列内部使用） |
 | **ElaMermaidRenderer** | 内容渲染 | Mermaid 渲染器（可选依赖 `mermaidx`，缺浏览器；供 `ElaMarkdownViewer` 调用，也可单独用） |
 | **ElaToolTip** | 提示 | 自定义工具提示 |
 | **ElaStateToolTip** | 提示 | 状态提示控件 |
-| **ElaToolTipPosition** | 枚举 | 提示位置枚举 |
+| **ElaToolTipPositionType** | 枚举 | 提示位置枚举 |
 | **ElaDrawer** | 导航 | 四方向侧边抽屉 |
-| **ElaDrawerPosition** | 枚举 | 抽屉方向枚举 |
-| **WidgetOwnership** | 枚举 | 内容所有权三态：`Borrowed`（默认，无父交还）/ `Reparented`（放回原 parent）/ `Owned`（容器 deleteLater） |
+| **ElaDrawerPositionType** | 枚举 | 抽屉方向枚举 |
+| **ElaWidgetOwnershipType** | 枚举 | 内容所有权三态：`Borrowed`（默认，无父交还）/ `Reparented`（放回原 parent）/ `Owned`（容器 deleteLater） |
 | **ContentSlot** | 协议 | 「宿主持有一个外来内容控件」的记账：挂载 / 换策略 / `takeWidget()`（无父返回、永不删）/ `releaseWidget()`（按策略处置）+ 外部销毁自愈 |
 | **ElaShimmer** | 反馈 | 骨架屏 / 微光加载占位：4 种内置排版模板 + 手工元素、静态绘制入口（可铺在 delegate / 表格单元格里）、相位可手动驱动 |
-| **ShimmerShape / ShimmerTemplate / ShimmerElement / ShimmerPalette** | 枚举 / 数据 | 骨架的元素形状（矩形 / 圆角矩形 / 圆 / 药丸）、内置模板（文本块 / 头像行 / 图片卡 / 自定义）、单块元素、绘制配色 |
-| **ElaField** | 输入 | 表单字段外壳：标题 + 必填 `*` + 编辑器槽（走 `WidgetOwnership` 三态）+ 辅助文字 + 三态校验行（Error / Warning / Success） |
-| **FieldStatus** | 枚举 | 校验状态：`None_` / `Error` / `Warning` / `Success` |
+| **ElaShimmerShapeType / ElaShimmerTemplateType / ShimmerElement / ShimmerPalette** | 枚举 / 数据 | 骨架的元素形状（矩形 / 圆角矩形 / 圆 / 药丸）、内置模板（文本块 / 头像行 / 图片卡 / 自定义）、单块元素、绘制配色 |
+| **ElaField** | 输入 | 表单字段外壳：标题 + 必填 `*` + 编辑器槽（走 `ElaWidgetOwnershipType` 三态）+ 辅助文字 + 三态校验行（Error / Warning / Success） |
+| **ElaFieldStatusType** | 枚举 | 校验状态：`None_` / `Error` / `Warning` / `Success` |
 | **ElaAvatar** | 展示 | 头像：4 档尺寸 × 圆形/圆角方，图片（cover 裁剪）/ 首字母（字素簇感知）/ 人形字形三级回退，5 档在线状态圆点（环画成**周围表面色**） |
-| **AvatarSize / AvatarShape / AvatarPresence** | 枚举 | 尺寸档位（24/32/40/56，控件被硬锁）/ 形状 / 在线状态（可用 / 离开 / 忙碌 / 免打扰 / 离线） |
+| **ElaAvatarSizeType / ElaAvatarShapeType / ElaAvatarPresenceType** | 枚举 | 尺寸档位（24/32/40/56，控件被硬锁）/ 形状 / 在线状态（可用 / 离开 / 忙碌 / 免打扰 / 离线） |
 | **ElaSelectorBar** | 输入 | 分段控件：三关键帧「压扁-移动-绽开」的动画指示器、溢出时两端箭头滚动或「更多」按钮、键盘可达、RTL 全量镜像 |
-| **SelectorBarItem / SelectorBarOverflow** | 数据 / 枚举 | 一个分段的模型 / 溢出交互方式 |
-| **ElaSteps** | 导航 | 步骤条（多步引导，前进/后退） |
+| **SelectorBarItem / ElaSelectorBarOverflowType / ElaHitType** | 数据 / 枚举 | 一个分段的模型 / 溢出交互方式 / 命中区域（内部） |
+| **ElaSteps** | 导航 | 步骤条（多步引导，前进/后退；水平/垂直） |
 | **ElaPagination** | 导航 | 分页（页码按钮、省略号、跳转输入框） |
 | **ElaSpotlight** | 导航 | 引导遮罩（单目标/多步骤，淡入淡出） |
 | **ElaDivider** | 布局 | 分割线（水平/垂直/文字/虚线） |
 | **ElaSplitter** | 布局 | 主题感知分割器（定制 Handle，悬停变色） |
 | **ElaSplitterHandle** | 布局 | 分割器手柄（由 `ElaSplitter` 内部创建，宿主一般不直接用） |
-| **ElaDrawerPanel / ElaDrawerDim** | 布局 | 侧边抽屉面板 / 遮罩（内容槽走 `WidgetOwnership` 三态） |
+| **ElaDrawerPanel / ElaDrawerDim** | 布局 | 侧边抽屉面板 / 遮罩（内容槽走 `ElaWidgetOwnershipType` 三态） |
 | **ElaOfficeViewerMixin** | 文档查看 | Word / Excel / PPT 三个查看器的共用基类 |
 | **ElaGroupBox** | 布局 | 分组框（圆角边框、居中标题、可放置子控件） |
 | **ElaDataTable** | 数据展示 | 数据表格控件 |
@@ -810,12 +843,12 @@ pyqt5_ela_pro/              # 核心组件包
 | **ElaInfoBarWidget** | 数据展示 | Parquet 查看器的错误 / 统计信息条 |
 | **ElaChartWidget** | 数据展示 | 类 ECharts 引擎：21 系列 + 交互组件（含日历热力） |
 | **ElaBlueprintCanvas** | 数据展示 | 蓝图节点图编辑器画布（节点 / 连线 / 框选 / 平移缩放 / 执行高亮；节点体控件可交互、拖动走标题栏与体空白处；重命名 / 属性经 `node_rename_requested` / `node_properties_requested` 信号交给宿主；`from_dict` 整体容错） |
-| **ElaNodeRegistry / ElaNodeSpec / ElaPin / ElaPinDirection** | 数据展示 · 注册表 | 蓝图节点类型注册表与其描述数据（引脚字典、强调色令牌键、自定义节点体构建器）；`register_node_type(...)` 是便捷入口 |
+| **ElaNodeRegistry / ElaNodeSpec / ElaPin / ElaPinDirectionType** | 数据展示 · 注册表 | 蓝图节点类型注册表与其描述数据（引脚字典、强调色令牌键、自定义节点体构建器）；`register_node_type(...)` 是便捷入口 |
 | **ElaNumericBuffer** | 数据展示 · 数据 | charts 的大数组**按引用**包装（百万点不深拷贝）；**传入后不得原地修改** |
 | **ElaDashboardGauge** | 数据展示 | 仪表盘（全自绘，指针动画，颜色分段） |
 | **ElaPlotWidget** | 数据展示 | pyqtgraph 绘图控件（主题自适应，可选依赖） |
 | **ElaFigureCanvas** | 数据展示 | Matplotlib 画布（主题感知，可选依赖） |
-| **ElaTimeline** | 数据展示 | 时间线（时间戳/标题/内容/图标） |
+| **ElaTimeline** | 数据展示 | 时间线（时间戳/标题/内容/图标；垂直/水平） |
 | **ElaMarkdownViewer** | 数据展示 | Markdown 查看器（主题自适应） |
 | **ElaChatWidget** | AI 对话 | ChatGPT 风格聊天组件（步骤化消息 + 分层输入区 + 流式 / 停止） |
 | **ElaChatView** | AI 对话 | 聊天消息列表（分段时间线 / 贴底跟随 / 空态建议 / 回到底部） |
@@ -828,7 +861,7 @@ pyqt5_ela_pro/              # 核心组件包
 | **ElaChatAsyncWorker** | AI 对话 | 异步后端 worker 基类（QThread + asyncio + 命令队列 + 取消收尾） |
 | **ElaChatMockBackend** | AI 对话 | 模拟后端（QTimer，无模型服务跑通全链路，信号与真实 worker 同构） |
 | **ElaChatStatusBar** | AI 对话 | 宿主状态栏（信息 + 四档语义状态 + busy 指示） |
-| **ElaChatRole / ElaChatStatus / ElaChatPartKind / ElaChatToolStatus / ElaChatReasoningStyle / ElaChatPermissionStatus** | AI 对话 · 枚举 | 消息角色 / 消息状态（`Queued` 只是头部展示态，不进 `_status`）/ 时间线分段种类 / 工具调用状态 / 思考展示形态（字符串常量容器，收字符串）/ 审批状态 |
+| **ElaChatRoleType / ElaChatStatusType / ElaChatPartKindType / ElaChatToolStatusType / ElaChatReasoningStyleType / ElaChatPermissionStatusType** | AI 对话 · 枚举 | 消息角色 / 消息状态（`Queued` 只是头部展示态，不进 `_status`）/ 时间线分段种类 / 工具调用状态 / 思考展示形态（字符串常量容器，收字符串）/ 审批状态 |
 | **ElaChatAttachment / ElaChatToolCall** | AI 对话 · 数据 | 附件（路径 / 图片 / 名称）与工具调用记录，成对 `toDict` / `fromDict` |
 | **ElaChatPermission / ElaChatQuestion / ElaChatOption** | AI 对话 · 数据 | 审批请求；**`questions` 非空 = 问答型逐题向导**，为空 = 批准型三键。候选项**必须带 description**，自定义答案与候选项互斥 |
 | **ElaChatSuggestion** | AI 对话 · 数据 | 空态建议项 |
@@ -836,13 +869,13 @@ pyqt5_ela_pro/              # 核心组件包
 | **ElaChatMockChunk / ElaChatMockUsage** | AI 对话 · 数据 | 假后端 `ElaChatMockBackend` 的分片 / 用量构造参数 |
 | **ElaChatMessage** | AI 对话 · 数据 | 一条消息的快照（角色 / 分段时间线 / 派生字段；`message.text` 在流式**结束前**为空是设计，用 `bubble(id).text()` 实时读） |
 | **ElaChatStats** | AI 对话 · 数据 | 单步或整轮用量 / 耗时（`cost_usd` 由宿主算好填入，或用 `stats_cost()`） |
-| **ElaChatTurnSummary** | AI 对话 · 数据 | 一轮回合的收尾摘要（`binder.finish()` 的返回值） |
+| **ElaChatTurnSummary** | AI 对话 · 数据 | 一轮回合的收尾摘要（`binder.finish(turn)` 的返回值） |
 | **ElaChatSessionInfo** | AI 对话 · 数据 | 会话元信息（多话题由宿主管理，一话题一 widget） |
 | **ElaChatToolButton** | AI 对话 | 工具卡片底部的操作按钮（复制 / 重试等，由宿主传参） |
 | **ElaChatPermissionDock** | AI 对话 | 输入区**上方**的审批 dock（等待回复时的交互卡；时间线上留的是折叠的记录卡，两者不是同一个 widget） |
 | **ElaSelectionAssistant** | 划词助手 | 全局划词监听 + 取词（模拟 Ctrl+C，**带注入闸门：未设过滤器时拖选默认不取词**）+ 动作条，纯信号宿主实现行为 |
 | **ElaSelectionPopup** | 划词助手 | 动作条浮窗（置顶 / 不抢焦点 / 越界收敛，可独立复用） |
-| **ElaSelectionResultDialog** | 划词助手 | 结果对话框（上游 ElaWidget 窗口；流式 Markdown / 停止 / 复制 / 重新生成，**只发信号不碰网络**） |
+| **ElaSelectionResultDialog** | 划词助手 | 结果对话框（上游 ElaWidget 窗口；流式 Markdown / 停止 / 复制（Ctrl+C 默认纯文本；Markdown 源走 Ctrl+Shift+C）/ 重新生成，**只发信号不碰网络**） |
 | **ElaMouseMonitor** | 划词助手 | 轮询式全局鼠标监视（主线程 QTimer，信号坐标物理像素） |
 | **ElaClipboardCapture** | 划词助手 | 模拟 Ctrl+C 异步取词（不预先改动剪贴板；恢复有三道校验，含剪贴板序列号与非文本保护） |
 | **ElaChip** | 展示 | 标签纸片（16 色，可关闭/可选择/胶囊/前置图标） |
@@ -929,7 +962,7 @@ python -m pyqt5_ela_pro.example
 |---|---|
 | 外部内容嵌入 | ElaWindowEmbedder（01）/ ElaBrowserEmbedder（02）/ 多 URL 测试台（03） |
 | 终端输出 | 只读终端视图：ANSI 颜色、跨分片转义、过滤、导出 |
-| 划词助手 | ElaSelectionAssistant：全局划词（拖选 / 双击选词；拖选默认要过内置取词过滤器，因为取词要向前台注入 Ctrl+C）、动作条（启停 / 动作勾选 / 紧凑模式 / 剪贴板恢复 / 最小长度 / 拖选取词范围）、手动弹出、事件日志与宿主 copy 实现；ElaSelectionResultDialog：结果对话框（流式 Markdown / 停止 / 复制 / 重新生成，取消走 stopRequested 由宿主 abort） |
+| 划词助手 | ElaSelectionAssistant：全局划词（拖选 / 双击选词；拖选默认要过内置取词过滤器，因为取词要向前台注入 Ctrl+C）、动作条（启停 / 动作勾选 / 紧凑模式 / 剪贴板恢复 / 最小长度 / 拖选取词范围）、手动弹出、事件日志与宿主 copy 实现；ElaSelectionResultDialog：结果对话框（流式 Markdown / 停止 / 复制 Markdown 源或纯文本 / 重新生成，取消走 stopRequested 由宿主 abort） |
 
 **动效与图形 / 参考文档**
 
@@ -1053,7 +1086,7 @@ registerSeries("myType", MySeries)   # 同名覆盖会告警
 
 | 依赖 | 必需 | 用途 |
 |---|---|---|
-| Python >= 3.8 | 是 | — |
+| Python >= 3.11 | 是 | — |
 | PyQt5 >= 5.15.0 | 是 | 界面框架 |
 | PyQt5-ElaWidgetTools == 0.12.1 | 是 | 上游基础组件库 |
 | pypinyin >= 0.50.0 | 是 | 拼音搜索支持 |
@@ -1061,7 +1094,7 @@ registerSeries("myType", MySeries)   # 同名覆盖会告警
 | comtypes | 否（`[all]`） | Office 文档预览（ActiveX） |
 | pygments | 否（`[all]`） | `ElaMarkdownViewer` 代码语法高亮（缺失自动降级） |
 | tsdownsample | 否（`[all]`） | `ElaChartWidget` 大数据降采样（缺失自动降级） |
-| mermaidx | 否（`[all]`，Python≥3.10） | `ElaMarkdownViewer` Mermaid 图渲染（无浏览器；缺失回退代码卡片） |
+| mermaidx | 否（`[all]`） | `ElaMarkdownViewer` Mermaid 图渲染（无浏览器；缺失回退代码卡片） |
 | polars | 否 | Parquet 文件查看 |
 | pyqtgraph | 否 | ElaPlotWidget 图表 |
 | matplotlib | 否 | ElaFigureCanvas 图表 |

@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import pytest
+from _qthelpers import wait_for_clipboard as _wait_for_clipboard
 from PyQt5 import sip
 from PyQt5.QtCore import QCoreApplication, QEvent, QPoint, QRect, QSize, Qt
 from PyQt5.QtGui import QKeyEvent
@@ -23,6 +24,7 @@ from pyqt5_ela_pro import ElaSelectionResultDialog
 from pyqt5_ela_pro.selection_assistant.result_dialog import (
     _EDGE_GAP,
     _PREVIEW_SOURCE_MAX,
+    _PREVIEW_TIP_WIDTH,
 )
 
 _SOURCE = "这是一段被划词选中的文本"
@@ -53,6 +55,15 @@ def _press_ctrl_c(dialog) -> None:
     QApplication.sendEvent(dialog, event)
 
 
+def _press_ctrl_shift_c(dialog) -> None:
+    event = QKeyEvent(
+        QEvent.Type.KeyPress,
+        Qt.Key.Key_C,
+        Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
+    )
+    QApplication.sendEvent(dialog, event)
+
+
 class TestOpen:
     def test_open_for_sets_state(self, make):
         dialog = _make(make)
@@ -69,6 +80,8 @@ class TestOpen:
         assert dialog._stop_button.isVisible() is False
         assert dialog._copy_button.isVisible() is True
         assert dialog._copy_button.isEnabled() is False  # 没有结果不能复制
+        assert dialog._plain_copy_button.isVisible() is True
+        assert dialog._plain_copy_button.isEnabled() is False
         assert dialog._regen_button.isEnabled() is False  # 宿主还没发过请求
         assert dialog._ring.isVisible() is False
 
@@ -77,6 +90,21 @@ class TestOpen:
         first = dialog.currentTurn()
         second = dialog.openFor("explain", "解释", _SOURCE, _ANCHOR)
         assert second > first
+
+    def test_empty_selection_clears_stale_preview_tooltip(self, make):
+        """换一次空原文必须摘掉上一轮的悬浮提示（否则弹出上一轮原文）。"""
+        from pyqt5_ela_pro import tooltips
+
+        dialog = _make(make)
+        dialog._preview_text.setFullText(_SOURCE)
+        assert dialog._preview_text in tooltips._filter_dict, "提示本该已绑定"
+
+        dialog.openFor("explain", "解释", "", _ANCHOR)
+
+        assert dialog._preview_text.fullText() == ""
+        assert dialog._preview_text not in tooltips._filter_dict, (
+            "旧 tooltip 还挂着，悬停空白预览行会弹出上一轮原文"
+        )
 
     def test_open_for_resets_previous_result(self, make):
         dialog = _make(make)
@@ -125,6 +153,22 @@ class TestStream:
         dialog.beginStream()
         assert dialog.errorText() == ""
         assert dialog._error_row.isVisible() is False
+
+    def test_set_error_while_streaming_ends_the_viewer(self, make, qapp):
+        """流式中途报错必须把查看器也收尾（否则光标还在闪、半截内容不落屏）。"""
+        dialog = _make(make)
+        dialog.beginStream()
+        dialog.appendMarkdown("已经写了一半")
+        assert dialog.isStreaming() is True
+
+        dialog.setError("连接超时")
+
+        assert dialog.isStreaming() is False
+        assert dialog._viewer.isStreaming() is False, "查看器仍在流式态"
+        assert "已经写了一半" in dialog._viewer.toPlainText(), (
+            "报错时那半截内容仍要落屏（否则正文一片空白）"
+        )
+        assert dialog.hasResult() is False, "半句话不算结果"
 
     def test_set_result_settles_without_streaming(self, make):
         dialog = _make(make)
@@ -298,7 +342,10 @@ class TestFooterActions:
         dialog.setResult("可复制内容")
         dialog._copy_button.click()
         assert copied == ["translate"]
-        assert QApplication.clipboard().text() == "可复制内容"
+        assert (
+            _wait_for_clipboard(None, "可复制内容", dialog._copy_button.click)
+            == "可复制内容"
+        )
 
     def test_copy_refused_for_partial_text(self, make, requires_clipboard):
         dialog = _make(make)
@@ -310,18 +357,81 @@ class TestFooterActions:
         dialog._on_copy()  # 按钮禁用也拦一道
         assert copied == []
 
-    def test_ctrl_c_copies_settled_result(self, make, requires_clipboard):
+    def test_copy_plain_text_strips_markdown(self, make, requires_clipboard):
+        """「复制纯文本」写的是**渲染后**的文本（Markdown 标记被解析掉）。"""
         dialog = _make(make)
-        dialog.setResult("键盘复制")
+        plain = []
+        dialog.plainCopied.connect(plain.append)
+        dialog.setResult("# 标题\n\n**粗体**正文")
+        dialog._plain_copy_button.click()
+        assert plain == ["translate"]
+        got = _wait_for_clipboard(
+            None, "标题\n粗体正文", dialog._plain_copy_button.click
+        )
+        assert got == "标题\n粗体正文"
+
+    def test_copy_plain_refused_for_partial_text(self, make, requires_clipboard):
+        dialog = _make(make)
+        plain = []
+        dialog.plainCopied.connect(plain.append)
+        turn = dialog.beginStream()
+        dialog.appendMarkdown("半句话", turn)
+        dialog._on_stop_clicked()
+        dialog.copyPlainText()  # 半句话不算结果
+        assert plain == []
+        assert dialog._plain_copy_button.isEnabled() is False
+
+    def test_ctrl_shift_c_copies_markdown_source(self, make, requires_clipboard):
+        """``Ctrl+Shift+C`` = 原始 Markdown 源（与「复制 Markdown」按钮同源）。"""
+        dialog = _make(make)
+        dialog.setResult("**加粗**")
+        _press_ctrl_shift_c(dialog)
+        got = _wait_for_clipboard(
+            None, "**加粗**", lambda: _press_ctrl_shift_c(dialog)
+        )
+        assert got == "**加粗**"
+
+    def test_ctrl_shift_c_ignored_while_streaming(self, make, requires_clipboard):
+        dialog = _make(make)
+        sentinel = "__markdown_streaming_guard__"
+        QApplication.clipboard().setText(sentinel)
+        assert (
+            _wait_for_clipboard(
+                None, sentinel, lambda: QApplication.clipboard().setText(sentinel)
+            )
+            == sentinel
+        )
+        dialog.beginStream()
+        _press_ctrl_shift_c(dialog)
+        # 流式期间 Markdown 复制键无效（半句话不进剪贴板）：只轮询，绝不重发哨兵
+        assert _wait_for_clipboard(None, sentinel) == sentinel
+
+    def test_ctrl_c_copies_plain_text_by_default(self, make, requires_clipboard):
+        """``Ctrl+C`` 是默认复制 = **纯文本**（去掉 Markdown 标记）。"""
+        dialog = _make(make)
+        dialog.setResult("# 标题\n\n**粗体**正文")
         _press_ctrl_c(dialog)
-        assert QApplication.clipboard().text() == "键盘复制"
+        got = _wait_for_clipboard(
+            None, "标题\n粗体正文", lambda: _press_ctrl_c(dialog)
+        )
+        assert got == "标题\n粗体正文"
 
     def test_ctrl_c_ignored_while_streaming(self, make, requires_clipboard):
         dialog = _make(make)
+        # 先确认哨兵落盘，再验「按 Ctrl+C 没动剪贴板」——
+        # 直接断言 != 在写被丢弃 / 读失败时会白过
+        sentinel = "__streaming_guard_sentinel__"
+        QApplication.clipboard().setText(sentinel)
+        assert (
+            _wait_for_clipboard(
+                None, sentinel, lambda: QApplication.clipboard().setText(sentinel)
+            )
+            == sentinel
+        )
         dialog.beginStream()
         _press_ctrl_c(dialog)
-        # 流式期间复制键无效（半句话不进剪贴板）
-        assert QApplication.clipboard().text() != "半句话"
+        # 流式期间复制键无效（半句话不进剪贴板）：只轮询，绝不重发哨兵
+        assert _wait_for_clipboard(None, sentinel) == sentinel
 
     def test_regenerate_emits_with_action_id(self, make):
         dialog = _make(make)
@@ -659,6 +769,49 @@ class TestTheme:
         for _ in range(5):
             preview.resize(200, 20)
         assert preview._flat == flat
+
+
+class TestPreviewTooltip:
+    """原文悬浮提示必须有界：长文本折行，而不是拉成超宽单行横条。"""
+
+    @staticmethod
+    def _tooltip(dialog):
+        from pyqt5_ela_pro.tooltips import _tooltip_dict
+
+        return _tooltip_dict.get(dialog._preview_text)
+
+    def test_long_preview_tooltip_wraps_within_max_width(self, make, qapp):
+        dialog = _make(make)
+        dialog.openFor(
+            "translate",
+            "翻译",
+            "很长的划词原文，用于观察 tooltip 折行效果。" * 40,
+            _ANCHOR,
+        )
+        qapp.processEvents()
+        tooltip = self._tooltip(dialog)
+        assert tooltip is not None
+        assert tooltip.width() <= _PREVIEW_TIP_WIDTH
+        # 单行是 32px；折行后必须更高，否则说明还是那条超宽横条
+        assert tooltip.height() > 32
+
+    def test_unbroken_ascii_tooltip_still_wraps(self, make, qapp):
+        """无空格长串（URL / base64）按词边界折不开，也必须折而不是被裁。"""
+        dialog = _make(make)
+        dialog.openFor("translate", "翻译", "x" * 1200, _ANCHOR)
+        qapp.processEvents()
+        tooltip = self._tooltip(dialog)
+        assert tooltip is not None
+        assert tooltip.width() <= _PREVIEW_TIP_WIDTH
+        assert tooltip.height() > 32
+
+    def test_short_preview_tooltip_stays_single_line(self, make, qapp):
+        dialog = _make(make)
+        dialog.openFor("translate", "翻译", "短原文", _ANCHOR)
+        qapp.processEvents()
+        tooltip = self._tooltip(dialog)
+        assert tooltip is not None
+        assert tooltip.height() <= 32
 
 
 class TestLifecycle:

@@ -28,7 +28,7 @@ from PyQt5ElaWidgetTools import (
 
 from pypinyin import lazy_pinyin
 
-from ._internal import _adjust_combobox_popup, _ThemeAwareMixin
+from ._internal import _adjust_combobox_popup, _ThemeAwareMixin, hideComboboxPopup
 
 
 def _split_keyword(keyword: str) -> list[str]:
@@ -178,10 +178,7 @@ class _SearchComboMixin:
 def _build_search_widget(
     text_changed_callback,
 ) -> tuple[QWidget, QLineEdit]:
-    """创建弹窗内搜索框组件。
-
-    :return: (searchWidget, searchEdit)
-    """
+    """创建弹窗内搜索框组件，返回 ``(searchWidget, searchEdit)``。"""
     search_widget = QWidget()
     search_widget.setObjectName("SearchWidget")
     search_widget.setFixedHeight(40)
@@ -225,22 +222,12 @@ class ElaSearchProxyModel(QSortFilterProxyModel):
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        """初始化拼音过滤代理模型。
-
-        :param parent: 父级对象。
-        :type parent: QWidget, optional
-        """
         super().__init__(parent)
         self._keyword: str = ""
         self._tokens: list[str] = []
         self._pinyin_cache: dict[str, tuple[str, str]] = {}
 
     def setKeyword(self, keyword: str) -> None:
-        """设置过滤关键词。
-
-        :param keyword: 要过滤的汉字、全拼或首字母关键词。
-        :type keyword: str
-        """
         self._keyword = keyword.lower()
         self._tokens = _split_keyword(keyword)
         self.invalidateFilter()
@@ -250,15 +237,6 @@ class ElaSearchProxyModel(QSortFilterProxyModel):
         self._pinyin_cache.clear()
 
     def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
-        """判断某一行是否应显示在代理模型中。
-
-        :param source_row: 源模型中的行索引。
-        :type source_row: int
-        :param source_parent: 父索引。
-        :type source_parent: QModelIndex
-        :return: 如果该行应显示则返回 ``True``。
-        :rtype: bool
-        """
         if not self._tokens:
             return True
         src_model = self.sourceModel()
@@ -274,20 +252,12 @@ class ElaSearchProxyModel(QSortFilterProxyModel):
 class ElaSearchMultiBox(_SearchComboMixin, _ThemeAwareMixin, ElaMultiSelectComboBox):
     """可搜索多选下拉框。
 
-    基于 ``ElaMultiSelectComboBox`` 扩展，在弹出列表顶部增加了一个搜索框，
-    支持汉字原文、全拼与拼音首字母过滤（``"bei"`` / ``"bj"`` 均可命中“北京”），
-    空格分隔的多个关键词需全部命中。搜索框可用 ``setSearchVisible(False)`` 关闭。
-
-    :param parent: 父级 widget。
-    :type parent: QWidget, optional
+    基于 ``ElaMultiSelectComboBox``：弹层顶部加搜索框，支持汉字原文 / 全拼 /
+    首字母过滤（``"bei"`` / ``"bj"`` 都能命中「北京」），空格分隔的关键词 AND。
+    搜索框可用 ``setSearchVisible(False)`` 关闭。
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        """初始化可搜索多选下拉框。
-
-        :param parent: 父级 widget。
-        :type parent: QWidget, optional
-        """
         super().__init__(parent)
         self._searchEdit: Optional[QLineEdit] = None
         self._searchWidget: Optional[QWidget] = None
@@ -308,20 +278,10 @@ class ElaSearchMultiBox(_SearchComboMixin, _ThemeAwareMixin, ElaMultiSelectCombo
         self._pinyin_cache.clear()
 
     def setCurrentSelection(self, selection: list) -> None:
-        """设置当前选中项。
-
-        :param selection: 选中的文本列表。
-        :type selection: list
-        """
         self._currentSelection = list(selection)
         super().setCurrentSelection(self._currentSelection)
 
     def currentSelection(self) -> list[str]:
-        """获取当前选中项文本列表。
-
-        :return: 选中的文本列表。
-        :rtype: list[str]
-        """
         return list(self._currentSelection)
 
     def showPopup(self) -> None:
@@ -353,6 +313,8 @@ class ElaSearchMultiBox(_SearchComboMixin, _ThemeAwareMixin, ElaMultiSelectCombo
     def hidePopup(self) -> None:
         """关闭弹窗时保存选中状态（行隐藏状态留待下次 showPopup 复位）。"""
         self._currentSelection = super().getCurrentSelection()
+        if hideComboboxPopup(self):
+            return
         super().hidePopup()
 
     def deleteLater(self) -> None:
@@ -380,11 +342,6 @@ class ElaSearchBox(_SearchComboMixin, _ThemeAwareMixin, ElaComboBox):
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        """初始化可搜索下拉框。
-
-        :param parent: 父级 widget。
-        :type parent: QWidget, optional
-        """
         super().__init__(parent)  # type: ignore[arg-type]
         self._searchEdit: Optional[QLineEdit] = None
         self._searchWidget: Optional[QWidget] = None
@@ -416,15 +373,12 @@ class ElaSearchBox(_SearchComboMixin, _ThemeAwareMixin, ElaComboBox):
         _adjust_combobox_popup(self)
 
     def _onSearchTextChanged(self, text: str) -> None:
-        """搜索框文本变化时隐藏不匹配的行。
-
-        :param text: 输入的搜索文本。
-        :type text: str
-        """
         self._apply_row_filter(text)
 
     def hidePopup(self) -> None:
         """关闭弹窗（行隐藏状态留待下次 showPopup 复位）。"""
+        if hideComboboxPopup(self):
+            return
         super().hidePopup()
 
     def deleteLater(self) -> None:

@@ -196,7 +196,7 @@ INTENTIONAL_UNDOCUMENTED = {
     # blueprint 内部实现（公开入口是 ElaBlueprintCanvas，已记录）
     "ElaBlueprintGraph", "ElaBlueprintNode", "ElaEdge", "ElaEdgeWidget",
     "ElaExecutionController", "ElaNodeContextMenu", "ElaNodeCreationMenu",
-    "ElaNodeWidget", "ElaPin", "ElaPinDirection", "ElaPinHandle", "ElaTempWire",
+    "ElaNodeWidget", "ElaPin", "ElaPinDirectionType", "ElaPinHandle", "ElaTempWire",
     # 基类 / 混入 / 代理（不是宿主直接实例化的东西）
     "ElaAnimatedMixin", "ElaThemeWidget",
 }

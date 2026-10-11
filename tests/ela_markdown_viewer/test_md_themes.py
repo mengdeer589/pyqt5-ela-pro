@@ -45,7 +45,7 @@ class TestBuiltinThemes:
     def test_switch_recolors_content(self, qapp):
         v = ElaMarkdownViewer()
         v.setMarkdown("## 标题\n\n[链接](https://example.com) 与 `code`")
-        assert _fragment_color(v, "标题") == "#d68c27"  # opencode 浅色
+        assert _fragment_color(v, "标题") == "#9d5d00"  # opencode 浅色
 
         assert v.setMarkdownTheme("github") is True
         assert v.markdownTheme() == "github"
@@ -66,7 +66,7 @@ class TestBuiltinThemes:
 
         v = ElaMarkdownViewer()
         v.setMarkdown("## 标题")
-        assert _fragment_color(v, "标题") == "#d68c27"
+        assert _fragment_color(v, "标题") == "#9d5d00"
 
         v._onThemeChanged(ElaThemeType.ThemeMode.Dark)
         assert _fragment_color(v, "标题") == "#9d7cd8"
@@ -89,11 +89,16 @@ class TestBuiltinThemes:
 
 
 class TestListAndMarkTheming:
-    """列表项 / 任务勾选框 / ==高亮== 必须随 markdown 主题切换。
+    """列表文字 / 任务勾选框 / ==高亮== 与 markdown 主题的关系。
 
-    回归背景：``semantic`` 早期只有 heading/strong/emphasis/code/link/quote，
-    列表分支只设了上下边距没上色，列表项一直用 eTheme 正文色 ——
-    四套主题轮一遍颜色完全相同（实测浅色 #000000 / 深色 #ffffff）。
+    契约演进：
+
+    - 早期列表文字一直用 eTheme 正文色（不跟主题）；
+    - 中间一版让列表**整块**跟随 ``list`` 色 —— 但 Qt 5.15 的 bullet 由
+      ``context.palette.Text`` 绘制、字符格式染不上（``drawListItem``），
+      结果是「文字变色、符号还是原色」，浅色 opencode 下叠出整页橙黄；
+    - 现在：列表**文字**固定正文色，``list`` 语义只服务任务勾选框
+      （``☑ / ☐`` 是文本字形、能染色）。
     """
 
     SOURCE = "- 无序项\n1. 有序项\n- [x] 任务项\n\n普通正文 ==高亮==\n"
@@ -106,19 +111,18 @@ class TestListAndMarkTheming:
                 assert semantic["list"].startswith("#"), (name, variant)
                 assert semantic["mark"].startswith("#"), (name, variant)
 
-    def test_list_items_follow_theme(self, qapp):
+    def test_list_text_stays_neutral(self, qapp):
+        """列表文字固定正文色：``list`` 语义不再染列表文字（只染勾选框）。"""
         v = ElaMarkdownViewer()
         v.setMarkdown(self.SOURCE)
-        assert _fragment_color(v, "无序项") == "#d68c27"  # opencode 浅色
-        assert _fragment_color(v, "有序项") == "#d68c27"
-        assert _fragment_color(v, "普通正文") == "#000000"  # 正文不受影响
+        assert _fragment_color(v, "无序项") == "#000000"
+        assert _fragment_color(v, "有序项") == "#000000"
+        assert _fragment_color(v, "普通正文") == "#000000"
 
-        assert v.setMarkdownTheme("solarized") is True
-        assert _fragment_color(v, "无序项") == "#268bd2"
-        assert _fragment_color(v, "有序项") == "#268bd2"
-
-        assert v.setMarkdownTheme("dracula") is True
-        assert _fragment_color(v, "无序项") == "#a3144d"
+        for theme in ("solarized", "dracula", "github"):
+            assert v.setMarkdownTheme(theme) is True
+            assert _fragment_color(v, "无序项") == "#000000"
+            assert _fragment_color(v, "有序项") == "#000000"
         v.deleteLater()
 
     def test_task_marker_follows_theme(self, qapp):
@@ -150,7 +154,7 @@ class TestListAndMarkTheming:
         assert v._md_mark_color.name() == "#b58900"
         v.deleteLater()
 
-    def test_custom_theme_can_override_list(self, qapp):
+    def test_custom_theme_can_override_list_marker(self, qapp):
         registerMarkdownTheme(
             "unit-test-list",
             light={"semantic": {"list": "#0f0f0f"}},
@@ -158,9 +162,11 @@ class TestListAndMarkTheming:
         )
         try:
             v = ElaMarkdownViewer()
-            v.setMarkdown("- 项")
+            v.setMarkdown("- [x] 项")
             assert v.setMarkdownTheme("unit-test-list") is True
-            assert _fragment_color(v, "项") == "#0f0f0f"
+            # list 色现在只落在勾选框字形上；文字不再被它染色
+            assert _fragment_color(v, "☑") == "#0f0f0f"
+            assert _fragment_color(v, "项") != "#0f0f0f"
             v.deleteLater()
         finally:
             assert unregisterMarkdownTheme("unit-test-list") is True

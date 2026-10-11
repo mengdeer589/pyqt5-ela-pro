@@ -757,9 +757,8 @@ def _skip_ws(text: str, index: int) -> int:
 
 
 def _read_balanced(text: str, start: int) -> tuple[str, int]:
-    """从 ``start``（指向 ``{``）读取平衡花括号内容。
-
-    :returns: ``(内容, 结束位置后一位)``；未闭合时返回剩余全部文本
+    """从 ``start``（指向 ``{``）读取平衡花括号内容，返回 ``(内容, 结束位置后一位)``；
+    未闭合时返回剩余全部文本。
     """
     if start >= len(text) or text[start] != "{":
         return "", start
@@ -785,9 +784,8 @@ def _parse_define(text: str, pos: int):
 
     支持 ``\\newcommand`` / ``\\renewcommand`` / ``\\def`` /
     ``\\DeclareMathOperator``（含 ``*`` 星号形式；``\\newcommand`` 的
-    可选默认参数 ``[default]`` 不支持）。
-
-    :returns: ``(宏名, 参数个数, 展开体, 结束位置)``；无法识别返回 ``None``
+    可选默认参数 ``[default]`` 不支持）。返回
+    ``(宏名, 参数个数, 展开体, 结束位置)``，无法识别返回 ``None``。
     """
     for prefix in (r"\newcommand", r"\renewcommand"):
         if text.startswith(prefix, pos):
@@ -868,11 +866,8 @@ def _parse_define(text: str, pos: int):
 
 
 def _collect_macros(text: str, macros: Optional[dict] = None) -> tuple[str, dict]:
-    """收集文本中的宏定义并从正文移除定义段。
-
-    :param text: LaTeX 源
-    :param macros: 已有的宏表（如文档级收集结果，低优先级）
-    :returns: ``(移除定义后的文本, {宏名: (参数个数, 展开体)})``
+    """收集文本中的宏定义并从正文移除定义段，返回 ``(移除后的文本, {宏名: (参数个数, 展开体)})``；
+    传入的 ``macros`` 是文档级收集结果，优先级更低。
     """
     table: dict = dict(macros) if macros else {}
     out: list[str] = []
@@ -3127,10 +3122,7 @@ def clear_cache() -> None:
 
 
 def set_cache_capacity(capacity: int) -> None:
-    """设置公式渲染缓存容量（含失败哨兵；<=0 时清空并停止缓存）。
-
-    :param capacity: 缓存条数上限
-    """
+    """设置公式渲染缓存容量（含失败哨兵；``<= 0`` 时清空并停止缓存）。"""
     global _CACHE_CAP
     _CACHE_CAP = max(0, int(capacity))
     while len(_CACHE) > _CACHE_CAP:
@@ -3244,12 +3236,9 @@ def render_formula(
     （定界符不闭合、``\\end`` 不匹配等）会先尝试自动修复（``\\left`` /
     ``\\right`` 配平），修复仍失败才返回 ``None``。
 
-    :param latex: 公式源码（不含 ``$``）
-    :param color: 前景色
-    :param pt: 字号（pt），块级公式的放大由调用方决定
-    :param display: 是否块级展示（仅影响缓存键，尺寸由 ``pt`` 决定）
-    :param report: 可选字典；渲染后填入 ``{"degraded": bool, "repaired": bool}``
-        （``degraded`` 表示走过容错路径，``repaired`` 表示定界符被自动配平）
+    ``latex`` 不含 ``$``；``pt`` 是字号（pt），块级公式的放大由调用方决定；
+    ``display`` 只影响缓存键（尺寸由 ``pt`` 决定）。传入 ``report`` 字典会填入
+    ``{"degraded": bool, "repaired": bool}``（走过容错路径 / 定界符被自动配平）。
     """
     key = (latex, color.name(), round(float(pt), 2), bool(display))
     cached = _CACHE.get(key)

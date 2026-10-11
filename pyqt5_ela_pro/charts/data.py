@@ -147,6 +147,16 @@ class ElaNumericBuffer(Sequence):
     def __repr__(self) -> str:
         return f"ElaNumericBuffer(len={len(self)})"
 
+    def __deepcopy__(self, memo) -> "ElaNumericBuffer":
+        """深拷贝返回**自身**。
+
+        本类只读，共享实例没有别名风险；而 ``copy.deepcopy`` 默认会连底层 ndarray /
+        ``array('d')`` 一起复制 —— 合并路径 ``_merge_option_array`` 会深拷贝每一条
+        series dict（1M 点 ≈ 1.6 MB 一份），「按引用持有大数组」的承诺就漏在这里。
+        """
+        memo[id(self)] = self
+        return self
+
     # -- 与 list 的可比较性（绘图与测试都直接比较数据） -------------------
     def __eq__(self, other) -> bool:
         # **身份快路径必须在最前**：``None`` 间隙在缓冲里就是 NaN（见本模块

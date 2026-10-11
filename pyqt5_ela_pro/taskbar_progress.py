@@ -137,20 +137,11 @@ class ElaTaskbarProgress(QObject):
         return self._progress.isStopped()
 
     def setRange(self, min_val: int, max_val: int) -> None:
-        """设置进度条范围。
-
-        :param min_val: 最小值
-        :param max_val: 最大值
-        """
         self._ensure_attached()
         if self._progress is not None:
             self._progress.setRange(min_val, max_val)
 
     def setValue(self, value: int) -> None:
-        """设置进度条当前值。
-
-        :param value: 当前值
-        """
         self._ensure_attached()
         if self._progress is not None:
             self._progress.setValue(value)

@@ -18,11 +18,11 @@ from PyQt5.QtCore import QObject, pyqtSignal
 
 from pyqt5_ela_pro.chat import (
     ElaChatPart,
-    ElaChatPartKind,
+    ElaChatPartKindType,
     ElaChatStats,
-    ElaChatStatus,
+    ElaChatStatusType,
     ElaChatStreamBinder,
-    ElaChatToolStatus,
+    ElaChatToolStatusType,
     ElaChatWidget,
 )
 
@@ -49,28 +49,36 @@ class _FakeWorker(QObject):
     toolEnded = pyqtSignal(dict, str)
     statsReady = pyqtSignal(object, float, float)
     emptyTurn = pyqtSignal(str)
+    turnFinished = pyqtSignal(int)
 
     def __init__(self, ready: bool = True) -> None:
         super().__init__()
         self.ask_calls: list = []
+        self.turn_tokens: list = []
         self.ready = ready
 
-    def ask(self, text: str) -> bool:
-        self.ask_calls.append(text)
-        return self.ready
+    def _accept(self):
+        if not self.ready:
+            return None
+        self.turn_tokens.append(len(self.turn_tokens) + 1)
+        return self.turn_tokens[-1]
 
-    def regenerate(self, text: str) -> bool:
-        return self.ready
+    def ask(self, text: str, attachments=None):
+        self.ask_calls.append(text)
+        return self._accept()
+
+    def regenerate(self, text: str, attachments=None):
+        return self._accept()
 
     def shutdown(self) -> None:
         pass
 
 
-def _begin(chat: ElaChatWidget, binder: ElaChatStreamBinder) -> int:
+def _begin(chat: ElaChatWidget, binder: ElaChatStreamBinder) -> tuple:
+    """开一个新回合，返回 ``(消息 id, 回合 token)``。"""
     chat.sendUserMessage("问")
     messageId = chat.beginAssistantMessage()
-    binder.beginTurn()
-    return messageId
+    return messageId, binder.beginTurn()
 
 
 def _tool_states(chat: ElaChatWidget) -> list:
@@ -80,7 +88,7 @@ def _tool_states(chat: ElaChatWidget) -> list:
         if not message.isAssistant:
             continue
         for part in message.parts:
-            if part.kind == ElaChatPartKind.Tool and part.tool_call is not None:
+            if part.kind == ElaChatPartKindType.Tool and part.tool_call is not None:
                 states.append(part.tool_call.status)
     return states
 
@@ -98,7 +106,7 @@ def _assert_quiescent(chat: ElaChatWidget, label: str) -> None:
     """断言视图处于终态：没有 running 工具、没有 streaming part、不在生成中。"""
     assert chat.isGenerating() is False, f"{label}: isGenerating 仍为 True"
 
-    running = [s for s in _tool_states(chat) if s == ElaChatToolStatus.Running]
+    running = [s for s in _tool_states(chat) if s == ElaChatToolStatusType.Running]
     assert not running, f"{label}: 仍有 running 状态的工具 {running}"
 
     streaming = [s for s in _part_statuses(chat) if s.startswith("stream")]
@@ -118,7 +126,7 @@ class TestNoTerminatingSpinner:
         chat.show()
         qapp.processEvents()
         binder = ElaChatStreamBinder(chat, _Clock(), worker=_FakeWorker())
-        messageId = _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
 
         order = (
             "startTurn",
@@ -182,7 +190,7 @@ class TestNoSpinnerAfterError:
         chat.show()
         qapp.processEvents()
         binder = ElaChatStreamBinder(chat, _Clock(), worker=_FakeWorker())
-        messageId = _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
 
         binder.beginRound()
         binder.reasoning("thinking")
@@ -190,7 +198,7 @@ class TestNoSpinnerAfterError:
         binder.answer("partial")
         binder.error("ProviderError", "boom")
         qapp.processEvents()
-        binder.finish()
+        binder.finish(turn)
         qapp.processEvents()
 
         _assert_quiescent(chat, "error turn")
@@ -204,7 +212,7 @@ class TestNoSpinnerAfterError:
         chat.show()
         qapp.processEvents()
         binder = ElaChatStreamBinder(chat, _Clock(), worker=_FakeWorker())
-        messageId = _begin(chat, binder)
+        messageId, turn = _begin(chat, binder)
         binder.beginRound()
 
         # 排队一条
@@ -214,7 +222,7 @@ class TestNoSpinnerAfterError:
 
         binder.error("ProviderError", "boom")
         qapp.processEvents()
-        binder.finish()
+        binder.finish(turn)
         qapp.processEvents()
 
         # 队列应被排空（错误回合不留下永久卡住的队列）
@@ -234,7 +242,7 @@ class TestNoSpinnerAfterStop:
         chat.show()
         qapp.processEvents()
         binder = ElaChatStreamBinder(chat, _Clock(), worker=_FakeWorker())
-        first = _begin(chat, binder)
+        first, turn = _begin(chat, binder)
         binder.beginRound()
         binder.answer("old answer")
 
@@ -290,24 +298,61 @@ class TestBeginStepClosesReasoning:
         qapp.processEvents()
 
 
-class TestReplayEquivalence:
-    """逐事件驱动 与 一次性构造 必须产生相同的 parts。
+class TestStaleTurnFinish:
+    """迟到的回合收尾必须被丢弃，不能收掉已经开起来的新回合。
 
-    这是 OpenCode 值得抄的一条测试形态（idea 5.1）：它一次性抓住重复追加、
-    丢失收尾事件、顺序漂移这一整类 bug。
+    真实后端的 ``cancel()`` 是异步的（轮询命中才收尾），旧回合的
+    ``turnFinished`` 可能晚几十毫秒到达，而那时宿主往往已经发了新提问。
+    没有回合 token 时，``finish()`` 会把新回合按「完成」收掉并清掉落点，
+    之后新回合的分片全被 ``isOpen()`` 丢弃 —— 用户看到「消息发出去了、
+    正文一个字没有」。
     """
+
+    def test_stale_turn_finish_is_discarded(self, qapp):
+        chat = ElaChatWidget()
+        worker = _FakeWorker()
+        binder = ElaChatStreamBinder(chat, _Clock(), worker=worker)
+
+        first = binder.startTurn("第一问")
+        assert first is not None
+        binder.answer("旧回答")
+
+        # 旧回合被取消后，用户立刻发了新问题：新回合已经接管落点
+        binder.cancel()
+        second = binder.startTurn("第二问")
+        assert second is not None and second != first
+        streaming = chat.streamingMessageId()
+
+        # 旧回合的收尾信号此刻才到
+        worker.turnFinished.emit(first)
+
+        assert binder.isOpen() is True, "陈旧收尾把新回合关掉了"
+        assert chat.streamingMessageId() == streaming
+        assert chat.chatView().message(streaming).status == ElaChatStatusType.Streaming
+        assert binder.finish(first) is None
+
+        # 新回合照常收尾
+        binder.answer("新回答")
+        assert binder.finish(second) is not None
+        assert chat.chatView().message(streaming).text == "新回答"
+
+        chat.deleteLater()
+        qapp.processEvents()
+
+
+class TestReplayEquivalence:
 
     def test_step_by_step_equals_batch_construction(self, qapp):
         # A：逐事件
         chat_a = ElaChatWidget()
         binder = ElaChatStreamBinder(chat_a, _Clock(), worker=_FakeWorker())
-        mid_a = _begin(chat_a, binder)
+        mid_a, turn = _begin(chat_a, binder)
         binder.beginRound()
         binder.reasoning("think")
         binder.toolStart("t1", "read", '{"p":1}')
         binder.toolEnd("t1", "out")
         binder.answer("answer")
-        binder.finish()
+        binder.finish(turn)
         qapp.processEvents()
         parts_a = chat_a.chatView().message(mid_a).parts
 
@@ -315,9 +360,9 @@ class TestReplayEquivalence:
         chat_b = ElaChatWidget()
         chat_b.addMessage("assistant", "")
         expected = (
-            ElaChatPart(id="r", kind=ElaChatPartKind.Reasoning, text="think", step=1),
-            ElaChatPart(id="t", kind=ElaChatPartKind.Tool, step=1),
-            ElaChatPart(id="x", kind=ElaChatPartKind.Text, text="answer", step=1),
+            ElaChatPart(id="r", kind=ElaChatPartKindType.Reasoning, text="think", step=1),
+            ElaChatPart(id="t", kind=ElaChatPartKindType.Tool, step=1),
+            ElaChatPart(id="x", kind=ElaChatPartKindType.Text, text="answer", step=1),
         )
         # 只比对 kind/step 序列（id 由实现分配，不应作为契约）
         sig_a = [(p.kind, p.step) for p in parts_a]

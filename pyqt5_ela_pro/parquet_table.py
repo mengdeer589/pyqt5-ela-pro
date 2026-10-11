@@ -142,16 +142,10 @@ class ElaInfoBarWidget(ElaThemeWidget):
     ) -> None:
         """更新列信息显示。
 
-        注意这几个值是**整列**统计（不是当前页），由
-        :meth:`ElaParquetTable._compute_column_stats` 同步算出，所以点第一下
-        会付一次整列扫描的成本 —— 实测 2,000 万行 22ms / 1 亿行 112ms /
-        5 亿行 586ms（主线程）。同一列再点为 0.0ms（按列名缓存）。
-
-        :param col_name: 列名
-        :param col_index: 列索引
-        :param min_val: 最小值
-        :param max_val: 最大值
-        :param last_val: 最后一行值
+        四个值是**整列**统计（不是当前页），由
+        :meth:`ElaParquetTable._compute_column_stats` 同步算出，所以点第一下会付
+        一次整列扫描的成本 —— 实测 2,000 万行 22ms / 1 亿行 112ms / 5 亿行 586ms
+        （主线程）；同一列再点 0.0ms（按列名缓存）。
         """
         self._col_name = col_name
         self._col_index = col_index
@@ -186,15 +180,8 @@ class ElaInfoBarWidget(ElaThemeWidget):
 class ElaParquetTable(ElaThemeWidget):
     """Parquet 表格视图，支持分页。
 
-    继承自 ``ElaThemeWidget``，数据来源为 Parquet 文件，
-    通过 ``polars`` 进行高效读取，按页展示数据。
-
-    :param parent: 父级 widget
-    :param parquet_path: Parquet 文件路径（可选，也可后续通过 ``loadData`` 传入）
-    :param page_size: 每页记录数，默认 50，最大 5000
-    :param show_row_index: 是否在垂直表头显示行号
-
-    :raises ImportError: 当 polars 未安装时
+    数据源为 Parquet 文件，经 ``polars`` 读取后按页展示；``polars`` 缺失时构造抛
+    ``ImportError``。
     """
 
     pageChanged = pyqtSignal(int, int)
@@ -421,10 +408,7 @@ class ElaParquetTable(ElaThemeWidget):
         }
 
     def goToPage(self, page: int) -> None:
-        """跳转到指定页码。
-
-        :param page: 目标页码（从 1 开始）
-        """
+        """跳转到指定页码（从 1 起，会夹到合法范围）。"""
         if self._lf is None:
             return
         if page < 1:
@@ -448,10 +432,7 @@ class ElaParquetTable(ElaThemeWidget):
         self.goToPage(self._current_page - 1)
 
     def setPageSize(self, page_size: int) -> None:
-        """设置每页记录数（会重置到第一页）。
-
-        :param page_size: 每页记录数，范围 50~5000
-        """
+        """每页记录数（50~5000），变化时重置到第一页。"""
         page_size = max(50, min(page_size, 5000))
         if page_size == self._page_size:
             return
@@ -460,31 +441,15 @@ class ElaParquetTable(ElaThemeWidget):
         self._load_data()
 
     def totalRows(self) -> int:
-        """获取总行数。
-
-        :returns: 总行数
-        """
         return self._total_rows
 
     def currentPage(self) -> int:
-        """获取当前页码。
-
-        :returns: 当前页码
-        """
         return self._current_page
 
     def pageSize(self) -> int:
-        """获取每页记录数。
-
-        :returns: 每页记录数
-        """
         return self._page_size
 
     def totalPages(self) -> int:
-        """获取总页数。
-
-        :returns: 总页数
-        """
         return max(1, (self._total_rows + self._page_size - 1) // self._page_size)
 
     def loadData(self, parquet_path: Union[str, Path]) -> None:
@@ -495,12 +460,10 @@ class ElaParquetTable(ElaThemeWidget):
         再 ``collect()``，于是失败后组件进入「总数是旧的、数据源是新的」的
         不一致态，下一次翻页再抛一次。
 
-        :param parquet_path: Parquet 文件路径
-        :raises FileNotFoundError: 当文件不存在时
-        :raises Exception: polars 自身的异常（文件截断 / 损坏 / schema 不符
-            / 非 parquet 内容 → ``ComputeError`` / ``ArrowInvalid`` /
-            ``OSError`` 等）。**不只``FileNotFoundError``** —— 宿主只 catch
-            前者会漏掉损坏文件。
+        :raises FileNotFoundError: 文件不存在。
+        :raises Exception: polars 自身的异常（截断 / 损坏 / schema 不符 / 非 parquet
+            → ``ComputeError`` / ``ArrowInvalid`` / ``OSError`` 等），**不只
+            ``FileNotFoundError``** —— 宿主只 catch 前者会漏掉损坏文件。
         """
         parquet_path = str(parquet_path)
         if not Path(parquet_path).is_file():

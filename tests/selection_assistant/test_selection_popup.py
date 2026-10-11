@@ -119,7 +119,7 @@ class TestActions:
         # 显示在动作条下方，避免遮挡上方选中的文字
         tooltip_filter = tt._filter_dict.get(button)
         assert tooltip_filter is not None
-        assert tooltip_filter._position == tt.ElaToolTipPosition.Bottom
+        assert tooltip_filter._position == tt.ElaToolTipPositionType.Bottom
         popup.deleteLater()
         qapp.processEvents()
 

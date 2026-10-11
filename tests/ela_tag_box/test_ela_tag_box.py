@@ -32,8 +32,9 @@ class TestElaTagBoxInit:
     def test_initialization_with_title(self, make):
         assert make(ElaTagBox, title="语言")._title_text == "语言"
 
-    def test_fixed_height_is_38(self, box):
-        assert box.height() == 38
+    def test_fixed_height_is_30(self, box):
+        """与上游 ElaComboBox V3.0（35→30）的触发框同高。"""
+        assert box.height() == 30
 
 
 class TestElaTagBoxAnimations:

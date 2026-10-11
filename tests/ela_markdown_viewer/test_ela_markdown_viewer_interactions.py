@@ -6,6 +6,7 @@ link signal, zoom, search, export helpers and context menu.
 
 from __future__ import annotations
 
+from _qthelpers import wait_for_clipboard as _wait_for_clipboard
 from PyQt5.QtCore import QUrl
 from PyQt5.QtGui import (
     QColor,
@@ -159,6 +160,42 @@ class TestImages:
         assert "pic.png" in images[0].charFormat().toImageFormat().name()
         v.deleteLater()
 
+    def test_empty_alt_image_still_renders(self, tmp_path):
+        """``![](src)`` 必须照常渲染。
+
+        Qt 5.15 的 Markdown 导入器对 alt 为空的图片**整张静默丢弃**（没有图片
+        片段、没有降级记录，``![ ](src)`` 反而正常）—— 预处理里补一个空格绕过。
+        """
+        _make_image(tmp_path, "noalt.png", 40, 20)
+        v = ElaMarkdownViewer()
+        v.setBaseUrl(str(tmp_path))
+        v.setMarkdown("![](noalt.png)")
+
+        images = _image_fragments(v)
+        assert len(images) == 1, "空 alt 图片被 Qt 丢弃了"
+        assert "noalt.png" in images[0].charFormat().toImageFormat().name()
+        v.deleteLater()
+
+    def test_empty_alt_reference_image_still_renders(self, tmp_path):
+        """引用式 ``![][ref]`` 同样是空 alt，走同一条预处理。"""
+        _make_image(tmp_path, "ref.png", 40, 20)
+        v = ElaMarkdownViewer()
+        v.setBaseUrl(str(tmp_path))
+        v.setMarkdown("![][ref]\n\n[ref]: ref.png")
+
+        images = _image_fragments(v)
+        assert len(images) == 1, "空 alt 引用式图片被 Qt 丢弃了"
+        assert "ref.png" in images[0].charFormat().toImageFormat().name()
+        v.deleteLater()
+
+    def test_literal_empty_brackets_in_text_untouched(self):
+        """正文里字面量 ``![]``（后面不是 ``(`` / ``[``）不该被改写。"""
+        v = ElaMarkdownViewer()
+        v.setMarkdown("输入 ![] 是空图片语法")
+
+        assert "![] 是空图片语法" in v.document().toPlainText()
+        v.deleteLater()
+
     def test_missing_image_becomes_placeholder(self, tmp_path):
         v = ElaMarkdownViewer()
         v.setBaseUrl(str(tmp_path))
@@ -288,7 +325,14 @@ class TestExportAndMenu:
         v._copy_code_at_cursor()
         qapp.processEvents()
         assert received and received[0].strip() == "print(1)"
-        assert qapp.clipboard().text().strip() == "print(1)"
+        assert (
+            _wait_for_clipboard(
+                qapp,
+                lambda text: text.strip() == "print(1)",
+                v._copy_code_at_cursor,
+            ).strip()
+            == "print(1)"
+        )
         v.deleteLater()
 
     def test_copy_full_text(self, qapp, requires_clipboard):
@@ -296,7 +340,8 @@ class TestExportAndMenu:
         v.setMarkdown("hello world")
         v._copy_all()
         qapp.processEvents()
-        assert "hello world" in qapp.clipboard().text()
+        got = _wait_for_clipboard(qapp, lambda text: "hello world" in text, v._copy_all)
+        assert "hello world" in got
         v.deleteLater()
 
 

@@ -7,8 +7,9 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Union
 
+from PyQt5.QtCore import QAbstractAnimation
 from PyQt5.QtGui import QPainter, QPaintEvent
 from PyQt5.QtWidgets import QWidget
 
@@ -20,7 +21,7 @@ from .ela_tag_combo_base import (
     _get_target_mark_width,
     _paint_tag_multi,
 )
-from ._internal import _adjust_combobox_popup, single_shot_on
+from ._internal import _adjust_combobox_popup, single_shot_on, hideComboboxPopup
 
 
 class ElaTagSearchMultiBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaSearchMultiBox):
@@ -60,9 +61,22 @@ class ElaTagSearchMultiBox(_TagBoxThemeMixin, _TagBoxAnimMixin, ElaSearchMultiBo
 
     def hidePopup(self) -> None:
         self._expand_mark_width = 0.0
+        if hideComboboxPopup(self):
+            return
         super().hidePopup()
 
-    def setCurrentSelection(self, selection):
+    def setCurrentSelection(self, selection: Union[str, list[str]]) -> None:
+        """设置选中项，**接受单个字符串或字符串列表**（与 :class:`ElaTagMultiBox` 同款）。
+
+        基类直接 ``list(selection)``，传字符串会被拆成一个个字符 —— 匹配不到任何
+        选项，表现为「设了没反应，``currentSelection()`` 回读一堆字母」。
+        """
+        if isinstance(selection, str):
+            selection = [selection]
+        selection = list(selection)
+        if self._mark_animation.state() == QAbstractAnimation.State.Running:
+            self._mark_animation.stop()
+        self._expand_mark_width = _get_target_mark_width(self)
         super().setCurrentSelection(selection)
         self.update()
 

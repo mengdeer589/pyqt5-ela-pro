@@ -76,10 +76,6 @@ class ElaDashboardGauge(ElaThemeWidget):
     # ── Public API ────────────────────────────────────────
 
     def setMinimum(self, minimum: float) -> None:
-        """设置最小值。
-
-        :param minimum: 最小值
-        """
         self._minimum = minimum
         self._value = max(self._minimum, min(self._value, self._maximum))
         self._animated_value = max(
@@ -88,17 +84,9 @@ class ElaDashboardGauge(ElaThemeWidget):
         self.update()
 
     def minimum(self) -> float:
-        """获取最小值。
-
-        :returns: 最小值
-        """
         return self._minimum
 
     def setMaximum(self, maximum: float) -> None:
-        """设置最大值。
-
-        :param maximum: 最大值
-        """
         self._maximum = maximum
         self._value = max(self._minimum, min(self._value, self._maximum))
         self._animated_value = max(
@@ -107,17 +95,10 @@ class ElaDashboardGauge(ElaThemeWidget):
         self.update()
 
     def maximum(self) -> float:
-        """获取最大值。
-
-        :returns: 最大值
-        """
         return self._maximum
 
     def setValue(self, value: float) -> None:
-        """设置当前值（带动画过渡）。
-
-        :param value: 当前值
-        """
+        """设置当前值（带动画过渡）。"""
         value = max(self._minimum, min(value, self._maximum))
         if self._value == value:
             return
@@ -161,107 +142,51 @@ class ElaDashboardGauge(ElaThemeWidget):
         self.update()
 
     def value(self) -> float:
-        """获取当前值。
-
-        :returns: 当前值
-        """
         return self._value
 
     def setMajorTickCount(self, n: int) -> None:
-        """设置主刻度数量。
-
-        :param n: 主刻度数
-        """
         self._major_tick_count = max(2, n)
         self.update()
 
     def majorTickCount(self) -> int:
-        """获取主刻度数量。
-
-        :returns: 主刻度数
-        """
         return self._major_tick_count
 
     def setMinorTickCount(self, n: int) -> None:
-        """设置每主刻度的副刻度数量。
-
-        :param n: 副刻度数
-        """
         self._minor_tick_count = max(1, n)
         self.update()
 
     def minorTickCount(self) -> int:
-        """获取每主刻度的副刻度数量。
-
-        :returns: 副刻度数
-        """
         return self._minor_tick_count
 
     def setStartAngle(self, angle: int) -> None:
-        """设置弧形起始角度。
-
-        :param angle: 起始角度（度）
-        """
         self._start_angle = angle
         self.update()
 
     def startAngle(self) -> int:
-        """获取弧形起始角度。
-
-        :returns: 起始角度（度）
-        """
         return self._start_angle
 
     def setSpanAngle(self, angle: int) -> None:
-        """设置弧形跨度角度。
-
-        :param angle: 跨度角度（度）
-        """
         self._span_angle = max(10, min(angle, 360))
         self.update()
 
     def spanAngle(self) -> int:
-        """获取弧形跨度角度。
-
-        :returns: 跨度角度（度）
-        """
         return self._span_angle
 
     def setArcWidth(self, width: int) -> None:
-        """设置弧线宽度。
-
-        :param width: 弧线宽度（像素）
-        """
         self._arc_width = max(2, width)
         self.update()
 
     def arcWidth(self) -> int:
-        """获取弧线宽度。
-
-        :returns: 弧线宽度（像素）
-        """
         return self._arc_width
 
     def setValuePixelSize(self, size: int) -> None:
-        """设置值文本字号。
-
-        :param size: 字号（像素）
-        """
         self._value_pixel_size = max(10, size)
         self.update()
 
     def valuePixelSize(self) -> int:
-        """获取值文本字号。
-
-        :returns: 字号（像素）
-        """
         return self._value_pixel_size
 
     def setIsAnimated(self, animated: bool) -> None:
-        """设置值变化是否带动画过渡。
-
-        :param animated: 是否带动画
-        """
         self._is_animated = animated
         if (
             not animated
@@ -273,100 +198,51 @@ class ElaDashboardGauge(ElaThemeWidget):
             self.update()
 
     def isAnimated(self) -> bool:
-        """当前值变化是否带动画过渡。
-
-        :returns: 动画状态
-        """
         return self._is_animated
 
     def setDecimals(self, n: int) -> None:
-        """设置值文本的小数位数。
-
-        :param n: 小数位数
-        """
         self._decimals = max(0, n)
         self.update()
 
     def decimals(self) -> int:
-        """获取值文本的小数位数。
-
-        :returns: 小数位数
-        """
         return self._decimals
 
     def setTitle(self, title: str) -> None:
-        """设置标题文字。
-
-        :param title: 标题
-        """
         self._title = title
         self.update()
 
     def title(self) -> str:
-        """获取标题文字。
-
-        :returns: 标题
-        """
         return self._title
 
     def setUnit(self, unit: str) -> None:
-        """设置值单位。
-
-        :param unit: 单位字符串
-        """
         self._unit = unit
         self.update()
 
     def unit(self) -> str:
-        """获取值单位。
-
-        :returns: 单位字符串
-        """
         return self._unit
 
     def setDangerPercent(self, percent: float) -> None:
-        """设置危险阈值百分比（超过此值时弧线和指针变红色）。
-
-        :param percent: 百分比（0.0 ~ 1.0）
-        """
+        """超过此值时弧线与指针变红。"""
         self._danger_percent = max(0.0, min(1.0, percent))
         self.update()
 
     def dangerPercent(self) -> float:
-        """获取危险阈值百分比。
-
-        :returns: 百分比
-        """
         return self._danger_percent
 
     def setWarningPercent(self, percent: float) -> None:
-        """设置警告阈值百分比（超过此值时弧线变橙色）。
-
-        :param percent: 百分比（0.0 ~ 1.0）
-        """
+        """超过此值时弧线变橙。"""
         self._warning_percent = max(0.0, min(1.0, percent))
         self.update()
 
     def warningPercent(self) -> float:
-        """获取警告阈值百分比。
-
-        :returns: 百分比
-        """
         return self._warning_percent
 
     def setTickWarningPercent(self, percent: float) -> None:
-        """设置刻度变色阈值百分比（超过此值时刻度变橙色/红色）。
-
-        :param percent: 百分比（0.0 ~ 1.0）
-        """
+        """超过此值时刻度变橙 / 红。"""
         self._tick_warning_percent = max(0.0, min(1.0, percent))
         self.update()
 
     def tickWarningPercent(self) -> float:
-        """获取刻度变色阈值百分比。
-
-        :returns: 百分比
-        """
         return self._tick_warning_percent
 
     # ── Internal ──────────────────────────────────────────

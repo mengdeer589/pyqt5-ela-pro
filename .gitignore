@@ -1,6 +1,5 @@
 /benchmark_setdata.py
 /gen_test_data.py
-/ElaWidgetTools-main/
 /.venv/
 __pycache__/
 *.pyc
@@ -25,8 +24,6 @@ window_embedder.py
 AGENTS.md
 PyQt-Fluent-Widgets/
 /界面测试.py
-/ElaWidgetTools/
-/ElaWidgetToolsExample/
 /bin_5_15_2_x64_MSVC/
 *.whl
 chart_export.png
@@ -37,3 +34,4 @@ chart_export.png
 # 与本项目无关的 skill 安装产物
 /.agents/
 /skills-lock.json
+/PyElaWidgetTools/

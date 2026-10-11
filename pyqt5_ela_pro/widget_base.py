@@ -41,10 +41,7 @@ class ElaThemeWidget(_ThemeAwareMixin, QWidget):
         self._update_bg_color(mode)
 
     def _update_bg_color(self, mode: ElaThemeType.ThemeMode) -> None:
-        """按主题模式更新 widget 的背景调色板。
-
-        :param mode: 当前主题模式（亮色或暗色）。
-        """
+        """按主题模式更新 widget 的背景调色板。"""
         bg_color = eTheme.getThemeColor(mode, ElaThemeType.ThemeColor.BasicPress)
         palette = self.palette()
         palette.setColor(QPalette.ColorRole.Window, bg_color)
@@ -55,12 +52,7 @@ class ElaThemeWidget(_ThemeAwareMixin, QWidget):
         layoutType: Literal["h", "v", "g"] = "h",
         parent: QWidget | None = None,
     ) -> QHBoxLayout | QVBoxLayout | QGridLayout:
-        """创建布局（边距与间距均为 0）。
-
-        :param layoutType: ``"h"`` 水平，``"v"`` 垂直，``"g"`` 网格
-        :param parent: 父控件，默认为 self
-        :return: 创建的布局对象
-        """
+        """创建布局（``"h"`` / ``"v"`` / ``"g"``），边距与间距均为 0。"""
         if parent is None:
             parent = self
         if layoutType == "h":
@@ -91,14 +83,8 @@ class ElaThemeWidget(_ThemeAwareMixin, QWidget):
         ] = "TopRight",
         parent: Optional[QWidget] = None,
     ) -> None:
-        """显示提示消息条。
-
-        :param message: 消息内容
-        :param level: 消息级别，支持 "error" / "warning" / "information" / "success"
-        :param title: 消息标题
-        :param duration: 显示时长（毫秒）
-        :param position: 显示位置
-        :param parent: 父控件，用于消息条定位
+        """显示提示消息条（``level`` 取 ``error`` / ``warning`` / ``information`` / ``success``，
+        非法值抛 ``ValueError``）。
         """
         if level not in ("error", "warning", "information", "success"):
             raise ValueError(f"Invalid alert level: {level!r}")

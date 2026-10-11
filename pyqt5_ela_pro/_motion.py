@@ -45,7 +45,7 @@
 * **等上游动画**：``ela_ghost_box.py`` 的 ``_footer_retry(450)`` —— 它等的是
   ElaWidgetTools C++ ``showPopup`` 自己的动画结束，缩放它会让页脚抢在 C++ 动画前面
   重排（页脚落错位置）。
-* **持续动效**（属 ``MotionKind.Continuous``，本模块的 ``shouldAnimate`` 够用，但
+* **持续动效**（属 ``ElaMotionKindType.Continuous``，本模块的 ``shouldAnimate`` 够用，但
   **必须额外画静态基态**，不能只停定时器）：``chat/blocks.py`` 的 ``_StatusDot``
   呼吸、``blueprint/_spinner.py`` / ``blueprint/node_widget.py`` /
   ``blueprint/canvas.py``、``charts/core.py`` 的 loading spinner、
@@ -88,7 +88,7 @@ _SPI_GETCLIENTAREAANIMATION = 0x0049
 _SLOT_ATTR = "_ela_motion_slot"
 
 
-class MotionMode(IntEnum):
+class ElaMotionModeType(IntEnum):
     """全局动效偏好。"""
 
     Full = 0
@@ -101,7 +101,7 @@ class MotionMode(IntEnum):
     """一切过渡同步落终值，持续动效停止。"""
 
 
-class MotionKind(IntEnum):
+class ElaMotionKindType(IntEnum):
     """动效的存活期，决定 ``Reduced`` 下是否被抑制。"""
 
     Transition = 0
@@ -198,9 +198,9 @@ class MotionPolicy(QObject):
 
     Example::
 
-        from pyqt5_ela_pro import motion, MotionMode
+        from pyqt5_ela_pro import motion, ElaMotionModeType
 
-        motion.setMode(MotionMode.Full)
+        motion.setMode(ElaMotionModeType.Full)
     """
 
     modeChanged = pyqtSignal(object)
@@ -209,7 +209,7 @@ class MotionPolicy(QObject):
 
     def __init__(self) -> None:
         super().__init__()
-        self._mode: Optional[MotionMode] = None
+        self._mode: Optional[ElaMotionModeType] = None
         self._system_reduced: Optional[bool] = None
         self._override_system = False
 
@@ -221,16 +221,16 @@ class MotionPolicy(QObject):
 
     # -- 模式 ---------------------------------------------------------------
 
-    def mode(self) -> MotionMode:
+    def mode(self) -> ElaMotionModeType:
         """当前生效的模式。未显式指定过时按系统探测（只探一次）。"""
         if self._mode is None:
-            self._mode = MotionMode.Reduced if self.systemReduced() else MotionMode.Full
+            self._mode = ElaMotionModeType.Reduced if self.systemReduced() else ElaMotionModeType.Full
         return self._mode
 
     def setMode(self, mode) -> None:
         """指定模式。同值或非法值静默返回（非法值不抛，跟组件 setter 一致）。"""
         try:
-            mode = MotionMode(mode)
+            mode = ElaMotionModeType(mode)
         except ValueError:
             return
         if mode == self.mode():
@@ -258,7 +258,7 @@ class MotionPolicy(QObject):
             return
         self._override_system = on
         if on:
-            self._mode = MotionMode.Reduced if self.systemReduced() else MotionMode.Full
+            self._mode = ElaMotionModeType.Reduced if self.systemReduced() else ElaMotionModeType.Full
         else:
             self._mode = None
 
@@ -266,7 +266,7 @@ class MotionPolicy(QObject):
 
     def shouldAnimate(
         self,
-        kind: MotionKind = MotionKind.Transition,
+        kind: ElaMotionKindType = ElaMotionKindType.Transition,
         local_enabled: bool = True,
     ) -> bool:
         """这次动效允许播吗。
@@ -275,28 +275,28 @@ class MotionPolicy(QObject):
         ``Reduced`` 只抑制 ``Continuous``，不抑制 ``Transition``。
         """
         mode = self.mode()
-        if not local_enabled or mode == MotionMode.Disabled:
+        if not local_enabled or mode == ElaMotionModeType.Disabled:
             return False
-        return mode == MotionMode.Full or kind == MotionKind.Transition
+        return mode == ElaMotionModeType.Full or kind == ElaMotionKindType.Transition
 
     def duration(
         self,
         full_ms: int,
-        kind: MotionKind = MotionKind.Transition,
+        kind: ElaMotionKindType = ElaMotionKindType.Transition,
         local_enabled: bool = True,
     ) -> int:
         """把「全动效时长」解析成本次实际该用的时长。``Disabled`` 下是 0。"""
         if not self.shouldAnimate(kind, local_enabled):
             return 0
         bounded = max(0, int(full_ms))
-        if self.mode() == MotionMode.Reduced:
+        if self.mode() == ElaMotionModeType.Reduced:
             return min(bounded, _REDUCED_TRANSITION_MS)
         return bounded
 
     def plan(
         self,
         full_ms: int,
-        kind: MotionKind = MotionKind.Transition,
+        kind: ElaMotionKindType = ElaMotionKindType.Transition,
         local_enabled: bool = True,
     ) -> Tuple[int, bool]:
         """一次解出 ``(时长, 是否 snap)``。
@@ -313,21 +313,12 @@ class MotionPolicy(QObject):
 motion = MotionPolicy.instance()
 
 
-#: 已登记的持续动效循环：``[(weakref(timer), interval_ms), ...]``。
-#: 用 weakref 是因为 ``QTimer`` 是 sip 对象，控件销毁后包装器可能还在而 C++ 侧已经没了。
+#: 已登记的持续动效循环：``[(weakref(timer), interval_ms), ...]``。用 weakref 是因为
+#: ``QTimer`` 是 sip 对象，控件销毁后包装器可能还在而 C++ 侧已经没了。
 #:
-#: **登记表里绝不能存 ``on_stop``**。``on_stop`` 几乎总是控件的bound method，
-#: 强引用住整个控件；而控件的 ``__dict__`` 又指着这个 timer 包装器，于是形成
-#: ``模块全局 → bound method → 控件 → _caret_timer → weakref 的target 活着
-#: → 永不剪枝`` 的闭环。实测 20 个跑过 ``beginStream()`` 的
-#: ``ElaMarkdownViewer`` 在正常销毁路径（``close()`` + ``deleteLater()`` +
-#: ``sendPostedEvents(DeferredDelete)`` + ``gc.collect()``）后 **20/20 全被钉住**，
-#: Python 堆多出 18.9 MB（约 945 KB / 个），而 ``_IDLE_LOOPS`` 同步涨到 20 条。
-#: 聊天场景每条助手消息都会 ``beginStream()``，所以这是无界增长。
-#:
-#: 所以 ``on_stop`` 挂在 timer 包装器自己身上（``_ON_STOP_ATTR``）：控件死 →
-#: timer 包装器死 → 弱引用失效 → 条目被剪掉，``on_stop`` 随之释放；即使构成
-#: 环（控件 → timer → on_stop → 控件）也交给 gc 的环收集，不会拦住回收。
+#: **登记表里绝不能存 ``on_stop``** —— 它几乎总是控件的 bound method，会强引用住整个
+#: 控件，与控件 ``__dict__`` 形成永不剪枝的环（实测每个助手消息约泄漏 945KB），
+#: 所以改挂在 timer 包装器自己身上（``_ON_STOP_ATTR``）。详见 AGENTS.md。
 _IDLE_LOOPS: list = []
 
 #: timer 包装器上挂 ``on_stop`` 的属性名。
@@ -355,7 +346,7 @@ def _stop_idle_loops_on_mode_change(_mode) -> None:
     from ._internal import safe_call
 
     _prune_idle_loops()
-    if motion.shouldAnimate(MotionKind.Continuous):
+    if motion.shouldAnimate(ElaMotionKindType.Continuous):
         return
     for ref, _interval in list(_IDLE_LOOPS):
         timer = ref()
@@ -381,18 +372,14 @@ def start_idle_loop(
     """按策略启动一个**持续动效**循环（转圈 / 呼吸 / 流动 / 闪烁）。
 
     ``Reduced`` 与 ``Disabled`` 下持续动效一律**停掉，不是放慢** —— 转得更慢的圈看着
-    像卡住，不像在忙。
+    像卡住，不像在忙。运行时切到 Reduced/Disabled 会自动停掉已登记的循环并调
+    ``on_stop``；切回 ``Full`` 不自动重启。
 
-    :param timer: 已 ``connect`` 好 tick 的 ``QTimer``。
-    :param interval_ms: 帧间隔。
-    :param local_enabled: 组件自身开关。
-    :param on_stop: **落到静态基态**的钩子，``Reduced``/``Disabled`` 下停掉循环时调用
-        （启动时和运行期切策略都会调）。「停掉」不等于「不画」：旋转类自然冻结在最后
-        一帧就是静态态，但**相位类必须显式摆好** —— 流式光标停在 phase 0 等于光标凭空
-        消失，用户会以为流式卡住了。
+    :param timer: 已 ``connect`` 好 tick 的 ``QTimer``
+    :param on_stop: **落到静态基态**的钩子，``Reduced``/``Disabled`` 下停掉循环时调用。
+        「停掉」不等于「不画」：旋转类自然冻结在最后一帧就是静态态，但**相位类必须
+        显式摆好** —— 流式光标停在 phase 0 等于光标凭空消失。
     :returns: ``True`` = 循环已启动；``False`` = **该停**（``on_stop`` 已调用）。
-
-    运行时把策略切到 Reduced/Disabled 会自动停掉已登记的循环并调 ``on_stop``。
     """
     import weakref
 
@@ -415,7 +402,7 @@ def start_idle_loop(
     # timer.start() 就是 0ms 空转（烧满一个核）。
     timer.setInterval(int(interval_ms))
 
-    if not motion.shouldAnimate(MotionKind.Continuous, local_enabled):
+    if not motion.shouldAnimate(ElaMotionKindType.Continuous, local_enabled):
         was_running = timer.isActive()
         timer.stop()
         if was_running or on_stop is not None:
@@ -457,7 +444,7 @@ def start_transition_timer(timer, *, local_enabled: bool = True) -> bool:
     if not isinstance(timer, QTimer):
         raise TypeError(f"start_transition_timer 需要 QTimer，收到 {type(timer)!r}")
 
-    if not motion.shouldAnimate(MotionKind.Transition, local_enabled):
+    if not motion.shouldAnimate(ElaMotionKindType.Transition, local_enabled):
         timer.stop()
         return False
     if not timer.isActive():
@@ -470,28 +457,25 @@ def start_transition(
     full_ms: int,
     *,
     local_enabled: bool = True,
-    kind: MotionKind = MotionKind.Transition,
+    kind: ElaMotionKindType = ElaMotionKindType.Transition,
     on_complete: Optional[Callable[[], None]] = None,
     deletion_policy=None,
 ) -> bool:
     """按全局策略启动一次**过渡**动画。**这是收尾的唯一注册点** —— 调用点不要自己再
     连 ``anim.finished``（叠连接会让收尾跑两遍）。
 
-    :param anim: ``QPropertyAnimation`` / ``QVariantAnimation``。
-    :param full_ms: ``Full`` 模式下的时长。
-    :param local_enabled: 组件自身开关，``False`` 时等价于 ``Disabled``。
-    :param kind: 过渡恒为 ``MotionKind.Transition``。
-    :param on_complete: 收尾回调。**只在完整路径挂一次**（幂等重复连接），正常播放与
-        snap 都由它收尾。
-    :param deletion_policy: 传给 ``QAbstractAnimation.start()``，默认
-        ``KeepWhenStopped``。``DeleteWhenStopped`` 的动画停止后 C++ 对象即销毁，之后
-        所有读取都要先 ``sip.isdeleted()`` 判存活。
-    :returns: ``True`` = 会播；``False`` = 已同步落终值。
-    :raises TypeError: ``anim`` 不是 ``QAbstractAnimation``。
-
     不适用于 ``charts`` 的 ``ChartAnimation``（它不挂 ``QAbstractAnimation.finished``，
     自带 ``complete()``）。收尾会跑在 Qt 回调链上，本函数连接时已用 ``catch_error``
     包过一层，调用方不必重复包。
+
+    :param local_enabled: 组件自身开关，``False`` 时等价于 ``Disabled``
+    :param on_complete: 收尾回调。**只在完整路径挂一次**（幂等重复连接），正常播放与
+        snap 都由它收尾
+    :param deletion_policy: 传给 ``QAbstractAnimation.start()``，默认
+        ``KeepWhenStopped``。``DeleteWhenStopped`` 的动画停止后 C++ 对象即销毁，之后
+        所有读取都要先 ``sip.isdeleted()`` 判存活。
+    :returns: ``True`` = 会播；``False`` = 已同步落终值
+    :raises TypeError: ``anim`` 不是 ``QAbstractAnimation``
     """
     from PyQt5.QtCore import QAbstractAnimation
 
@@ -504,13 +488,9 @@ def start_transition(
     if deletion_policy is None:
         deletion_policy = QAbstractAnimation.DeletionPolicy.KeepWhenStopped
 
-    # **无条件**调 —— ``on_complete=None`` 的语义是「取消收尾」，不是「保留
-    # 上一次的收尾」。原先那个 ``if on_complete is not None`` 让旧槽既留在
-    # ``anim.finished`` 上、也留在 ``anim._ela_motion_slot`` 里，于是：
-    # ``notify_popup`` 关闭动画注册过 ``_on_animation_end`` 之后，任何后续
-    # ``showNotification()``（不传 on_complete）都会在滑入动画结束时触发它
-    # -> ``hide()`` + ``closed.emit()`` -> **重播的通知 250ms 后自己关掉自己**
-    # （挂在 ElaNotifyManager 上还会被 deleteLater）。
+    # **无条件**调 —— ``on_complete=None`` 的语义是「取消收尾」，不是「保留上一次的
+    # 收尾」；加了 ``if on_complete is not None`` 会让旧槽留在 ``anim.finished`` 上，
+    # 表现为「一次注册的收尾在后续无参调用里照常触发」（通知会自己关掉自己）。
     _connect_complete(anim, on_complete)
 
     if not snap:

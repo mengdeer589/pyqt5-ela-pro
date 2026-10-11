@@ -440,13 +440,7 @@ class _BrowserController(QObject):
         params: Optional[dict] = None,
         callback: Optional[Callable[[Any], None]] = None,
     ) -> int:
-        """发送 CDP 命令（非阻塞）
-
-        :param method: 方法名
-        :param params: 参数
-        :param callback: 可选回调，收到响应时调用
-        :returns: 消息 ID
-        """
+        """发送 CDP 命令（非阻塞），返回消息 ID（未连接时返回 ``-1``）。"""
         # 未连接时直接返回，不登记回调 / 定时器（否则会留下等超时才清掉的幽灵条目）
         if self._ws is None:
             return -1
@@ -481,12 +475,7 @@ class _BrowserController(QObject):
     def runJS(
         self, script: str, callback: Optional[Callable[[Any], None]] = None
     ) -> int:
-        """执行 JavaScript 代码（非阻塞）
-
-        :param script: JavaScript 代码
-        :param callback: 可选回调
-        :returns: 消息 ID
-        """
+        """执行 JavaScript 代码（非阻塞），返回消息 ID。"""
         return self.sendCommand(
             "Runtime.evaluate",
             {"expression": script, "returnByValue": True},
@@ -496,20 +485,11 @@ class _BrowserController(QObject):
     def navigate(
         self, url: str, callback: Optional[Callable[[Any], None]] = None
     ) -> int:
-        """导航到指定 URL（非阻塞）
-
-        :param url: 目标 URL
-        :param callback: 可选回调
-        :returns: 消息 ID
-        """
+        """导航到指定 URL（非阻塞），返回消息 ID。"""
         return self.sendCommand("Page.navigate", {"url": url}, callback=callback)
 
     def reload(self, callback: Optional[Callable[[Any], None]] = None) -> int:
-        """刷新页面（非阻塞）
-
-        :param callback: 可选回调
-        :returns: 消息 ID
-        """
+        """刷新页面（非阻塞），返回消息 ID。"""
         return self.sendCommand("Page.reload", callback=callback)
 
     def close(self) -> None:
@@ -817,9 +797,7 @@ class _BrowserSession:
             self._launch_in_flight = None
             self._pump_launch()
 
-    def launch_start(
-        self, url: str, _window_title: str, on_error=None
-    ) -> None:
+    def launch_start(self, url: str, _window_title: str, on_error=None) -> None:
         self._snapshot_foreign_hwnds()
         args = [
             f"--app={url}",

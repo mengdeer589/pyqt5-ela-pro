@@ -28,6 +28,11 @@ def _clipboard_works(qapp) -> bool:
     的（同一份代码两次整目录运行，挂掉的用例各不相同）。缓存一次探测结果
     等于把「当时能用」当成「现在能用」，于是同一批用例每次挂的都不一样，
     比全红还难查。
+
+    **探测过了也不等于单次写能读回**：实测「探测通过 → 用例里写一次 → 立刻读」
+    仍会读到空串，而只轮询永远等不来（被丢弃的那次写不会补发），只有**重发同一个
+    动作**才落盘 —— 这类用例用 ``_qthelpers.wait_for_clipboard``，别 ``processEvents()``
+    之后直接断言。
     """
     try:
         cb = qapp.clipboard()
@@ -94,11 +99,11 @@ def _motion_full_for_session(qapp):
     ``offscreen``）。宿主机器若关了动画，``Reduced`` 会把 ``Duration.Normal`` 压到
     50ms，任何 ``assert duration() == Duration.Normal`` 的断言就假失败。
     """
-    from pyqt5_ela_pro._motion import MotionMode, motion
+    from pyqt5_ela_pro._motion import ElaMotionModeType, motion
 
     previous = motion.mode()
     motion.setOverrideSystem(True)
-    motion.setMode(MotionMode.Full)
+    motion.setMode(ElaMotionModeType.Full)
     yield
     motion.setMode(previous)
     motion.setOverrideSystem(False)

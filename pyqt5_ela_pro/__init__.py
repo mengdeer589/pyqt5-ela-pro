@@ -46,8 +46,8 @@ from .animation import fade_in, fade_out, shake_window
 from ._motion import (
     Duration,
     Easing,
-    MotionKind,
-    MotionMode,
+    ElaMotionKindType,
+    ElaMotionModeType,
     MotionPolicy,
     idle_loop_running,
     motion,
@@ -57,7 +57,7 @@ from ._motion import (
 )
 
 from ._theme import (
-    StatusRole,
+    ElaStatusRoleType,
     accent,
     border,
     borderStrong,
@@ -75,22 +75,22 @@ from ._theme import (
     textOnAccent,
 )
 
-from ._ownership import ContentSlot, WidgetOwnership
+from ._ownership import ContentSlot, ElaWidgetOwnershipType
 
 # ── Fluent 风格新增组件 ──
 from .ela_shimmer import (
     ElaShimmer,
     ShimmerElement,
     ShimmerPalette,
-    ShimmerShape,
-    ShimmerTemplate,
+    ElaShimmerShapeType,
+    ElaShimmerTemplateType,
 )
-from .ela_field import ElaField, FieldStatus
-from .ela_avatar import AvatarPresence, AvatarShape, AvatarSize, ElaAvatar
+from .ela_field import ElaField, ElaFieldStatusType
+from .ela_avatar import ElaAvatarPresenceType, ElaAvatarShapeType, ElaAvatarSizeType, ElaAvatar
 from .ela_selector_bar import (
     ElaSelectorBar,
     SelectorBarItem,
-    SelectorBarOverflow,
+    ElaSelectorBarOverflowType,
 )
 
 from .svg_icon import (
@@ -116,7 +116,7 @@ from .combo_box import (
 )
 
 from .tooltips import (
-    ElaToolTipPosition,
+    ElaToolTipPositionType,
     ElaToolTip,
     ElaStateToolTip,
 )
@@ -194,7 +194,7 @@ from .ela_progress_button import ElaProgressButton
 
 from .ela_rating_control import ElaRatingControl
 
-from .ela_side_drawer import ElaDrawer, ElaDrawerPosition
+from .ela_side_drawer import ElaDrawer, ElaDrawerPositionType
 
 from .ela_split_button import ElaSplitButton
 
@@ -224,20 +224,21 @@ from .chat import (
     ElaChatMockChunk,
     ElaChatMockUsage,
     ElaChatPart,
-    ElaChatPartKind,
+    ElaChatPartKindType,
     ElaChatQueueDock,
-    ElaChatReasoningStyle,
-    ElaChatRole,
+    ElaChatReasoningStyleType,
+    ElaChatRoleType,
     ElaChatSessionInfo,
+    ElaChatSessionStats,
     ElaChatStats,
-    ElaChatStatus,
+    ElaChatStatusType,
     ElaChatStatusBar,
     ElaChatStreamBinder,
     ElaChatSuggestion,
     ElaChatToolBar,
     ElaChatToolButton,
     ElaChatToolCall,
-    ElaChatToolStatus,
+    ElaChatToolStatusType,
     ElaChatTurnSummary,
     ElaChatView,
     ElaChatWidget,
@@ -298,7 +299,7 @@ from .blueprint import (
     ElaNodeSpec,
     ElaNodeWidget,
     ElaPin,
-    ElaPinDirection,
+    ElaPinDirectionType,
     ElaPinHandle,
     ElaTempWire,
     PIN_COLORS,
@@ -315,8 +316,8 @@ from .blueprint import (
 __all__ = [
     # ── 动效策略 ──
     "motion",
-    "MotionMode",
-    "MotionKind",
+    "ElaMotionModeType",
+    "ElaMotionKindType",
     "MotionPolicy",
     "Duration",
     "Easing",
@@ -325,7 +326,7 @@ __all__ = [
     "start_idle_loop",
     "idle_loop_running",
     # ── 语义令牌 ──
-    "StatusRole",
+    "ElaStatusRoleType",
     "surface",
     "surfaceRaised",
     "surfacePopup",
@@ -342,26 +343,26 @@ __all__ = [
     "setAccentColor",
     "resetAccentColor",
     # ── 内容所有权 ──
-    "WidgetOwnership",
+    "ElaWidgetOwnershipType",
     "ContentSlot",
     # ── 骨架屏 ──
     "ElaShimmer",
-    "ShimmerShape",
-    "ShimmerTemplate",
+    "ElaShimmerShapeType",
+    "ElaShimmerTemplateType",
     "ShimmerElement",
     "ShimmerPalette",
     # ── 表单字段 ──
     "ElaField",
-    "FieldStatus",
+    "ElaFieldStatusType",
     # ── 头像 ──
     "ElaAvatar",
-    "AvatarSize",
-    "AvatarShape",
-    "AvatarPresence",
+    "ElaAvatarSizeType",
+    "ElaAvatarShapeType",
+    "ElaAvatarPresenceType",
     # ── 分段控件 ──
     "ElaSelectorBar",
     "SelectorBarItem",
-    "SelectorBarOverflow",
+    "ElaSelectorBarOverflowType",
     # ── Functions ──
     "fade_in",
     "fade_out",
@@ -393,20 +394,21 @@ __all__ = [
     "ElaChatMockChunk",
     "ElaChatMockUsage",
     "ElaChatPart",
-    "ElaChatPartKind",
+    "ElaChatPartKindType",
     "ElaChatQueueDock",
-    "ElaChatReasoningStyle",
-    "ElaChatRole",
+    "ElaChatReasoningStyleType",
+    "ElaChatRoleType",
     "ElaChatSessionInfo",
+    "ElaChatSessionStats",
     "ElaChatStats",
-    "ElaChatStatus",
+    "ElaChatStatusType",
     "ElaChatStatusBar",
     "ElaChatStreamBinder",
     "ElaChatSuggestion",
     "ElaChatToolBar",
     "ElaChatToolButton",
     "ElaChatToolCall",
-    "ElaChatToolStatus",
+    "ElaChatToolStatusType",
     "ElaChatTurnSummary",
     "ElaChatView",
     "ElaChatWidget",
@@ -419,7 +421,7 @@ __all__ = [
     "ElaDivider",
     "ElaDrawer",
     "ElaDrawerArea",
-    "ElaDrawerPosition",
+    "ElaDrawerPositionType",
     "ElaDropDownButton",
     "ElaEdge",
     "ElaEdgeWidget",
@@ -448,7 +450,7 @@ __all__ = [
     "ElaParquetTable",
     "ElaPasswordEdit",
     "ElaPin",
-    "ElaPinDirection",
+    "ElaPinDirectionType",
     "ElaPinHandle",
     "ElaPlotWidget",
     "ElaPagination",
@@ -480,7 +482,7 @@ __all__ = [
     "ElaTimeline",
     "ElaToast",
     "ElaToolTip",
-    "ElaToolTipPosition",
+    "ElaToolTipPositionType",
     "ElaUploadArea",
     "ElaWindowEmbedder",
     "ElaWordViewer",

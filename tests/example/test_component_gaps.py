@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import QLabel, QWidget
 from PyQt5ElaWidgetTools import (
     ElaColorDialog,
     ElaContentDialog,
+    ElaRoller,
     ElaScrollPage,
     ElaToggleButton,
 )
@@ -154,3 +155,24 @@ class TestColorDialogSection:
         assert dialog.getCurrentColorRGB() == "#FF0000"
         # 未经使用的取色器「最近使用色」是空的，不是 24 个 #000000
         assert len(dialog.getCustomColorList()) in (0, 24)
+
+
+# ================================================================ ElaRoller
+class TestElaRollerSection:
+    def test_page_roller_has_items(self, qapp, make):
+        """回归：示例曾用 ``setProperty("pItemList", ...)`` —— 那是动态属性、
+        无任何效果，滚轮整块空掉（而且空列表上点击 / 滚轮会死循环卡死 GUI）。
+
+        上游私有类里的 ``ELA_PROPERTY_D`` 只是成员声明，不是 Q_PROPERTY；
+        设置列表只能走 ``setItemList()``。
+        """
+        page = make(InputSelectPage)
+        roller_items = [roller.getItemList() for roller in page.findChildren(ElaRoller)]
+        assert [
+            "选项 A",
+            "选项 B",
+            "选项 C",
+            "选项 D",
+            "选项 E",
+            "选项 F",
+        ] in roller_items, roller_items

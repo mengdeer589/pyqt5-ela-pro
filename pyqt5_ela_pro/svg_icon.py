@@ -61,17 +61,7 @@ def svg_to_icon(
     size: int = 30,
     color: Optional[str] = None,
 ) -> QIcon:
-    """将 SVG 数据转换为 QIcon。
-
-    :param svg_data: SVG 字符串数据
-    :param size: 图标尺寸，默认 30
-    :param color: 颜色值（如 "#FF0000"），会替换 SVG 中的 <<<COLOR_CODE>>> 占位符
-    :return: QIcon 对象
-
-    Example::
-
-        icon = svg_to_icon(svg_data, size=24, color="#1570A5")
-    """
+    """将 SVG 数据转换为 QIcon。``color`` 会替换 SVG 中的 ``<<<COLOR_CODE>>>``。"""
     return QIcon(QPixmap.fromImage(_render_svg_image(svg_data, size, color)))
 
 
@@ -80,12 +70,10 @@ def svg_to_pixmap(
     size: int = 30,
     color: Optional[str] = None,
 ) -> QPixmap:
-    """将 SVG 数据转换为 QPixmap（**每次返回新对象**）。
+    """将 SVG 数据转换为 QPixmap（**每次返回新对象**，调用方可自由 ``fill``）。
 
-    :param svg_data: SVG 字符串数据
-    :param size: 图标尺寸，默认 30
-    :param color: 颜色值，会替换 SVG 中的 <<<COLOR_CODE>>> 占位符
-    :return: QPixmap 对象（调用方可自由 ``fill`` 等，不会污染缓存）
+    缓存里存的是 ``QImage``，不是 ``QPixmap`` —— 后者在 PyQt5 里是活对象，
+    直接交出去会被调用方就地改掉，污染之后所有拿到该缓存的调用方。
     """
     return QPixmap.fromImage(_render_svg_image(svg_data, size, color))
 
@@ -162,11 +150,7 @@ class ElaSvgIconLoader:
         return color if color is not None else self._default_color
 
     def loadFromPackage(self, package_name: str) -> None:
-        """从图标包文件加载图标。
-
-        :param package_name: 图标包文件名（如 "my_icons.icons"）
-        :raises FileNotFoundError: 文件不存在（先 :meth:`setPackageDirectory`）
-        """
+        """从图标包文件加载图标；缺目录先 :meth:`setPackageDirectory`。"""
         if self._package_dir:
             base = self._package_dir
         else:
@@ -174,11 +158,7 @@ class ElaSvgIconLoader:
         self.loadFromFile(os.path.join(base, package_name))
 
     def loadFromFile(self, path: str) -> None:
-        """从文件加载图标。
-
-        :param path: .icons 文件路径
-        :raises FileNotFoundError: 如果文件不存在
-        """
+        """从 ``.icons`` 文件加载（一行一条，``##`` 为注释）。"""
         try:
             with open(path, encoding="utf-8") as file:
                 for line in file.readlines():
@@ -197,7 +177,6 @@ class ElaSvgIconLoader:
             raise FileNotFoundError(f"Icon package not found: {path}")
 
     def append(self, name: str, data: str) -> None:
-        """手动添加一个图标"""
         self._icons[name] = data
 
     def hasIcon(self, name: str) -> bool:
@@ -214,7 +193,7 @@ class ElaSvgIconLoader:
         return name in self._icons
 
     def getSvgData(self, name: str, color: Optional[str] = None) -> str:
-        """获取 SVG 数据（已替换颜色）"""
+        """取 SVG 数据（``<<<COLOR_CODE>>>`` 已替换成给定颜色）。"""
         if name not in self._icons:
             raise KeyError(f"Icon '{name}' not found")
         svg_data = self._icons[name]
@@ -229,13 +208,6 @@ class ElaSvgIconLoader:
         size: int = 30,
         color: Optional[str] = None,
     ) -> QIcon:
-        """获取 QIcon 对象。
-
-        :param name: 图标名称
-        :param size: 图标尺寸
-        :param color: 颜色值
-        :return: QIcon 对象
-        """
         svg_data = self.getSvgData(name, color)
         return svg_to_icon(svg_data, size)
 
@@ -245,22 +217,13 @@ class ElaSvgIconLoader:
         size: int = 30,
         color: Optional[str] = None,
     ) -> QPixmap:
-        """获取 QPixmap 对象。
-
-        :param name: 图标名称
-        :param size: 图标尺寸
-        :param color: 颜色值
-        :return: QPixmap 对象
-        """
         svg_data = self.getSvgData(name, color)
         return svg_to_pixmap(svg_data, size)
 
     def getIconData(self, name: str) -> Optional[str]:
-        """检查图标是否存在"""
         return self._icons.get(name)
 
     def iconNames(self) -> list[str]:
-        """获取所有已加载的图标名称"""
         return list(self._icons.keys())
 
     def __contains__(self, name: str) -> bool:

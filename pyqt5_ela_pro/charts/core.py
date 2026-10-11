@@ -54,7 +54,7 @@ from PyQt5.QtWidgets import QFileDialog, QWidget
 from PyQt5ElaWidgetTools import eTheme
 
 from .._internal import connect_theme_signal, disconnect_theme
-from .._motion import MotionKind, motion, start_idle_loop
+from .._motion import ElaMotionKindType, motion, start_idle_loop
 from . import data as _cdata
 from .data import ElaNumericBuffer
 from ._tokens import (
@@ -1048,7 +1048,7 @@ class ChartAnimation(QObject):
         不挂 ``QAbstractAnimation.finished`` —— 那个 helper 挂的正是后者。所以这里
         只借它的策略解析，落到本类自己的 ``complete()``（它本来就是正确的 snap）。
         """
-        duration_ms, snap = motion.plan(full_ms, MotionKind.Transition)
+        duration_ms, snap = motion.plan(full_ms, ElaMotionKindType.Transition)
         self.setDuration(duration_ms)
         self.setEasing(easing)
         if snap:
@@ -2027,9 +2027,9 @@ class ElaChartWidget(QWidget):
     def appendData(self, params: dict) -> bool:
         """向指定系列追加数据（ECharts ``appendData({seriesIndex|seriesName, data})``）。
 
-        :param params: ``{"seriesIndex": int}`` / ``{"seriesName": str}`` /
-            ``{"seriesId": str}``（三者其一）+ ``"data"``（单点或点列表）
-        :returns: 是否找到目标系列并追加
+        ``params`` 是 ``{"seriesIndex": int}`` / ``{"seriesName": str}`` /
+        ``{"seriesId": str}``（三者其一）+ ``"data"``（单点或点列表）；
+        返回是否找到目标系列并追加。
         """
         if not isinstance(params, dict):
             return False
@@ -3149,11 +3149,8 @@ class ElaChartWidget(QWidget):
         return self._interactive
 
     def setInteractionEnabled(self, feature: str, enabled: bool) -> None:
-        """逐功能开关（与总开关取与）。
-
-        :param feature: ``"tooltip"`` / ``"legend"`` / ``"dataZoom"`` /
-            ``"brush"`` / ``"timeline"`` / ``"toolbox"``
-        :param enabled: 是否启用该功能的鼠标交互
+        """逐功能开关（与总开关取与）；``feature`` 取 ``"tooltip"`` / ``"legend"``
+        / ``"dataZoom"`` / ``"brush"`` / ``"timeline"`` / ``"toolbox"``。
         """
         key = str(feature)
         if key not in self.INTERACTION_FEATURES:

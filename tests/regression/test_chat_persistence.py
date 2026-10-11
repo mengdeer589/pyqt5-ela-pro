@@ -28,12 +28,12 @@ from pyqt5_ela_pro.chat.message import (
     ElaChatAttachment,
     ElaChatMessage,
     ElaChatPart,
-    ElaChatPartKind,
-    ElaChatRole,
+    ElaChatPartKindType,
+    ElaChatRoleType,
     ElaChatStats,
-    ElaChatStatus,
+    ElaChatStatusType,
     ElaChatToolCall,
-    ElaChatToolStatus,
+    ElaChatToolStatusType,
 )
 
 
@@ -59,17 +59,17 @@ def _sample_parts() -> list:
     return [
         ElaChatPart(
             id="r1",
-            kind=ElaChatPartKind.Reasoning,
+            kind=ElaChatPartKindType.Reasoning,
             text="先分析一下",
             duration_ms=1234.0,
             step=1,
         ),
         ElaChatPart(
-            id="t1", kind=ElaChatPartKind.Text, text="**结论**：可以。", step=1
+            id="t1", kind=ElaChatPartKindType.Text, text="**结论**：可以。", step=1
         ),
         ElaChatPart(
             id="c1",
-            kind=ElaChatPartKind.Tool,
+            kind=ElaChatPartKindType.Tool,
             tool_call=ElaChatToolCall(
                 id="c1", name="read", arguments='{"p":"a"}', result="内容"
             ),
@@ -77,13 +77,13 @@ def _sample_parts() -> list:
         ),
         ElaChatPart(
             id="c2",
-            kind=ElaChatPartKind.Tool,
+            kind=ElaChatPartKindType.Tool,
             tool_call=ElaChatToolCall(id="c2", name="bash", arguments="ls", result="e"),
             step=2,
         ),
         ElaChatPart(
             id="s1",
-            kind=ElaChatPartKind.Stats,
+            kind=ElaChatPartKindType.Stats,
             stats=ElaChatStats(prompt_tokens=11, total_tokens=42),
             step=2,
         ),
@@ -94,7 +94,7 @@ def _sample_message() -> ElaChatMessage:
     return (
         ElaChatMessage(
             id=7,
-            role=ElaChatRole.Assistant,
+            role=ElaChatRoleType.Assistant,
             created_at=1700000000.5,
             title="模型名",
             timestamp="10:00:00",
@@ -150,7 +150,7 @@ class TestToDict:
 class TestFromDictTolerance:
     @pytest.mark.parametrize("junk", [None, 0, "", [], "junk", 3.5, True])
     def test_non_dict_yields_default(self, junk):
-        assert ElaChatMessage.fromDict(junk).role == ElaChatRole.Assistant
+        assert ElaChatMessage.fromDict(junk).role == ElaChatRoleType.Assistant
         assert ElaChatPart.fromDict(junk) is None
         assert ElaChatStats.fromDict(junk) is None
         assert ElaChatToolCall.fromDict(junk).name == ""
@@ -158,8 +158,8 @@ class TestFromDictTolerance:
     def test_missing_fields_use_defaults(self):
         message = ElaChatMessage.fromDict({})
         assert message.id == 0
-        assert message.role == ElaChatRole.Assistant
-        assert message.status == ElaChatStatus.Done
+        assert message.role == ElaChatRoleType.Assistant
+        assert message.status == ElaChatStatusType.Done
         assert message.parts == ()
         assert message.attachments == ()
 
@@ -219,9 +219,9 @@ class TestFromDictTolerance:
             "parts": [{"id": "a", "kind": "text", "text": "t", "status": "???"}],
         }
         message = ElaChatMessage.fromDict(data)
-        assert message.role == ElaChatRole.Assistant
-        assert message.status == ElaChatStatus.Done
-        assert message.parts[0].status == ElaChatStatus.Done
+        assert message.role == ElaChatRoleType.Assistant
+        assert message.status == ElaChatStatusType.Done
+        assert message.parts[0].status == ElaChatStatusType.Done
 
     def test_unknown_tool_status_preserved(self):
         """未知工具状态不能谎报成功 —— 宿主重启后可能还要补结果。"""
@@ -231,9 +231,9 @@ class TestFromDictTolerance:
     @pytest.mark.parametrize(
         "status",
         [
-            ElaChatToolStatus.Pending,
-            ElaChatToolStatus.Running,
-            ElaChatToolStatus.Aborted,
+            ElaChatToolStatusType.Pending,
+            ElaChatToolStatusType.Running,
+            ElaChatToolStatusType.Aborted,
         ],
     )
     def test_unsettled_tool_status_survives_restore(self, qapp, status):
@@ -330,7 +330,7 @@ class TestRestore:
         back = chat.chatView().message(messageId)
         assert back.error == "收尾报错"
         assert chat.chatView().bubble(messageId).error() == "收尾报错"
-        assert back.status == ElaChatStatus.Error
+        assert back.status == ElaChatStatusType.Error
         chat.deleteLater()
         qapp.processEvents()
 
@@ -344,12 +344,12 @@ class TestRestore:
         chat = _chat(qapp)
         data = _sample_message().toDict()
         data["error"] = "半路失败"
-        data["parts"][2]["tool_call"]["status"] = ElaChatToolStatus.Running
-        data["parts"][3]["tool_call"]["status"] = ElaChatToolStatus.Running
+        data["parts"][2]["tool_call"]["status"] = ElaChatToolStatusType.Running
+        data["parts"][3]["tool_call"]["status"] = ElaChatToolStatusType.Running
         messageId = chat.chatView().addMessageFromDict(data)
         qapp.processEvents()
         calls = chat.chatView().message(messageId).tool_calls
-        assert [c.status for c in calls] == [ElaChatToolStatus.Error] * 2, (
+        assert [c.status for c in calls] == [ElaChatToolStatusType.Error] * 2, (
             "带 error 的消息必须结算掉所有未完成工具，否则界面留永久转圈"
         )
         chat.deleteLater()
@@ -446,7 +446,7 @@ class TestRestore:
         messageId = chat.chatView().addMessageFromDict(data)
         qapp.processEvents()
         bubble = chat.chatView().bubble(messageId)
-        assert all(p.status != ElaChatStatus.Streaming for p in bubble.parts())
+        assert all(p.status != ElaChatStatusType.Streaming for p in bubble.parts())
         assert bubble.hasPendingText() is False
         chat.deleteLater()
         qapp.processEvents()
@@ -560,9 +560,9 @@ class TestRestore:
         messages = chat.chatView().messages()
         assert len(messages) == len(ids) == 3
         assert [m.role for m in messages] == [
-            ElaChatRole.User,
-            ElaChatRole.Assistant,
-            ElaChatRole.User,
+            ElaChatRoleType.User,
+            ElaChatRoleType.Assistant,
+            ElaChatRoleType.User,
         ]
         assert messages[0].text == "问一"
         assert messages[1].text == _sample_message().text
@@ -617,6 +617,85 @@ class TestRestore:
         chat.deleteLater()
         qapp.processEvents()
 
+    def test_set_parts_keeps_one_panel_per_step(self, qapp):
+        """跨步骤重放必须与 beginStep 一致收口工具分组与当前面板。"""
+        chat = _chat(qapp)
+        messageId = chat.addMessage("assistant", "")
+        qapp.processEvents()
+        bubble = chat.chatView().bubble(messageId)
+        # 两步各一个上下文工具（分组卡）+ 一个普通工具（独立卡）
+        parts = [
+            ElaChatPart(
+                id="r1",
+                kind=ElaChatPartKindType.Tool,
+                tool_call=ElaChatToolCall(
+                    id="c1", name="read", arguments='{"p":"a"}', result="内容"
+                ),
+                step=1,
+            ),
+            ElaChatPart(
+                id="r2",
+                kind=ElaChatPartKindType.Tool,
+                tool_call=ElaChatToolCall(
+                    id="c2", name="grep", arguments="x", result="命中"
+                ),
+                step=2,
+            ),
+            ElaChatPart(
+                id="r3",
+                kind=ElaChatPartKindType.Tool,
+                tool_call=ElaChatToolCall(id="c3", name="bash", arguments="ls"),
+                step=3,
+            ),
+        ]
+        assert bubble.setParts(parts) is True
+        panels = bubble.toolPanels()
+        assert len(panels) == 3, "后续步骤的工具并进了上一步的面板"
+        assert [p.toolLayout().count() for p in panels] == [1, 1, 1]
+        # 分组卡按步分开：read 与 grep 不在同一张卡里
+        assert [
+            c.name for c in panels[0].toolLayout().itemAt(0).widget().toolCalls()
+        ] == ["read"]
+        assert [
+            c.name for c in panels[1].toolLayout().itemAt(0).widget().toolCalls()
+        ] == ["grep"]
+        # 收尾收口：分组卡标题必须是「已探索」（否则恢复出来停在「正在探索」）
+        assert panels[0].toolLayout().itemAt(0).widget().title() == "已探索"
+        assert panels[1].toolLayout().itemAt(0).widget().title() == "已探索"
+        chat.deleteLater()
+        qapp.processEvents()
+
+    def test_set_parts_does_not_leak_current_stats_across_steps(self, qapp):
+        """重放后当前用量分段不得停在旧步骤（恢复后继续跑会覆盖上一轮数据）。"""
+        chat = _chat(qapp)
+        messageId = chat.addMessage("assistant", "")
+        qapp.processEvents()
+        bubble = chat.chatView().bubble(messageId)
+        assert (
+            bubble.setParts(
+                [
+                    ElaChatPart(
+                        id="s1",
+                        kind=ElaChatPartKindType.Stats,
+                        stats=ElaChatStats(prompt_tokens=11, total_tokens=42),
+                        step=1,
+                    ),
+                    ElaChatPart(
+                        id="t2",
+                        kind=ElaChatPartKindType.Tool,
+                        tool_call=ElaChatToolCall(id="c2", name="bash", arguments="ls"),
+                        step=2,
+                    ),
+                ]
+            )
+            is True
+        )
+        # 落在第 2 步（没有用量分段）时，当前用量分段必须为空而不是停在第 1 步
+        assert bubble.stepIndex() == 2
+        assert bubble._current_stats_id is None
+        chat.deleteLater()
+        qapp.processEvents()
+
 
 class TestLiveRoundTrip:
     def test_stream_then_restore_equals_live(self, qapp):
@@ -652,6 +731,33 @@ class TestLiveRoundTrip:
         assert back.stats == live.stats
         assert back.parts == live.parts
         assert [p.id for p in back.parts] == [p.id for p in live.parts]
+
+        chat.deleteLater()
+        fresh.deleteLater()
+        qapp.processEvents()
+
+    def test_restore_keeps_one_panel_per_step(self, qapp):
+        """端到端：多步骤消息恢复后工具面板数与实时一致。"""
+        chat = _chat(qapp)
+        view = chat.chatView()
+        messageId = view.beginMessage("assistant")
+        for name, callId in (("read", "c1"), ("grep", "c2")):
+            view.beginStep(messageId)
+            view.addToolCall(messageId, name, "{}", callId)
+            view.setToolCallResult(messageId, callId, "ok")
+        view.endMessage(messageId)
+        qapp.processEvents()
+        live_panels = view.bubble(messageId).toolPanels()
+
+        fresh = _chat(qapp)
+        restored_id = fresh.chatView().addMessageFromDict(
+            _load(_dump(view.message(messageId).toDict()))
+        )
+        qapp.processEvents()
+        back_panels = fresh.chatView().bubble(restored_id).toolPanels()
+
+        assert len(live_panels) == 2
+        assert len(back_panels) == len(live_panels)
 
         chat.deleteLater()
         fresh.deleteLater()
