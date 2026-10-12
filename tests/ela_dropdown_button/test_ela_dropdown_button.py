@@ -125,7 +125,7 @@ class TestElaDropDownButtonTheme:
 
 
 class TestElaDropDownButtonAppearance:
-    """透明底 + 双主题一致：基础态不画底，hover / press 才叠状态层；描边两主题都画。"""
+    """透明底 + 无外框：基础态不画底，hover / press 才叠状态层。"""
 
     def test_base_state_is_transparent(self, btn):
         assert btn._state_layer().alpha() == 0
@@ -138,14 +138,19 @@ class TestElaDropDownButtonAppearance:
         assert hover.alpha() > 0
         assert press.alpha() > hover.alpha()
 
-    def test_border_drawn_in_both_themes(self, btn):
-        btn._theme_mode = ElaThemeType.ThemeMode.Light
-        light = btn._border_color()
-        btn._theme_mode = ElaThemeType.ThemeMode.Dark
-        dark = btn._border_color()
-        assert light.alpha() > 0
-        assert dark.alpha() > 0
-        assert light.name() != dark.name()
+    def test_no_border_is_painted(self, btn, monkeypatch):
+        """无外框（用户明确要求去掉）：状态层只画底、不传 border。"""
+        calls: list[dict] = []
+        monkeypatch.setattr(
+            "pyside6_ela_pro.ela_dropdown_button.paintRoundedCard",
+            lambda painter, rect, **kwargs: calls.append(kwargs),
+        )
+
+        btn.resize(120, 30)
+        btn.grab()
+
+        assert calls, "paintEvent 没有被触发"
+        assert all("border" not in kwargs for kwargs in calls)
 
     def test_disabled_suppresses_layer_and_grays_content(self, btn):
         btn._is_hover = True
@@ -154,13 +159,6 @@ class TestElaDropDownButtonAppearance:
 
         assert btn._state_layer().alpha() == 0
         assert btn._content_color().name() == textDisabled(btn._theme_mode).name()
-
-    def test_disabled_border_is_dimmed(self, btn):
-        enabled_border = btn._border_color().name()
-
-        btn.setEnabled(False)
-
-        assert btn._border_color().name() != enabled_border
 
     def test_enabled_change_resets_hover_state(self, btn):
         btn._is_hover = True

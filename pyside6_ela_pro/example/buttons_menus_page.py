@@ -581,7 +581,7 @@ class ButtonsMenusPage(ExamplePage):
             )
         )
         self._addInfoText(
-            "点击展开 ElaMenu 下拉菜单（透明底 + 1px 描边，禁用态变灰）", parent_layout
+            "点击展开 ElaMenu 下拉菜单（透明底、无边框，禁用态变灰）", parent_layout
         )
         row = QHBoxLayout()
         row.setSpacing(15)
@@ -620,7 +620,7 @@ class ButtonsMenusPage(ExamplePage):
             )
         )
         self._addInfoText(
-            "左侧点击触发操作，右侧弹出下拉菜单（透明底 + 1px 描边）", parent_layout
+            "左侧点击触发操作，右侧弹出下拉菜单（透明底、无边框）", parent_layout
         )
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(15)

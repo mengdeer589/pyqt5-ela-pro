@@ -37,7 +37,6 @@ from PySide6.QtWidgets import QWidget
 from PySide6ElaWidgetTools import ElaThemeType, ElaIconType, ElaMenu
 
 from ._colors import state_tint
-from ._styles import paintRoundedCard
 from ._theme import blend, border, surface, text, textDisabled
 from .widget_base import ElaThemeWidget
 
@@ -134,8 +133,8 @@ class ElaSplitButton(ElaThemeWidget):
             return state_tint(self._theme_mode)
         return QColor(_TRANSPARENT)
 
-    def _border_color(self) -> QColor:
-        """1px 描边（含分隔线）；**两个主题都画**（只在浅色画会让两主题不一致）。"""
+    def _divider_color(self) -> QColor:
+        """两半之间的 1px 分隔线（**不是**外框 —— 外框已去掉）；禁用时变淡。"""
         color = border(self._theme_mode)
         if not self.isEnabled():
             return blend(color, surface(self._theme_mode), 0.55)
@@ -222,7 +221,6 @@ class ElaSplitButton(ElaThemeWidget):
         full_rect = QRectF(0, 0, w, h)
 
         text_color = self._content_color()
-        border_color = self._border_color()
 
         # 透明底：基础态不画底，只有鼠标所在那半边叠一层状态层（圆角由 clip 保证）
         path = QPainterPath()
@@ -243,9 +241,8 @@ class ElaSplitButton(ElaThemeWidget):
             painter.drawRect(right_rect)
         painter.setClipping(False)
 
-        # 描边 + 分隔线：两主题都画
-        paintRoundedCard(painter, full_rect, border=border_color, radius=br)
-        painter.setPen(QPen(border_color, 1))
+        # 无外框：只保留两半之间的分隔线
+        painter.setPen(QPen(self._divider_color(), 1))
         painter.drawLine(split_x, 4, split_x, h - 4)
 
         painter.setPen(text_color)

@@ -33,7 +33,7 @@ from PySide6ElaWidgetTools import ElaThemeType, ElaIconType, ElaMenu
 
 from ._colors import state_tint
 from ._styles import paintRoundedCard
-from ._theme import blend, border, surface, text, textDisabled
+from ._theme import text, textDisabled
 from .widget_base import ElaThemeWidget
 
 #: 全透明（基础态 / 禁用态不画底）
@@ -113,13 +113,6 @@ class ElaDropDownButton(ElaThemeWidget):
             return state_tint(self._theme_mode)
         return QColor(_TRANSPARENT)
 
-    def _border_color(self) -> QColor:
-        """1px 描边；**两个主题都画**（只在浅色画会让两主题结构不一致）。"""
-        color = border(self._theme_mode)
-        if not self.isEnabled():
-            return blend(color, surface(self._theme_mode), 0.55)
-        return color
-
     def _content_color(self) -> QColor:
         """文字 / 图标色；禁用走 ``textDisabled``。"""
         if not self.isEnabled():
@@ -172,12 +165,11 @@ class ElaDropDownButton(ElaThemeWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
-        # 透明底：基础态不画底，只有悬浮 / 按下叠一层状态层；描边两主题都画
+        # 透明底：基础态不画底，只有悬浮 / 按下叠一层状态层（**无边框**）
         paintRoundedCard(
             painter,
             QRectF(self.rect()),
             background=self._state_layer(),
-            border=self._border_color(),
             radius=self._border_radius,
         )
 

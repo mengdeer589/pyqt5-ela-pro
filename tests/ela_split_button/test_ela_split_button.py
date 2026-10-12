@@ -136,7 +136,7 @@ class TestElaSplitButtonTheme:
 
 
 class TestElaSplitButtonAppearance:
-    """透明底 + 双主题一致：基础态不画底，hover / press 才叠状态层；描边两主题都画。"""
+    """透明底 + 无外框：基础态不画底，hover / press 才叠状态层；只有两半之间的分隔线。"""
 
     def test_base_state_is_transparent(self, btn):
         assert btn._state_layer(pressed=False, hovered=False).alpha() == 0
@@ -151,18 +151,14 @@ class TestElaSplitButtonAppearance:
         """按下时鼠标可能已滑出半边，press 状态不依赖 hover 标记。"""
         assert btn._state_layer(pressed=True, hovered=False).alpha() > 0
 
-    def test_hover_does_not_fill_the_other_half(self, btn):
-        """只有鼠标所在半边有状态层（另半边保持透明）。"""
-        assert btn._state_layer(pressed=False, hovered=False).alpha() == 0
+    def test_divider_is_visible_and_dims_when_disabled(self, btn):
+        """去掉外框后只剩两半之间的分隔线；禁用时跟着变淡。"""
+        enabled_divider = btn._divider_color()
+        assert enabled_divider.alpha() > 0
 
-    def test_border_drawn_in_both_themes(self, btn):
-        btn._theme_mode = ElaThemeType.ThemeMode.Light
-        light = btn._border_color()
-        btn._theme_mode = ElaThemeType.ThemeMode.Dark
-        dark = btn._border_color()
-        assert light.alpha() > 0
-        assert dark.alpha() > 0
-        assert light.name() != dark.name()
+        btn.setEnabled(False)
+
+        assert btn._divider_color().name() != enabled_divider.name()
 
     def test_disabled_suppresses_layer_and_grays_content(self, btn):
         btn._is_left_hovered = True
@@ -173,13 +169,6 @@ class TestElaSplitButtonAppearance:
         assert btn._state_layer(pressed=False, hovered=True).alpha() == 0
         assert btn._state_layer(pressed=True, hovered=True).alpha() == 0
         assert btn._content_color().name() == textDisabled(btn._theme_mode).name()
-
-    def test_disabled_border_is_dimmed(self, btn):
-        enabled_border = btn._border_color().name()
-
-        btn.setEnabled(False)
-
-        assert btn._border_color().name() != enabled_border
 
     def test_enabled_change_resets_halves(self, btn):
         btn._is_left_hovered = True
