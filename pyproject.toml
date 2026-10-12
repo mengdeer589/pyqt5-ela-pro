@@ -27,7 +27,7 @@ classifiers = [
 dependencies = [
     "PyQt5>=5.15.0",
     "pypinyin>=0.50.0",
-    "pyqt5-elawidgettools==0.12.1",
+    "pyqt5-elawidgettools==0.13.0",
 ]
 
 [project.optional-dependencies]
@@ -39,9 +39,6 @@ all = [
     "mermaidx>=0.9",
     "orjson>=3.9",
     "polars>=1.0",
-]
-orjson = [
-    "orjson>=3.9",
 ]
 # ElaParquetTable 从顶层 __init__ 导出，所以「装了包却拿到一个必然抛
 # ImportError 的公开类」是可达的。charts 系列的 polars / numpy /
@@ -83,10 +80,10 @@ required-environments="sys_platform == 'win32' and platform_machine == 'AMD64'"
 # **uv 0.12.x 实测：`--refresh-package` / `--no-cache` 都不重算 path wheel 的
 # artifact 哈希**；让该依赖重新解析（临时改本行约束跑一次 `uv lock` 再改回来）
 # 或把 `uv.lock` 里 wheels.hash 换成文件 sha256 后 `uv sync`：
-#   python -c "import hashlib,pathlib;print(hashlib.sha256(pathlib.Path(r'PyElaWidgetTools/dist/pyqt5_elawidgettools-0.12.1-cp37-abi3-win_amd64.whl').read_bytes()).hexdigest())"
-# 版本号升级时记得同步改 dependencies 的 `==0.12.1` 与本路径。
+#   python -c "import hashlib,pathlib;print(hashlib.sha256(pathlib.Path(r'PyElaWidgetTools/dist/pyqt5_elawidgettools-0.13.0-cp37-abi3-win_amd64.whl').read_bytes()).hexdigest())"
+# 版本号升级时记得同步改 dependencies 的 `==0.13.0` 与本路径。
 [tool.uv.sources]
-pyqt5-elawidgettools = { path = "PyElaWidgetTools/dist/pyqt5_elawidgettools-0.12.1-cp37-abi3-win_amd64.whl" }
+pyqt5-elawidgettools = { path = "PyElaWidgetTools/dist/pyqt5_elawidgettools-0.13.0-cp37-abi3-win_amd64.whl" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

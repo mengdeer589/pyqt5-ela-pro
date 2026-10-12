@@ -116,12 +116,9 @@ class WidgetFactory:
         self._created: List[QObject] = []
 
     def __call__(self, cls: type[T], *args, **kwargs) -> T:
-        # **空 kwargs 不能传给 sip 类**：``PyQt5ElaWidgetTools`` 的生成绑定在
-        # 「位置参数没填满 + 带 kwargs」时会 access violation（实测 0.11.1 /
-        # 0.12.1 都有，``ElaText("x", **{})`` / ``ElaPushButton("x", **{})``
-        # 一跑就崩，``ElaText("x", None, **{})`` 反而正常）。空 kwargs 时走
-        # 纯位置参数路径即可绕开；非空 kwargs 仍是坏的（上游绑定问题，真正
-        # 修复要改 PyElaWidgetTools 的 sip 生成再重编译）。
+        # 空 kwargs 走纯位置参数路径：兼容未开 keyword_arguments 的官方轮子
+        # （旧绑定「位置参数没填满 + 带 kwargs」会 access violation，0.11.1/0.12.1 都中）。
+        # 本地构建的轮子（2026-10 起含生成修复）已根治该问题，见 AGENTS.md。
         if kwargs:
             widget = cls(*args, **kwargs)
         else:

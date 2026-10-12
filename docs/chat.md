@@ -241,7 +241,7 @@
 - **持久化 / 会话 bundle** — 消息 / 分段 / 工具 / 用量 / 附件成对
   `toDict()` / `fromDict()`（纯 JSON、容错、带 `SCHEMA_VERSION`）；JSON 文本
   统一走 `jsonDumps` / `jsonLoads` / `jsonBackend`：**装了 `orjson` 自动用
-  orjson**（`pip install pyqt5-ela-pro[orjson]`），否则标准库 json，两套后端
+  orjson**（`pip install pyqt5-ela-pro[all]`），否则标准库 json，两套后端
   同为紧凑 UTF-8、`allow_nan=False` 语义一致；读回
   `view.addMessageFromDict()`（保留 id）或 `view.restoreMessages(items,
   preserveIds=True)`（批量渐进渲染，重号先校验后写入）；整会话

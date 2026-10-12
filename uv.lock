@@ -378,9 +378,6 @@ all = [
 dev = [
     { name = "pytest" },
 ]
-orjson = [
-    { name = "orjson" },
-]
 parquet = [
     { name = "polars" },
 ]
@@ -399,18 +396,17 @@ requires-dist = [
     { name = "comtypes", marker = "extra == 'all'", specifier = ">=1.4.0" },
     { name = "mermaidx", marker = "extra == 'all'", specifier = ">=0.9" },
     { name = "orjson", marker = "extra == 'all'", specifier = ">=3.9" },
-    { name = "orjson", marker = "extra == 'orjson'", specifier = ">=3.9" },
     { name = "polars", marker = "extra == 'all'", specifier = ">=1.0" },
     { name = "polars", marker = "extra == 'parquet'", specifier = ">=1.0" },
     { name = "pygments", marker = "extra == 'all'", specifier = ">=2.15" },
     { name = "pypinyin", specifier = ">=0.50.0" },
     { name = "pyqt5", specifier = ">=5.15.0" },
-    { name = "pyqt5-elawidgettools", path = "PyElaWidgetTools/dist/pyqt5_elawidgettools-0.12.1-cp37-abi3-win_amd64.whl" },
+    { name = "pyqt5-elawidgettools", path = "PyElaWidgetTools/dist/pyqt5_elawidgettools-0.13.0-cp37-abi3-win_amd64.whl" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pywin32", marker = "extra == 'all'", specifier = ">=306" },
     { name = "tsdownsample", marker = "extra == 'all'", specifier = ">=0.1.5.1" },
 ]
-provides-extras = ["all", "orjson", "parquet", "dev"]
+provides-extras = ["all", "parquet", "dev"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -423,13 +419,13 @@ dev = [
 
 [[package]]
 name = "pyqt5-elawidgettools"
-version = "0.12.1"
-source = { path = "PyElaWidgetTools/dist/pyqt5_elawidgettools-0.12.1-cp37-abi3-win_amd64.whl" }
+version = "0.13.0"
+source = { path = "PyElaWidgetTools/dist/pyqt5_elawidgettools-0.13.0-cp37-abi3-win_amd64.whl" }
 dependencies = [
     { name = "pyqt5" },
 ]
 wheels = [
-    { filename = "pyqt5_elawidgettools-0.12.1-cp37-abi3-win_amd64.whl", hash = "sha256:940dfe412dce154f41dc232aab1b51a9d8e3427a96e04134a422be1d6f9aa477" },
+    { filename = "pyqt5_elawidgettools-0.13.0-cp37-abi3-win_amd64.whl", hash = "sha256:7324b7383e7d9816ff83168be28231a7be6b2d579770fd26c511b89760ae03b8" },
 ]
 
 [package.metadata]

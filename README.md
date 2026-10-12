@@ -81,7 +81,6 @@ uv pip install -e ".[all]"
 
 # 按需安装
 uv pip install -e ".[parquet]"   # ElaParquetTable（polars）
-uv pip install -e ".[orjson]"    # 聊天 JSON 编解码加速
 uv pip install -e ".[dev]"       # 开发依赖（pytest 等）
 ```
 
@@ -351,7 +350,7 @@ python -m pyqt5_ela_pro.example
 | pygments | `[all]` | Markdown 代码语法高亮（缺失自动降级） |
 | tsdownsample | `[all]` | `ElaChartWidget` 大数据降采样（缺失自动降级） |
 | mermaidx | `[all]` | Markdown Mermaid 图渲染（缺失回退代码卡片） |
-| orjson | `[all]` / `[orjson]` | 聊天 JSON 编解码加速（缺失回退标准库 json） |
+| orjson | `[all]` | 聊天 JSON 编解码加速（缺失回退标准库 json） |
 | polars | `[all]` / `[parquet]` | `ElaParquetTable` Parquet 查看 |
 | pyqtgraph | 手动安装 | `ElaPlotWidget` |
 | matplotlib | 手动安装 | `ElaFigureCanvas` |
