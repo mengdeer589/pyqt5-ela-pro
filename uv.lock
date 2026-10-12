@@ -152,7 +152,7 @@ wheels = [
 [[package]]
 name = "pyside6"
 version = "6.8.3"
-source = { path = "PyElaWidgetTools/wheels/PySide6-6.8.3-cp39-abi3-win_amd64.whl" }
+source = { path = "PyElaWidgetTools/wheels/win7-mix/PySide6-6.8.3-cp39-abi3-win_amd64.whl" }
 dependencies = [
     { name = "pyside6-addons" },
     { name = "pyside6-essentials" },
@@ -172,13 +172,13 @@ requires-dist = [
 [[package]]
 name = "pyside6-addons"
 version = "6.8.3"
-source = { path = "PyElaWidgetTools/wheels/PySide6_Addons-6.8.3-cp39-abi3-win_amd64.whl" }
+source = { path = "PyElaWidgetTools/wheels/win7-mix/PySide6_Addons-6.8.3-cp39-abi3-win_amd64.whl" }
 dependencies = [
     { name = "pyside6-essentials" },
     { name = "shiboken6" },
 ]
 wheels = [
-    { filename = "pyside6_addons-6.8.3-cp39-abi3-win_amd64.whl", hash = "sha256:67548f6db11f4e1b7e4b6efd9c3fc2e8d275188a7b2feac388961128572a6955" },
+    { filename = "pyside6_addons-6.8.3-cp39-abi3-win_amd64.whl", hash = "sha256:4734b27a0a60fefb5015b5cf44e75b0d0a1282a40c3a95041df0ecc426f7c5bb" },
 ]
 
 [package.metadata]
@@ -234,13 +234,13 @@ requires-dist = [
     { name = "polars", marker = "extra == 'parquet'", specifier = ">=1.0" },
     { name = "pygments", marker = "extra == 'all'", specifier = ">=2.15" },
     { name = "pypinyin", specifier = ">=0.50.0" },
-    { name = "pyside6", path = "PyElaWidgetTools/wheels/PySide6-6.8.3-cp39-abi3-win_amd64.whl" },
-    { name = "pyside6-addons", path = "PyElaWidgetTools/wheels/PySide6_Addons-6.8.3-cp39-abi3-win_amd64.whl" },
+    { name = "pyside6", path = "PyElaWidgetTools/wheels/win7-mix/PySide6-6.8.3-cp39-abi3-win_amd64.whl" },
+    { name = "pyside6-addons", path = "PyElaWidgetTools/wheels/win7-mix/PySide6_Addons-6.8.3-cp39-abi3-win_amd64.whl" },
     { name = "pyside6-elawidgettools", path = "PyElaWidgetTools/dist/pyside6_elawidgettools-0.13.0-cp38-abi3-win_amd64.whl" },
-    { name = "pyside6-essentials", path = "PyElaWidgetTools/wheels/PySide6_Essentials-6.8.3-cp39-abi3-win_amd64.whl" },
+    { name = "pyside6-essentials", path = "PyElaWidgetTools/wheels/win7-mix/PySide6_Essentials-6.8.3-cp39-abi3-win_amd64.whl" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pywin32", marker = "extra == 'all'", specifier = ">=306" },
-    { name = "shiboken6", path = "PyElaWidgetTools/wheels/shiboken6-6.8.3-cp39-abi3-win_amd64.whl" },
+    { name = "shiboken6", path = "PyElaWidgetTools/wheels/win7-mix/shiboken6-6.8.3-cp39-abi3-win_amd64.whl" },
     { name = "tsdownsample", marker = "extra == 'all'", specifier = ">=0.1.5.1" },
 ]
 provides-extras = ["all", "parquet", "dev"]
@@ -271,12 +271,12 @@ requires-dist = [{ name = "pyside6" }]
 [[package]]
 name = "pyside6-essentials"
 version = "6.8.3"
-source = { path = "PyElaWidgetTools/wheels/PySide6_Essentials-6.8.3-cp39-abi3-win_amd64.whl" }
+source = { path = "PyElaWidgetTools/wheels/win7-mix/PySide6_Essentials-6.8.3-cp39-abi3-win_amd64.whl" }
 dependencies = [
     { name = "shiboken6" },
 ]
 wheels = [
-    { filename = "pyside6_essentials-6.8.3-cp39-abi3-win_amd64.whl", hash = "sha256:3c0fae5550aff69f2166f46476c36e0ef56ce73d84829eac4559770b0c034b07" },
+    { filename = "pyside6_essentials-6.8.3-cp39-abi3-win_amd64.whl", hash = "sha256:f5c199fe192affb5f2060f186aaf54fabde5f2473f5250ff37c5909f5a29f0b2" },
 ]
 
 [package.metadata]
@@ -343,7 +343,7 @@ wheels = [
 [[package]]
 name = "shiboken6"
 version = "6.8.3"
-source = { path = "PyElaWidgetTools/wheels/shiboken6-6.8.3-cp39-abi3-win_amd64.whl" }
+source = { path = "PyElaWidgetTools/wheels/win7-mix/shiboken6-6.8.3-cp39-abi3-win_amd64.whl" }
 wheels = [
     { filename = "shiboken6-6.8.3-cp39-abi3-win_amd64.whl", hash = "sha256:bca3a94513ce9242f7d4bbdca902072a1631888e0aa3a8711a52cc5dbe93588f" },
 ]

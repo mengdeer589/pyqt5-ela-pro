@@ -90,24 +90,29 @@ name = "aliyun"
 url = "https://mirrors.aliyun.com/pypi/simple/"
 default = true
 
-# 开发期整套走**本地轮子**：上游绑定轮（自编译）+ PySide6 四件套（官方 6.8.3，
-# 见 PyElaWidgetTools/wheels/，sha256 与 lock 登记一致）。
-# - PySide6 必须只用干净同版本轮（WHEEL_ISSUES.md 第一节：混版轮构造 Addons 类即崩）；
+# 开发期整套走**本地轮子**：上游绑定轮（自编译）+ PySide6 四件套（**Win7 交付套件**，
+# 见 PyElaWidgetTools/wheels/win7-mix/，sha256 与 lock 登记一致）。
+# - 该套件 = 官方 Python 层 + 自编译 Qt 6.8.4（132 个 Qt6 DLL 中 112 个为自编译，
+#   22 个 QML 专属仍官方 6.8.3）：开发机刻意与 Win7 交付运行时保持一致，提前暴露
+#   6.8.4/替换带来的差异；根目录 wheels/ 的官方 6.8.3 保留作对照 / 回退。
+# - 真机 Win7 安装走 `pip install --no-index --find-links=<win7-mix> PySide6==6.8.3`
+#   （见该目录 README）。两套**不要混装**（WHEEL_ISSUES.md 第一节：混版轮构造
+#   Addons 类即崩）。
 # - 走 path 源还让 PySide6 完全不碰网络：这些大轮子没有 PEP 658 metadata，任何一次
 #   重新解析都要下载整只轮子的 body，镜像站 403 时命令直接失败。
 # **不影响 `uv build --wheel` 的发布元数据**：tool.uv.sources 只被 uv 用于
 # 本项目的依赖解析，发布时读的仍是 [project].dependencies 里的版本约束。
-# 本地轮子重编译后哈希会变，`uv run` / `uv sync` 报 `Hash mismatch`。
+# 本地轮子（含 win7-mix 每次重编）哈希会变，`uv run` / `uv sync` 报 `Hash mismatch`。
 # **uv 0.12.x 实测：`--refresh-package` / `--no-cache` 都不重算 path wheel 的
 # artifact 哈希**；让该依赖重新解析（临时改 dependencies 约束跑一次 `uv lock`
 # 再改回来）或把 `uv.lock` 里 wheels.hash 换成文件 sha256 后 `uv sync`。
 # ElaWidgetTools 绑定的版本号升级时记得同步改 dependencies 的 `==0.13.0` 与本路径。
 [tool.uv.sources]
 pyside6-elawidgettools = { path = "PyElaWidgetTools/dist/pyside6_elawidgettools-0.13.0-cp38-abi3-win_amd64.whl" }
-pyside6 = { path = "PyElaWidgetTools/wheels/PySide6-6.8.3-cp39-abi3-win_amd64.whl" }
-pyside6-essentials = { path = "PyElaWidgetTools/wheels/PySide6_Essentials-6.8.3-cp39-abi3-win_amd64.whl" }
-pyside6-addons = { path = "PyElaWidgetTools/wheels/PySide6_Addons-6.8.3-cp39-abi3-win_amd64.whl" }
-shiboken6 = { path = "PyElaWidgetTools/wheels/shiboken6-6.8.3-cp39-abi3-win_amd64.whl" }
+pyside6 = { path = "PyElaWidgetTools/wheels/win7-mix/PySide6-6.8.3-cp39-abi3-win_amd64.whl" }
+pyside6-essentials = { path = "PyElaWidgetTools/wheels/win7-mix/PySide6_Essentials-6.8.3-cp39-abi3-win_amd64.whl" }
+pyside6-addons = { path = "PyElaWidgetTools/wheels/win7-mix/PySide6_Addons-6.8.3-cp39-abi3-win_amd64.whl" }
+shiboken6 = { path = "PyElaWidgetTools/wheels/win7-mix/shiboken6-6.8.3-cp39-abi3-win_amd64.whl" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

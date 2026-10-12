@@ -345,3 +345,41 @@ shiboken 6.8 生成**两套**类型索引：
    （仅影响 `__doc__` 渲染，不影响调用；本次修复前即存在，可另行优化类型系统命名）。
 4. Win7 套件已补齐（非 QML 全模块）；建议在 Win7 实机跑 `E:\qt6win7\out\tests\test_all_modules.py`
    （全模块矩阵探针已放入该目录）做最终验收。
+
+---
+
+## 七、开发机运行时切到 Win7 套件（2026-10-12，用户决定）
+
+**决定**：开发机（Win11）的 `uv` 环境改用 **win7-mix 套件**（`PyElaWidgetTools/wheels/win7-mix/`）。
+原先的布置是「开发机只用官方 6.8.3」（第二节修法 1），现改为**与 Win7 交付运行时一致** ——
+目的是在开发期就暴露 Qt 6.8.4 / 自编译替换带来的差异。官方 6.8.3（根 `wheels/`）保留作对照 / 回退。
+
+**落地**：`pyproject.toml` 的 `[tool.uv.sources]` 四件套 path 指向 win7-mix，`uv.lock` 重锁。
+仍是 path 源（PySide6 解析不碰网络）；四件套必须**同时列进 `dependencies`** 才吃到 sources
+（uv 只对直接依赖应用 sources，实测）。
+
+**验证（本机，2026-10-12）**：
+
+- venv 内 `Qt6Core / Qt6Gui / Qt6Svg / Qt6Widgets.dll` 与 win7-mix 轮内文件**逐字节一致**
+  （Core `6165504/2ce534186e6c`、Gui `9342976/382c1b9effd3`、Svg `516096/0cb720c3d994`、
+  Widgets `6480896/b575af17f703` —— 即自编译 6.8.4 版）；
+- `qVersion()` = **6.8.4**（官方套件下为 6.8.3，可作运行期判别）；
+- 当初混版崩塌的 `QSvgRenderer()` / `QPrinter()` / `QWebSocket()` 构造全部正常；
+- 绑定轮导航 API（`addPageNode` / `addExpanderNode` / `addCategoryNode`）全部 `Success`；
+- 示例应用真实启动 + 事件循环 + 干净退出（冒烟脚本）通过；
+- 全量测试：**见下方「八」的补记**。
+
+**回退**：四个 path 改回 `PyElaWidgetTools/wheels/*.whl` → `uv lock`（按 6.4-1 的办法刷新
+lock 内 sha256，path wheel 的哈希 uv 不会自己重算）→ `uv sync --all-extras`。
+
+## 八、全量测试补记
+
+win7-mix 运行时下的全量测试（2026-10-12，本机）：
+
+```
+5610 passed, 35 skipped, 1298 warnings in 347.07s (0:05:47)
+```
+
+命令：`uv run --no-sync python -X faulthandler -m pytest tests -q --no-header --timeout=180 --timeout-method=thread`。
+对照：切换前的官方 6.8.3 运行时同为 **0 failed**（5603 passed / 39 skipped；总数一致 —— 本轮的
+两个新增守卫用例 `tests/regression/test_pyside6_migration_isms.py` 在两边都算，skip 数随运行时探测而变）。
