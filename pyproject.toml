@@ -25,9 +25,13 @@ classifiers = [
     "Topic :: GUI Development",
 ]
 dependencies = [
-    # PySide6 6.8.3 的元数据精确要求 Essentials / Addons / shiboken6 ==6.8.3，
-    # 只钉 PySide6 即可（多钉三个是冗余）。
+    # PySide6 6.8.3 的元数据精确要求 Essentials / Addons / shiboken6 ==6.8.3（版本上
+    # 冗余）；显式列出是为了让 [tool.uv.sources] 的本地 path 源对它们生效 ——
+    # uv 只对**直接依赖**应用 sources，不列就仍会去镜像站解析这三件。
     "PySide6==6.8.3",
+    "PySide6-Essentials==6.8.3",
+    "PySide6-Addons==6.8.3",
+    "shiboken6==6.8.3",
     "pypinyin>=0.50.0",
     "pyside6-elawidgettools==0.13.0",
 ]
@@ -74,25 +78,36 @@ pyside6_ela_pro = []
 
 [tool.uv]
 required-environments="sys_platform == 'win32' and platform_machine == 'AMD64'"
+# 解析也只跑 win/AMD64：本库 Windows only，而「全平台候选」会让每次重新解析都去抓
+# 外平台轮子的 body（这些大轮子没有 PEP 658 metadata）——镜像站上 403 就整条命令失败
+# （实测 PySide6_Addons / quickjs-ng 的 macOS 轮）。限死后 lock 只登记 win_amd64 候选。
+environments=["sys_platform == 'win32' and platform_machine == 'AMD64'"]
 
-# 默认索引写进项目：宿主环境的 UV_DEFAULT_INDEX 指向 ustc（对部分包 403），
-# 而 aliyun 完整且稳定 —— 见 WHEEL_ISSUES.md（本地 wheels/ 的 PySide6 是 6.8.4/6.8.3
-# 混版，会崩 Addons 类，必须走干净注册源）。
+# 默认索引写进项目：宿主环境里可能带着别的第三方索引（如 ustc，对部分包 403），
+# aliyun 完整且稳定 —— 见 WHEEL_ISSUES.md。
 [[tool.uv.index]]
 name = "aliyun"
 url = "https://mirrors.aliyun.com/pypi/simple/"
 default = true
 
-# 开发期用本地编译的**上游绑定**轮子（`uv run` / `uv sync` 都会按它锁定环境）。
+# 开发期整套走**本地轮子**：上游绑定轮（自编译）+ PySide6 四件套（官方 6.8.3，
+# 见 PyElaWidgetTools/wheels/，sha256 与 lock 登记一致）。
+# - PySide6 必须只用干净同版本轮（WHEEL_ISSUES.md 第一节：混版轮构造 Addons 类即崩）；
+# - 走 path 源还让 PySide6 完全不碰网络：这些大轮子没有 PEP 658 metadata，任何一次
+#   重新解析都要下载整只轮子的 body，镜像站 403 时命令直接失败。
 # **不影响 `uv build --wheel` 的发布元数据**：tool.uv.sources 只被 uv 用于
 # 本项目的依赖解析，发布时读的仍是 [project].dependencies 里的版本约束。
 # 本地轮子重编译后哈希会变，`uv run` / `uv sync` 报 `Hash mismatch`。
 # **uv 0.12.x 实测：`--refresh-package` / `--no-cache` 都不重算 path wheel 的
-# artifact 哈希**；让该依赖重新解析（临时改本行约束跑一次 `uv lock` 再改回来）
-# 或把 `uv.lock` 里 wheels.hash 换成文件 sha256 后 `uv sync`。
+# artifact 哈希**；让该依赖重新解析（临时改 dependencies 约束跑一次 `uv lock`
+# 再改回来）或把 `uv.lock` 里 wheels.hash 换成文件 sha256 后 `uv sync`。
 # ElaWidgetTools 绑定的版本号升级时记得同步改 dependencies 的 `==0.13.0` 与本路径。
 [tool.uv.sources]
 pyside6-elawidgettools = { path = "PyElaWidgetTools/dist/pyside6_elawidgettools-0.13.0-cp38-abi3-win_amd64.whl" }
+pyside6 = { path = "PyElaWidgetTools/wheels/PySide6-6.8.3-cp39-abi3-win_amd64.whl" }
+pyside6-essentials = { path = "PyElaWidgetTools/wheels/PySide6_Essentials-6.8.3-cp39-abi3-win_amd64.whl" }
+pyside6-addons = { path = "PyElaWidgetTools/wheels/PySide6_Addons-6.8.3-cp39-abi3-win_amd64.whl" }
+shiboken6 = { path = "PyElaWidgetTools/wheels/shiboken6-6.8.3-cp39-abi3-win_amd64.whl" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
