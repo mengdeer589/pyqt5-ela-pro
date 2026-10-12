@@ -1,6 +1,6 @@
-# pyqt5-ela-pro
+# pyside6-ela-pro
 
-> 基于 [PyQt5-ElaWidgetTools](https://github.com/HIllya51/PyElaWidgetTools) 的 PyQt5 扩展组件库：
+> 基于 [PySide6-ElaWidgetTools](https://github.com/HIllya51/PyElaWidgetTools) 的 PySide6 扩展组件库：
 > Ela 风格控件全家桶，外加 **AI 对话栈**、**类 ECharts 图表引擎**、Markdown 渲染与 Windows 桌面集成能力。
 
 ![Platform](https://img.shields.io/badge/Platform-Windows%20AMD64-0078D4.svg)
@@ -25,9 +25,9 @@
 
 ## 这是什么
 
-`pyqt5-ela-pro` 在 [ElaWidgetTools](https://github.com/Liniyous/ElaWidgetTools) C++ 组件库
-与其 Python 绑定 [PyQt5-ElaWidgetTools](https://github.com/HIllya51/PyElaWidgetTools) 之上做了一层
-**PyQt5 扩展**：沿用上游 Ela 外观，补齐上游没有的控件（按钮 / 标签纸片 / 抽屉 / 分页 /
+`pyside6-ela-pro` 在 [ElaWidgetTools](https://github.com/Liniyous/ElaWidgetTools) C++ 组件库
+与其 Python 绑定 [PySide6-ElaWidgetTools](https://github.com/HIllya51/PyElaWidgetTools) 之上做了一层
+**PySide6 扩展**：沿用上游 Ela 外观，补齐上游没有的控件（按钮 / 标签纸片 / 抽屉 / 分页 /
 时间线 / 分段控件 / 骨架屏 …）、一套可全局切换的**主题令牌与动效策略**，以及三个较大的子系统 ——
 **AI 对话栈（`chat/`）**、**类 ECharts 图表引擎（`charts/`）**、**蓝图节点图编辑器（`blueprint/`）**；
 另有 Markdown 渲染增强（公式 / Mermaid / 流式）、终端输出视图、划词助手与窗口 / 浏览器嵌入等桌面能力。
@@ -37,8 +37,8 @@
 仓库顶层结构：
 
 ```text
-pyqt5_ela_pro/             组件库源码（chat/ charts/ blueprint/ selection_assistant/ 为子系统）
-pyqt5_ela_pro/example/     两级侧边栏示例应用（python -m pyqt5_ela_pro.example）
+pyside6_ela_pro/             组件库源码（chat/ charts/ blueprint/ selection_assistant/ 为子系统）
+pyside6_ela_pro/example/     两级侧边栏示例应用（python -m pyside6_ela_pro.example）
 docs/                      README 的深入文档（chat / charts / markdown / 划词助手）
 tests/                     回归测试（按组件目录组织）
 ```
@@ -84,16 +84,16 @@ uv pip install -e ".[parquet]"   # ElaParquetTable（polars）
 uv pip install -e ".[dev]"       # 开发依赖（pytest 等）
 ```
 
-发布到 PyPI 之后应可用 `pip install pyqt5-ela-pro[all]`。
+发布到 PyPI 之后应可用 `pip install pyside6-ela-pro[all]`。
 
 ## 快速开始
 
 ```python
 import sys
-from PyQt5.QtWidgets import QApplication, QVBoxLayout, QWidget
-from PyQt5ElaWidgetTools import eApp, ElaWindow
+from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
+from PySide6ElaWidgetTools import eApp, ElaWindow
 
-from pyqt5_ela_pro import ElaButton, show_notify
+from pyside6_ela_pro import ElaButton, show_notify
 
 app = QApplication(sys.argv)
 eApp.init()          # 必须在创建任何 ElaWindow 之前调用
@@ -101,12 +101,12 @@ eApp.init()          # 必须在创建任何 ElaWindow 之前调用
 class MainWindow(ElaWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("pyqt5-ela-pro")
+        self.setWindowTitle("pyside6-ela-pro")
         self.resize(1000, 700)
 
         page = QWidget(self)
         layout = QVBoxLayout(page)
-        btn = ElaButton("Hello, pyqt5-ela-pro", variant="solid", color="primary")
+        btn = ElaButton("Hello, pyside6-ela-pro", variant="solid", color="primary")
         btn.clicked.connect(lambda: show_notify("提示", "按钮被点击了！"))
         layout.addWidget(btn)
 
@@ -114,7 +114,7 @@ class MainWindow(ElaWindow):
 
 window = MainWindow()
 window.show()
-sys.exit(app.exec_())
+sys.exit(app.exec())
 ```
 
 ## 组件一览
@@ -230,7 +230,6 @@ sys.exit(app.exec_())
 | **ElaShimmerShapeType / ElaShimmerTemplateType / ShimmerElement / ShimmerPalette** | 骨架的元素形状（矩形 / 圆角矩形 / 圆 / 药丸）、内置模板（文本块 / 头像行 / 图片卡 / 自定义）、单块元素、绘制配色 |
 | **ElaAvatar** | 头像：4 档尺寸 × 圆形/圆角方，图片（cover 裁剪）/ 首字母（字素簇感知）/ 人形字形三级回退，5 档在线状态圆点（环画成**周围表面色**） |
 | **ElaAvatarSizeType / ElaAvatarShapeType / ElaAvatarPresenceType** | 尺寸档位（24/32/40/56，控件被硬锁）/ 形状 / 在线状态（可用 / 离开 / 忙碌 / 免打扰 / 离线） |
-| **ElaOfficeViewerMixin** | Word / Excel / PPT 三个查看器的共用基类 |
 | **ElaDataTable** | 数据表格控件 |
 | **ElaRowColorDelegate** | 表格行底色 delegate（跨行分组着色用） |
 | **ElaParquetTable** | Parquet 文件分页查看 |
@@ -245,9 +244,6 @@ sys.exit(app.exec_())
 | **ElaChip** | 标签纸片（16 色，可关闭/可选择/胶囊/前置图标） |
 | **ElaInfoBadge** | 角标（Dot/Value/Icon 模式，5 种级别） |
 | **ElaTerminalView** | 终端输出（ANSI 色彩 / 行号 / 自动滚动 / 搜索过滤 / 选区复制 / 导出；`append` 吃 str 与 bytes） |
-| **ElaWordViewer** | Word 文档嵌入查看 |
-| **ElaExcelViewer** | Excel 文件嵌入查看 |
-| **ElaPowerPointViewer** | PPT 文件嵌入查看 |
 
 #### AI 对话
 
@@ -310,7 +306,7 @@ sys.exit(app.exec_())
 ## 示例
 
 ```bash
-python -m pyqt5_ela_pro.example
+python -m pyside6_ela_pro.example
 ```
 
 启动一个 ElaWindow 应用：侧边栏是**两级**结构（可折叠分组 → 页面），
@@ -339,7 +335,7 @@ python -m pyqt5_ela_pro.example
 | [docs/charts.md](docs/charts.md) | `ElaChartWidget`：`setOption` / 控制 / 事件 / 自定义系列扩展 |
 | [docs/markdown.md](docs/markdown.md) | `ElaMarkdownViewer` 渲染能力清单（排版 / 公式 / Mermaid / 导出） |
 | [docs/selection-assistant.md](docs/selection-assistant.md) | 划词助手与结果对话框（含取词安全闸门与剪贴板恢复策略） |
-| `pyqt5_ela_pro/example/chat_guide_page.py` | 应用内聊天接入指南 + API 速查表 |
+| `pyside6_ela_pro/example/chat_guide_page.py` | 应用内聊天接入指南 + API 速查表 |
 
 ## 可选依赖
 
@@ -365,13 +361,13 @@ python -m pyqt5_ela_pro.example
 
 ## 平台
 
-Windows AMD64（含 Win7 兼容分支）。基于 PyQt5，无 PySide6 依赖。
+Windows AMD64（**Windows 10+**）。基于 **PySide6 6.8.3**（Qt 6.8）——PySide6 6.8 不支持 Win7（旧 PyQt5 线请见 git tag `pyqt5-final`）。
 
 ## 组件来源与致谢
 
 | 组件 / 模块 | 来源 |
 |---|---|
-| 输入、容器、展示、对话框等原生组件 | 上游 [ElaWidgetTools](https://github.com/Liniyous/ElaWidgetTools) C++ + [PyQt5-ElaWidgetTools](https://github.com/HIllya51/PyElaWidgetTools) 绑定 |
+| 输入、容器、展示、对话框等原生组件 | 上游 [ElaWidgetTools](https://github.com/Liniyous/ElaWidgetTools) C++ + [PySide6-ElaWidgetTools](https://github.com/HIllya51/PyElaWidgetTools) 绑定 |
 | `ElaSplitter`、`ElaPagination`、`ElaToast`、`ElaSpotlight`、`ElaSteps`、`ElaTimeline`、`ElaRatingControl`、`ElaInfoBadge`、`ElaChip`、`ElaDropDownButton`、`ElaSplitButton`、`ElaPasswordEdit`、`ElaConfirmDialog`、`ElaMarkdownViewer`、`ElaUploadArea`、`ElaSplashScreen` | [ElaWidgetTools（RainbowCandyX fork）](https://github.com/RainbowCandyX/ElaWidgetTools) C++ 源码移植 |
 | `ElaDrawer` | PyQt-SiliconUI `SiLayerDrawer` 设计（内容槽走 `ElaWidgetOwnershipType` 三态） |
 | `ElaDrawerArea` | 上游 `ElaDrawerArea` 子类化修复（点击标题栏展开 / 收起） |

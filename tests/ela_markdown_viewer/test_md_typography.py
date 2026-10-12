@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from PyQt5.QtGui import QTextCursor
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QTextCursor
 
-from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
-from pyqt5_ela_pro.example.markdown_page import (
+from pyside6_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
+from pyside6_ela_pro.example.markdown_page import (
     _MARKDOWN_ALL,
     _MARKDOWN_CODE,
     _MARKDOWN_MATH,
@@ -88,7 +89,7 @@ class TestTypography:
             assert cell.bottomBorder() == 1.0
             assert cell.leftBorder() == 1.0
             assert cell.rightBorder() == 1.0
-        assert header.background().style() != 0
+        assert header.background().style() != Qt.BrushStyle.NoBrush
         v.deleteLater()
 
     def test_quote_rail_and_italic_text(self):
@@ -97,7 +98,7 @@ class TestTypography:
         v.setMarkdown("> 引用内容")
 
         quote = _blocks(v)[0]
-        assert quote.blockFormat().background().style() == 0
+        assert quote.blockFormat().background().style() == Qt.BrushStyle.NoBrush
         assert quote.blockFormat().leftMargin() >= 20.0
         cursor = QTextCursor(quote)
         cursor.movePosition(

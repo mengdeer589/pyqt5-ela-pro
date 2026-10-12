@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QBoxLayout, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QBoxLayout, QWidget
 
-from pyqt5_ela_pro.splitter import (
+from pyside6_ela_pro.splitter import (
     ElaSplitter,
     ElaSplitterHandle,
     create_ela_splitter,

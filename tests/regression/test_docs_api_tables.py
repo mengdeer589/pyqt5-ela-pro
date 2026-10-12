@@ -13,7 +13,7 @@
 3. **``chat_guide_page.py`` 的 API 速查表里点名的方法确实挂在它声称的类上** ——
    名字在全仓存在但**挂在别的类上**同样是文档过期。
 
-**刻意不查**的：上游 ``PyQt5ElaWidgetTools`` 的 C++ 组件名（``ElaText`` /
+**刻意不查**的：上游 ``PySide6ElaWidgetTools`` 的 C++ 组件名（``ElaText`` /
 ``ElaMenu`` / ``ElaListView`` 等，本仓库不定义，README「组件来源」表已说明
 出处）、Qt / Win32 API 名、枚举的字符串值、纯散文词。
 """
@@ -27,7 +27,7 @@ import re
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-PKG = ROOT / "pyqt5_ela_pro"
+PKG = ROOT / "pyside6_ela_pro"
 README = ROOT / "README.md"
 GUIDE = PKG / "example" / "chat_guide_page.py"
 
@@ -119,7 +119,7 @@ class TestReadmeToolSignatures:
     @pytest.mark.parametrize("name,params", SIGNATURE_ROWS, ids=[r[0] for r in SIGNATURE_ROWS])
     def test_first_param_is_svg_source_not_a_path(self, name, params, qapp):
         """首参必须是 SVG **字符串**；README 写 ``path`` 会让读者去传文件路径。"""
-        import pyqt5_ela_pro as pkg
+        import pyside6_ela_pro as pkg
 
         obj = getattr(pkg, name)
         row = _readme_function_row(name) or ""
@@ -135,7 +135,7 @@ class TestReadmeToolSignatures:
 
     def test_loader_takes_no_arguments(self, qapp):
         """``svg_icon_loader`` 是单例句柄，README 旧版写的 ``(path)`` 是错的。"""
-        import pyqt5_ela_pro as pkg
+        import pyside6_ela_pro as pkg
 
         assert not inspect.signature(pkg.svg_icon_loader).parameters
         row = _readme_function_row("svg_icon_loader") or ""
@@ -151,7 +151,7 @@ class TestReadmeToolSignatures:
         :meth:`TestReadmeComponentTable.test_public_ela_classes_are_documented`
         负责。
         """
-        import pyqt5_ela_pro as pkg
+        import pyside6_ela_pro as pkg
 
         bad = []
         for name, params in SIGNATURE_ROWS:
@@ -229,12 +229,12 @@ class TestReadmeComponentTable:
     def test_documented_ela_classes_exist(self):
         """反向：README 组件表里的 Ela* 必须真存在（否则是删了没改文档）。
 
-        上游 ``PyQt5ElaWidgetTools`` 的 C++ 组件也算「存在」—— 本仓库不定义
+        上游 ``PySide6ElaWidgetTools`` 的 C++ 组件也算「存在」—— 本仓库不定义
         它们，README「组件来源」表已说明出处（``ElaText`` / ``ElaMenu`` /
         ``ElaListView`` / ``ElaColorDialog`` 等）。
         """
         table = _component_table_text()
-        import PyQt5ElaWidgetTools as upstream
+        import PySide6ElaWidgetTools as upstream
 
         gone = []
         for name in sorted(set(re.findall(r"\*\*(Ela\w+)\*\*", table))):
@@ -270,9 +270,9 @@ def _guide_doc() -> str:
 #: **标题要写全（含收尾括号）**：只锚前缀的话，「Binder（回合生命周期，宿主主入口）」
 #: 改成「Binder（回合生命周期总览）」仍然包含那个前缀，守卫就成了摆设。
 GUIDE_SECTIONS = {
-    "Binder（回合生命周期，宿主主入口）": "pyqt5_ela_pro.chat:ElaChatStreamBinder",
-    "Widget（宿主行为）": "pyqt5_ela_pro.chat:ElaChatWidget",
-    "View（消息内容层，经 `chatView()` 调用）": "pyqt5_ela_pro.chat:ElaChatView",
+    "Binder（回合生命周期，宿主主入口）": "pyside6_ela_pro.chat:ElaChatStreamBinder",
+    "Widget（宿主行为）": "pyside6_ela_pro.chat:ElaChatWidget",
+    "View（消息内容层，经 `chatView()` 调用）": "pyside6_ela_pro.chat:ElaChatView",
 }
 
 #: 挂在别处的东西：自由函数、模块级常量、bubble 层 / view 内部协议
@@ -404,7 +404,7 @@ class TestChatGuideApiTable:
         """文档写「自动接 6 条机械信号」，且括号里要**列全**那 6 个。"""
         import pathlib as _pl
 
-        from pyqt5_ela_pro.chat import binder as binder_mod
+        from pyside6_ela_pro.chat import binder as binder_mod
 
         src = _pl.Path(binder_mod.__file__).read_text(encoding="utf-8")
         i = src.index("def connectWorker")

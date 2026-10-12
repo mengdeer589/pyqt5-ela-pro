@@ -3,11 +3,11 @@ ripple / drill-down / drag / roam and layout keys."""
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt5.QtGui import QMouseEvent, QWheelEvent
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QMouseEvent, QWheelEvent
+from PySide6.QtWidgets import QApplication
 
-from pyqt5_ela_pro.charts import ECHARTS_PALETTE, ElaChartWidget
+from pyside6_ela_pro.charts import ECHARTS_PALETTE, ElaChartWidget
 
 
 def _make(option, size=(600, 400)):

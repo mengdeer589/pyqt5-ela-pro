@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QFont, QTextLength, QTextTable
-from PyQt5ElaWidgetTools import ElaScrollBar, ElaThemeType, eTheme
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QFont, QTextLength, QTextTable
+from PySide6ElaWidgetTools import ElaScrollBar, ElaThemeType, eTheme
 
-from pyqt5_ela_pro import ela_markdown_viewer as viewer_module
-from pyqt5_ela_pro.ela_markdown_viewer import _INLINE_CODE_MARK, ElaMarkdownViewer
+from pyside6_ela_pro import ela_markdown_viewer as viewer_module
+from pyside6_ela_pro.ela_markdown_viewer import _INLINE_CODE_MARK, ElaMarkdownViewer
 
 
 def _fragments(viewer: ElaMarkdownViewer) -> list:

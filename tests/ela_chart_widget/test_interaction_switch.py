@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt5.QtGui import QMouseEvent, QWheelEvent
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QMouseEvent, QWheelEvent
+from PySide6.QtWidgets import QApplication
 
-from pyqt5_ela_pro.charts import ElaChartWidget
+from pyside6_ela_pro.charts import ElaChartWidget
 
 
 def _interact_option():

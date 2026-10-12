@@ -8,10 +8,10 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QCoreApplication, QEvent, QTimer
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtCore import QCoreApplication, QEvent, QTimer
+from PySide6.QtWidgets import QApplication
 
-from pyqt5_ela_pro.charts import ElaChartWidget
+from pyside6_ela_pro.charts import ElaChartWidget
 
 FRAMES = [
     {"series": [{"type": "line", "name": "A", "data": [1, 2, 3]}]},

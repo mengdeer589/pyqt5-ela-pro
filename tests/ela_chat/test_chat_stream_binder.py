@@ -6,11 +6,11 @@ from types import SimpleNamespace
 from typing import Optional
 
 import pytest
-from PyQt5 import sip
-from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtWidgets import QWidget
+import shiboken6
+from PySide6.QtCore import QObject, Signal
+from PySide6.QtWidgets import QWidget
 
-from pyqt5_ela_pro.chat import (
+from pyside6_ela_pro.chat import (
     ElaChatMockBackend,
     ElaChatPartKindType,
     ElaChatStats,
@@ -36,13 +36,13 @@ class _Clock:
 class _FakeWorker(QObject):
     """最小后端（信号契约与 ElaChatMockBackend 同构）。"""
 
-    llmStarted = pyqtSignal()
-    chunkReceived = pyqtSignal(object)
-    toolStarted = pyqtSignal(dict)
-    toolEnded = pyqtSignal(dict, str)
-    statsReady = pyqtSignal(object, float, float)
-    emptyTurn = pyqtSignal(str)
-    turnFinished = pyqtSignal(int)
+    llmStarted = Signal()
+    chunkReceived = Signal(object)
+    toolStarted = Signal(dict)
+    toolEnded = Signal(dict, str)
+    statsReady = Signal(object, float, float)
+    emptyTurn = Signal(str)
+    turnFinished = Signal(int)
 
     def __init__(self, ready: bool = True) -> None:
         super().__init__()
@@ -741,7 +741,7 @@ class TestShutdownOnClose:
     def test_destroy_shuts_down_worker(self, qapp, make):
         worker = _FakeWorker()
         window, _chat = self._window_with_binder(make, worker)
-        sip.delete(window)
+        shiboken6.delete(window)
         qapp.processEvents()
         assert worker.shutdown_calls == [True]
 

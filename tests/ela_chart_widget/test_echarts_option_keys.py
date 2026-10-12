@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QRectF
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtCore import QRectF
+from PySide6.QtWidgets import QApplication
 
-from pyqt5_ela_pro.charts import ElaChartWidget
-from pyqt5_ela_pro.charts.axes import AxisModel, CalendarCoord, GridCoord
+from pyside6_ela_pro.charts import ElaChartWidget
+from pyside6_ela_pro.charts.axes import AxisModel, CalendarCoord, GridCoord
 
 
 def _make(option, size=(600, 400)):

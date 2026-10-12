@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 from _pixels import skip_if_no_pixels
-from PyQt5.QtCore import QEvent, Qt
-from PyQt5.QtGui import QFocusEvent
-from PyQt5.QtTest import QTest
-from PyQt5ElaWidgetTools import eApp, eTheme, ElaIconType, ElaPushButton, ElaThemeType
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QFocusEvent
+from PySide6.QtTest import QTest
+from PySide6ElaWidgetTools import eApp, eTheme, ElaIconType, ElaPushButton, ElaThemeType
 
-from pyqt5_ela_pro._colors import _contrast_ratio
-from pyqt5_ela_pro.ela_button import ElaButton
+from pyside6_ela_pro._colors import _contrast_ratio
+from pyside6_ela_pro.ela_button import ElaButton
 
 VARIANTS = ["solid", "dashed", "filled", "text", "link"]
 

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QPropertyAnimation, QTimer
-from PyQt5.QtWidgets import QWidget
+from PySide6.QtCore import QPropertyAnimation, QTimer
+from PySide6.QtWidgets import QWidget
 
-from pyqt5_ela_pro.animation import (
+from pyside6_ela_pro.animation import (
     fade_in,
     fade_out,
     _animation_registry,

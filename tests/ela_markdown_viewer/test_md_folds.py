@@ -6,10 +6,10 @@ front matter stripping, link tooltips and ``renderIssues``.
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QUrl
-from PyQt5.QtTest import QTest
+from PySide6.QtCore import QUrl
+from PySide6.QtTest import QTest
 
-from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
+from pyside6_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
 
 
 def _plain(viewer: ElaMarkdownViewer) -> str:
@@ -134,12 +134,19 @@ class TestFrontMatter:
         assert "标题" in text
         v.deleteLater()
 
-    def test_fragment_render_keeps_front_matter(self, qapp):
+    def test_fragment_render_strips_front_matter(self, qapp):
+        """Qt 6 的 Markdown 导入器原生剥离 front matter：流式 / 全量一致。
+
+        （Qt 5.15 没有这个能力，旧实现自己在 ``_preprocess`` 里剥；迁移到 Qt6
+        后那套机制是死代码，已删除 —— 这里钉「流式中途也不会漏出 front matter」。）
+        """
         v = ElaMarkdownViewer()
         v.beginStream()
         v.appendMarkdown(self.SOURCE)
         QTest.qWait(80)
-        assert "title: t" in _plain(v)
+        text = _plain(v)
+        assert "title: t" not in text
+        assert "标题" in text  # 正文已经渲染出来
 
         v.endStream()
         assert "title: t" not in _plain(v)

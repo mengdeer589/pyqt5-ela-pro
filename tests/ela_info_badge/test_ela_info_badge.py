@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import QSize, Qt
-from PyQt5.QtGui import QColor
-from PyQt5.QtWidgets import QWidget
-from PyQt5ElaWidgetTools import ElaIconType, ElaThemeType
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QWidget
+from PySide6ElaWidgetTools import ElaIconType, ElaThemeType
 
-from pyqt5_ela_pro.ela_info_badge import ElaInfoBadge
+from pyside6_ela_pro.ela_info_badge import ElaInfoBadge
 
 
 @pytest.fixture

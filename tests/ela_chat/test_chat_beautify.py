@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from PyQt5.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from _pixels import skip_if_no_pixels
 
-from pyqt5_ela_pro.chat import (
+from pyside6_ela_pro.chat import (
     ElaChatBubble,
     ElaChatRoleType,
     ElaChatStats,

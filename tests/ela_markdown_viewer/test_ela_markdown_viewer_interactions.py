@@ -7,8 +7,8 @@ link signal, zoom, search, export helpers and context menu.
 from __future__ import annotations
 
 from _qthelpers import wait_for_clipboard as _wait_for_clipboard
-from PyQt5.QtCore import QUrl
-from PyQt5.QtGui import (
+from PySide6.QtCore import QCoreApplication, QEvent, QTimer, QUrl
+from PySide6.QtGui import (
     QColor,
     QContextMenuEvent,
     QImage,
@@ -16,10 +16,11 @@ from PyQt5.QtGui import (
     QTextCursor,
     QTextTable,
 )
-from PyQt5.QtWidgets import QApplication
-from PyQt5ElaWidgetTools import ElaMenu
+from PySide6.QtWidgets import QApplication
+from PySide6ElaWidgetTools import ElaMenu
 
-from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
+from pyside6_ela_pro._internal import is_deleted
+from pyside6_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
 
 
 def _fragments(viewer: ElaMarkdownViewer) -> list:
@@ -282,25 +283,39 @@ class TestExportAndMenu:
         assert calls == [global_pos]
         v.deleteLater()
 
-    def test_show_context_menu_execs_the_menu(self, monkeypatch, qapp):
-        """``_show_context_menu`` 真的把菜单弹出来（execElaMenu：兜底 + 回收）。"""
+    def test_show_context_menu_execs_the_menu(self, qapp, make):
+        """``_show_context_menu`` 真的把菜单弹出来（execElaMenu：兜底 + 回收）。
 
-        v = ElaMarkdownViewer()
-        calls = []
-
-        def spy(menu, *args):
-            calls.append((args, menu.minimumSize(), menu.sizeHint()))
-
-        monkeypatch.setattr(ElaMenu, "exec_", spy)
+        ``QMenu.exec`` 会**阻塞到菜单被关闭**（PySide6 里 ``ElaMenu.exec`` 是
+        shiboken 方法，类级打补丁拦不住 —— 实测 ``menu.exec`` 绕过 Python 类属性），
+        所以这里放一个**挂在 viewer 上的定时器**把弹层关掉，再验证兜底与回收。
+        """
+        v = make(ElaMarkdownViewer)
         pos = v.mapToGlobal(v.rect().center())
+
+        opened: list = []
+        closer = QTimer(v)
+        closer.setInterval(10)
+
+        def _close_popup() -> None:
+            popup = QApplication.activePopupWidget()
+            if popup is None:
+                return
+            opened.append(popup)
+            closer.stop()
+            popup.close()
+
+        closer.timeout.connect(_close_popup)
+        closer.start()
         v._show_context_menu(pos)
-        assert len(calls) == 1
-        args, minimum, hint = calls[0]
-        assert args == (pos,)
-        # 副屏上 ElaMenu 偶发不按 sizeHint 撑开（只显示第一项，实测 100x30）：
-        # execElaMenu 用 setMinimumSize(sizeHint) 兜底
-        assert minimum == hint
-        v.deleteLater()
+        assert opened, "右键菜单没有弹出来"
+        menu = opened[0]
+        # execElaMenu 的兜底：非主屏上 ElaMenu 偶发不按 sizeHint 撑开
+        assert menu.minimumSize() == menu.sizeHint()
+        # execElaMenu 在关闭后回收菜单（deleteLater —— 显式冲刷 DeferredDelete）
+        QCoreApplication.sendPostedEvents(menu, QEvent.Type.DeferredDelete)
+        qapp.processEvents()
+        assert is_deleted(menu)
 
     def test_copy_code_at_cursor_emits_signal(self, qapp, requires_clipboard):
         v = ElaMarkdownViewer()

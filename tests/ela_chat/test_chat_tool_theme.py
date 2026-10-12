@@ -23,19 +23,19 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtGui import QColor
-from PyQt5ElaWidgetTools import ElaThemeType, eTheme
+from PySide6.QtGui import QColor
+from PySide6ElaWidgetTools import ElaThemeType, eTheme
 
-from pyqt5_ela_pro._styles import ColorText
-from pyqt5_ela_pro.chat import ElaChatWidget
-from pyqt5_ela_pro.chat._theme import (
+from pyside6_ela_pro._styles import ColorText
+from pyside6_ela_pro.chat import ElaChatWidget
+from pyside6_ela_pro.chat._theme import (
     accent_color,
     base_color,
     blend,
     muted_color,
     text_color,
 )
-from pyqt5_ela_pro.chat.blocks import ToolCallCard
+from pyside6_ela_pro.chat.blocks import ToolCallCard
 
 
 @pytest.fixture

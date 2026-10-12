@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import pytest
 from _qthelpers import wait_for_clipboard as _wait_for_clipboard
-from PyQt5.QtGui import QColor, QContextMenuEvent
-from PyQt5.QtWidgets import QApplication, QPlainTextEdit
-from PyQt5ElaWidgetTools import ElaMenu, ElaThemeType, eTheme
+from PySide6.QtCore import QTimer
+from PySide6.QtGui import QColor, QContextMenuEvent, QFont
+from PySide6.QtWidgets import QApplication, QPlainTextEdit
+from PySide6ElaWidgetTools import ElaThemeType, eTheme
 
-from pyqt5_ela_pro.terminal_view import (
+from pyside6_ela_pro.terminal_view import (
     _HIGHLIGHT,
     _HIGHLIGHT_RATIO,
     ElaTerminalView,
@@ -522,7 +523,9 @@ class TestAppearance:
 
     def test_font_is_monospace(self, view):
         view.setFontSize(14)
-        assert view._edit.font().styleHint() == view._edit.font().Monospace
+        assert (
+            view._edit.font().styleHint() == QFont.StyleHint.Monospace
+        ), "Qt6 里 Monospace 是 StyleHint（旧写法 QFont.Monospace 已移除）"
 
     def test_word_wrap(self, view):
         assert view.wordWrap() is False
@@ -809,25 +812,48 @@ class TestContextMenu:
     """右键菜单：Ela 风格 + 事件路由（右键投递到 viewport，不是编辑框本体）。"""
 
     @staticmethod
-    def _spy_exec(monkeypatch) -> list:
-        """把 ``ElaMenu.exec_`` 换成记录调用的桩（exec_ 会阻塞，测试里不能真弹）。"""
-        calls = []
-        monkeypatch.setattr(ElaMenu, "exec_", lambda self, *args: calls.append(args))
-        return calls
+    def _open_and_close(qapp, owner) -> list:
+        """真弹一次菜单并**自动关掉**，返回弹出来的菜单列表。
 
-    def test_show_context_menu_does_not_crash(self, view, qapp, monkeypatch):
-        calls = self._spy_exec(monkeypatch)
+        ``QMenu.exec`` 阻塞到菜单被关闭；PySide6 里 ``ElaMenu.exec`` 是 shiboken
+        方法，**类级 monkeypatch 拦不住**（实测 ``menu.exec`` 仍解析到 C++ 方法），
+        所以只能在测试里放一个定时器把弹层关掉。
+        """
+        opened: list = []
+        timer = QTimer(owner)
+        timer.setInterval(10)
+
+        def _close_popup() -> None:
+            popup = QApplication.activePopupWidget()
+            if popup is None:
+                return
+            opened.append(popup)
+            timer.stop()
+            popup.close()
+
+        timer.timeout.connect(_close_popup)
+        timer.start()
+        return opened
+
+    def test_show_context_menu_does_not_crash(self, view, qapp):
         view.append(lines("a", "b"))
         pos = view.mapToGlobal(view.rect().center())
+        opened = self._open_and_close(qapp, view)
         view._show_context_menu(pos)
         qapp.processEvents()
-        assert calls == [(pos,)]
+        assert opened, "右键菜单没有弹出来"
+        menu = opened[0]
+        # execElaMenu 的兜底：非主屏 ElaMenu 偶发不按 sizeHint 撑开
+        assert menu.minimumSize() == menu.sizeHint()
+        # 只读视图的菜单：复制 + 全选（外加分隔符与「复制全部」）
+        texts = [a.text() for a in menu.actions() if a.text()]
+        assert "复制" in texts and "全选" in texts
 
-    def test_show_context_menu_empty(self, view, qapp, monkeypatch):
-        calls = self._spy_exec(monkeypatch)
+    def test_show_context_menu_empty(self, view, qapp):
+        opened = self._open_and_close(qapp, view)
         view._show_context_menu(view.mapToGlobal(view.rect().center()))
         qapp.processEvents()
-        assert calls == [(view.mapToGlobal(view.rect().center()),)]
+        assert opened, "空视图也要能弹出右键菜单"
 
     def test_context_menu_on_viewport_reaches_our_menu(self, view, qapp, monkeypatch):
         """回归：右键事件给 viewport（QAbstractScrollArea 的视口）。
@@ -850,7 +876,7 @@ class TestContextMenu:
     def test_export_dialog_cancel_is_safe(self, view, monkeypatch):
         called = []
         monkeypatch.setattr(
-            "pyqt5_ela_pro.terminal_view.QFileDialog.getSaveFileName",
+            "pyside6_ela_pro.terminal_view.QFileDialog.getSaveFileName",
             lambda *a, **k: (called.append(True), ("", ""))[1],
         )
         view._export_dialog()

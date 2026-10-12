@@ -5,17 +5,17 @@ from __future__ import annotations
 import os
 
 from _qthelpers import wait_until as _wait_until
-from PyQt5.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
-from PyQt5.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage
+from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
+from PySide6.QtGui import QColor, QDragEnterEvent, QDropEvent, QImage
 
-import pyqt5_ela_pro.chat.widget as widget_mod
-from pyqt5_ela_pro.chat import (
+import pyside6_ela_pro.chat.widget as widget_mod
+from pyside6_ela_pro.chat import (
     ElaChatRoleType,
     ElaChatStats,
     ElaChatStatusType,
     ElaChatWidget,
 )
-from pyqt5_ela_pro.chat.blocks import _ImageAttachmentCard
+from pyside6_ela_pro.chat.blocks import _ImageAttachmentCard
 
 
 class TestRoundTrip:

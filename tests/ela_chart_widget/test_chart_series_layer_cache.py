@@ -13,13 +13,13 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication
 
-from pyqt5_ela_pro.charts.core import ElaChartWidget
-from pyqt5_ela_pro.charts.data import toBuffer
+from pyside6_ela_pro.charts.core import ElaChartWidget
+from pyside6_ela_pro.charts.data import toBuffer
 
 pytestmark = pytest.mark.skipif(
-    __import__("pyqt5_ela_pro.charts._downsample", fromlist=["np"]).np is None,
+    __import__("pyside6_ela_pro.charts._downsample", fromlist=["np"]).np is None,
     reason="需要 numpy",
 )
 
@@ -59,7 +59,7 @@ def _ready(chart, option, w=600, h=400):
 
 
 def _render(chart):
-    from PyQt5.QtGui import QImage, QPainter
+    from PySide6.QtGui import QImage, QPainter
 
     img = QImage(
         chart.width(), chart.height(), QImage.Format.Format_ARGB32_Premultiplied
@@ -232,7 +232,7 @@ class TestSeriesLayerInvalidation:
         key_a = chart._series_pixmap_key
         assert key_a[4] is not None
         # 键含主题模式；切换后必然不同（不依赖手动 invalidate）
-        from PyQt5ElaWidgetTools import ElaThemeType, eTheme
+        from PySide6ElaWidgetTools import ElaThemeType, eTheme
 
         try:
             eTheme.setThemeMode(

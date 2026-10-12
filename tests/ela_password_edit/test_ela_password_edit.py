@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtWidgets import QLineEdit
+from PySide6.QtWidgets import QLineEdit
 
-from pyqt5_ela_pro.ela_password_edit import ElaPasswordEdit
+from pyside6_ela_pro.ela_password_edit import ElaPasswordEdit
 
 
 @pytest.fixture

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from PyQt5 import sip
-from PyQt5.QtCore import QCoreApplication, QEvent, QObject, QPoint, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QHelpEvent, QPalette
-from PyQt5.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
-from PyQt5ElaWidgetTools import ElaThemeType, eTheme
+import shiboken6
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, Qt, Signal
+from PySide6.QtGui import QColor, QHelpEvent, QPalette
+from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+from PySide6ElaWidgetTools import ElaThemeType, eTheme
 
-import pyqt5_ela_pro.tooltips as tooltips_module
-from pyqt5_ela_pro.tooltips import (
+import pyside6_ela_pro.tooltips as tooltips_module
+from pyside6_ela_pro.tooltips import (
     TOOLTIP_BORDER_RADIUS,
     ElaStateToolTip,
     ElaToolTip,
@@ -101,7 +101,7 @@ class TestToolTip:
         assert tooltip.size().width() == 60 + 24
         assert first.parent() is None
         QCoreApplication.sendPostedEvents(first, QEvent.Type.DeferredDelete)
-        assert sip.isdeleted(first)
+        assert not shiboken6.isValid(first)
 
         tooltip.deleteLater()
         qapp.processEvents()
@@ -397,7 +397,7 @@ class TestToolTipTheme:
     def test_theme_signal_reconnects_text_color(self, qapp, monkeypatch):
 
         class _FakeTheme(QObject):
-            themeModeChanged = pyqtSignal(object)
+            themeModeChanged = Signal(object)
 
             def getThemeMode(self):
                 return ElaThemeType.ThemeMode.Light

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import random
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget
-from PyQt5ElaWidgetTools import ElaIconType
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6ElaWidgetTools import ElaIconType
 
-from pyqt5_ela_pro.chat import (
+from pyside6_ela_pro.chat import (
     ElaChatPartKindType,
     ElaChatReasoningStyleType,
     ElaChatBubble,
@@ -19,7 +19,7 @@ from pyqt5_ela_pro.chat import (
     ReasoningBlock,
     ToolGroupPanel,
 )
-from pyqt5_ela_pro.chat.blocks import (
+from pyside6_ela_pro.chat.blocks import (
     ContextToolGroupCard,
     ErrorCard,
     MessageMeta,
@@ -34,7 +34,7 @@ from pyqt5_ela_pro.chat.blocks import (
     toolSubtitle,
     toolSubtitleParts,
 )
-from pyqt5_ela_pro.tooltips import _tooltip_dict
+from pyside6_ela_pro.tooltips import _tooltip_dict
 
 
 class TestToolHelpers:

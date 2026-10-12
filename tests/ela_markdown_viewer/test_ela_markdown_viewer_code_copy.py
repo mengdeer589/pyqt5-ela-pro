@@ -7,12 +7,12 @@ buttons (hover, copy, feedback, resync on re-render).
 from __future__ import annotations
 
 from _qthelpers import wait_for_clipboard as _wait_for_clipboard
-from PyQt5.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt5.QtGui import QMouseEvent, QTextTable
-from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QMouseEvent, QTextTable
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
 
-from pyqt5_ela_pro.ela_markdown_viewer import (
+from pyside6_ela_pro.ela_markdown_viewer import (
     _CODE_LANG_PROPERTY,
     ElaMarkdownViewer,
 )
@@ -62,7 +62,9 @@ class TestCodeCard:
         tables = _code_tables(v)
         assert len(tables) == 1
         assert tables[0].rows() == 1
-        assert tables[0].format().property(_CODE_LANG_PROPERTY) == ""
+        # 未设置的自定义属性在 Qt6 里读回 None / 空——断言「假值」而不是等于空串
+        # （PyQt5 时代是 ""，见 MIGRATION）
+        assert not tables[0].format().property(_CODE_LANG_PROPERTY)
         v.deleteLater()
 
     def test_code_table_text_strips_header(self):

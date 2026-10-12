@@ -4,12 +4,12 @@ from __future__ import annotations
 
 
 from _qthelpers import wait_until as _wait_until
-from PyQt5.QtCore import QPoint, QPointF, Qt
-from PyQt5.QtGui import QColor, QImage, QWheelEvent
-from PyQt5.QtWidgets import QApplication, QWidget
-from PyQt5ElaWidgetTools import ElaThemeType
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QColor, QImage, QWheelEvent
+from PySide6.QtWidgets import QApplication, QWidget
+from PySide6ElaWidgetTools import ElaThemeType
 
-from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
+from pyside6_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
 
 SHORT = "一行文本"
 LONG = "\n\n".join(f"第 {i} 段正文，用于把文档高度撑起来。" for i in range(20))
@@ -22,7 +22,7 @@ def _render_image(
     image = QImage(width, height, QImage.Format_ARGB32)
     image.fill(QColor(0, 0, 0, 0))
     viewer.resize(width, height)
-    viewer.render(image, flags=QWidget.RenderFlag.DrawChildren)
+    viewer.render(image, renderFlags=QWidget.RenderFlag.DrawChildren)
     return image
 
 
@@ -71,7 +71,7 @@ class TestEmbeddedMode:
             Qt.ScrollPhase.NoScrollPhase,
             False,
         )
-        QApplication.sendEvent(browser, event)
+        QApplication.sendEvent(browser.viewport(), event)  # 真实滚轮事件由 viewport 投递
         assert not event.isAccepted()
 
         viewer.setEmbeddedMode(False)

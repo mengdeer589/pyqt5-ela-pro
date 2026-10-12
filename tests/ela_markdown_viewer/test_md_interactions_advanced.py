@@ -5,12 +5,12 @@ Covers: image click signal, clickable task list items.
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QEvent, QPointF, Qt, QUrl
-from PyQt5.QtGui import QColor, QImage, QMouseEvent, QTextCursor
-from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtCore import QEvent, QPointF, Qt, QUrl
+from PySide6.QtGui import QColor, QImage, QMouseEvent, QTextCursor
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
 
-from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
+from pyside6_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
 
 
 def _fragments(viewer: ElaMarkdownViewer) -> list:

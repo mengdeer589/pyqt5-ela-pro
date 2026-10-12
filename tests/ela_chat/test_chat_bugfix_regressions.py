@@ -9,12 +9,12 @@ from __future__ import annotations
 import json
 
 import pytest
-from PyQt5 import sip
-from PyQt5.QtCore import QEvent, Qt
-from PyQt5.QtGui import QKeyEvent, QMouseEvent
-from PyQt5.QtWidgets import QApplication
+import shiboken6
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QKeyEvent, QMouseEvent
+from PySide6.QtWidgets import QApplication
 
-from pyqt5_ela_pro.chat import (
+from pyside6_ela_pro.chat import (
     ElaChatBubble,
     ElaChatMockBackend,
     ElaChatOption,
@@ -32,13 +32,13 @@ from pyqt5_ela_pro.chat import (
     ElaChatWidget,
     ReasoningBlock,
 )
-from pyqt5_ela_pro.chat.blocks import (
+from pyside6_ela_pro.chat.blocks import (
     CompactionSeparator,
     PermissionCard,
     PermissionRecord,
     ToolCallCard,
 )
-from pyqt5_ela_pro.chat.message import ElaChatToolCall, ElaChatToolStatusType
+from pyside6_ela_pro.chat.message import ElaChatToolCall, ElaChatToolStatusType
 
 
 def _turn(chat) -> int:
@@ -239,7 +239,7 @@ class TestPermissionDockPromotion:
         )
         card = bubble.interactivePermissionCard(part_id)
         assert card is not None
-        sip.delete(card)
+        shiboken6.delete(card)
 
         assert bubble.resolvePermission("r1", "allowed") is True
         assert bubble.permissionCard("r1") is not None

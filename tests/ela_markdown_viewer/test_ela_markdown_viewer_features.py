@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QTextTable
-from PyQt5.QtTest import QTest
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QTextTable
+from PySide6.QtTest import QTest
 
-from pyqt5_ela_pro import ela_markdown_viewer as viewer_module
-from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
-from pyqt5_ela_pro.example.markdown_page import (
+from pyside6_ela_pro import ela_markdown_viewer as viewer_module
+from pyside6_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
+from pyside6_ela_pro.example.markdown_page import (
     _MARKDOWN_ALL,
     _MARKDOWN_ANSWER,
     MarkdownPage,

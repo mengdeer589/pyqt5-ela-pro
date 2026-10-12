@@ -14,12 +14,12 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget
 
-from pyqt5_ela_pro._motion import ElaMotionModeType, motion
-from pyqt5_ela_pro.ela_side_drawer import ElaDrawer
-from pyqt5_ela_pro.ela_toast import ElaToast, ElaToastType
-from pyqt5_ela_pro.notify_popup import ElaNotifyPopup
+from pyside6_ela_pro._motion import ElaMotionModeType, motion
+from pyside6_ela_pro.ela_side_drawer import ElaDrawer
+from pyside6_ela_pro.ela_toast import ElaToast, ElaToastType
+from pyside6_ela_pro.notify_popup import ElaNotifyPopup
 
 
 @pytest.fixture
@@ -140,11 +140,15 @@ class TestNotifyPopupClosePath:
         assert popup.isVisible() is False
 
     def test_close_completion_not_stacked(self, popup, disabled_motion):
-        """回归：关闭动画里再 show 会取消收尾（弹回打开态），
-        旧实现的 disconnect 舞蹈会让收尾叠两遍 → closed 发两次。"""
+        """回归：关闭动画的收尾不得叠两遍（旧实现的 disconnect 舞蹈会让 closed 发两次）。
+
+        ``QObject.receivers()`` 在 PySide6 下不可用（见 MIGRATION），改为数
+        ``closed`` 的真实触发次数：两次「打开→关闭」应各发一次。
+        """
         closed: list[int] = []
         popup.closed.connect(lambda: closed.append(1))
         popup.showNotification()
         popup._close_animation()
-        assert closed == [1]
-        assert popup._animation.receivers(popup._animation.finished) <= 1
+        popup.showNotification()  # 重新打开（取消上一次收尾）
+        popup._close_animation()
+        assert closed == [1, 1], f"closed 发了 {len(closed)} 次"

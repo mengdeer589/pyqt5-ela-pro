@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import QAbstractAnimation, QPropertyAnimation, QTimer
+from PySide6.QtCore import QAbstractAnimation, QPropertyAnimation, QTimer
 
-from pyqt5_ela_pro._motion import ElaMotionKindType, ElaMotionModeType, motion, start_transition
+from pyside6_ela_pro._motion import ElaMotionKindType, ElaMotionModeType, motion, start_transition
 
 
 @pytest.fixture
@@ -17,7 +17,7 @@ def full_motion():
 def _anim() -> QPropertyAnimation:
     obj = QTimer()  # 只借个 QObject 属性载体
     anim = QPropertyAnimation(obj, b"dummy")
-    anim.setProperty(b"dummy", 0)
+    anim.setProperty("dummy", 0)
     yield_obj = obj
     anim._keep = yield_obj  # type: ignore[attr-defined]  # 防被GC
     return anim
@@ -77,7 +77,7 @@ class TestNotifyPopupReplay:
     def test_replay_after_close_stays_visible(self, make, qapp):
         from _qthelpers import wait_until
 
-        from pyqt5_ela_pro.notify_popup import ElaNotifyPopup
+        from pyside6_ela_pro.notify_popup import ElaNotifyPopup
 
         closed: list[int] = []
         popup = make(ElaNotifyPopup, title="t", content="c", timeout=0)

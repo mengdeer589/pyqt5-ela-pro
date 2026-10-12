@@ -1,4 +1,4 @@
-"""pytest configuration and fixtures for pyqt5_ela_pro tests."""
+"""pytest configuration and fixtures for pyside6_ela_pro tests."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 from _qthelpers import WidgetFactory
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QWidget
 
 
 @pytest.fixture
@@ -84,7 +84,7 @@ def qapp():
     # ``eApp.init()`` **必须在创建任何 ElaWindow 之前**调用（AGENTS.md 的硬约束），
     # 少了这一步 `ElaWindow()` 直接 access violation，且崩在构造那一行、看不出
     # 跟 init 有关。凡是碰 ElaWindow / ElaAppBar 的用例都靠这一行兜住。
-    from PyQt5ElaWidgetTools import eApp
+    from PySide6ElaWidgetTools import eApp
 
     eApp.init()
     yield app
@@ -99,7 +99,7 @@ def _motion_full_for_session(qapp):
     ``offscreen``）。宿主机器若关了动画，``Reduced`` 会把 ``Duration.Normal`` 压到
     50ms，任何 ``assert duration() == Duration.Normal`` 的断言就假失败。
     """
-    from pyqt5_ela_pro._motion import ElaMotionModeType, motion
+    from pyside6_ela_pro._motion import ElaMotionModeType, motion
 
     previous = motion.mode()
     motion.setOverrideSystem(True)
@@ -141,8 +141,8 @@ def make(qt_cleanup):
 
 @pytest.fixture
 def mock_e_theme(mocker):
-    """Mock PyQt5ElaWidgetTools.eTheme for isolated testing."""
-    mock = mocker.patch("PyQt5ElaWidgetTools.eTheme")
+    """Mock PySide6ElaWidgetTools.eTheme for isolated testing."""
+    mock = mocker.patch("PySide6ElaWidgetTools.eTheme")
     mock_theme_mode = MagicMock()
     mock_theme_mode.value = 0
     mock.getThemeMode.return_value = mock_theme_mode

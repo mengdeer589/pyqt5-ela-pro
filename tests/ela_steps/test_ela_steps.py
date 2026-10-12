@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5ElaWidgetTools import ElaThemeType
+from PySide6ElaWidgetTools import ElaThemeType
 
-from pyqt5_ela_pro.ela_steps import ElaSteps
+from pyside6_ela_pro.ela_steps import ElaSteps
 
 _FIVE = ["A", "B", "C", "D", "E"]
 _THREE = ["A", "B", "C"]

@@ -17,10 +17,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from PyQt5.QtCore import QProcess
+from PySide6.QtCore import QProcess
 
-from pyqt5_ela_pro import browser_embedder as be
-from pyqt5_ela_pro.browser_embedder import _BrowserSession
+from pyside6_ela_pro import browser_embedder as be
+from pyside6_ela_pro.browser_embedder import _BrowserSession
 
 BOGUS = Path(r"C:\definitely\not\here\chrome.exe")
 PROFILE = Path(r"%LOCALAPPDATA%")  # 只当占位，测试里不真建

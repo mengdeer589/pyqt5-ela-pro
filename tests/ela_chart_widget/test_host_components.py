@@ -10,11 +10,11 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QPointF, QRectF
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtCore import QPointF, QRectF
+from PySide6.QtWidgets import QApplication
 
-from pyqt5_ela_pro.charts import ElaChartWidget
-from pyqt5_ela_pro.charts.core import registerComponent
+from pyside6_ela_pro.charts import ElaChartWidget
+from pyside6_ela_pro.charts.core import registerComponent
 
 BASE = {
     "xAxis": {"type": "category", "data": ["a", "b", "c"]},

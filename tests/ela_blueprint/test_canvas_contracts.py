@@ -20,8 +20,8 @@ import json
 import math
 
 import pytest
-from PyQt5.QtCore import QPoint, QPointF, Qt
-from PyQt5.QtGui import (
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import (
     QFocusEvent,
     QKeyEvent,
     QMouseEvent,
@@ -29,9 +29,9 @@ from PyQt5.QtGui import (
     QPixmap,
 )
 
-from pyqt5_ela_pro.blueprint import registry as reg
-from pyqt5_ela_pro.blueprint.canvas import ElaBlueprintCanvas
-from pyqt5_ela_pro.blueprint.model import ElaBlueprintNode
+from pyside6_ela_pro.blueprint import registry as reg
+from pyside6_ela_pro.blueprint.canvas import ElaBlueprintCanvas
+from pyside6_ela_pro.blueprint.model import ElaBlueprintNode
 
 BAD_POS_JSON = (
     '{"graph": {"nodes": [{"id":"n1","type_name":"t","title":"T",'
@@ -100,7 +100,7 @@ class TestNonFiniteGeometry:
 
     def test_apply_view_is_last_line_of_defense(self, make):
         """数据入口已拦，但 ``apply_view`` 本身也不能因int() 崩。"""
-        from pyqt5_ela_pro.blueprint.node_widget import ElaNodeWidget
+        from pyside6_ela_pro.blueprint.node_widget import ElaNodeWidget
 
         node = ElaBlueprintNode("t", "T")
         node.pos = QPointF(float("inf"), float("inf"))
@@ -166,7 +166,7 @@ class TestPinColorValidatedAtRegistration:
             node.add_output("o", "out", "_dirty2")
             widget = make(
                 __import__(
-                    "pyqt5_ela_pro.blueprint.node_widget",
+                    "pyside6_ela_pro.blueprint.node_widget",
                     fromlist=["ElaNodeWidget"],
                 ).ElaNodeWidget,
                 node,
@@ -197,7 +197,7 @@ class TestAccentColorDegrades:
         "value", ["#C080D0", "red", "primary", None]
     )
     def test_valid_values_still_work(self, value):
-        from pyqt5_ela_pro.blueprint.node_widget import _resolve_color
+        from pyside6_ela_pro.blueprint.node_widget import _resolve_color
 
         color = _resolve_color(value, "text.tertiary")
         assert color.isValid()
@@ -207,7 +207,7 @@ class TestAccentColorDegrades:
     )
     def test_invalid_values_fall_back_to_valid_color(self, value):
         """绝不能返回无效 QColor（那是「静默变黑」）。"""
-        from pyqt5_ela_pro.blueprint.node_widget import _resolve_color
+        from pyside6_ela_pro.blueprint.node_widget import _resolve_color
 
         color = _resolve_color(value, "text.tertiary")
         assert color.isValid(), f"{value!r} 解析成无效色 {color.name()!r}"
@@ -217,7 +217,7 @@ class TestAccentColorDegrades:
         node.accent = "rgb(1,2,3)"
         widget = make(
             __import__(
-                "pyqt5_ela_pro.blueprint.node_widget",
+                "pyside6_ela_pro.blueprint.node_widget",
                 fromlist=["ElaNodeWidget"],
             ).ElaNodeWidget,
             node,
@@ -413,11 +413,11 @@ class TestFromDictValidatesEdges:
 
 
 def _hide_event():
-    from PyQt5.QtGui import QHideEvent
+    from PySide6.QtGui import QHideEvent
 
     return QHideEvent()
 
 
-from PyQt5.QtCore import QEvent as _QEvent  # noqa: E402
+from PySide6.QtCore import QEvent as _QEvent  # noqa: E402
 
 QEvent_Type_MouseButtonPress = _QEvent.Type.MouseButtonPress

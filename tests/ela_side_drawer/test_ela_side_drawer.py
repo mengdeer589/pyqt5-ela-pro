@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtGui import QColor
-from PyQt5.QtWidgets import QWidget
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QWidget
 
-from pyqt5_ela_pro._ownership import ElaWidgetOwnershipType
-from pyqt5_ela_pro.ela_side_drawer import (
+from pyside6_ela_pro._ownership import ElaWidgetOwnershipType
+from pyside6_ela_pro.ela_side_drawer import (
     ElaDrawerPositionType,
     ElaDrawerPanel,
     ElaDrawerDim,
@@ -168,18 +168,18 @@ class TestElaDrawer:
         assert drawer._main_layout.count() == 0
 
     def test_take_content_widget_never_deletes(self, make, drawer, qapp):
-        from PyQt5 import sip
-        from PyQt5.QtCore import QCoreApplication, QEvent
+        import shiboken6
+        from PySide6.QtCore import QCoreApplication, QEvent
 
         content = make(QWidget)
         drawer.setContentWidget(content, ElaWidgetOwnershipType.Owned)
         drawer.takeContentWidget()
         QCoreApplication.sendPostedEvents(content, QEvent.Type.DeferredDelete)
-        assert sip.isdeleted(content) is False
+        assert not shiboken6.isValid(content) is False
 
     def test_content_destroyed_externally_is_dropped(self, make, drawer, qapp):
         """内容被外部销毁后 ``contentWidget()`` 要返回 None，不能留悬空包装器。"""
-        from PyQt5.QtCore import QCoreApplication, QEvent
+        from PySide6.QtCore import QCoreApplication, QEvent
 
         content = make(QWidget)
         drawer.setContentWidget(content)

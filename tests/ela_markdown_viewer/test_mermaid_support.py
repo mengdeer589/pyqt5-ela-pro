@@ -12,11 +12,11 @@ import time
 import pytest
 from _qthelpers import wait_for_clipboard as _wait_for_clipboard
 from _qthelpers import wait_until as _wait_until
-from PyQt5.QtGui import QColor, QImage, QTextCursor, QTextTable
+from PySide6.QtGui import QColor, QImage, QTextCursor, QTextTable
 
-import pyqt5_ela_pro.mermaid_support as support
-from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
-from pyqt5_ela_pro.mermaid_support import (
+import pyside6_ela_pro.mermaid_support as support
+from pyside6_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
+from pyside6_ela_pro.mermaid_support import (
     MERMAID_THEME_VARIABLES,
     ElaMermaidRenderer,
     _build_config,

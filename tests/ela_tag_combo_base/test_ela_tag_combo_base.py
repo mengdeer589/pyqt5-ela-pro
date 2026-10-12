@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
-from PyQt5.QtCore import QRect
-from PyQt5.QtGui import QColor, QPainter, QFont
-from PyQt5.QtWidgets import QComboBox
+from PySide6.QtCore import QRect
+from PySide6.QtGui import QColor, QPainter, QFont
+from PySide6.QtWidgets import QComboBox
+from PySide6ElaWidgetTools import ElaThemeType
 
-from pyqt5_ela_pro.ela_tag_combo_base import (
+from pyside6_ela_pro.ela_tag_combo_base import (
     _TagBoxThemeMixin,
     _TagBoxAnimMixin,
     _pre_init_popup,
@@ -24,7 +25,7 @@ from pyqt5_ela_pro.ela_tag_combo_base import (
 
 class MockThemeWidget:
     def __init__(self):
-        self._theme_mode = 0  # Light
+        self._theme_mode = ElaThemeType.ThemeMode.Light
         self._enabled = True
         self._has_focus = False
         self._under_mouse = False
@@ -43,7 +44,7 @@ class TestTagBoxThemeMixin:
     def test_get_title_color_default(self):
         w = MockThemeWidget()
         mixin = _TagBoxThemeMixin()
-        mixin._theme_mode = 0
+        mixin._theme_mode = ElaThemeType.ThemeMode.Light
         color = mixin._getTitleColor.__get__(w, type(w))()
         assert isinstance(color, QColor)
         assert color.isValid()
@@ -52,14 +53,14 @@ class TestTagBoxThemeMixin:
         w = MockThemeWidget()
         w._enabled = False
         mixin = _TagBoxThemeMixin()
-        mixin._theme_mode = 0
+        mixin._theme_mode = ElaThemeType.ThemeMode.Light
         color = mixin._getTitleColor.__get__(w, type(w))()
         assert isinstance(color, QColor)
 
     def test_get_background_color_default(self):
         w = MockThemeWidget()
         mixin = _TagBoxThemeMixin()
-        mixin._theme_mode = 0
+        mixin._theme_mode = ElaThemeType.ThemeMode.Light
         color = mixin._getBackgroundColor.__get__(w, type(w))()
         assert isinstance(color, QColor)
 
@@ -67,14 +68,14 @@ class TestTagBoxThemeMixin:
         w = MockThemeWidget()
         w._has_focus = True
         mixin = _TagBoxThemeMixin()
-        mixin._theme_mode = 0
+        mixin._theme_mode = ElaThemeType.ThemeMode.Light
         color = mixin._getBackgroundColor.__get__(w, type(w))()
         assert isinstance(color, QColor)
 
     def test_get_border_color_default(self):
         w = MockThemeWidget()
         mixin = _TagBoxThemeMixin()
-        mixin._theme_mode = 0
+        mixin._theme_mode = ElaThemeType.ThemeMode.Light
         color = mixin._getBorderColor.__get__(w, type(w))()
         assert isinstance(color, QColor)
 
@@ -82,7 +83,7 @@ class TestTagBoxThemeMixin:
         w = MockThemeWidget()
         w._has_focus = True
         mixin = _TagBoxThemeMixin()
-        mixin._theme_mode = 0
+        mixin._theme_mode = ElaThemeType.ThemeMode.Light
         color = mixin._getBorderColor.__get__(w, type(w))()
         assert isinstance(color, QColor)
 

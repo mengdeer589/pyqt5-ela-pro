@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QIcon, QPixmap
 
-from pyqt5_ela_pro.svg_icon import (
+from pyside6_ela_pro.svg_icon import (
     svg_to_icon,
     svg_to_pixmap,
     ElaSvgIconLoader,

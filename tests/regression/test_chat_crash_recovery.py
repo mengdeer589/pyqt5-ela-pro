@@ -25,11 +25,11 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from PyQt5.QtCore import QObject, pyqtSignal
+from PySide6.QtCore import QObject, Signal
 
-from pyqt5_ela_pro.chat import ElaChatWidget
-from pyqt5_ela_pro.chat.journal import JOURNAL_VERSION, ElaChatTurnJournal
-from pyqt5_ela_pro.chat.message import (
+from pyside6_ela_pro.chat import ElaChatWidget
+from pyside6_ela_pro.chat.journal import JOURNAL_VERSION, ElaChatTurnJournal
+from pyside6_ela_pro.chat.message import (
     ElaChatPartKindType,
     ElaChatRoleType,
     ElaChatStats,
@@ -366,10 +366,10 @@ class TestWorkerWiring:
         def __init__(self):
 
             class Emitter(QObject):
-                chunkReceived = pyqtSignal(object)
-                toolStarted = pyqtSignal(dict)
-                toolEnded = pyqtSignal(dict, str)
-                statsReady = pyqtSignal(object, float, float)
+                chunkReceived = Signal(object)
+                toolStarted = Signal(dict)
+                toolEnded = Signal(dict, str)
+                statsReady = Signal(object, float, float)
 
             self._emitter = Emitter()
 

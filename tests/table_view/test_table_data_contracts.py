@@ -12,9 +12,9 @@ from __future__ import annotations
 import time
 
 import pytest
-from PyQt5.QtCore import Qt
+from PySide6.QtCore import Qt
 
-from pyqt5_ela_pro.table_view import ElaDataTable
+from pyside6_ela_pro.table_view import ElaDataTable
 
 
 def _column(table: ElaDataTable, col: int = 0) -> list[str]:

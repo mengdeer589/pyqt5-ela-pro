@@ -23,9 +23,9 @@ import sys
 import time
 
 import pytest
-from PyQt5.QtGui import QColor, QImage
+from PySide6.QtGui import QColor, QImage
 
-from pyqt5_ela_pro.math_lite import _dimension_em, render_formula
+from pyside6_ela_pro.math_lite import _dimension_em, render_formula
 
 COLOR = QColor("#202020")
 

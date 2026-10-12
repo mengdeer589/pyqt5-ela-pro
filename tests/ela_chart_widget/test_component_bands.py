@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt5.QtGui import QColor
+from PySide6.QtGui import QColor
 
-from pyqt5_ela_pro.charts import ElaChartWidget
+from pyside6_ela_pro.charts import ElaChartWidget
 
 
 def _make_chart(option):

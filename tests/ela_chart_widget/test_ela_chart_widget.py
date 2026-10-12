@@ -7,27 +7,27 @@ import random
 import time
 
 import pytest
-from PyQt5.QtCore import QPoint, QPointF, Qt
-from PyQt5.QtGui import QWheelEvent
-from PyQt5.QtWidgets import QApplication, QScrollArea, QVBoxLayout, QWidget
-from PyQt5ElaWidgetTools import ElaThemeType, eTheme
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QWheelEvent
+from PySide6.QtWidgets import QApplication, QScrollArea, QVBoxLayout, QWidget
+from PySide6ElaWidgetTools import ElaThemeType, eTheme
 
-from pyqt5_ela_pro.charts import (
+from pyside6_ela_pro.charts import (
     SERIES_REGISTRY,
     ElaChartWidget,
     formatValue,
     niceTicks,
     parseDataPoint,
 )
-from pyqt5_ela_pro.charts import _downsample as ds
-from pyqt5_ela_pro.charts.axes import GridCoord
-from pyqt5_ela_pro.charts.series_cartesian import (
+from pyside6_ela_pro.charts import _downsample as ds
+from pyside6_ela_pro.charts.axes import GridCoord
+from pyside6_ela_pro.charts.series_cartesian import (
     BarSeriesRenderer,
     HeatmapSeriesRenderer,
     LineSeriesRenderer,
     ScatterSeriesRenderer,
 )
-from pyqt5_ela_pro.charts.series_hierarchy import PieSeriesRenderer
+from pyside6_ela_pro.charts.series_hierarchy import PieSeriesRenderer
 
 
 def _line_option():

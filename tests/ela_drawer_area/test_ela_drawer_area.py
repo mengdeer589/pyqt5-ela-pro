@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import QEvent, QPoint, Qt
-from PyQt5.QtGui import QMouseEvent
-from PyQt5.QtWidgets import QHBoxLayout, QPushButton, QWidget
-from PyQt5ElaWidgetTools import ElaDrawerArea as NativeDrawerArea
-from PyQt5ElaWidgetTools import ElaText, ElaToggleSwitch
+from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtWidgets import QHBoxLayout, QPushButton, QWidget
+from PySide6ElaWidgetTools import ElaDrawerArea as NativeDrawerArea
+from PySide6ElaWidgetTools import ElaText, ElaToggleSwitch
 
-from pyqt5_ela_pro.ela_drawer_area import ElaDrawerArea
-from pyqt5_ela_pro.widget_base import ElaThemeWidget
+from pyside6_ela_pro.ela_drawer_area import ElaDrawerArea
+from pyside6_ela_pro.widget_base import ElaThemeWidget
 
 
 def _click(qapp, widget: QWidget, pos: QPoint) -> None:

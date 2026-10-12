@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import QEvent, Qt
-from PyQt5.QtGui import QMouseEvent, QPixmap
-from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QWidget
-from PyQt5ElaWidgetTools import ElaIconType
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QMouseEvent, QPixmap
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QWidget
+from PySide6ElaWidgetTools import ElaIconType
 from _qthelpers import wait_until
 
-from pyqt5_ela_pro.ela_ghost_box import ElaGhostBox
+from pyside6_ela_pro.ela_ghost_box import ElaGhostBox
 
 
 @pytest.fixture

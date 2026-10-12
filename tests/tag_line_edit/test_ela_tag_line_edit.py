@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt5.QtGui import QColor
+from PySide6.QtGui import QColor
 
-from pyqt5_ela_pro.ela_tag_line_edit import ElaTagLineEdit
+from pyside6_ela_pro.ela_tag_line_edit import ElaTagLineEdit
 
 
 class TestElaTagLineEdit:

@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import pytest
 from _qthelpers import flush_events
-from PyQt5 import sip
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QIcon, QPainter, QPixmap
-from PyQt5.QtWidgets import QMenu, QSystemTrayIcon
+from PySide6.QtCore import QCoreApplication, QEvent, Qt
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
-from pyqt5_ela_pro import ElaMenuItem, ElaTrayIcon
-from pyqt5_ela_pro.ela_tray_icon import ElaTrayIcon as _Direct
+from pyside6_ela_pro import ElaMenuItem, ElaTrayIcon
+from pyside6_ela_pro._internal import is_deleted
+from pyside6_ela_pro.ela_tray_icon import ElaTrayIcon as _Direct
 
 
 def dot(color: str) -> QIcon:
@@ -43,12 +43,12 @@ class TestPublicApi:
     def test_exported_from_package(self):
         assert ElaTrayIcon is _Direct
         assert (
-            "ElaTrayIcon" in __import__("pyqt5_ela_pro", fromlist=["__all__"]).__all__
+            "ElaTrayIcon" in __import__("pyside6_ela_pro", fromlist=["__all__"]).__all__
         )
 
     def test_menu_item_is_shared(self):
         """菜单项模型与划词助手共用同一个 dataclass。"""
-        from pyqt5_ela_pro import menu_item as module
+        from pyside6_ela_pro import menu_item as module
 
         assert module.ElaMenuItem is ElaMenuItem
         assert ElaMenuItem("a", "A").enabled is True
@@ -115,7 +115,7 @@ class TestMenu:
         assert tray.menu() is None
 
     def test_accepts_ela_menu(self, make, tray):
-        from PyQt5ElaWidgetTools import ElaMenu
+        from PySide6ElaWidgetTools import ElaMenu
 
         menu = ElaMenu()
         tray.setMenu(menu)
@@ -185,7 +185,8 @@ class TestVisibility:
         seen = []
         tray.activated.connect(seen.append)
         tray._on_activated(QSystemTrayIcon.ActivationReason.Trigger)
-        assert seen == [int(QSystemTrayIcon.ActivationReason.Trigger)]
+        # 信号契约是 int（枚举值），见 _on_activated
+        assert seen == [QSystemTrayIcon.ActivationReason.Trigger.value]
 
 
 class TestLifecycle:
@@ -200,7 +201,7 @@ class TestLifecycle:
 
     def test_theme_change_after_delete_does_not_raise(self, make, qapp):
         """析构时断开 themeModeChanged：之后切主题不得再回调到野对象。"""
-        from PyQt5ElaWidgetTools import ElaThemeType, eTheme
+        from PySide6ElaWidgetTools import ElaThemeType, eTheme
 
         t = make(ElaTrayIcon, dot("#ff0000"))
         t.show()
@@ -215,11 +216,15 @@ class TestLifecycle:
         eTheme.setThemeMode(other)  # 不得抛异常
         eTheme.setThemeMode(current)
 
-    def test_ismarked_deleted(self, make):
+    def test_ismarked_deleted(self, make, qapp):
         t = make(ElaTrayIcon, dot("#ff0000"))
+        tray_obj = t._tray
         t.deleteLater()
-        # 组件本体由 qt_cleanup 回收，托盘子对象随之析构
-        assert sip.isdeleted(t._tray) in (True, False)
+        # processEvents() 不派发 DeferredDelete，要显式冲刷
+        QCoreApplication.sendPostedEvents(t, QEvent.Type.DeferredDelete)
+        flush_events(qapp)
+        # 组件本体销毁后，托盘子对象随之析构
+        assert is_deleted(tray_obj)
 
 
 class TestSignalSafety:
@@ -229,7 +234,7 @@ class TestSignalSafety:
         seen = []
         tray.activated.connect(seen.append)
         tray._on_activated(QSystemTrayIcon.ActivationReason.Context)
-        assert seen == [int(QSystemTrayIcon.ActivationReason.Context)]
+        assert seen == [QSystemTrayIcon.ActivationReason.Context.value]
 
 
 __all__ = ["TestInit", "TestIcon", "TestMenu", "TestNotify", "TestVisibility"]

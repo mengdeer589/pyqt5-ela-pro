@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5ElaWidgetTools import ElaThemeType
+from PySide6ElaWidgetTools import ElaThemeType
 
-from pyqt5_ela_pro.ela_group_box import ElaGroupBox
+from pyside6_ela_pro.ela_group_box import ElaGroupBox
 
 
 @pytest.fixture

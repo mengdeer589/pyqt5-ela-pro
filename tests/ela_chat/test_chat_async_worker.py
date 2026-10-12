@@ -7,8 +7,8 @@ import threading
 
 from _qthelpers import wait_until as _wait_until
 
-from pyqt5_ela_pro.chat import ElaChatAsyncWorker
-from pyqt5_ela_pro.chat import worker as worker_module
+from pyside6_ela_pro.chat import ElaChatAsyncWorker
+from pyside6_ela_pro.chat import worker as worker_module
 
 
 class _FakeWorker(ElaChatAsyncWorker):

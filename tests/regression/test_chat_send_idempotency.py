@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from pyqt5_ela_pro.chat import ElaChatRoleType, ElaChatWidget
+from pyside6_ela_pro.chat import ElaChatRoleType, ElaChatWidget
 
 
 def _user_messages(chat: ElaChatWidget) -> list:

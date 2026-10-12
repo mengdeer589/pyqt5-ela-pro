@@ -1,11 +1,11 @@
-"""``pyqt5_ela_pro._styles`` 的禁 QSS 原语（内部模块，直接测行为）。"""
+"""``pyside6_ela_pro._styles`` 的禁 QSS 原语（内部模块，直接测行为）。"""
 
 from __future__ import annotations
 
-from PyQt5.QtGui import QColor, QPainter, QPalette
-from PyQt5.QtWidgets import QFrame, QTextBrowser, QWidget
+from PySide6.QtGui import QColor, QPainter, QPalette
+from PySide6.QtWidgets import QFrame, QTextBrowser, QWidget
 
-from pyqt5_ela_pro._styles import (
+from pyside6_ela_pro._styles import (
     BareButton,
     ColorText,
     FlatIconButton,

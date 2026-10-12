@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtWidgets import QGridLayout, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QVBoxLayout, QWidget
 
-from pyqt5_ela_pro.widget_base import ElaThemeWidget
+from pyside6_ela_pro.widget_base import ElaThemeWidget
 
 
 @pytest.fixture

@@ -19,17 +19,17 @@ import asyncio
 import time
 
 import pytest
-from PyQt5.QtCore import QEventLoop, QTimer, Qt
+from PySide6.QtCore import QEventLoop, QTimer, Qt
 
-from pyqt5_ela_pro.chat import ElaChatWidget
-from pyqt5_ela_pro.chat.binder import ElaChatStreamBinder
-from pyqt5_ela_pro.chat.worker import ElaChatAsyncWorker
+from pyside6_ela_pro.chat import ElaChatWidget
+from pyside6_ela_pro.chat.binder import ElaChatStreamBinder
+from pyside6_ela_pro.chat.worker import ElaChatAsyncWorker
 
 
 def _spin(ms: int) -> None:
     loop = QEventLoop()
     QTimer.singleShot(ms, loop.quit)
-    loop.exec_()
+    loop.exec()
 
 
 class _Worker(ElaChatAsyncWorker):
@@ -309,7 +309,7 @@ class TestBinderShutdownOnClose:
     """
 
     def _chat_and_worker(self, make, worker_cls=None):
-        from PyQt5.QtWidgets import QVBoxLayout, QWidget
+        from PySide6.QtWidgets import QVBoxLayout, QWidget
 
         host = make(QWidget)
         host.setWindowFlags(Qt.WindowType.Window)
@@ -345,7 +345,7 @@ class TestBinderShutdownOnClose:
         assert worker.isShuttingDown() is True
 
     def test_shutdown_worker_returns_true_without_a_worker(self, qapp, make):
-        from PyQt5.QtWidgets import QVBoxLayout, QWidget
+        from PySide6.QtWidgets import QVBoxLayout, QWidget
 
         host = make(QWidget)
         chat = make(ElaChatWidget)
@@ -366,7 +366,7 @@ class TestBinderShutdownOnClose:
 
         ``destroyed`` 是从 C++ 发射的 —— 包在 lambda 内部没用，必须在**连接前**包好。
         """
-        from PyQt5 import sip
+        import shiboken6
 
         host, chat, worker = self._chat_and_worker(make)
         binder = ElaChatStreamBinder(chat, worker=worker)
@@ -375,7 +375,7 @@ class TestBinderShutdownOnClose:
         _spin(300)
         worker.shutdown()
         worker.waitForShutdown()
-        sip.delete(worker)  # 宿主先销毁了后端
+        shiboken6.delete(worker)  # 宿主先销毁了后端
 
         host.close()  # 不得抛、不得 abort
         _spin(100)

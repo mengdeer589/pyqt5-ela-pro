@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QPointF, QSizeF
+from PySide6.QtCore import QPointF, QSizeF
 
-from pyqt5_ela_pro.blueprint import (
+from pyside6_ela_pro.blueprint import (
     ElaBlueprintGraph,
     ElaBlueprintNode,
     ElaEdge,

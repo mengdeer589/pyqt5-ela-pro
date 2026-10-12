@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtGui import QColor
-from PyQt5ElaWidgetTools import ElaIconType, eTheme, ElaThemeType
+from PySide6.QtGui import QColor
+from PySide6ElaWidgetTools import ElaIconType, eTheme, ElaThemeType
 
-from pyqt5_ela_pro._colors import _contrast_ratio, get_color_scheme
-from pyqt5_ela_pro._theme import blend
-from pyqt5_ela_pro.ela_chip import ElaChip
+from pyside6_ela_pro._colors import _contrast_ratio, get_color_scheme
+from pyside6_ela_pro._theme import blend
+from pyside6_ela_pro.ela_chip import ElaChip
 
 
 @pytest.fixture

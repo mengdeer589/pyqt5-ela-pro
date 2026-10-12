@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import QSize
-from PyQt5ElaWidgetTools import ElaIconType, ElaThemeType
+from PySide6.QtCore import QSize
+from PySide6ElaWidgetTools import ElaIconType, ElaThemeType
 
-from pyqt5_ela_pro.ela_timeline import ElaTimeline
+from pyside6_ela_pro.ela_timeline import ElaTimeline
 
 
 @pytest.fixture

@@ -10,14 +10,14 @@ import time
 from unittest.mock import patch
 
 from _qthelpers import wait_until as _wait_until
-from PyQt5.QtGui import QColor, QImage
+from PySide6.QtGui import QColor, QImage
 
-import pyqt5_ela_pro.mermaid_support as support
-from pyqt5_ela_pro.ela_markdown_viewer import (
+import pyside6_ela_pro.mermaid_support as support
+from pyside6_ela_pro.ela_markdown_viewer import (
     _MERMAID_PENDING_PREFIX,
     ElaMarkdownViewer,
 )
-from pyqt5_ela_pro.mermaid_support import (
+from pyside6_ela_pro.mermaid_support import (
     ElaMermaidRenderer,
     adaptive_zoom,
     svg_size,

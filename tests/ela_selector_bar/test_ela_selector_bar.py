@@ -1,4 +1,4 @@
-"""``pyqt5_ela_pro.ela_selector_bar`` 的单元测试。
+"""``pyside6_ela_pro.ela_selector_bar`` 的单元测试。
 
 钉住的核心不变量：
 
@@ -15,11 +15,11 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import QEvent, QPoint, Qt
-from PyQt5.QtGui import QKeyEvent
+from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtGui import QKeyEvent
 
-from pyqt5_ela_pro._motion import ElaMotionModeType, motion
-from pyqt5_ela_pro.ela_selector_bar import (
+from pyside6_ela_pro._motion import ElaMotionModeType, motion
+from pyside6_ela_pro.ela_selector_bar import (
     _Metrics,
     ElaSelectorBar,
     SelectorBarItem,
@@ -546,7 +546,7 @@ class TestActivation:
 
 class TestKeyboard:
     def _key(self, bar, key):
-        from PyQt5.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         event = QKeyEvent(QEvent.Type.KeyPress, key, Qt.KeyboardModifier.NoModifier)
         QApplication.sendEvent(bar, event)
@@ -611,8 +611,8 @@ class TestKeyboard:
 
 class TestMouse:
     def _click(self, bar, rect):
-        from PyQt5.QtGui import QMouseEvent
-        from PyQt5.QtWidgets import QApplication
+        from PySide6.QtGui import QMouseEvent
+        from PySide6.QtWidgets import QApplication
 
         center = rect.center()
         press = QMouseEvent(
@@ -648,8 +648,8 @@ class TestMouse:
 
     def test_press_then_drag_off_cancels(self, make, qapp):
         """按下与抬起必须是同一目标才激活。"""
-        from PyQt5.QtGui import QMouseEvent
-        from PyQt5.QtWidgets import QApplication
+        from PySide6.QtGui import QMouseEvent
+        from PySide6.QtWidgets import QApplication
 
         bar = _bar(make)
         bar.setSelectedIndex(0)
@@ -679,8 +679,8 @@ class TestMouse:
         assert bar.selectedIndex() == 0
 
     def test_hovering_a_disabled_item_gives_no_feedback(self, make, qapp):
-        from PyQt5.QtGui import QMouseEvent
-        from PyQt5.QtWidgets import QApplication
+        from PySide6.QtGui import QMouseEvent
+        from PySide6.QtWidgets import QApplication
 
         bar = _bar(make)
         bar.setItemEnabled(1, False)
@@ -781,7 +781,7 @@ class TestNoQss:
     def test_no_setstylesheet_in_the_module(self):
         import pathlib
 
-        import pyqt5_ela_pro.ela_selector_bar as mod
+        import pyside6_ela_pro.ela_selector_bar as mod
 
         source = pathlib.Path(mod.__file__).read_text(encoding="utf-8")
         assert ".setStyleSheet(" not in source

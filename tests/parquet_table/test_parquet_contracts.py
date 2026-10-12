@@ -22,10 +22,10 @@ import pytest
 pytest.importorskip("polars")
 
 import polars as pl  # noqa: E402
-from PyQt5.QtCore import Qt  # noqa: E402
-from PyQt5.QtWidgets import QWidget  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtWidgets import QWidget  # noqa: E402
 
-from pyqt5_ela_pro.parquet_table import ElaParquetTable  # noqa: E402
+from pyside6_ela_pro.parquet_table import ElaParquetTable  # noqa: E402
 
 ROWS = 137
 

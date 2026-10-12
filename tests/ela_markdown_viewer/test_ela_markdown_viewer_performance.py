@@ -7,11 +7,11 @@ cache governance.
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtTest import QTest
+from PySide6.QtTest import QTest
 
-from pyqt5_ela_pro import ela_markdown_viewer as viewer_module
-from pyqt5_ela_pro import math_lite
-from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
+from pyside6_ela_pro import ela_markdown_viewer as viewer_module
+from pyside6_ela_pro import math_lite
+from pyside6_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
 
 
 class TestLongParagraphStreaming:

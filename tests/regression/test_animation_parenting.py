@@ -17,10 +17,10 @@ import ast
 import pathlib
 
 import pytest
-from PyQt5.QtCore import QPropertyAnimation
-from PyQt5.QtWidgets import QWidget
+from PySide6.QtCore import QPropertyAnimation
+from PySide6.QtWidgets import QWidget
 
-_PKG = pathlib.Path(__file__).resolve().parents[2] / "pyqt5_ela_pro"
+_PKG = pathlib.Path(__file__).resolve().parents[2] / "pyside6_ela_pro"
 
 _ANIMATION_NAMES = {
     "QPropertyAnimation",
@@ -61,7 +61,7 @@ class TestNoSelfParentedAnimations:
         )
 
     def test_ghost_box_expand_animation_is_not_self_parented(self, qapp, make):
-        from pyqt5_ela_pro.ela_ghost_box import ElaGhostBox
+        from pyside6_ela_pro.ela_ghost_box import ElaGhostBox
 
         box = make(ElaGhostBox)
         assert box._expand_animation.targetObject() is box
@@ -72,7 +72,7 @@ class TestShakeWindowAnimationLifetime:
     """``shake_window`` 的动画不得挂在目标控件上。"""
 
     def test_animation_is_not_a_child_of_its_target(self, qapp, make):
-        from pyqt5_ela_pro import shake_window
+        from pyside6_ela_pro import shake_window
 
         widget = make(QWidget)
         widget.setFixedSize(200, 100)
@@ -85,25 +85,25 @@ class TestShakeWindowAnimationLifetime:
 
     def test_completion_survives_a_destroyed_target(self, qapp, make):
         """回归：收尾槽曾硬碰已析构的控件包装器。"""
-        from PyQt5 import sip
+        import shiboken6
 
-        from pyqt5_ela_pro import shake_window
+        from pyside6_ela_pro import shake_window
 
         widget = QWidget()
         widget.setFixedSize(200, 100)
         shake_window(widget, duration=80, loop_count=1)
-        sip.delete(widget)  # 目标先死
+        shiboken6.delete(widget)  # 目标先死
 
         # 让动画跑完 -> _cleanup 必须安静跳过
-        from PyQt5.QtCore import QEventLoop, QTimer
+        from PySide6.QtCore import QEventLoop, QTimer
 
         loop = QEventLoop()
         QTimer.singleShot(300, loop.quit)
-        loop.exec_()
+        loop.exec()
 
     @pytest.mark.parametrize("loop_count", [1, 2, 3])
     def test_loop_counts_still_honoured(self, qapp, make, loop_count):
-        from pyqt5_ela_pro import shake_window
+        from pyside6_ela_pro import shake_window
 
         widget = make(QWidget)
         widget.setFixedSize(200, 100)

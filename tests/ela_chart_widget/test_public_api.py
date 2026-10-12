@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import QEvent, QPoint, QPointF, Qt
-from PyQt5.QtGui import QColor, QMouseEvent, QWheelEvent
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt
+from PySide6.QtGui import QColor, QMouseEvent, QWheelEvent
+from PySide6.QtWidgets import QApplication
 
-from pyqt5_ela_pro import ElaFigureCanvas
-from pyqt5_ela_pro.charts import (
+from pyside6_ela_pro import ElaFigureCanvas
+from pyside6_ela_pro.charts import (
     ElaChartWidget,
     SeriesRenderer,
     chartToken,

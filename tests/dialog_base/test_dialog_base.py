@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QCoreApplication, QEvent
-from PyQt5.QtGui import QColor
-from PyQt5.QtWidgets import QWidget
+from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtGui import QColor
+from PySide6.QtWidgets import QWidget
 
-from pyqt5_ela_pro.dialog_base import ElaDialogBase
+from pyside6_ela_pro.dialog_base import ElaDialogBase
 
 
 class TestElaDialogBase:
@@ -19,24 +19,24 @@ class TestElaDialogBase:
     def test_import_does_not_mutate_global_theme(self, qapp):
         """import 本库不得改宿主的全局主题槽位。
 
-        浅色 ``DialogBase`` 的调整原先写在模块级，等于「import pyqt5_ela_pro 就
+        浅色 ``DialogBase`` 的调整原先写在模块级，等于「import pyside6_ela_pro 就
         覆盖宿主配色」，而且没有 NOTIFY 信号、宿主还原不回去（``resetAccentColor``
         只管强调色）。现在写在 ``__init__`` 里，作用域限于用了本组件的对话框。
         """
-        from PyQt5ElaWidgetTools import ElaThemeType, eTheme
+        from PySide6ElaWidgetTools import ElaThemeType, eTheme
 
         before = QColor(eTheme.getThemeColor(ElaThemeType.ThemeMode.Light,
                                              ElaThemeType.ThemeColor.DialogBase))
         import importlib
 
-        importlib.reload(importlib.import_module("pyqt5_ela_pro.dialog_base"))
+        importlib.reload(importlib.import_module("pyside6_ela_pro.dialog_base"))
         after = QColor(eTheme.getThemeColor(ElaThemeType.ThemeMode.Light,
                                             ElaThemeType.ThemeColor.DialogBase))
         assert after.name() == before.name()
 
     def test_instance_sets_light_dialog_base(self, qapp):
         """构造本组件的对话框时，浅色 DialogBase 应被调到本组件要的浅灰白。"""
-        from PyQt5ElaWidgetTools import ElaThemeType, eTheme
+        from PySide6ElaWidgetTools import ElaThemeType, eTheme
 
         parent = QWidget()
         QColor(eTheme.setThemeColor(
@@ -138,7 +138,7 @@ class TestElaDialogBase:
 
     def test_set_param_widget_twice_keeps_widget_alive(self, qapp):
         """Regression: re-setting the same widget must not deleteLater it."""
-        import sip
+        import shiboken6
 
         parent = QWidget()
         dlg = ElaDialogBase(parent=parent)
@@ -149,7 +149,7 @@ class TestElaDialogBase:
         QCoreApplication.sendPostedEvents(content, QEvent.DeferredDelete)
         qapp.processEvents()
 
-        assert not sip.isdeleted(content)
+        assert shiboken6.isValid(content)
         assert dlg._paramLay.indexOf(content) != -1
         dlg.deleteLater()
         parent.deleteLater()

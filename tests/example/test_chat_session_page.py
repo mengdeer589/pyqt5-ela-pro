@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from pyqt5_ela_pro.chat import ElaChatReasoningStyleType, ElaChatRoleType
-from pyqt5_ela_pro.example.chat_session_page import ChatSessionPage
+from pyside6_ela_pro.chat import ElaChatReasoningStyleType, ElaChatRoleType
+from pyside6_ela_pro.example.chat_session_page import ChatSessionPage
 
 
 def _page(qapp) -> ChatSessionPage:

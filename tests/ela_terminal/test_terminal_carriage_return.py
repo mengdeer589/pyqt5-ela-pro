@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from pyqt5_ela_pro.terminal_view import AnsiParser
+from pyside6_ela_pro.terminal_view import AnsiParser
 
 ESC = "\x1b"
 

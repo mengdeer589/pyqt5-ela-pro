@@ -16,9 +16,9 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtGui import QFocusEvent
+from PySide6.QtGui import QFocusEvent
 
-from pyqt5_ela_pro.ela_selector_bar import ElaSelectorBar, SelectorBarItem
+from pyside6_ela_pro.ela_selector_bar import ElaSelectorBar, SelectorBarItem
 
 
 @pytest.fixture
@@ -191,16 +191,26 @@ class TestRepairSelectionKeepsMirrorConsistent:
 
 
 class TestIndicatorValueChangedConnectedOnce:
-    def test_receiver_count_stays_at_one(self, bar):
+    def test_receiver_count_stays_at_one(self, bar, monkeypatch):
+        """每切一次不得叠一个 ``valueChanged`` 接收者。
+
+        ``QObject.receivers()`` 在 PySide6 下对所有信号都不可用（见 MIGRATION），
+        改为**数处理函数实际被调用的次数** —— 槽虽幂等，但叠连接会让次数线性增长。
+        """
         bar.show()
         anim = bar._indicator_anim
-        for index in range(bar.itemCount()):
+        calls: list = []
+        monkeypatch.setattr(bar, "_setIndicatorRect", lambda *a, **k: calls.append(1))
+
+        per_frame = []
+        for index in range(1, bar.itemCount()):  # 0 号已是选中项，不会起动画
             bar.setSelectedIndex(index)
-            for _ in range(40):
-                anim.setCurrentTime(anim.duration())
-        assert anim.receivers(anim.valueChanged) == 1, (
-            "每切一次就叠一个 valueChanged 接收者（槽虽幂等，但每帧调用次数"
-            "线性增长）"
+            before = len(calls)
+            anim.setCurrentTime(anim.duration())
+            per_frame.append(len(calls) - before)
+
+        assert per_frame == [1] * (bar.itemCount() - 1), (
+            f"每帧处理次数应恒为 1，实为 {per_frame}"
         )
 
     def test_connect_is_not_in_the_animate_helper(self):

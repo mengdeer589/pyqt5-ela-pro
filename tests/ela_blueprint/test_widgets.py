@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import QPointF
-from PyQt5.QtGui import QPainter
+from PySide6.QtCore import QPointF
+from PySide6.QtGui import QPainter
 
-import pyqt5_ela_pro.blueprint.viewport as vp_mod
-from pyqt5_ela_pro.blueprint import (
+import pyside6_ela_pro.blueprint.viewport as vp_mod
+from pyside6_ela_pro.blueprint import (
     ElaBlueprintCanvas,
     ElaNodeCreationMenu,
     ElaPinDirectionType,
@@ -16,7 +16,7 @@ from pyqt5_ela_pro.blueprint import (
     format_elapsed,
     register_node_type,
 )
-from pyqt5_ela_pro.blueprint.node_widget import BODY_MIN_ZOOM
+from pyside6_ela_pro.blueprint.node_widget import BODY_MIN_ZOOM
 
 
 @pytest.fixture

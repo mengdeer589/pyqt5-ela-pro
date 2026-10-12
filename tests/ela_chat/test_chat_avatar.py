@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 #: 整圆填充的 SVG（中心像素即填充色，便于断言）
-from PyQt5.QtGui import QColor, QImage, QPixmap
+from PySide6.QtGui import QColor, QImage, QPixmap
 
 from _pixels import opaque_colors, skip_if_no_pixels
 
-from pyqt5_ela_pro.chat import (
+from pyside6_ela_pro.chat import (
     ElaChatBubble,
     ElaChatRoleType,
     ElaChatView,

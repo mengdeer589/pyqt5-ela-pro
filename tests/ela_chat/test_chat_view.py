@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from _qthelpers import wait_until as _wait_until
-from PyQt5.QtCore import QPoint, QPointF, Qt
-from PyQt5.QtGui import QMouseEvent, QPalette, QWheelEvent
-from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QTextEdit
-from PyQt5ElaWidgetTools import ElaThemeType
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QMouseEvent, QPalette, QWheelEvent
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QTextEdit
+from PySide6ElaWidgetTools import ElaThemeType
 
-from pyqt5_ela_pro.chat import (
+from pyside6_ela_pro.chat import (
     ElaChatReasoningStyleType,
     DISCLAIMER_TEXT,
     ElaChatRoleType,
@@ -559,10 +559,10 @@ class TestScrollBehavior:
             QPointF(10, 10),
             QPoint(0, 0),
             QPoint(0, -120),
-            0,
-            Qt.Orientation.Vertical,
             Qt.MouseButton.NoButton,
             Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.ScrollUpdate,
+            False,
         )
         assert guard.eventFilter(inner.viewport(), event) is True
 
@@ -572,10 +572,10 @@ class TestScrollBehavior:
             QPointF(10, 10),
             QPoint(0, 0),
             QPoint(0, 120),
-            0,
-            Qt.Orientation.Vertical,
             Qt.MouseButton.NoButton,
             Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.ScrollUpdate,
+            False,
         )
         assert guard.eventFilter(inner.viewport(), up_event) is True
         inner.deleteLater()

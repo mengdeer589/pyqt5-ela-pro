@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-from pyqt5_ela_pro._internal import catch_error, safe_call, disconnect_theme_signal
+from pyside6_ela_pro._internal import catch_error, safe_call, disconnect_theme_signal
 
 
 class TestCatchError:

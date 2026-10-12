@@ -5,11 +5,11 @@ Covers: copy button focus policy, anchor history, table zebra and column widths.
 
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt, QUrl
-from PyQt5.QtGui import QTextTable
-from PyQt5.QtTest import QTest
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QTextTable
+from PySide6.QtTest import QTest
 
-from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
+from pyside6_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
 
 
 def _tables(viewer: ElaMarkdownViewer) -> list:
@@ -91,7 +91,7 @@ class TestTableZebra:
         v = ElaMarkdownViewer()
         v.setMarkdown(TABLE_SOURCE)
         table = _tables(v)[0]
-        assert table.cellAt(2, 0).format().background().style() == 0
+        assert table.cellAt(2, 0).format().background().style() == Qt.BrushStyle.NoBrush
         v.deleteLater()
 
     def test_zebra_applies_to_even_data_rows(self):
@@ -100,9 +100,9 @@ class TestTableZebra:
         v.setMarkdown(TABLE_SOURCE)
         table = _tables(v)[0]
 
-        assert table.cellAt(1, 0).format().background().style() == 0
+        assert table.cellAt(1, 0).format().background().style() == Qt.BrushStyle.NoBrush
         striped = table.cellAt(2, 0).format().background()
-        assert striped.style() != 0
+        assert striped.style() != Qt.BrushStyle.NoBrush
         assert striped.color().name() == v._table_stripe_bg.name()
         assert table.cellAt(0, 0).format().background().color().name() == (
             v._table_header_bg.name()
@@ -115,7 +115,7 @@ class TestTableZebra:
         v.setMarkdown(TABLE_SOURCE)
         v.setTableZebra(False)
         table = _tables(v)[0]
-        assert table.cellAt(2, 0).format().background().style() == 0
+        assert table.cellAt(2, 0).format().background().style() == Qt.BrushStyle.NoBrush
         v.deleteLater()
 
 

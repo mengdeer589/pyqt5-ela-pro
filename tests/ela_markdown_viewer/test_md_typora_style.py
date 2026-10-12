@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from PyQt5.QtGui import QColor, QFont, QTextCursor, QTextFormat
-from PyQt5ElaWidgetTools import ElaThemeType
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor, QFont, QTextCursor, QTextFormat
+from PySide6ElaWidgetTools import ElaThemeType
 
-from pyqt5_ela_pro.ela_markdown_viewer import (
+from pyside6_ela_pro.ela_markdown_viewer import (
     _HEADING_RULE_WIDTH,
     _HR_MARK,
     _INLINE_CODE_MARK,
@@ -211,7 +212,7 @@ class TestPaintedDecorations:
         assert image.pixelColor(x + 1, y).name() == v._quote_rail_color.name()
         assert image.pixelColor(x + 3, y).name() == v._base_bg.name()
         # 引用块不再有底色
-        assert quote.blockFormat().background().style() == 0
+        assert quote.blockFormat().background().style() == Qt.BrushStyle.NoBrush
         v.deleteLater()
 
     def test_inline_code_pixels(self, qapp):
@@ -326,6 +327,6 @@ class TestInlineCodeMark:
         assert len(frags) == 1
         fmt = frags[0].charFormat()
         assert fmt.property(_INLINE_CODE_MARK) is True
-        assert fmt.background().style() == 0
+        assert fmt.background().style() == Qt.BrushStyle.NoBrush
         assert QColor(fmt.foreground().color()).isValid()
         v.deleteLater()

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QRect, Qt
+from PySide6.QtCore import QRect, Qt
 
-from pyqt5_ela_pro.notify_popup import ElaNotifyManager, ElaNotifyPopup
+from pyside6_ela_pro.notify_popup import ElaNotifyManager, ElaNotifyPopup
 
 
 class TestElaNotifyPopup:

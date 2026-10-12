@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QWidget
-from PyQt5ElaWidgetTools import ElaThemeType
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QWidget
+from PySide6ElaWidgetTools import ElaThemeType
 
-from pyqt5_ela_pro.ela_toast import ElaToast, ElaToastType
+from pyside6_ela_pro.ela_toast import ElaToast, ElaToastType
 
 
 class TestElaToastInit:

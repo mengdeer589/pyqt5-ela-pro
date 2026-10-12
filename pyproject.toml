@@ -3,16 +3,16 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pyqt5-ela-pro"
+name = "pyside6-ela-pro"
 dynamic = ["version"]
-description = "PyQt5 extension widgets based on PyQt5ElaWidgetTools"
+description = "PySide6 extension widgets based on PySide6ElaWidgetTools"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 license = "MIT"
 authors = [
-    {name = "pyqt5-ela-pro contributors"}
+    {name = "pyside6-ela-pro contributors"}
 ]
-keywords = ["pyqt5", "widgets", "gui", "extension"]
+keywords = ["pyside6", "qt6", "widgets", "gui", "extension"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -25,9 +25,11 @@ classifiers = [
     "Topic :: GUI Development",
 ]
 dependencies = [
-    "PyQt5>=5.15.0",
+    # PySide6 6.8.3 的元数据精确要求 Essentials / Addons / shiboken6 ==6.8.3，
+    # 只钉 PySide6 即可（多钉三个是冗余）。
+    "PySide6==6.8.3",
     "pypinyin>=0.50.0",
-    "pyqt5-elawidgettools==0.13.0",
+    "pyside6-elawidgettools==0.13.0",
 ]
 
 [project.optional-dependencies]
@@ -57,33 +59,40 @@ Repository = "https://github.com/mengdeer589/pyqt5-ela-pro"
 Issues = "https://github.com/mengdeer589/pyqt5-ela-pro/issues"
 
 [tool.setuptools.dynamic]
-version = {attr = "pyqt5_ela_pro._version.__version__"}
+version = {attr = "pyside6_ela_pro._version.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]
-exclude = ["PyQt*", "PyQt-Fluent*", "PyQt-SiliconUI*", "build*", "dist*", "*.egg-info"]
-include = ["pyqt5_ela_pro*"]
+exclude = ["PyQt*", "PySide*", "PyQt-Fluent*", "PyQt-SiliconUI*", "build*", "dist*", "*.egg-info"]
+include = ["pyside6_ela_pro*"]
 
 [tool.setuptools.package-data]
 # 不再随包分发任何图标集（曾内置 3.66 MB / 2604 个 Fluent UI 图标 —— 组件库
 # 不该替宿主选一套设计语言，绝大多数宿主也根本不用）。宿主用自己的图标包时
 # 走 ElaSvgIconLoader.setPackageDirectory() / loadFromFile()，路径在宿主那边。
-pyqt5_ela_pro = []
+pyside6_ela_pro = []
 
 [tool.uv]
 required-environments="sys_platform == 'win32' and platform_machine == 'AMD64'"
 
-# 开发期用本地编译的轮子（`uv run` / `uv sync` 都会按它锁定环境）。
+# 默认索引写进项目：宿主环境的 UV_DEFAULT_INDEX 指向 ustc（对部分包 403），
+# 而 aliyun 完整且稳定 —— 见 WHEEL_ISSUES.md（本地 wheels/ 的 PySide6 是 6.8.4/6.8.3
+# 混版，会崩 Addons 类，必须走干净注册源）。
+[[tool.uv.index]]
+name = "aliyun"
+url = "https://mirrors.aliyun.com/pypi/simple/"
+default = true
+
+# 开发期用本地编译的**上游绑定**轮子（`uv run` / `uv sync` 都会按它锁定环境）。
 # **不影响 `uv build --wheel` 的发布元数据**：tool.uv.sources 只被 uv 用于
 # 本项目的依赖解析，发布时读的仍是 [project].dependencies 里的版本约束。
 # 本地轮子重编译后哈希会变，`uv run` / `uv sync` 报 `Hash mismatch`。
 # **uv 0.12.x 实测：`--refresh-package` / `--no-cache` 都不重算 path wheel 的
 # artifact 哈希**；让该依赖重新解析（临时改本行约束跑一次 `uv lock` 再改回来）
-# 或把 `uv.lock` 里 wheels.hash 换成文件 sha256 后 `uv sync`：
-#   python -c "import hashlib,pathlib;print(hashlib.sha256(pathlib.Path(r'PyElaWidgetTools/dist/pyqt5_elawidgettools-0.13.0-cp37-abi3-win_amd64.whl').read_bytes()).hexdigest())"
-# 版本号升级时记得同步改 dependencies 的 `==0.13.0` 与本路径。
+# 或把 `uv.lock` 里 wheels.hash 换成文件 sha256 后 `uv sync`。
+# ElaWidgetTools 绑定的版本号升级时记得同步改 dependencies 的 `==0.13.0` 与本路径。
 [tool.uv.sources]
-pyqt5-elawidgettools = { path = "PyElaWidgetTools/dist/pyqt5_elawidgettools-0.13.0-cp37-abi3-win_amd64.whl" }
+pyside6-elawidgettools = { path = "PyElaWidgetTools/dist/pyside6_elawidgettools-0.13.0-cp38-abi3-win_amd64.whl" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

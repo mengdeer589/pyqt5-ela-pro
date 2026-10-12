@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QPropertyAnimation, QTimer, Qt
-from PyQt5.QtWidgets import QWidget
+from PySide6.QtCore import QPropertyAnimation, QTimer, Qt
+from PySide6.QtWidgets import QWidget
 
-from pyqt5_ela_pro import shake_window
+from pyside6_ela_pro import shake_window
 
 
 class TestShakeWindow:

@@ -15,13 +15,13 @@ import json
 
 import pytest
 
-from pyqt5_ela_pro.chat import _json
-from pyqt5_ela_pro.chat.journal import (
+from pyside6_ela_pro.chat import _json
+from pyside6_ela_pro.chat.journal import (
     ElaChatTurnJournal,
     _float as journal_float,
     _int as journal_int,
 )
-from pyqt5_ela_pro.chat.message import (
+from pyside6_ela_pro.chat.message import (
     _as_float,
     _as_int,
     ElaChatMessage,

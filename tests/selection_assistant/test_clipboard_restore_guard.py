@@ -13,12 +13,12 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import QCoreApplication, Qt
-from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtCore import QCoreApplication, Qt
+from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtWidgets import QApplication
 
-from pyqt5_ela_pro import svg_icon as svg_mod
-from pyqt5_ela_pro.selection_assistant.capture import ElaClipboardCapture
+from pyside6_ela_pro import svg_icon as svg_mod
+from pyside6_ela_pro.selection_assistant.capture import ElaClipboardCapture
 
 SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16">'
@@ -69,96 +69,138 @@ def _capture_with(capture: ElaClipboardCapture, captured: str) -> None:
     capture._finish(captured, ok=True)
 
 
-class TestClipboardRestoreDoesNotClobberNewerCopy:
-    def test_restores_when_clipboard_still_holds_our_copy(self, clipboard):
-        capture = ElaClipboardCapture()
-        clipboard.setText("用户原本的内容")
-        capture._old_text = "用户原本的内容"
-        clipboard.setText("取词拿到的文本")
-        _capture_with(capture, "取词拿到的文本")
-        capture._restore_clipboard()
-        assert clipboard.text() == "用户原本的内容"
+@pytest.fixture
+def fake_clipboard(monkeypatch):
+    """确定性剪贴板桩（真实剪贴板的读回 / 序列号时序不确定，会让断言偶发假红）。
 
-    def test_keeps_user_newer_copy(self, clipboard):
-        """用户在延时窗口里又复制了一次 —— 那份必须留下。"""
+    返回 ``(cb, state)``；``state["n"]`` 是序列号，任何写入都推进它。
+    """
+    from pyside6_ela_pro.selection_assistant import capture as capture_mod
+
+    state = {"n": 1000, "text": ""}
+
+    class _FakeClipboard:
+        def text(self) -> str:
+            return state["text"]
+
+        def setText(self, text: str) -> None:  # noqa: N802
+            state["text"] = text
+            state["n"] += 1
+
+        def clear(self) -> None:
+            state["text"] = ""
+            state["n"] += 1
+
+    cb = _FakeClipboard()
+
+    class _FakeApp:
+        @staticmethod
+        def clipboard() -> _FakeClipboard:
+            return cb
+
+    monkeypatch.setattr(capture_mod, "QApplication", _FakeApp)
+    monkeypatch.setattr(capture_mod, "clipboard_sequence_number", lambda: state["n"])
+    return cb, state
+
+
+class TestClipboardRestoreDoesNotClobberNewerCopy:
+    def test_restores_when_clipboard_still_holds_our_copy(self, fake_clipboard):
+        cb, _ = fake_clipboard
         capture = ElaClipboardCapture()
         capture._old_text = "用户原本的内容"
-        clipboard.setText("取词拿到的文本")
+        cb.setText("取词拿到的文本")
         _capture_with(capture, "取词拿到的文本")
-        clipboard.setText("用户后来复制的东西")
         capture._restore_clipboard()
-        assert clipboard.text() == "用户后来复制的东西", (
+        assert capture.lastRestoreSkipReason() == ""
+        assert cb.text() == "用户原本的内容"
+
+    def test_keeps_user_newer_copy(self, fake_clipboard):
+        """用户在延时窗口里又复制了一次 —— 那份必须留下。"""
+        cb, _ = fake_clipboard
+        capture = ElaClipboardCapture()
+        capture._old_text = "用户原本的内容"
+        cb.setText("取词拿到的文本")
+        _capture_with(capture, "取词拿到的文本")
+        cb.setText("用户后来复制的东西")  # 用户又复制了一次
+        capture._restore_clipboard()
+        assert capture.lastRestoreSkipReason() == "user-copied"
+        assert cb.text() == "用户后来复制的东西", (
             "用户的新复制被静默丢弃了（用户 Ctrl+V 会拿到旧内容）"
         )
-        assert capture.lastRestoreSkipReason() == "user-copied"
 
-    def test_same_text_but_newer_copy_keeps_user_action(self, clipboard):
+    def test_same_text_but_newer_copy_keeps_user_action(self, fake_clipboard):
         """用户在延时窗口里又复制了**同样的**文本 —— 纯文本比较看不出来。
 
         这就是「Ctrl+C 撞上用户自己按的 Ctrl+C」那条：文本完全相同，但用户
         确实重新复制了一次（可能换了个来源程序、格式更丰富）。序列号能判别。
         """
+        cb, _ = fake_clipboard
         capture = ElaClipboardCapture()
         capture._old_text = "原文"
-        clipboard.setText("同样的内容")
+        cb.setText("同样的内容")
         _capture_with(capture, "同样的内容")
         # 用户又复制了一遍同样的文本：文本没变，序列号变了
-        clipboard.setText("同样的内容")
+        cb.setText("同样的内容")
         capture._restore_clipboard()
         assert capture.lastRestoreSkipReason() in (
             "clipboard-changed",
             "user-copied",
         ), "序列号或文本判据应识别出剪贴板被再次写入"
 
-    def test_non_text_baseline_is_never_cleared(self, clipboard):
+    def test_non_text_baseline_is_never_cleared(self, fake_clipboard):
         """基准剪贴板含图片等非文本内容时**跳过恢复**，绝不 ``clear()``。
 
         否则用户复制的图片被清空，Ctrl+V 直接粘不出来（静默数据丢失）。
         """
+        cb, _ = fake_clipboard
         capture = ElaClipboardCapture()
         capture._old_text = ""
         capture._baseline_non_text = True
-        clipboard.setText("TAKEN")
+        cb.setText("TAKEN")
         _capture_with(capture, "TAKEN")
         capture._restore_clipboard()
         assert capture.lastRestoreSkipReason() == "non-text-baseline"
-        assert clipboard.text() == "TAKEN", "注入进来的文本应留着，而不是清空剪贴板"
+        assert cb.text() == "TAKEN", "注入进来的文本应留着，而不是清空剪贴板"
 
-    def test_emits_restore_skipped_only_when_skipped(self, clipboard):
+    def test_emits_restore_skipped_only_when_skipped(self, fake_clipboard):
+        cb, _ = fake_clipboard
         capture = ElaClipboardCapture()
         events: list[str] = []
         capture.restoreSkipped.connect(lambda: events.append("skipped"))
 
         capture._old_text = "A"
-        clipboard.setText("TAKEN")
+        cb.setText("TAKEN")
         _capture_with(capture, "TAKEN")
         capture._restore_clipboard()
         assert events == [], "正常还原不该发这个信号"
 
         capture._old_text = "B"
-        clipboard.setText("TAKEN2")
+        cb.setText("TAKEN2")
         _capture_with(capture, "TAKEN2")
-        clipboard.setText("USER_NEW")
+        cb.setText("USER_NEW")
         capture._restore_clipboard()
         assert events == ["skipped"]
 
-    def test_empty_original_is_not_cleared_when_user_copied(self, clipboard):
+    def test_empty_original_is_not_cleared_when_user_copied(self, fake_clipboard):
         """原内容为空时走 ``clear()``；但前提同样要「剪贴板还是我们放的那份」。"""
+        cb, _ = fake_clipboard
         capture = ElaClipboardCapture()
         capture._old_text = ""
-        clipboard.setText("TAKEN")
+        cb.setText("TAKEN")
         _capture_with(capture, "TAKEN")
-        clipboard.setText("USER_NEW")
+        cb.setText("USER_NEW")
         capture._restore_clipboard()
-        assert clipboard.text() == "USER_NEW"
+        assert cb.text() == "USER_NEW"
 
-    def test_empty_original_is_cleared_when_unchanged(self, clipboard):
+    def test_empty_original_is_cleared_when_unchanged(self, fake_clipboard):
+        cb, _ = fake_clipboard
         capture = ElaClipboardCapture()
         capture._old_text = ""
-        clipboard.setText("TAKEN")
+        cb.setText("TAKEN")
         _capture_with(capture, "TAKEN")
         capture._restore_clipboard()
-        assert clipboard.text() == ""
+        assert capture.lastRestoreSkipReason() == "", "正常还原不该跳过"
+        assert cb.text() == ""
 
     def test_no_restore_flag_does_not_arm_the_timer(self, clipboard):
         capture = ElaClipboardCapture()
@@ -173,15 +215,16 @@ class TestClipboardRestoreDoesNotClobberNewerCopy:
         capture._finish("", ok=False)
         assert capture._need_restore is False
 
-    def test_restoring_twice_is_a_noop(self, clipboard):
+    def test_restoring_twice_is_a_noop(self, fake_clipboard):
+        cb, _ = fake_clipboard
         capture = ElaClipboardCapture()
         capture._old_text = "ORIGINAL"
-        clipboard.setText("TAKEN")
+        cb.setText("TAKEN")
         _capture_with(capture, "TAKEN")
         capture._restore_clipboard()
-        clipboard.setText("TAKEN")
-        capture._restore_clipboard()  # 已结清
-        assert clipboard.text() == "TAKEN"
+        cb.setText("TAKEN")
+        capture._restore_clipboard()  # 已结清（``_need_restore`` 一次性）
+        assert cb.text() == "TAKEN"
 
     def test_capture_resets_the_markers(self, clipboard):
         capture = ElaClipboardCapture()

@@ -1,4 +1,4 @@
-"""``pyqt5_ela_pro._motion`` 的单元测试。
+"""``pyside6_ela_pro._motion`` 的单元测试。
 
 三块：
 1. 策略解析真值表（``plan()`` / ``shouldAnimate()`` / ``duration()``）
@@ -12,15 +12,15 @@ import ast
 import pathlib
 
 import pytest
-from PyQt5.QtCore import (
+from PySide6.QtCore import (
     QAbstractAnimation,
     QPropertyAnimation,
     QVariantAnimation,
-    pyqtProperty,
+    Property,
 )
-from PyQt5.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget
 
-from pyqt5_ela_pro._motion import (
+from pyside6_ela_pro._motion import (
     Duration,
     Easing,
     ElaMotionKindType,
@@ -35,7 +35,7 @@ class _Animated(QWidget):
     """一个带 float 属性的宿主，给 QPropertyAnimation 当目标。"""
 
     _v = 0.0
-    v = pyqtProperty(float, lambda s: s._v, lambda s, x: setattr(s, "_v", float(x)))
+    v = Property(float, lambda s: s._v, lambda s, x: setattr(s, "_v", float(x)))
 
     def __init__(self) -> None:
         super().__init__()
@@ -114,21 +114,21 @@ class TestPolicyResolution:
         assert seen == [ElaMotionModeType.Reduced]
 
     def test_system_probe_is_cached(self, monkeypatch):
-        monkeypatch.setattr("pyqt5_ela_pro._motion._probe_system_reduced", lambda: True)
+        monkeypatch.setattr("pyside6_ela_pro._motion._probe_system_reduced", lambda: True)
         policy = MotionPolicy()
         assert policy.systemReduced() is True
         monkeypatch.setattr(
-            "pyqt5_ela_pro._motion._probe_system_reduced", lambda: False
+            "pyside6_ela_pro._motion._probe_system_reduced", lambda: False
         )
         assert policy.systemReduced() is True, "探测结果必须缓存，不该二次调用"
 
     def test_auto_mode_follows_system(self, monkeypatch):
-        monkeypatch.setattr("pyqt5_ela_pro._motion._probe_system_reduced", lambda: True)
+        monkeypatch.setattr("pyside6_ela_pro._motion._probe_system_reduced", lambda: True)
         policy = MotionPolicy()
         assert policy.mode() == ElaMotionModeType.Reduced
 
     def test_override_system_pins_then_releases(self, monkeypatch):
-        monkeypatch.setattr("pyqt5_ela_pro._motion._probe_system_reduced", lambda: True)
+        monkeypatch.setattr("pyside6_ela_pro._motion._probe_system_reduced", lambda: True)
         policy = MotionPolicy()
         policy.setOverrideSystem(True)
         assert policy.mode() == ElaMotionModeType.Reduced
@@ -154,7 +154,7 @@ class TestEasingTokens:
         assert Easing.type_name(name) is not None
 
     def test_unknown_name_falls_back(self):
-        from PyQt5.QtCore import QEasingCurve
+        from PySide6.QtCore import QEasingCurve
 
         assert Easing.type_name("nope") == QEasingCurve.Type.OutCubic
 
@@ -215,16 +215,20 @@ class TestStartTransition:
         assert w.v == pytest.approx(1.0)
 
     def test_repeated_calls_do_not_stack_completions(self, qapp):
-        """重复启动**同一个动画对象**时收尾只挂一次。
+        """重复启动**同一个动画对象**时收尾只跑一次。
 
         叠连接的代价：``tooltips`` 的 ``_onFadeOutFinished`` 会跑两遍 = 两次
-        ``deleteLater()``。这里用 ``receivers()`` 直接数连接数。
+        ``deleteLater()``。``QObject.receivers()`` 在 PySide6 下不可用
+        （见 MIGRATION），改为**数真实回调次数**。
         """
-        motion.setMode(ElaMotionModeType.Disabled)
+        motion.setMode(ElaMotionModeType.Full)
         w = _Animated()
+        hits: list[int] = []
         for _ in range(3):
-            start_transition(w.anim, 300, on_complete=lambda: None)
-        assert w.anim.receivers(w.anim.finished) == 1
+            start_transition(w.anim, 300, on_complete=lambda: hits.append(1))
+        # 推到终点：收尾只应跑一次（最后一次注册的那个回调）
+        w.anim.setCurrentTime(w.anim.duration())
+        assert len(hits) == 1, f"收尾跑了 {len(hits)} 次（叠连接）"
 
     def test_each_transition_completes_once(self, qapp):
         """三次独立的过渡 = 三次收尾（不是叠连接，是三次各跑一次）。"""
@@ -278,7 +282,7 @@ class TestStartTransition:
 # ── 3. 黑名单守卫 ────────────────────────────────────────────
 
 
-_PKG = pathlib.Path(__file__).resolve().parents[2] / "pyqt5_ela_pro"
+_PKG = pathlib.Path(__file__).resolve().parents[2] / "pyside6_ela_pro"
 
 _MOTION_SYMBOLS = {
     "motion",

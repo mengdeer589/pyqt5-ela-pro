@@ -19,11 +19,12 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import QCoreApplication, QObject, pyqtSignal
+from _qthelpers import wait_for_clipboard
+from PySide6.QtCore import QCoreApplication, QObject, Signal
 
-from pyqt5_ela_pro import ElaSelectionAssistant
-from pyqt5_ela_pro.selection_assistant import _native
-from pyqt5_ela_pro.selection_assistant import assistant as assistant_module
+from pyside6_ela_pro import ElaSelectionAssistant
+from pyside6_ela_pro.selection_assistant import _native
+from pyside6_ela_pro.selection_assistant import assistant as assistant_module
 
 
 @pytest.fixture
@@ -41,10 +42,10 @@ def no_injection(monkeypatch):
 
 
 class _FakeMonitor(QObject):
-    leftPressed = pyqtSignal(object)
-    leftReleased = pyqtSignal(object, object)
-    otherPressed = pyqtSignal(object)
-    wheelScrolled = pyqtSignal()
+    leftPressed = Signal(object)
+    leftReleased = Signal(object, object)
+    otherPressed = Signal(object)
+    wheelScrolled = Signal()
 
     def start(self) -> bool:
         return True
@@ -54,8 +55,8 @@ class _FakeMonitor(QObject):
 
 
 class _FakeCapture(QObject):
-    captured = pyqtSignal(str)
-    failed = pyqtSignal()
+    captured = Signal(str)
+    failed = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -299,11 +300,17 @@ class TestRestoreKeepsUserCopy:
 
         原实现只看文本，会把用户这次复制覆盖回旧值（用户 Ctrl+V 拿到旧内容）。
         """
-        from pyqt5_ela_pro.selection_assistant import capture as capture_mod
+        from pyside6_ela_pro.selection_assistant import capture as capture_mod
 
         cap = capture_mod.ElaClipboardCapture()
         cap._old_text = "旧内容"
-        clipboard.setText("同样的文本")
+        # 先确认哨兵落盘（Windows 单次写会被静默丢弃）；再快照序列号
+        assert (
+            wait_for_clipboard(
+                qapp, "同样的文本", write=lambda: clipboard.setText("同样的文本")
+            )
+            == "同样的文本"
+        )
         self._capture(cap, "同样的文本")
         # 模拟：用户又复制了一次同样的文本（文本没变，序列号变了）
         seq = capture_mod.clipboard_sequence_number()
@@ -316,21 +323,29 @@ class TestRestoreKeepsUserCopy:
 
         否则用户复制的图片被清空，Ctrl+V 直接粘不出来（静默数据丢失）。
         """
-        from pyqt5_ela_pro.selection_assistant import capture as capture_mod
+        from pyside6_ela_pro.selection_assistant import capture as capture_mod
 
         cap = capture_mod.ElaClipboardCapture()
         cap._old_text = ""
         cap._baseline_non_text = True
-        clipboard.setText("TAKEN")
+        # 先确认哨兵真的落盘（Windows 单次写会被静默丢弃）；再走取词流程 ——
+        # ``_finish`` 在此快照序列号，晚写会推进序列号、被误判成「用户改过剪贴板」
+        assert (
+            wait_for_clipboard(qapp, "TAKEN", write=lambda: clipboard.setText("TAKEN"))
+            == "TAKEN"
+        )
         self._capture(cap, "TAKEN")
         cap._restore_clipboard()
         assert cap.lastRestoreSkipReason() == "non-text-baseline"
-        assert clipboard.text() == "TAKEN", "注入进来的文本应留着"
+        # 只轮询不重发：重发等于覆盖证据
+        assert (
+            wait_for_clipboard(qapp, "TAKEN") == "TAKEN"
+        ), "注入进来的文本应留着"
 
     def test_non_text_probe_detects_image(self, qapp):
         """``_has_non_text_format`` 能认出图片剪贴板。"""
-        from PyQt5.QtGui import QImage
-        from pyqt5_ela_pro.selection_assistant.capture import _has_non_text_format
+        from PySide6.QtGui import QImage
+        from pyside6_ela_pro.selection_assistant.capture import _has_non_text_format
 
         cb = qapp.clipboard()
         cb.setImage(QImage(4, 4, QImage.Format.Format_RGB32))
@@ -344,14 +359,23 @@ class TestRestoreKeepsUserCopy:
 
     def test_plain_restore_still_works(self, qapp, clipboard):
         """对照组：没人动过剪贴板时仍然正常还原。"""
-        from pyqt5_ela_pro.selection_assistant import capture as capture_mod
+        from pyside6_ela_pro.selection_assistant import capture as capture_mod
 
         cap = capture_mod.ElaClipboardCapture()
         cap._old_text = "用户原本的内容"
-        clipboard.setText("取词拿到的文本")
+        # 先确认哨兵落盘（Windows 单次写会被静默丢弃），再快照序列号
+        assert (
+            wait_for_clipboard(
+                qapp, "取词拿到的文本", write=lambda: clipboard.setText("取词拿到的文本")
+            )
+            == "取词拿到的文本"
+        )
         self._capture(cap, "取词拿到的文本")
-        cap._restore_clipboard()
-        assert clipboard.text() == "用户原本的内容"
+        # 还原写入同样可能被丢弃：重发同一个动作（不然永远读不回旧值）
+        assert (
+            wait_for_clipboard(qapp, "用户原本的内容", write=cap._restore_clipboard)
+            == "用户原本的内容"
+        )
         assert cap.lastRestoreSkipReason() == ""
 
 

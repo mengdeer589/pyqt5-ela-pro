@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import re
 
-from PyQt5.QtGui import QColor
-from PyQt5ElaWidgetTools import ElaThemeType
+from PySide6.QtGui import QColor
+from PySide6ElaWidgetTools import ElaThemeType
 
-from pyqt5_ela_pro._colors import (
+from pyside6_ela_pro._colors import (
     _COLOR_ALIAS,
     _COLOR_PALETTE,
     _contrast_ratio,

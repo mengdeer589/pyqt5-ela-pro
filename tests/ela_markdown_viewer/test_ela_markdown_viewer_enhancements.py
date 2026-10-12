@@ -6,9 +6,10 @@ callouts, heading anchors/TOC, footnotes.
 
 from __future__ import annotations
 
-from PyQt5.QtGui import QTextCharFormat, QTextTable
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QTextCharFormat, QTextTable
 
-from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
+from pyside6_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
 
 
 def _fragments(viewer: ElaMarkdownViewer) -> list:
@@ -96,7 +97,7 @@ class TestInlineHighlight:
         assert "==" in text and "not" in text
         marks = _fragments_with_text(v, "not")
         assert marks
-        assert marks[0].charFormat().background().style() == 0
+        assert marks[0].charFormat().background().style() == Qt.BrushStyle.NoBrush
         v.deleteLater()
 
     def test_mark_inside_inline_code_untouched(self):
@@ -144,9 +145,9 @@ class TestCallout:
         assert callout_blocks
         for block in callout_blocks:
             background = block.blockFormat().background()
-            assert background.style() != 0
+            assert background.style() != Qt.BrushStyle.NoBrush
         normal = [b for b in _blocks(v) if b.text() == "后续段落"]
-        assert normal and normal[0].blockFormat().background().style() == 0
+        assert normal and normal[0].blockFormat().background().style() == Qt.BrushStyle.NoBrush
         v.deleteLater()
 
     def test_note_label_and_multiple_blocks(self):

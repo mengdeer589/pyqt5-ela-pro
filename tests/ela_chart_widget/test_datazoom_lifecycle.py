@@ -16,11 +16,11 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import QPoint, QPointF, Qt
-from PyQt5.QtGui import QWheelEvent
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QWheelEvent
+from PySide6.QtWidgets import QApplication
 
-from pyqt5_ela_pro.charts import ElaChartWidget
+from pyside6_ela_pro.charts import ElaChartWidget
 
 CATS = ["a", "b", "c", "d", "e", "f", "g", "h"]
 VALUES = [1, 3, 2, 5, 4, 7, 6, 8]
@@ -68,10 +68,10 @@ def _wheel(chart, pos: QPointF | None = None, dy: int = 120):
         QPointF(pos),
         QPoint(0, 0),
         QPoint(0, dy),
-        0,
-        Qt.Orientation.Vertical,
         Qt.MouseButton.NoButton,
         Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.ScrollUpdate,
+        False,
     )
     QApplication.sendEvent(chart, ev)
     QApplication.processEvents()

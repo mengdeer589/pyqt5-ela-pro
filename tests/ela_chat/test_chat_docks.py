@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from PyQt5.QtWidgets import QLabel
+from PySide6.QtWidgets import QLabel
 
-from pyqt5_ela_pro.chat import ElaChatInputDock, ElaChatQueueDock, ElaChatWidget
+from pyside6_ela_pro.chat import ElaChatInputDock, ElaChatQueueDock, ElaChatWidget
 
 
 class TestQueueDock:

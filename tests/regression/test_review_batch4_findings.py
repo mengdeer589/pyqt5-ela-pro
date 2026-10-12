@@ -17,30 +17,30 @@ import inspect
 import warnings
 
 import pytest
-from PyQt5.QtCore import QEvent, QObject, QPoint, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QMouseEvent, QPainter, QPixmap
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, Signal
+from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPixmap
 
-from pyqt5_ela_pro import (
+from pyside6_ela_pro import (
     ElaDataTable,
     ElaDrawerArea,
     ElaRatingControl,
 )
-from pyqt5_ela_pro import (
+from pyside6_ela_pro import (
     ela_drawer_area as DA,
 )
-from pyqt5_ela_pro.blueprint import edge_widget as EW
-from pyqt5_ela_pro.blueprint.edge_widget import _cached_pen
-from pyqt5_ela_pro.chat.blocks import ReasoningBlock
-from pyqt5_ela_pro.chat.message import ElaChatAttachment
-from pyqt5_ela_pro.selection_assistant import _native as N
-from pyqt5_ela_pro.selection_assistant import assistant
-from pyqt5_ela_pro.selection_assistant._native import safe_connect
+from pyside6_ela_pro.blueprint import edge_widget as EW
+from pyside6_ela_pro.blueprint.edge_widget import _cached_pen
+from pyside6_ela_pro.chat.blocks import ReasoningBlock
+from pyside6_ela_pro.chat.message import ElaChatAttachment
+from pyside6_ela_pro.selection_assistant import _native as N
+from pyside6_ela_pro.selection_assistant import assistant
+from pyside6_ela_pro.selection_assistant._native import safe_connect
 
 
 class _Sig(QObject):
-    """带类级信号的最小 QObject（pyqtSignal 必须定义在类上才会成为绑定信号）。"""
+    """带类级信号的最小 QObject（Signal 必须定义在类上才会成为绑定信号）。"""
 
-    sig = pyqtSignal(object)
+    sig = Signal(object)
 
 
 # ------------------------------------------------------------------ 1 & 2

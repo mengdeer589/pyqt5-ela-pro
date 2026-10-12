@@ -21,11 +21,11 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication
 
-from pyqt5_ela_pro.charts import _downsample as ds
-from pyqt5_ela_pro.charts.core import ElaChartWidget
-from pyqt5_ela_pro.charts.data import toBuffer
+from pyside6_ela_pro.charts import _downsample as ds
+from pyside6_ela_pro.charts.core import ElaChartWidget
+from pyside6_ela_pro.charts.data import toBuffer
 
 pytestmark = pytest.mark.skipif(not ds.available(), reason="需要 numpy + tsdownsample")
 

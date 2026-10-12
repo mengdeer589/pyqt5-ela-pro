@@ -17,11 +17,11 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5ElaWidgetTools import ElaIconType, ElaText, ElaWindow
+from PySide6ElaWidgetTools import ElaIconType, ElaText, ElaWindow
 
-from pyqt5_ela_pro import ElaButton, ElaTrayIcon
-from pyqt5_ela_pro.example.app_shell_page import AppShellPage
-from pyqt5_ela_pro.example.selection_page import SelectionAssistantPage
+from pyside6_ela_pro import ElaButton, ElaTrayIcon
+from pyside6_ela_pro.example.app_shell_page import AppShellPage
+from pyside6_ela_pro.example.selection_page import SelectionAssistantPage
 
 
 @pytest.fixture(scope="module")
@@ -139,7 +139,7 @@ class TestQuitAction:
         _window, tray_page, _sel = env
         # **别让真实的 shutdown() 跑**：它会 ``QApplication.quit()``，而
         # 「没有执行中的事件循环时调 quit()」会把主线程的 ``quitNow`` 置位且
-        # 没人复位 —— 之后所有 ``QEventLoop.exec_()``（``QTest.qWait`` / 本仓库
+        # 没人复位 —— 之后所有 ``QEventLoop.exec()``（``QTest.qWait`` / 本仓库
         # 的 ``_spin``）直接返回 -1 变空转（实测 0ms 返回），后续 ela_chat 的
         # 工作线程用例三条时序断言失败、最终整进程 0xC0000409 静默崩。
         monkeypatch.setattr(tray_page._host, "shutdown", lambda: None)
@@ -148,7 +148,7 @@ class TestQuitAction:
         assert _click(tray_page._host, "退出") is True
         assert seen == [True]
 
-    # 注意：不在这里跑 `qapp.exec_()` 验证真退出 —— 在 pytest 内重入事件循环
+    # 注意：不在这里跑 `qapp.exec()` 验证真退出 —— 在 pytest 内重入事件循环
     # 会把整个测试进程带崩（实测 access violation，栈全在 pluggy/pytest 内）。
     # 真退出由独立进程脚本验证，本文件只守「点了退出 → shutdown() 被调用」。
 

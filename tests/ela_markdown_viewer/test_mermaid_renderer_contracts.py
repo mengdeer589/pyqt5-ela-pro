@@ -5,9 +5,9 @@ import weakref
 
 import pytest
 from _qthelpers import wait_until
-from PyQt5.QtGui import QImage
+from PySide6.QtGui import QImage
 
-from pyqt5_ela_pro.mermaid_support import (
+from pyside6_ela_pro.mermaid_support import (
     _MAX_RASTER_DIM,
     _MIN_ZOOM,
     _clamp_zoom_to_budget,
@@ -48,7 +48,7 @@ class TestCallbacksSurviveClearCache:
     def test_clear_cache_delivers_pending_callbacks_as_none(self, renderer, qapp):
         seen: list = []
         # 阻塞式渲染器：保证调用clearCache 时回调还挂在 _callbacks 上
-        from PyQt5.QtCore import QThread
+        from PySide6.QtCore import QThread
 
         def slow(code: str, theme: str):
             QThread.msleep(400)
@@ -137,7 +137,7 @@ class TestLifecycle:
 
     def test_render_task_holds_renderer_weakly(self, make, qapp):
         """渲染途中宿主被关掉时，任务不得 emit 到已释放对象。"""
-        from pyqt5_ela_pro.mermaid_support import _RenderTask
+        from pyside6_ela_pro.mermaid_support import _RenderTask
 
         widget = make(ElaMermaidRenderer)
         task = _RenderTask(widget, CODE, "light")
@@ -151,7 +151,7 @@ class TestLifecycle:
         assert ref() is None or True  # 只验证「运行不抛」，不钉存活时机
 
     def test_prewarm_task_holds_renderer_weakly(self, make, qapp):
-        from pyqt5_ela_pro.mermaid_support import _PrewarmTask
+        from pyside6_ela_pro.mermaid_support import _PrewarmTask
 
         widget = make(ElaMermaidRenderer)
         task = _PrewarmTask(widget)

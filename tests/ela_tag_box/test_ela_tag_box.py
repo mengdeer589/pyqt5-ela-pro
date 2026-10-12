@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import QPropertyAnimation
+from PySide6.QtCore import QPropertyAnimation
 
-from pyqt5_ela_pro._motion import Duration
-from pyqt5_ela_pro.ela_tag_box import ElaTagBox
+from pyside6_ela_pro._motion import Duration
+from pyside6_ela_pro.ela_tag_box import ElaTagBox
 
 
 @pytest.fixture

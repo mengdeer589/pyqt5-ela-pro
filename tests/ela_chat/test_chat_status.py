@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from PyQt5ElaWidgetTools import ElaThemeType
+from PySide6ElaWidgetTools import ElaThemeType
 
-from pyqt5_ela_pro.chat import ElaChatStatusBar
-from pyqt5_ela_pro.chat.status import STATUS_LEVELS
+from pyside6_ela_pro.chat import ElaChatStatusBar
+from pyside6_ela_pro.chat.status import STATUS_LEVELS
 
 
 class TestContent:

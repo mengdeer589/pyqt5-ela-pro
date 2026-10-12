@@ -1,7 +1,7 @@
 # Markdown 查看器（ElaMarkdownViewer）
 
 主题自适应的 Markdown 渲染控件，面向 AI 对话场景（流式追加，聊天助手消息复用它
-的嵌入模式）。本页是能力清单；API 细节见 `pyqt5_ela_pro/ela_markdown_viewer.py`
+的嵌入模式）。本页是能力清单；API 细节见 `pyside6_ela_pro/ela_markdown_viewer.py`
 的类 docstring，可运行示例见 `example/markdown_page.py`。
 
 ## 排版
@@ -19,7 +19,7 @@
 按当前浅 / 深主题自动取对应变体；每套含 `semantic`（8 个语义键）与 `syntax`（代码高亮）。
 
 ```python
-from pyqt5_ela_pro import registerMarkdownTheme, setDefaultMarkdownTheme
+from pyside6_ela_pro import registerMarkdownTheme, setDefaultMarkdownTheme
 
 viewer.setMarkdownTheme("github")            # 切换当前实例
 registerMarkdownTheme("mine", light=..., dark=...)   # 注册自定义（同名覆盖）

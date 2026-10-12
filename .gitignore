@@ -11,7 +11,7 @@ __pycache__/
 /dist/
 /ela_ext.egg-info/
 /Supermium/
-/pyqt5_ela_pro/example/runtime/
+/pyside6_ela_pro/example/runtime/
 /runtime/
 *.egg-info/
 .opencode/

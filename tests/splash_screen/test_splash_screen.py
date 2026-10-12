@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtGui import QPixmap
+from PySide6.QtGui import QPixmap
 
-from pyqt5_ela_pro.splash_screen import ElaSplashScreen
+from pyside6_ela_pro.splash_screen import ElaSplashScreen
 
 
 @pytest.fixture

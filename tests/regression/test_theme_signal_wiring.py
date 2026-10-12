@@ -3,7 +3,7 @@
 三条曾经同时失守的防线：
 
 1. **``self.destroyed.connect(self._x)`` 永不触发** —— PyQt5 不调用绑到自身的
-   ``destroyed`` 槽（实测 ``sip.delete()`` 下触发 0 次，模块级函数 / lambda 各 1 次），
+   ``destroyed`` 槽（实测 ``shiboken6.delete()`` 下触发 0 次，模块级函数 / lambda 各 1 次），
    所以挂在上面的清理逻辑等于从未执行。机器守卫 :class:`TestNoSelfBoundDestroyedSlot`
    钉住这个形状不再出现。
 2. **``_theme_cleanup()`` 断的是错的 callable** —— 它断 ``self._onThemeChanged``（每次
@@ -18,17 +18,17 @@ import ast
 import pathlib
 
 import pytest
-from PyQt5 import sip
-from PyQt5.QtWidgets import QWidget
-from PyQt5ElaWidgetTools import eTheme
+import shiboken6
+from PySide6.QtWidgets import QWidget
+from PySide6ElaWidgetTools import eTheme
 
-from pyqt5_ela_pro._internal import (
+from pyside6_ela_pro._internal import (
     _ThemeAwareMixin,
     connect_theme_signal,
     disconnect_theme,
 )
 
-_PKG = pathlib.Path(__file__).resolve().parents[2] / "pyqt5_ela_pro"
+_PKG = pathlib.Path(__file__).resolve().parents[2] / "pyside6_ela_pro"
 
 
 class Probe(_ThemeAwareMixin, QWidget):
@@ -91,7 +91,7 @@ class TestThemeCleanupActuallyDisconnects:
         fired = []
         probe = make(Probe)
         probe.destroyed.connect(lambda *_: fired.append(1))
-        sip.delete(probe)
+        shiboken6.delete(probe)
         assert fired == [1]
 
 
@@ -123,8 +123,8 @@ class TestConnectThemeSignalHelper:
         holder = QWidget()
         holder._onThemeChanged = lambda mode: None  # type: ignore[attr-defined]
         connect_theme_signal(holder)
-        sip.delete(holder)
-        # 不应抛：槽先判 sip.isdeleted 再决定是否自断
+        shiboken6.delete(holder)
+        # 不应抛：槽先判 shiboken6.isValid 再决定是否自断
         _fire_theme()
 
 
@@ -178,7 +178,7 @@ class TestMigratedCallSitesStillTheme:
     """迁移过的 6 处必须仍然跟随主题，且销毁后断开。"""
 
     def test_notify_popup(self, qapp, make):
-        from pyqt5_ela_pro.notify_popup import ElaNotifyPopup
+        from pyside6_ela_pro.notify_popup import ElaNotifyPopup
 
         popup = make(ElaNotifyPopup)
         assert popup._theme_connected is True
@@ -188,7 +188,7 @@ class TestMigratedCallSitesStillTheme:
         assert popup._theme_connected is False
 
     def test_password_edit(self, qapp, make):
-        from pyqt5_ela_pro.ela_password_edit import ElaPasswordEdit
+        from pyside6_ela_pro.ela_password_edit import ElaPasswordEdit
 
         edit = make(ElaPasswordEdit)
         assert edit._theme_connected is True
@@ -199,7 +199,7 @@ class TestMigratedCallSitesStillTheme:
     def test_chart_widget(self, qapp, make):
         chart = make(
             __import__(
-                "pyqt5_ela_pro.charts.core", fromlist=["ElaChartWidget"]
+                "pyside6_ela_pro.charts.core", fromlist=["ElaChartWidget"]
             ).ElaChartWidget
         )
         assert chart._theme_connected is True
@@ -210,8 +210,8 @@ class TestMigratedCallSitesStillTheme:
     @pytest.mark.parametrize(
         "module_name,attr",
         [
-            ("pyqt5_ela_pro.ela_figure_canvas", "ElaFigureCanvas"),
-            ("pyqt5_ela_pro.ela_pyqtgraph_canvas", "ElaPlotWidget"),
+            ("pyside6_ela_pro.ela_figure_canvas", "ElaFigureCanvas"),
+            ("pyside6_ela_pro.ela_pyqtgraph_canvas", "ElaPlotWidget"),
         ],
     )
     def test_optional_canvases(self, qapp, module_name, attr):
@@ -227,7 +227,7 @@ class TestMigratedCallSitesStillTheme:
         qapp.processEvents()
 
     def test_tag_combo_base_host(self, qapp, make):
-        from pyqt5_ela_pro.ela_tag_box import ElaTagBox
+        from pyside6_ela_pro.ela_tag_box import ElaTagBox
 
         box = make(ElaTagBox)
         assert getattr(box, "_theme_connected", False) is True
@@ -237,18 +237,18 @@ class TestMigratedCallSitesStillTheme:
 
 
 _TAG_BOX_MODULES = [
-    ("ElaTagBox", "pyqt5_ela_pro.ela_tag_box", "ElaTagBox"),
-    ("ElaTagSearchBox", "pyqt5_ela_pro.ela_tag_search_box", "ElaTagSearchBox"),
+    ("ElaTagBox", "pyside6_ela_pro.ela_tag_box", "ElaTagBox"),
+    ("ElaTagSearchBox", "pyside6_ela_pro.ela_tag_search_box", "ElaTagSearchBox"),
     (
         "ElaTagSearchMultiBox",
-        "pyqt5_ela_pro.ela_tag_search_multi_box",
+        "pyside6_ela_pro.ela_tag_search_multi_box",
         "ElaTagSearchMultiBox",
     ),
 ]
 
 _SEARCH_COMBO_MODULES = [
-    ("ElaSearchBox", "pyqt5_ela_pro.combo_box", "ElaSearchBox"),
-    ("ElaSearchMultiBox", "pyqt5_ela_pro.combo_box", "ElaSearchMultiBox"),
+    ("ElaSearchBox", "pyside6_ela_pro.combo_box", "ElaSearchBox"),
+    ("ElaSearchMultiBox", "pyside6_ela_pro.combo_box", "ElaSearchMultiBox"),
 ]
 
 
@@ -426,7 +426,7 @@ class TestTagBoxFollowsTheme:
         判据是**同一对象在两种模式下的底色必须不同且深色更深**，不钉具体色值
         —— 上游改配色时这条仍应成立，而 bug 复现时两者完全相等。
         """
-        from PyQt5ElaWidgetTools import ElaThemeType, eTheme
+        from PySide6ElaWidgetTools import ElaThemeType, eTheme
 
         box = make(_load(module_name, attr), "语言")
         seen = {}
@@ -459,9 +459,8 @@ class TestTagBoxFollowsTheme:
     ):
         """构造路径上只有**一个** ``connect_theme_signal`` 调用点该生效。
 
-        ``_tag_box_init`` 与（搜索框系列的）``_ThemeAwareMixin.__init__`` 都会
-        调它；幂等守卫让第二次调用静默 no-op，所以两次传进来的必须是同一个
-        ``_onThemeChanged``。这里从接收者数量侧验证「没有叠连接」。
+        ``QObject.receivers()`` 在 PySide6 下对所有信号都不可用（见 MIGRATION），
+        改为从**幂等守卫 + 断开链路**两侧钉住这条不变量。
         """
         box = make(_load(module_name, attr), "语言")
         assert box._theme_connected is True
@@ -469,10 +468,17 @@ class TestTagBoxFollowsTheme:
         assert (
             box._theme_slot.__closure__ is not None
         ), "_theme_slot 包装器丢失"
-        # 只连一条：一次主题切换后连接数不变
-        before = eTheme.receivers(eTheme.themeModeChanged)
+
+        # ① 幂等：第二次 connect 必须静默 no-op（不换包装器、不叠连接）
+        slot_before = box._theme_slot
+        connect_theme_signal(box)
+        assert box._theme_slot is slot_before
+
+        # ② 断开后主题信号不得再进这条链路（断开必须真的生效）
+        disconnect_theme(box)
+        assert box._theme_connected is False
+        # 断开后 emit 一次不应抛（残留连接会打进已断开的包装器）
         eTheme.themeModeChanged.emit(eTheme.getThemeMode())
         qapp.processEvents()
-        assert eTheme.receivers(eTheme.themeModeChanged) == before
 
 

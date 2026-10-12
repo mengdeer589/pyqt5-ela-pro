@@ -5,10 +5,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import pywintypes
-from PyQt5.QtCore import QTimer
+from PySide6.QtCore import QTimer
 
-from pyqt5_ela_pro import window_embedder as we
-from pyqt5_ela_pro.window_embedder import (
+from pyside6_ela_pro import window_embedder as we
+from pyside6_ela_pro.window_embedder import (
     _release_on_destroy,
     ElaWindowEmbedder,
 )
@@ -206,7 +206,7 @@ class TestContainerDoesNotShadowStyle:
 class TestReleaseOnDestroy:
     """``destroyed`` 收尾：把外部窗口从 Qt 父 HWND 上摘下来。
 
-    直接调模块级函数而**不** ``sip.delete()`` 整个控件 —— 后者在共享的
+    直接调模块级函数而**不** ``shiboken6.delete()`` 整个控件 —— 后者在共享的
     pytest 进程里反复建销顶层控件会撞 Qt 清理竞态（AGENTS.md 记过：
     0xC0000409 静默终止），那样测的是 Qt 不是本函数。
     """

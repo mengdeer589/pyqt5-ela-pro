@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from pyqt5_ela_pro.ela_divider import ElaDivider
+from pyside6_ela_pro.ela_divider import ElaDivider
 
 
 @pytest.fixture

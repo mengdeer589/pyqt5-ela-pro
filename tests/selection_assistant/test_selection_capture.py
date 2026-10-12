@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import time
 
+from _qthelpers import wait_for_clipboard
 from _qthelpers import wait_until as _wait_until
 
-from pyqt5_ela_pro import ElaClipboardCapture
-from pyqt5_ela_pro.selection_assistant import capture as capture_module
+from pyside6_ela_pro import ElaClipboardCapture
+from pyside6_ela_pro.selection_assistant import capture as capture_module
 
 
 def _speed_up(capture: ElaClipboardCapture, timeout_ms: int = 120) -> None:
@@ -65,7 +66,11 @@ class TestCapture:
         assert capture.isCapturing() is True
         assert _wait_until(qapp, lambda: bool(results))
         assert results == ["选中的文本"]
-        assert _wait_until(qapp, lambda: clipboard.text() == before)
+        # 恢复写入在 Windows 上可能被静默丢弃（只轮询永远等不来）——
+        # 按 _qthelpers 的约定重发同一个动作。
+        assert (
+            wait_for_clipboard(qapp, before, write=capture._restore_clipboard) == before
+        )
         capture.deleteLater()
 
     def test_timeout_fails_without_touching_clipboard(
@@ -96,15 +101,13 @@ class TestCapture:
         assert capture.restoreClipboard() is False
         results = []
         capture.captured.connect(results.append)
-        monkeypatch.setattr(
-            capture_module,
-            "send_copy",
-            _fake_send_copy(lambda: clipboard.setText("选中")),
-        )
+        fake = _fake_send_copy(lambda: clipboard.setText("选中"))
+        monkeypatch.setattr(capture_module, "send_copy", fake)
 
         capture.capture()
         assert _wait_until(qapp, lambda: bool(results))
-        assert _wait_until(qapp, lambda: clipboard.text() == "选中")
+        # 关闭恢复：剪贴板应停在「选中」（写入可能被静默丢弃 → 重发同一动作）
+        assert wait_for_clipboard(qapp, "选中", write=fake) == "选中"
         capture.deleteLater()
 
     def test_blocked_injection_never_polls_or_captures(self, qapp, monkeypatch):

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtWidgets import QLabel, QWidget
+from PySide6.QtWidgets import QLabel, QWidget
 
-from PyQt5ElaWidgetTools import ElaIconType
+from PySide6ElaWidgetTools import ElaIconType
 
-from pyqt5_ela_pro.chat import ElaChatToolBar, ElaChatToolButton
+from pyside6_ela_pro.chat import ElaChatToolBar, ElaChatToolButton
 
 
 class TestAddButton:

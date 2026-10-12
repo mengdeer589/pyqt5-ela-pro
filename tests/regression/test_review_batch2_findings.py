@@ -19,13 +19,13 @@ from __future__ import annotations
 import inspect
 import re
 
-from PyQt5.QtCore import QUrl
-from PyQt5.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QColor, QPainter, QPixmap
 
-import pyqt5_ela_pro.ela_markdown_viewer as M
-from pyqt5_ela_pro import ElaChartWidget
-from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
-from pyqt5_ela_pro.math_lite import _MACRO_EXPANSION_LIMIT, _expand_macros
+import pyside6_ela_pro.ela_markdown_viewer as M
+from pyside6_ela_pro import ElaChartWidget
+from pyside6_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
+from pyside6_ela_pro.math_lite import _MACRO_EXPANSION_LIMIT, _expand_macros
 
 
 class TestMarkdownInternalAnchors:
@@ -84,7 +84,7 @@ class TestMarkdownInternalAnchors:
         qapp.processEvents()
 
     def test_link_activated_still_emitted(self, qapp, monkeypatch):
-        from PyQt5.QtGui import QDesktopServices
+        from PySide6.QtGui import QDesktopServices
 
         # 必须替换 openUrl：viewer 默认 setOpenExternalLinks(True)，这条走的是
         # 真实外链分支，不拦的话在有桌面会话的机器上会真的拉起浏览器。

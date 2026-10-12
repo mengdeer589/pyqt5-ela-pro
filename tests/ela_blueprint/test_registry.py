@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from pyqt5_ela_pro.blueprint import (
+from pyside6_ela_pro.blueprint import (
     PIN_COLORS,
     ElaNodeSpec,
     pin_color,

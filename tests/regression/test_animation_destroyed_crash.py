@@ -15,10 +15,12 @@ from __future__ import annotations
 import inspect
 from weakref import WeakKeyDictionary
 
-from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QWidget
+from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QWidget
 
-from pyqt5_ela_pro import animation as A
+from pyside6_ela_pro import animation as A
+from pyside6_ela_pro._internal import is_deleted
 
 
 class TestNoDestroyedLambdaOnRegistry:
@@ -37,21 +39,27 @@ class TestNoDestroyedLambdaOnRegistry:
         assert "widget.destroyed.connect" not in src
 
     def test_no_destroyed_lambda_registered_at_runtime(self, qapp):
-        """运行期检查：destroyed 信号上不应再挂 Python 回调。"""
+        """运行期检查：销毁「带在途动画」的控件必须安全收尾。
 
+        PySide6 的 ``QObject.receivers()`` 对所有信号都不可用（见 MIGRATION），
+        无法直接数 ``destroyed`` 上的连接数 —— 改为**真的销毁并冲刷事件循环**：
+        若 ``destroyed`` 上挂了 Python 回调，析构期执行它就是历史崩溃来源
+        （测试进程会直接 abort，跑不过即失败）。
+        """
+        before = len(A._animation_registry)
         w = QWidget()
         w.resize(120, 80)
         w.show()
         qapp.processEvents()
         A.fade_in(w, duration=5000)
-        assert w in A._animation_registry
-        # destroyed 上只允许有 C++ 内部连接，不应有额外的 Python 可调用
-        receivers = w.receivers(w.destroyed)
-        assert receivers <= 1, (
-            f"destroyed 上有 {receivers} 个连接，析构期回调是崩溃来源"
-        )
+        assert len(A._animation_registry) == before + 1
         w.close()
         w.deleteLater()
+        # ``processEvents()`` 不派发 DeferredDelete（无父顶层窗要显式冲刷）
+        QCoreApplication.sendPostedEvents(w, QEvent.Type.DeferredDelete)
+        qapp.processEvents()
+        # 走到这里 = 析构期没炸；再确认 C++ 对象真的没了（销毁路径确实跑过）
+        assert is_deleted(w)
         qapp.processEvents()
 
     def test_registry_is_still_weak(self):
@@ -65,8 +73,8 @@ class TestShakeSurvivesDeletedAnimation:
     def test_source_guards_deleted_animation(self):
 
         src = inspect.getsource(A.shake_window)
-        assert "sip.isdeleted" in src, (
-            "shake_window 必须用 sip.isdeleted 守卫上一次的动画对象"
+        assert "shiboken6.isValid" in src, (
+            "shake_window 必须用 shiboken6.isValid 守卫上一次的动画对象"
         )
 
     def test_shake_many_times_while_alive(self, qapp):

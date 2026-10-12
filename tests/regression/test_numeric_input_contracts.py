@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from pyqt5_ela_pro.table_view import ElaDataTable
-from pyqt5_ela_pro.terminal_view import (
+from pyside6_ela_pro.table_view import ElaDataTable
+from pyside6_ela_pro.terminal_view import (
     _MAX_FONT_SIZE,
     _MAX_LINES_CAP,
     _MIN_FONT_SIZE,

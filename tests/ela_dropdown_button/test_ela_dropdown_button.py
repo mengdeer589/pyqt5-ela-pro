@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import QEvent, QPoint, Qt
-from PyQt5.QtGui import QMouseEvent
-from PyQt5.QtWidgets import QWidget
-from PyQt5ElaWidgetTools import ElaIconType, ElaMenu, ElaThemeType
+from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtWidgets import QWidget
+from PySide6ElaWidgetTools import ElaIconType, ElaMenu, ElaThemeType
 
-from pyqt5_ela_pro.ela_dropdown_button import ElaDropDownButton
+from pyside6_ela_pro.ela_dropdown_button import ElaDropDownButton
 
 
 @pytest.fixture

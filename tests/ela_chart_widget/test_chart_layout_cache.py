@@ -14,11 +14,11 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication
 
-from pyqt5_ela_pro.charts import _downsample as _ds
-from pyqt5_ela_pro.charts import series_cartesian as sc
-from pyqt5_ela_pro.charts.core import ElaChartWidget
+from pyside6_ela_pro.charts import _downsample as _ds
+from pyside6_ela_pro.charts import series_cartesian as sc
+from pyside6_ela_pro.charts.core import ElaChartWidget
 
 np = _ds.np
 
@@ -194,7 +194,7 @@ class TestNumericXy:
 
     def test_buffer_input(self):
         """大数组缓冲区也走快路径。"""
-        from pyqt5_ela_pro.charts.data import toBuffer
+        from pyside6_ela_pro.charts.data import toBuffer
 
         buf = toBuffer([float(i) for i in range(500)])
         assert buf is not None
@@ -311,7 +311,7 @@ class TestBarLayoutParity:
 
     def test_buffer_layout(self, make):
         """大数组缓冲区（零拷贝摄入后的常态）布局正常。"""
-        from pyqt5_ela_pro.charts.data import toBuffer
+        from pyside6_ela_pro.charts.data import toBuffer
 
         buf = toBuffer([float(i % 60) for i in range(1000)])
         assert buf is not None

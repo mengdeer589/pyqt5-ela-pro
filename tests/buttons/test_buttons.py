@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 from _pixels import skip_if_no_pixels
-from PyQt5.QtGui import QColor
+from PySide6.QtGui import QColor
 
-from pyqt5_ela_pro.ela_long_press_button import ElaLongPressButton as ElaLongPressBtn
-from pyqt5_ela_pro.ela_progress_button import ElaProgressButton
+from pyside6_ela_pro.ela_long_press_button import ElaLongPressButton as ElaLongPressBtn
+from pyside6_ela_pro.ela_progress_button import ElaProgressButton
 
 
 class TestElaLongPressBtn:

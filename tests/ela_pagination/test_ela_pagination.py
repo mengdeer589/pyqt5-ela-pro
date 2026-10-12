@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtCore import QEvent, Qt
-from PyQt5.QtGui import QMouseEvent
-from PyQt5ElaWidgetTools import ElaThemeType
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QMouseEvent
+from PySide6ElaWidgetTools import ElaThemeType
 
-from pyqt5_ela_pro.ela_pagination import ElaPagination
+from pyside6_ela_pro.ela_pagination import ElaPagination
 
 
 @pytest.fixture

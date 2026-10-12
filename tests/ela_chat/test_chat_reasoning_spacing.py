@@ -9,10 +9,10 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from _qthelpers import wait_until as _wait_until
-from pyqt5_ela_pro.chat import (
+from pyside6_ela_pro.chat import (
     ElaChatBubble,
     ElaChatPartKindType,
     ElaChatRoleType,

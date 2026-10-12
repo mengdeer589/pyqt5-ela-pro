@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from pyqt5_ela_pro.blueprint import ElaNodeRegistry
+from pyside6_ela_pro.blueprint import ElaNodeRegistry
 
 
 @pytest.fixture(autouse=True)

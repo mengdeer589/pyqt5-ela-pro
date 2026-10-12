@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from _qthelpers import wait_for_clipboard as _wait_for_clipboard
-from PyQt5.QtGui import QTextCursor
+from PySide6.QtGui import QTextCursor
 
-from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
+from pyside6_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
 
 SOURCE = """# 一级标题
 

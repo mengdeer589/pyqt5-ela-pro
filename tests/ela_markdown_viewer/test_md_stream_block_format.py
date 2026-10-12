@@ -9,11 +9,11 @@
 from __future__ import annotations
 
 import pytest
-from PyQt5.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QVBoxLayout, QWidget
 
-import pyqt5_ela_pro.ela_markdown_viewer as M
+import pyside6_ela_pro.ela_markdown_viewer as M
 from _qthelpers import wait_until as _wait_until
-from pyqt5_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
+from pyside6_ela_pro.ela_markdown_viewer import ElaMarkdownViewer
 
 DOC = (
     "Para one about the repo.\n\n"

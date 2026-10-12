@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import QCoreApplication, QEvent
-from PyQt5.QtWidgets import QWidget
+from PySide6.QtCore import QCoreApplication, QEvent
+from PySide6.QtWidgets import QWidget
 
-from pyqt5_ela_pro.dialog_base import ElaDialogBase
-from pyqt5_ela_pro.message_dialog import ElaMessageDialog
+from pyside6_ela_pro.dialog_base import ElaDialogBase
+from pyside6_ela_pro.message_dialog import ElaMessageDialog
 
 
 class TestElaMessageDialog:
@@ -27,7 +27,7 @@ class TestElaMessageDialog:
 
     def test_set_param_widget_survives_set_message(self, qapp):
         """Regression: setMessage must not delete user content from setParamWidget."""
-        import sip
+        import shiboken6
 
         parent = QWidget()
         dlg = ElaMessageDialog(parent=parent)
@@ -38,7 +38,7 @@ class TestElaMessageDialog:
         QCoreApplication.sendPostedEvents(content, QEvent.DeferredDelete)
         qapp.processEvents()
 
-        assert not sip.isdeleted(content)
+        assert shiboken6.isValid(content)
         assert dlg._paramLay.indexOf(content) != -1
         assert dlg._message_widget is not None
         dlg.deleteLater()
@@ -46,7 +46,7 @@ class TestElaMessageDialog:
 
     def test_set_message_replaces_previous_message_widget(self, qapp):
         """Regression: setMessage must replace only its own message widget."""
-        import sip
+        import shiboken6
 
         parent = QWidget()
         dlg = ElaMessageDialog(parent=parent)
@@ -57,8 +57,8 @@ class TestElaMessageDialog:
         qapp.processEvents()
 
         assert first is not dlg._message_widget
-        assert sip.isdeleted(first)
-        assert not sip.isdeleted(dlg._message_widget)
+        assert not shiboken6.isValid(first)
+        assert shiboken6.isValid(dlg._message_widget)
         assert dlg._paramLay.indexOf(dlg._message_widget) != -1
         dlg.deleteLater()
         parent.deleteLater()

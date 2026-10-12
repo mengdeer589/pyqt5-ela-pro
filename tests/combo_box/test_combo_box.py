@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt, QStringListModel, QModelIndex
-from PyQt5.QtWidgets import QWidget
+from PySide6.QtCore import Qt, QStringListModel, QModelIndex
+from PySide6.QtWidgets import QWidget
 
 import pytest
 from _qthelpers import wait_until as _wait_until
 
-from pyqt5_ela_pro._internal import hideComboboxPopup
-from pyqt5_ela_pro.combo_box import (
+from pyside6_ela_pro._internal import hideComboboxPopup
+from pyside6_ela_pro.combo_box import (
     ElaSearchProxyModel,
     ElaSearchMultiBox,
     ElaSearchBox,
 )
-from pyqt5_ela_pro.ela_tag_box import ElaTagBox
-from pyqt5_ela_pro.ela_tag_multi_box import ElaTagMultiBox
-from pyqt5_ela_pro.ela_tag_search_box import ElaTagSearchBox
-from pyqt5_ela_pro.ela_tag_search_multi_box import ElaTagSearchMultiBox
+from pyside6_ela_pro.ela_tag_box import ElaTagBox
+from pyside6_ela_pro.ela_tag_multi_box import ElaTagMultiBox
+from pyside6_ela_pro.ela_tag_search_box import ElaTagSearchBox
+from pyside6_ela_pro.ela_tag_search_multi_box import ElaTagSearchMultiBox
 
 
 class TestElaSearchProxyModel:
