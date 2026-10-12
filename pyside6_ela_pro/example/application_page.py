@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 from PySide6.QtCore import Qt
 from PySide6ElaWidgetTools import (
     ElaAppBar,
+    ElaNavigationType,
     ElaStatusBar,
     ElaNavigationBar,
     ElaText,
@@ -67,7 +68,8 @@ class ApplicationComponentsPage(ExamplePage):
         nav.setFixedWidth(220)
         nav.setUserInfoCardTitle("演示用户")
         nav.setUserInfoCardSubTitle("user@example.com")
-        nav.setDisplayMode(0)
+        # 上游只收枚举成员（传裸 int 会抛误导性的 NameError，见 AGENTS「PySide6 绑定要点」）
+        nav.setDisplayMode(ElaNavigationType.NavigationDisplayMode.Maximal)
 
         content = ElaThemeWidget(container)
         content_layout = QVBoxLayout(content)

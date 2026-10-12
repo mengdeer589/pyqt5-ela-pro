@@ -223,7 +223,7 @@ class AnimationIconPage(ExamplePage):
         for mode in (ElaMotionModeType.Full, ElaMotionModeType.Reduced, ElaMotionModeType.Disabled):
             btn = ElaPushButton(mode.name, self)
             btn.setFixedWidth(100)
-            btn.clicked.connect(self._onModeClicked, mode)
+            btn.clicked.connect(lambda _checked=False, m=mode: self._onModeClicked(m))
             btn_layout.addWidget(btn)
         btn_layout.addSpacing(20)
         show_btn = ElaPushButton("播放一次淡出→淡入", self)

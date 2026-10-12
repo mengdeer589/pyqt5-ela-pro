@@ -348,7 +348,7 @@ dependencies = [
     { name = "pyside6" },
 ]
 wheels = [
-    { filename = "pyside6_elawidgettools-0.13.0-cp38-abi3-win_amd64.whl", hash = "sha256:2d385fefc4d715dc7cad7d72d0f15ae6ab088fe3fded2792b88eb3ad97bfc5c5" },
+    { filename = "pyside6_elawidgettools-0.13.0-cp38-abi3-win_amd64.whl", hash = "sha256:f8e938e880aeb5482f594fe4abc40ed003f063236d8745ea880ce2ea93d71423" },
 ]
 
 [package.metadata]
