@@ -7,6 +7,7 @@ from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import QWidget
 from PySide6ElaWidgetTools import ElaIconType, ElaMenu, ElaThemeType
 
+from pyside6_ela_pro._theme import textDisabled
 from pyside6_ela_pro.ela_split_button import ElaSplitButton
 
 
@@ -132,6 +133,66 @@ class TestElaSplitButtonTheme:
     def test_on_theme_changed_updates_mode(self, btn):
         btn._onThemeChanged(ElaThemeType.ThemeMode.Dark)
         assert btn._theme_mode == ElaThemeType.ThemeMode.Dark
+
+
+class TestElaSplitButtonAppearance:
+    """透明底 + 双主题一致：基础态不画底，hover / press 才叠状态层；描边两主题都画。"""
+
+    def test_base_state_is_transparent(self, btn):
+        assert btn._state_layer(pressed=False, hovered=False).alpha() == 0
+
+    def test_hover_and_press_layers(self, btn):
+        hover = btn._state_layer(pressed=False, hovered=True)
+        press = btn._state_layer(pressed=True, hovered=True)
+        assert hover.alpha() > 0
+        assert press.alpha() > hover.alpha()
+
+    def test_press_layer_without_hover(self, btn):
+        """按下时鼠标可能已滑出半边，press 状态不依赖 hover 标记。"""
+        assert btn._state_layer(pressed=True, hovered=False).alpha() > 0
+
+    def test_hover_does_not_fill_the_other_half(self, btn):
+        """只有鼠标所在半边有状态层（另半边保持透明）。"""
+        assert btn._state_layer(pressed=False, hovered=False).alpha() == 0
+
+    def test_border_drawn_in_both_themes(self, btn):
+        btn._theme_mode = ElaThemeType.ThemeMode.Light
+        light = btn._border_color()
+        btn._theme_mode = ElaThemeType.ThemeMode.Dark
+        dark = btn._border_color()
+        assert light.alpha() > 0
+        assert dark.alpha() > 0
+        assert light.name() != dark.name()
+
+    def test_disabled_suppresses_layer_and_grays_content(self, btn):
+        btn._is_left_hovered = True
+        btn._is_right_hovered = True
+
+        btn.setEnabled(False)
+
+        assert btn._state_layer(pressed=False, hovered=True).alpha() == 0
+        assert btn._state_layer(pressed=True, hovered=True).alpha() == 0
+        assert btn._content_color().name() == textDisabled(btn._theme_mode).name()
+
+    def test_disabled_border_is_dimmed(self, btn):
+        enabled_border = btn._border_color().name()
+
+        btn.setEnabled(False)
+
+        assert btn._border_color().name() != enabled_border
+
+    def test_enabled_change_resets_halves(self, btn):
+        btn._is_left_hovered = True
+        btn._is_right_hovered = True
+        btn._is_left_pressed = True
+        btn._is_right_pressed = True
+
+        btn.setEnabled(False)
+
+        assert btn._is_left_hovered is False
+        assert btn._is_right_hovered is False
+        assert btn._is_left_pressed is False
+        assert btn._is_right_pressed is False
 
 
 class TestElaSplitButtonDeleteLater:

@@ -421,3 +421,22 @@ def accent_text(
         else:
             low = mid
     return _mix(accent, toward, high)
+
+
+# ── 状态层（透明底控件的悬浮 / 按下反馈）───────────────────────
+
+#: 通用状态层透明度：hover ≈ 8% / press ≈ 12%（不换色相，只叠一层）。
+STATE_HOVER_ALPHA = 20
+STATE_PRESS_ALPHA = 31
+
+
+def state_tint(mode: ElaThemeType.ThemeMode, *, pressed: bool = False) -> QColor:
+    """通用状态层色：hover ≈ 8% / press ≈ 12%（**暗色叠白 / 亮色叠黑**）。
+
+    透明底控件（``ElaButton`` 的 text / outlined 变体、下拉按钮族）共用；
+    只负责颜色，形状与圆角由调用方画（``_styles.paintRoundedCard``）。
+    """
+    alpha = STATE_PRESS_ALPHA if pressed else STATE_HOVER_ALPHA
+    if mode == ElaThemeType.ThemeMode.Dark:
+        return QColor(255, 255, 255, alpha)
+    return QColor(0, 0, 0, alpha)

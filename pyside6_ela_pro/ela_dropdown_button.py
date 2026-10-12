@@ -20,9 +20,8 @@ from typing import Optional
 
 from PySide6.QtCore import Qt, QRect, QRectF, QSize, QPoint, QEvent
 from PySide6.QtGui import (
+    QColor,
     QPainter,
-    QPainterPath,
-    QPen,
     QFont,
     QFontMetrics,
     QPaintEvent,
@@ -30,9 +29,15 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QWidget
 
-from PySide6ElaWidgetTools import eTheme, ElaThemeType, ElaIconType, ElaMenu
+from PySide6ElaWidgetTools import ElaThemeType, ElaIconType, ElaMenu
 
+from ._colors import state_tint
+from ._styles import paintRoundedCard
+from ._theme import blend, border, surface, text, textDisabled
 from .widget_base import ElaThemeWidget
+
+#: 全透明（基础态 / 禁用态不画底）
+_TRANSPARENT = QColor(0, 0, 0, 0)
 
 #: 控件高度：与按钮族一致（ElaPushButton V3.0 / ElaButton middle 都是 30）
 _HEIGHT = 30
@@ -96,7 +101,40 @@ class ElaDropDownButton(ElaThemeWidget):
         self._theme_mode = mode
         self.update()
 
+    # ── 取色（透明底 + 状态层）────────────────────────────
+
+    def _state_layer(self) -> QColor:
+        """悬浮 / 按下状态层；基础态与禁用态**全透明**（不画底）。"""
+        if not self.isEnabled():
+            return QColor(_TRANSPARENT)
+        if self._is_pressed:
+            return state_tint(self._theme_mode, pressed=True)
+        if self._is_hover:
+            return state_tint(self._theme_mode)
+        return QColor(_TRANSPARENT)
+
+    def _border_color(self) -> QColor:
+        """1px 描边；**两个主题都画**（只在浅色画会让两主题结构不一致）。"""
+        color = border(self._theme_mode)
+        if not self.isEnabled():
+            return blend(color, surface(self._theme_mode), 0.55)
+        return color
+
+    def _content_color(self) -> QColor:
+        """文字 / 图标色；禁用走 ``textDisabled``。"""
+        if not self.isEnabled():
+            return textDisabled(self._theme_mode)
+        return text(self._theme_mode)
+
     # ── Events ────────────────────────────────────────────
+
+    def changeEvent(self, event: QEvent) -> None:
+        if event.type() == QEvent.Type.EnabledChange:
+            # 禁用期间收不到 hover / leave 事件，残留状态会让重新启用后误画一层
+            self._is_hover = False
+            self._is_pressed = False
+            self.update()
+        super().changeEvent(event)
 
     def event(self, event: QEvent) -> bool:
         if event.type() == QEvent.Type.HoverEnter:
@@ -134,48 +172,16 @@ class ElaDropDownButton(ElaThemeWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
-        br = self._border_radius
-        path = QPainterPath()
-        path.addRoundedRect(
-            QRectF(0.5, 0.5, self.width() - 1, self.height() - 1), br, br
+        # 透明底：基础态不画底，只有悬浮 / 按下叠一层状态层；描边两主题都画
+        paintRoundedCard(
+            painter,
+            QRectF(self.rect()),
+            background=self._state_layer(),
+            border=self._border_color(),
+            radius=self._border_radius,
         )
 
-        if self._is_pressed:
-            painter.fillPath(
-                path,
-                eTheme.getThemeColor(
-                    self._theme_mode, ElaThemeType.ThemeColor.BasicPress
-                ),
-            )
-        elif self._is_hover:
-            painter.fillPath(
-                path,
-                eTheme.getThemeColor(
-                    self._theme_mode, ElaThemeType.ThemeColor.BasicHover
-                ),
-            )
-        else:
-            painter.fillPath(
-                path,
-                eTheme.getThemeColor(
-                    self._theme_mode, ElaThemeType.ThemeColor.BasicBase
-                ),
-            )
-
-        if self._theme_mode == ElaThemeType.ThemeMode.Light:
-            painter.setPen(
-                QPen(
-                    eTheme.getThemeColor(
-                        self._theme_mode, ElaThemeType.ThemeColor.BasicBorder
-                    ),
-                    1,
-                )
-            )
-            painter.drawPath(path)
-
-        text_color = eTheme.getThemeColor(
-            self._theme_mode, ElaThemeType.ThemeColor.BasicText
-        )
+        text_color = self._content_color()
         arrow_w = 20
         arrow_margin = 8
         content_left = 10

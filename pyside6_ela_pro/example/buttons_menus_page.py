@@ -580,7 +580,9 @@ class ButtonsMenusPage(ExamplePage):
                 self._demoDropDownButton,
             )
         )
-        self._addInfoText("点击展开 ElaMenu 下拉菜单", parent_layout)
+        self._addInfoText(
+            "点击展开 ElaMenu 下拉菜单（透明底 + 1px 描边，禁用态变灰）", parent_layout
+        )
         row = QHBoxLayout()
         row.setSpacing(15)
 
@@ -603,6 +605,10 @@ class ButtonsMenusPage(ExamplePage):
         btn2.setMenu(menu2)
         row.addWidget(btn2)
 
+        disabled = ElaDropDownButton("禁用", parent=self)
+        disabled.setEnabled(False)
+        row.addWidget(disabled)
+
         row.addStretch()
         parent_layout.addLayout(row)
         parent_layout.addSpacing(20)
@@ -613,7 +619,9 @@ class ButtonsMenusPage(ExamplePage):
                 "10. pyside6_ela_pro - ElaSplitButton 拆分按钮", self._demoSplitButton
             )
         )
-        self._addInfoText("左侧点击触发操作，右侧弹出下拉菜单", parent_layout)
+        self._addInfoText(
+            "左侧点击触发操作，右侧弹出下拉菜单（透明底 + 1px 描边）", parent_layout
+        )
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(15)
 
@@ -643,6 +651,12 @@ class ButtonsMenusPage(ExamplePage):
         no_icon.setMenu(menu2)
         no_icon.clicked.connect(lambda: print("纯文字 clicked"))
         btn_layout.addWidget(no_icon)
+
+        disabled = ElaSplitButton(parent=self)
+        disabled.setText("禁用")
+        disabled.setElaIcon(ElaIconType.IconName.Gear)
+        disabled.setEnabled(False)
+        btn_layout.addWidget(disabled)
 
         btn_layout.addStretch()
         parent_layout.addLayout(btn_layout)

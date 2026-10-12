@@ -33,7 +33,7 @@ from PySide6.QtWidgets import QPushButton, QWidget
 from PySide6ElaWidgetTools import eApp, eTheme, ElaThemeType, ElaIcon, ElaIconType
 
 from ._internal import _ThemeAwareMixin
-from ._colors import get_color_scheme
+from ._colors import get_color_scheme, state_tint
 from ._motion import Duration, start_idle_loop, start_transition
 from ._theme import accent as theme_accent, blend
 from .svg_icon import svg_icon_loader, svg_to_pixmap
@@ -335,11 +335,11 @@ class ElaButton(_ThemeAwareMixin, QPushButton):
 
     def _hover_tint(self) -> QColor:
         """状态层：hover ≈ 8%（暗色叠白 / 亮色叠黑）。"""
-        return QColor(255, 255, 255, 20) if self._is_dark() else QColor(0, 0, 0, 20)
+        return state_tint(self._theme_mode)
 
     def _pressed_tint(self) -> QColor:
         """状态层：press ≈ 12%。"""
-        return QColor(255, 255, 255, 31) if self._is_dark() else QColor(0, 0, 0, 31)
+        return state_tint(self._theme_mode, pressed=True)
 
     def _scheme(self) -> dict[str, QColor]:
         return get_color_scheme(self._effective_color(), self._theme_mode)

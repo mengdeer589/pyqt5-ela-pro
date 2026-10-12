@@ -23,6 +23,7 @@ from typing import Optional
 
 from PySide6.QtCore import Qt, QRectF, QSize, Signal, QPoint, QEvent
 from PySide6.QtGui import (
+    QColor,
     QPainter,
     QPainterPath,
     QPen,
@@ -33,9 +34,15 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QWidget
 
-from PySide6ElaWidgetTools import eTheme, ElaThemeType, ElaIconType, ElaMenu
+from PySide6ElaWidgetTools import ElaThemeType, ElaIconType, ElaMenu
 
+from ._colors import state_tint
+from ._styles import paintRoundedCard
+from ._theme import blend, border, surface, text, textDisabled
 from .widget_base import ElaThemeWidget
+
+#: 全透明（基础态 / 禁用态不画底）
+_TRANSPARENT = QColor(0, 0, 0, 0)
 
 #: 控件高度：与按钮族一致（ElaPushButton V3.0 / ElaButton middle 都是 30）
 _HEIGHT = 30
@@ -115,7 +122,42 @@ class ElaSplitButton(ElaThemeWidget):
         self._theme_mode = mode
         self.update()
 
+    # ── 取色（透明底 + 状态层）────────────────────────────
+
+    def _state_layer(self, *, pressed: bool, hovered: bool) -> QColor:
+        """某半边的悬浮 / 按下状态层；基础态与禁用态**全透明**（不画底）。"""
+        if not self.isEnabled():
+            return QColor(_TRANSPARENT)
+        if pressed:
+            return state_tint(self._theme_mode, pressed=True)
+        if hovered:
+            return state_tint(self._theme_mode)
+        return QColor(_TRANSPARENT)
+
+    def _border_color(self) -> QColor:
+        """1px 描边（含分隔线）；**两个主题都画**（只在浅色画会让两主题不一致）。"""
+        color = border(self._theme_mode)
+        if not self.isEnabled():
+            return blend(color, surface(self._theme_mode), 0.55)
+        return color
+
+    def _content_color(self) -> QColor:
+        """文字 / 图标 / 箭头色；禁用走 ``textDisabled``。"""
+        if not self.isEnabled():
+            return textDisabled(self._theme_mode)
+        return text(self._theme_mode)
+
     # ── Events ────────────────────────────────────────────
+
+    def changeEvent(self, event: QEvent) -> None:
+        if event.type() == QEvent.Type.EnabledChange:
+            # 禁用期间收不到 hover / leave 事件，残留状态会让重新启用后误画一层
+            self._is_left_hovered = False
+            self._is_right_hovered = False
+            self._is_left_pressed = False
+            self._is_right_pressed = False
+            self.update()
+        super().changeEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -179,52 +221,30 @@ class ElaSplitButton(ElaThemeWidget):
         right_rect = QRectF(split_x, 0, self._dropdown_width, h)
         full_rect = QRectF(0, 0, w, h)
 
-        base_color = eTheme.getThemeColor(
-            self._theme_mode, ElaThemeType.ThemeColor.BasicBase
-        )
-        hover_color = eTheme.getThemeColor(
-            self._theme_mode, ElaThemeType.ThemeColor.BasicHover
-        )
-        press_color = eTheme.getThemeColor(
-            self._theme_mode, ElaThemeType.ThemeColor.BasicPress
-        )
-        text_color = eTheme.getThemeColor(
-            self._theme_mode, ElaThemeType.ThemeColor.BasicText
-        )
-        border_color = eTheme.getThemeColor(
-            self._theme_mode, ElaThemeType.ThemeColor.BasicBorder
-        )
+        text_color = self._content_color()
+        border_color = self._border_color()
 
-        left_color = (
-            press_color
-            if self._is_left_pressed
-            else (hover_color if self._is_left_hovered else base_color)
-        )
-        right_color = (
-            press_color
-            if self._is_right_pressed
-            else (hover_color if self._is_right_hovered else base_color)
-        )
-
+        # 透明底：基础态不画底，只有鼠标所在那半边叠一层状态层（圆角由 clip 保证）
         path = QPainterPath()
         path.addRoundedRect(full_rect, br, br)
         painter.setClipPath(path)
-
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(left_color)
-        painter.drawRect(left_rect)
+        left_layer = self._state_layer(
+            pressed=self._is_left_pressed, hovered=self._is_left_hovered
+        )
+        right_layer = self._state_layer(
+            pressed=self._is_right_pressed, hovered=self._is_right_hovered
+        )
+        if left_layer.alpha():
+            painter.setBrush(left_layer)
+            painter.drawRect(left_rect)
+        if right_layer.alpha():
+            painter.setBrush(right_layer)
+            painter.drawRect(right_rect)
+        painter.setClipping(False)
 
-        painter.setBrush(right_color)
-        painter.drawRect(right_rect)
-
-        painter.setClipPath(path)
-        if self._theme_mode == ElaThemeType.ThemeMode.Light:
-            painter.setPen(QPen(border_color, 1))
-        else:
-            painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRoundedRect(full_rect, br, br)
-
+        # 描边 + 分隔线：两主题都画
+        paintRoundedCard(painter, full_rect, border=border_color, radius=br)
         painter.setPen(QPen(border_color, 1))
         painter.drawLine(split_x, 4, split_x, h - 4)
 

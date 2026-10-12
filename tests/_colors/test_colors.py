@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+import pytest
 from PySide6.QtGui import QColor
 from PySide6ElaWidgetTools import ElaThemeType
 
@@ -12,6 +13,11 @@ from pyside6_ela_pro._colors import (
     _resolve_color,
     get_accent_color,
     get_color_scheme,
+    state_tint,
+)
+from pyside6_ela_pro._colors import (
+    STATE_HOVER_ALPHA as _HOVER_ALPHA,
+    STATE_PRESS_ALPHA as _PRESS_ALPHA,
 )
 
 
@@ -89,6 +95,32 @@ class TestColorsAlias:
     def test_resolve_color_returns_self_for_direct_name(self):
         assert _resolve_color("blue") == "blue"
         assert _resolve_color("danger") == "danger"
+
+
+class TestColorsStateTint:
+    """状态层：hover ≈ 8% / press ≈ 12%（**暗叠白 / 亮叠黑**）。"""
+
+    @pytest.mark.parametrize(
+        "mode",
+        [ElaThemeType.ThemeMode.Light, ElaThemeType.ThemeMode.Dark],
+        ids=["light", "dark"],
+    )
+    def test_alphas(self, mode):
+        assert state_tint(mode).alpha() == _HOVER_ALPHA
+        assert state_tint(mode, pressed=True).alpha() == _PRESS_ALPHA
+        assert _PRESS_ALPHA > _HOVER_ALPHA
+
+    @pytest.mark.parametrize(
+        ("mode", "expected_rgb"),
+        [
+            (ElaThemeType.ThemeMode.Light, (0, 0, 0)),
+            (ElaThemeType.ThemeMode.Dark, (255, 255, 255)),
+        ],
+        ids=["light-black", "dark-white"],
+    )
+    def test_hue_follows_theme(self, mode, expected_rgb):
+        hover = state_tint(mode)
+        assert (hover.red(), hover.green(), hover.blue()) == expected_rgb
 
 
 class TestColorsGetColorScheme:
