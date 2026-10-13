@@ -85,6 +85,7 @@ from PySide6.QtGui import (
     QPaintEvent,
     QPalette,
     QPen,
+    QShowEvent,
     QTextBlockFormat,
     QTextCharFormat,
     QTextCursor,
@@ -1341,6 +1342,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
         #: 高亮结果缓存 {(lang, code, theme_key): [(text, QColor, bold, italic)]}
         self._highlight_cache: dict = {}
         self._highlight_cache_cap = _HIGHLIGHT_CACHE_CAP
+        #: 主题 / 配色族变更时若不可见则只标记，等 showEvent 补渲染（见 _ensure_rendered）
+        self._needs_render = False
         # 主题色缓存（_applyThemeStyle 填充）
         self._text_color = QColor()
         self._link_color = QColor()
@@ -2642,6 +2645,17 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._sync_code_buttons()
         self._sync_embedded_height()
         self._schedule_layout_refresh()
+        self._needs_render = False
+
+    def _ensure_rendered(self) -> None:
+        """可见时补齐被懒掉的重建（主题 / 配色族在隐藏时只标记，见 _applyThemeStyle）。"""
+        if self._needs_render and self._source:
+            self._needs_render = False
+            self._render()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        self._ensure_rendered()
 
     def _render_into(
         self,
@@ -4561,7 +4575,9 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._diff_hunk_bg = self._blend(
             self._code_bg, QColor("#0969da"), 0.12 if self._is_dark_theme else 0.08
         )
-        self._highlight_cache.clear()
+        # 刻意**不清** ``_highlight_cache``：它的 key 是 (lang, code, theme_key)，
+        # 本来就按主题分键；清掉等于把上一次主题的高亮结果扔掉（实测反复切换永远命中
+        # 不了缓存）。改字号 / 换配色族走的是另一条会清缓存的路径（base 格式带字体）。
 
         document = self._text_browser.document()
         document.setDefaultStyleSheet(self._document_css())
@@ -4573,7 +4589,13 @@ class ElaMarkdownViewer(ElaThemeWidget):
         setTransparentTextBase(self._text_browser)
 
         if self._source:
-            self._render()
+            if self.isVisible():
+                self._render()
+            else:
+                # 隐藏时不重建：整篇重解析 + 重高亮 + 重排版在宿主规模下是秒级
+                # （实测 3×3800 行 + 10k 行终端全隐藏时切一次主题 2.3s → 53ms），
+                # 等真正可见时由 showEvent 补齐 —— 文档文本不变，只有颜色是旧的。
+                self._needs_render = True
         self.update()
         self._layout_timer.start(0)
 

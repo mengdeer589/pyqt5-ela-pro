@@ -204,8 +204,10 @@ class TestElaMarkdownViewerCodeStyle:
         assert "<b>&amp;" in v.document().toPlainText()
         v.deleteLater()
 
-    def test_set_code_font_family(self):
+    def test_set_code_font_family(self, qapp):
         v = ElaMarkdownViewer()
+        v.show()  # 隐藏时主题 / 配色 / 代码字体的重建懒做（见 viewer 懒渲染契约）
+        qapp.processEvents()
         v.setMarkdown("```\ncode()\n```")
         v.setCodeFontFamily("Courier New")
 
@@ -260,9 +262,11 @@ class TestElaMarkdownViewerThemeColors:
         )
         v.deleteLater()
 
-    def test_theme_switch_recolors_existing_content(self):
+    def test_theme_switch_recolors_existing_content(self, qapp):
 
         v = ElaMarkdownViewer()
+        v.show()  # 隐藏时换肤只标记、showEvent 补渲染；这里要立刻读渲染结果
+        qapp.processEvents()
         v.setMarkdown("[link](https://example.com)\n\n```\ncode()\n```")
         light_code_bg = v._code_bg.name()
 

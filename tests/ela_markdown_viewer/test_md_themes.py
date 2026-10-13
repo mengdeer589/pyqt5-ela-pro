@@ -30,6 +30,14 @@ def _fragment_color(viewer: ElaMarkdownViewer, needle: str) -> str:
     return ""
 
 
+def _shown(qapp) -> ElaMarkdownViewer:
+    """构造并显示：主题 / 配色族变更在隐藏时不重建文档，断言渲染结果需可见状态。"""
+    v = ElaMarkdownViewer()
+    v.show()
+    qapp.processEvents()
+    return v
+
+
 class TestBuiltinThemes:
     def test_builtin_names(self):
         names = markdownThemes()
@@ -43,7 +51,7 @@ class TestBuiltinThemes:
         v.deleteLater()
 
     def test_switch_recolors_content(self, qapp):
-        v = ElaMarkdownViewer()
+        v = _shown(qapp)
         v.setMarkdown("## 标题\n\n[链接](https://example.com) 与 `code`")
         assert _fragment_color(v, "标题") == "#9d5d00"  # opencode 浅色
 
@@ -64,7 +72,7 @@ class TestBuiltinThemes:
 
     def test_dark_variant_selected(self, qapp):
 
-        v = ElaMarkdownViewer()
+        v = _shown(qapp)
         v.setMarkdown("## 标题")
         assert _fragment_color(v, "标题") == "#9d5d00"
 
@@ -126,7 +134,7 @@ class TestListAndMarkTheming:
         v.deleteLater()
 
     def test_task_marker_follows_theme(self, qapp):
-        v = ElaMarkdownViewer()
+        v = _shown(qapp)
         v.setMarkdown(self.SOURCE)
         assert v.setMarkdownTheme("github") is True
         doc = v.document()
@@ -161,7 +169,7 @@ class TestListAndMarkTheming:
             dark={"semantic": {"list": "#f0f0f0"}},
         )
         try:
-            v = ElaMarkdownViewer()
+            v = _shown(qapp)
             v.setMarkdown("- [x] 项")
             assert v.setMarkdownTheme("unit-test-list") is True
             # list 色现在只落在勾选框字形上；文字不再被它染色
@@ -181,7 +189,7 @@ class TestCustomThemes:
         )
         try:
             assert "unit-test-theme" in markdownThemes()
-            v = ElaMarkdownViewer()
+            v = _shown(qapp)
             v.setMarkdown("[链接](https://example.com)")
             assert v.setMarkdownTheme("unit-test-theme") is True
             assert _fragment_color(v, "链接") == "#123456"

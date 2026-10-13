@@ -49,6 +49,7 @@ from PySide6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QShowEvent,
     QTextCharFormat,
     QTextCursor,
 )
@@ -1219,6 +1220,8 @@ class ElaTerminalView(ElaThemeWidget):
         self._flush_timer.setInterval(_FLUSH_INTERVAL_MS)
         self._flush_timer.timeout.connect(self._flush_render)
 
+        #: 换肤 / 换配色族时若不可见则只标记，等 showEvent 补重建（见 _rebuild_when_visible）
+        self._needs_rebuild = False
         self._filter_timer = QTimer(self)
         self._filter_timer.setSingleShot(True)
         self._filter_timer.setInterval(_FILTER_DEBOUNCE_MS)
@@ -1584,14 +1587,14 @@ class ElaTerminalView(ElaThemeWidget):
         return self._toolbar_visible
 
     def setPaletteName(self, name: str) -> None:  # noqa: N802 (Qt 命名)
-        """切换调色板（未注册名称回退到默认），并就地重渲染。"""
+        """切换调色板（未注册名称回退到默认）；可见时就地重渲染，隐藏时只标记待补。"""
         if name not in _TERMINAL_THEMES:
             name = _DEFAULT_THEME_NAME
         if name == self._palette_name:
             return
         self._palette_name = name
         self._refresh_palette()
-        self._rebuild_document(keep_scroll=True)
+        self._rebuild_when_visible()
 
     def paletteName(self) -> str:  # noqa: N802 (Qt 命名)
         """获取当前调色板名称。"""
@@ -1793,6 +1796,18 @@ class ElaTerminalView(ElaThemeWidget):
         cursor.removeSelectedText()
         self._doc_lines -= excess
 
+    def _rebuild_when_visible(self) -> None:
+        """可见时立即重建（保持滚动位置）；隐藏时只标记，等 ``showEvent`` 补做。
+
+        换肤 / 换配色族改的都是**渲染期**颜色，文档文本不变；隐藏时整篇重渲染在宿主
+        规模下是秒级开销（实测 3×3800 行 viewer + 10k 行终端全隐藏时切一次主题
+        2.3s → 53ms）。过滤词变了**不走这里**（那会改内容，必须立即重建）。
+        """
+        if self.isVisible():
+            self._rebuild_document(keep_scroll=True)
+        else:
+            self._needs_rebuild = True
+
     def _rebuild_document(self, keep_scroll: bool = False) -> None:
         """按数据模型整体重建文档（过滤 / 换肤 / 改上限时走这条路）。
 
@@ -1805,6 +1820,7 @@ class ElaTerminalView(ElaThemeWidget):
         """
         if not _alive(self) or not _alive(self._edit):
             return
+        self._needs_rebuild = False
         needle = self._filter
         if needle:
             rendered = [line for line in self._lines if needle in line.text]
@@ -2027,7 +2043,13 @@ class ElaTerminalView(ElaThemeWidget):
     def _onThemeChanged(self, mode: ElaThemeType.ThemeMode) -> None:  # noqa: N802
         self._theme_mode = mode
         self._refresh_palette()
-        self._rebuild_document(keep_scroll=True)
+        self._rebuild_when_visible()
+
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802 (Qt 命名)
+        super().showEvent(event)
+        if self._needs_rebuild:
+            self._needs_rebuild = False
+            self._rebuild_document(keep_scroll=True)
 
     def deleteLater(self) -> None:  # noqa: N802 (Qt 命名)
         self._flush_timer.stop()

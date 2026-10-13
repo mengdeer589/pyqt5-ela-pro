@@ -1,0 +1,139 @@
+"""主题 / 配色族变更的懒渲染：隐藏时不重建、可见时补齐一次；高亮缓存跨主题保留。
+
+宿主规模下（3×3800 行 viewer + 10k 行终端全隐藏）切一次主题要 2.3s，全部花在「整篇重
+解析 + 重高亮 + 重排版」上，而隐藏的文档根本没人看。契约在 `ElaMarkdownViewer._applyThemeStyle`
+与 `_ensure_rendered`：隐藏时只标记，`showEvent` 补齐；高亮缓存的 key 含主题，切回来直接命中。
+"""
+
+from __future__ import annotations
+
+import pytest
+from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+from PySide6ElaWidgetTools import eTheme, ElaThemeType
+from pyside6_ela_pro import ElaMarkdownViewer, ela_markdown_viewer as md_module
+
+BIG_MD = ("## 标题\n\n正文一段。\n\n```python\n" + "x = 1\n" * 10 + "```\n\n") * 20
+
+
+@pytest.fixture(autouse=True)
+def _restore_global_theme():
+    """用例会切全局主题；不还原会污染同目录其它文件的浅色断言。"""
+    previous = eTheme.getThemeMode()
+    yield
+    eTheme.setThemeMode(previous)
+
+
+def _other_mode(mode):
+    return (
+        ElaThemeType.ThemeMode.Light
+        if mode == ElaThemeType.ThemeMode.Dark
+        else ElaThemeType.ThemeMode.Dark
+    )
+
+
+def _switch(qapp, mode) -> None:
+    eTheme.setThemeMode(mode)
+    for _ in range(5):
+        qapp.processEvents()
+
+
+def _page(make):
+    host = make(QWidget)
+    layout = QVBoxLayout(host)
+    layout.setContentsMargins(0, 0, 0, 0)
+    viewer = make(ElaMarkdownViewer, host)
+    layout.addWidget(viewer)
+    return host, viewer
+
+
+def _spy_render(viewer):
+    calls = {"n": 0}
+    real = viewer._render
+
+    def counting():
+        calls["n"] += 1
+        return real()
+
+    viewer._render = counting
+    return calls
+
+
+class TestThemeLazyRender:
+    def test_hidden_theme_change_does_not_render(self, qapp, make):
+        _, viewer = _page(make)
+        viewer.setMarkdown(BIG_MD)
+        calls = _spy_render(viewer)
+
+        _switch(qapp, _other_mode(eTheme.getThemeMode()))
+
+        assert calls["n"] == 0
+        assert viewer._needs_render is True
+
+    def test_show_catches_up_exactly_once(self, qapp, make):
+        host, viewer = _page(make)
+        viewer.setMarkdown(BIG_MD)
+        calls = _spy_render(viewer)
+        _switch(qapp, _other_mode(eTheme.getThemeMode()))
+        assert viewer._needs_render is True
+
+        host.show()
+        for _ in range(5):
+            qapp.processEvents()
+
+        assert calls["n"] == 1
+        assert viewer._needs_render is False
+
+    def test_visible_theme_change_renders_immediately(self, qapp, make):
+        host, viewer = _page(make)
+        viewer.setMarkdown(BIG_MD)
+        host.show()
+        for _ in range(5):
+            qapp.processEvents()
+        calls = _spy_render(viewer)
+
+        _switch(qapp, _other_mode(eTheme.getThemeMode()))
+
+        assert calls["n"] == 1
+        assert viewer._needs_render is False
+
+
+class TestHighlightCacheAcrossThemes:
+    def test_switch_back_hits_cache(self, qapp, make, monkeypatch):
+        """dark → light → dark：回到已渲染过的主题不再重新 lex（缓存 key 含主题）。"""
+        pytest.importorskip("pygments")
+        host, viewer = _page(make)
+        viewer.setHighlightCacheSize(256)
+        viewer.setMarkdown(BIG_MD)
+        host.show()
+        for _ in range(5):
+            qapp.processEvents()
+
+        lexers = {"n": 0}
+        real_load = md_module._load_pygments
+
+        def counting_load():
+            pair = real_load()
+            if pair is None:
+                return None
+            get_lexer, token_module = pair
+
+            def counting_lexer(lang, **kwargs):
+                lexers["n"] += 1
+                return get_lexer(lang, **kwargs)
+
+            return counting_lexer, token_module
+
+        monkeypatch.setattr(md_module, "_load_pygments", counting_load)
+
+        current = viewer._theme_mode
+        before = lexers["n"]
+
+        _switch(qapp, _other_mode(current))  # 另一主题：块未缓存，必须 lex
+        after_other = lexers["n"]
+        assert after_other > before, "切换到未渲染过的主题应重新 lex"
+
+        _switch(qapp, current)  # 回到已缓存的主题：命中缓存、不再 lex
+        assert lexers["n"] == after_other, (
+            "切回已渲染过的主题不该重新 lex（缓存跨主题保留）"
+        )
