@@ -30,6 +30,9 @@ def env(qapp):
     window = ElaWindow()
     sel = SelectionAssistantPage(window)
     tray = AppShellPage(window)
+    # 示例页内容惰性构建；本守卫不经过 make fixture，显式构建（页面在窗口里不会全部显示）
+    sel.buildDemoContent()
+    tray.buildDemoContent()
     window.addPageNode("划词助手", sel, ElaIconType.IconName.Highlighter)
     window.addPageNode("启动与托盘", tray, ElaIconType.IconName.Plug)
     window.show()

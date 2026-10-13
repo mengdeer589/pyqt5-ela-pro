@@ -288,3 +288,56 @@ PyQt5 只打印告警，PySide6 直接崩，而且**崩点在下一个测试的�
 | `f1b172c` | PySide6 四件套改本地 path 源 + 解析限死 win/AMD64（uv 索引陷阱的落地） |
 | `7941d28` | 开发机切换到 win7-mix 套件（与 Win7 交付运行时一致）+ 全量结果记录 |
 | `8a5fc0e` / `9b40dfc` | 下拉按钮族透明底 / 去边框（迁移后按同一套状态层口径收敛的组件级修复） |
+
+---
+
+## 九、启动与交互性能（Win11 主机 + Win7 目标机，2026-10-13）
+
+### 9.1 归因：把「绑定」与「Qt 版本」分开
+
+用 PyQt6（sip + Qt6）当对照组，同机逐项测（每项操作独立进程、3 次中位）：
+
+| 栈 | Qt | 绑定 | `QWidget()` | `QLabel('x')` | `QColor().red()` |
+|---|---|---|---|---|---|
+| PyQt5 | 5.15.2 | sip | 0.8 µs | 2.0 µs | 0.4 µs |
+| PyQt6 | **6.8.2** | sip | **1.2 µs** | 2.5 µs | 0.4 µs |
+| PySide6 | **6.8.4** | shiboken | **6.6 µs** | 9.3 µs | 0.4 µs |
+
+- **绑定税（shiboken 对象包装）**：每个 Python 侧创建的 QObject **+~5µs**（`QObject()` 6.5–9×、`QLabel` 3.7–5×）；而纯 C++ 侧开销与 sip 相同（`QListWidget.addItem` 1.0×、值类型 0.9–1.0×），`Signal.connect` 反而快 2×。机制：shiboken 每次创建要建 `SbkObject` + 全局哈希表注册（C++→Python 反查）+ 类型发现 + 所有权记账（`Shiboken::Object::setParent`），每次调用要重载决策 + 参数转换（`pythonToCppConversion`，连 `int` 都现建转换器）+ 过一遍 `shibokensupport/feature.py`。生成代码见 `PyElaWidgetTools/scripts/pyside6/OUTPUTDIR/**/*_wrapper.cpp`。**目标机（Win7 VM）上同一口径放大到 10–15×**（这条路是 CPU 密集的 C++ 工作，慢机放大；sip 侧只有 0.7µs，几乎不放大）。
+- **Qt 6.8 内核税**：同 sip 对照下 `QWidget()` 1.5×、`QLabel` 1.25×、**`QFontMetrics.horizontalAdvance` 1.6×**（字体度量是唯一实打实的 Qt6 回归；目标机同样 1.6×）。Qt 6.11 这两项已被改善（`QWidget()` ≈1.0µs）。
+- **应用重绘量**：动画每帧 / 主题切换 / 图标页首帧随「可见控件数」线性放大，与绑定只弱相关（`grab()` 1.4×）。
+
+### 9.2 四个热点（实测）
+
+| 交互 | 修复前 | 修复后 | 机制 |
+|---|---|---|---|
+| 启动 | 1943 ms（构造 63%） | **510 ms** | 24 页 eager 构造；另有一次性 `QFont().defaultFamily()` 190 ms |
+| 侧边栏收缩/展开 | 单帧 8.6 ms | **0.0 ms**（15 帧 137→43ms） | 上游 4 条并发 255 ms 动画 → 每帧 resize 中央页 → 整页 invalidated → 上百子控件重绘 |
+| 主题切换 | ~270 ms（70–78 次重绘） | 同量级（主体不可省） | ≈200 ms 是 Ela/C++ 对可见控件的全量重绘；Python 侧 markdown 重建只 ~17 ms |
+| 图标展示页 | 首帧 22 ms（稳态 4 ms/帧、滚动 p50 0.02 ms） | 待摊进后台预热 | 首次渲染（视图首布局扫模型），不是逐帧成本 |
+
+### 9.3 已落地的修法
+
+1. 示例页内容**惰性构建** + 启动后**后台逐页预热**（`ExamplePage.buildDemoContent()` / `__main__` 挂在窗口上的单发 `QTimer` 链）→ 启动 1943 → 510 ms。
+2. 一次性字体解析**趁 splash 付掉**；页面代码里禁用 `QFont().defaultFamily()`（要默认字体族用 `QApplication.font().family()`，0.01 ms）。
+3. 连续 resize（侧边栏动画 / 拖窗口边框）期间**把页面钉在旧尺寸** + 120 ms 防抖恢复 → 单帧 8.6 → 0.0 ms（只冻结布局或冻结重绘都不行：前者无效果，后者页面空白 255 ms）。
+4. 守卫适配：`tests/example/conftest.py` 的 `make` 自动补 `buildDemoContent()`；不 `show()` 的守卫显式调用。
+
+### 9.4 明确**不**做
+
+- **不重编 Qt**：自编译 Win7 套件与官方 6.8.3 逐段 ±1%、同 MSVC；win7-mix 与官方轮在 Win11 同速。
+- **不为省 ~5µs/对象换绑定栈**：PyQt6 需要第三套 sip 绑定生成器 + 库再迁移一次，而且拿不回重绘类（动画 / 主题 / 图标首帧与绑定弱相关）；PyQt5 会丢掉整个 Qt6 生态。
+- 样式（Fusion）/ DWM / 无障碍开关对 Qt6 控件构造没有影响（目标机实测个位数百分比）。
+
+### 9.5 复现工具（`E:\python_project\elawidgettools-perf\`，仓库外）
+
+| 脚本 | 用途 |
+|---|---|
+| `bench_example.py` | 启动阶段 + 逐页构造 / 首渲染 |
+| `bench_lazy.py` | 惰性内容版启动 + 首访成本 |
+| `bench_anim.py` | 侧边栏收缩/展开：时长 / 重绘数 / p50·p95 帧间隔（`ELA_FORCE_BINDING` 可强制绑定） |
+| `bench_theme_icons.py` | 主题切换 + 图标视图首帧 / 滚动 |
+| `bench_reflow.py` / `bench_page_reflow.py` | 单页一次重排（= 动画单帧）成本 |
+| `bench_paint_cost.py` | 可见页控件构成 × 各类绘制成本 |
+| `bench_micro.py` / `probe_win7_kernel.py` | 底层原语（对象创建 / 虚调用 / 参数转换）与目标机开关探针 |
+| `_bench_shim/sitecustomize.py` | 一个 venv 里两套绑定时，用 `ELA_FORCE_BINDING=pyqt5` 强制切换 |

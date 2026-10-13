@@ -5,7 +5,8 @@
 import os
 import inspect
 import re as _re
-from PySide6.QtCore import Qt
+import time
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QVBoxLayout,
     QHBoxLayout,
@@ -14,7 +15,14 @@ from PySide6.QtWidgets import (
     QApplication,
     QWidget,
 )
-from PySide6.QtGui import QFont, QColor, QTextCharFormat, QTextCursor
+from PySide6.QtGui import (
+    QFont,
+    QColor,
+    QResizeEvent,
+    QShowEvent,
+    QTextCharFormat,
+    QTextCursor,
+)
 from PySide6ElaWidgetTools import (
     ElaPlainTextEdit,
     ElaScrollArea,
@@ -29,6 +37,9 @@ from pyside6_ela_pro import ElaThemeWidget, ElaDialogBase, ElaButton
 
 RESOURCE_PATH = os.path.join(os.path.dirname(__file__), "resource", "images")
 
+#: 连续 resize（动画 / 拖动）停止这么久之后才真正重排页面内容
+_REFLOW_IDLE_MS = 120
+
 
 def _res(filename):
     return os.path.join(RESOURCE_PATH, filename)
@@ -41,26 +52,68 @@ class ExamplePage(ElaThemeWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._demo_built = False
         self._setupUI()
+        # 侧边栏收缩/展开是上游 4 条并发的 255ms 属性动画：每帧都会 resize 本页
+        # → 内容每帧重排。PySide6 下单次重排是 PyQt5 的 2~6 倍（shiboken 调用开销），
+        # 慢机上表现为掉帧。做法：连续 resize 期间冻结内部布局，静止
+        # ``_REFLOW_IDLE_MS`` 后一次性重排（与 chat 的 setResizeReflowDeferred 同思路）。
+        self._reflow_timer = QTimer(self)
+        self._reflow_timer.setSingleShot(True)
+        self._reflow_timer.timeout.connect(self._release_reflow)
+        self._reflow_frozen = False
+        self._last_resize_at = 0.0
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        now = time.perf_counter()
+        gap = now - self._last_resize_at
+        self._last_resize_at = now
+        if gap < 0.06:  # 连续 resize（动画 / 拖动窗口）：把本页钉在旧尺寸
+            if not self._reflow_frozen:
+                self._reflow_frozen = True
+                # 页面被 resize 一次 → 整页区域 invalidated → 上百个子控件各自重绘
+                # （实测 ~9.6ms/帧；冻结布局 / 冻结内容宽度都救不了）。钉住尺寸后
+                # 页面不再重绘，动画期间只有父级暴露出来的边条需要画；收尾一次性放开。
+                self.setFixedSize(self.width(), self.height())
+            self._reflow_timer.start(_REFLOW_IDLE_MS)
+        super().resizeEvent(event)
+
+    def _release_reflow(self) -> None:
+        if not self._reflow_frozen:
+            return
+        self._reflow_frozen = False
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(16777215, 16777215)
+        self.update()
 
     def _setupUI(self):
         self._scrollArea = ElaScrollArea(self)
         self._scrollArea.setWidgetResizable(True)
         self._scrollArea.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
 
-        scrollWidget = ElaThemeWidget()
-        mainLayout = QVBoxLayout(scrollWidget)
-        mainLayout.setContentsMargins(20, 20, 20, 20)
-        mainLayout.setSpacing(15)
-
-        self._addDemoContent(mainLayout)
-
-        mainLayout.addStretch()
-
-        self._scrollArea.setWidget(scrollWidget)
+        # 脚手架先建、内容惰性构建：PySide6 下「单个控件的构造」是 PyQt5 的 5~7 倍
+        # （shiboken 单次调用开销），24 页全量 eager 构造要 1.2s 且全压在启动路径上。
+        # 内容改为首次显示时构建（``buildDemoContent``），启动后由宿主后台逐页预热。
+        self._scrollWidget = ElaThemeWidget()
+        self._mainLayout = QVBoxLayout(self._scrollWidget)
+        self._mainLayout.setContentsMargins(20, 20, 20, 20)
+        self._mainLayout.setSpacing(15)
+        self._scrollArea.setWidget(self._scrollWidget)
 
         containerLayout = QVBoxLayout(self)
         containerLayout.addWidget(self._scrollArea)
+
+    def buildDemoContent(self):
+        """构建页面内容（幂等）。``showEvent`` 会调用，宿主也可在空闲时提前预热。"""
+        if self._demo_built:
+            return
+        self._demo_built = True
+        self._addDemoContent(self._mainLayout)
+        self._mainLayout.addStretch()
+
+    def showEvent(self, event: QShowEvent) -> None:
+        self.buildDemoContent()
+        super().showEvent(event)
 
     def _addDemoContent(self, main_layout):
         raise NotImplementedError("子类必须实现 _addDemoContent 方法")

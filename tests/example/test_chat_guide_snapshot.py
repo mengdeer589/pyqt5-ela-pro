@@ -78,6 +78,7 @@ def test_snapshots_carry_no_real_credentials():
 
 def test_guide_page_renders_both_sources(qapp):
     page = ChatGuidePage()
+    page.buildDemoContent()  # 内容惰性构建（不 show 的守卫要显式建）
     viewers = page.findChildren(ElaMarkdownViewer)
     assert len(viewers) >= 5
 
@@ -100,6 +101,7 @@ def test_guide_page_code_fences_are_closed(qapp):
     吞进代码块。白盒断言 ``closed`` 标志，不依赖 pygments 是否安装。
     """
     page = ChatGuidePage()
+    page.buildDemoContent()  # 内容惰性构建（不 show 的守卫要显式建）
     blocks = [
         fenced
         for viewer in page.findChildren(ElaMarkdownViewer)
@@ -122,6 +124,7 @@ def test_guide_page_sources_are_highlighted(qapp, marker):
     """
     pytest.importorskip("pygments")
     page = ChatGuidePage()
+    page.buildDemoContent()  # 内容惰性构建（不 show 的守卫要显式建）
     viewer = next(
         v for v in page.findChildren(ElaMarkdownViewer) if marker in v.toPlainText()
     )

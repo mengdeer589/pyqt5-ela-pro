@@ -25,8 +25,8 @@ from pyside6_ela_pro import ElaSplashScreen
 
 os.environ["QT_LOGGING_RULES"] = "*.debug=false;qt.qpa.fonts.warning=false"
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QStandardItem, QStandardItemModel
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFont, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import QApplication
 from PySide6ElaWidgetTools import (
     eApp,
@@ -62,6 +62,7 @@ from pyside6_ela_pro.example import (
     TerminalPage,
     ViewsListPage,
 )
+from pyside6_ela_pro.example.base_page import ExamplePage
 
 
 class ExampleWindow(ElaWindow):
@@ -203,7 +204,15 @@ if __name__ == "__main__":
 
     t_start = _time.monotonic()
     step = [0]
+    warmed = False
     while _time.monotonic() - t_start < 0.5:
+        # 一次性成本，趁 splash 展示（这里本来就是 0.5s 的空转）付掉：
+        # ① PySide6/Qt6 首次解析「系统默认字体族」要 ~190ms（Qt5 几乎为 0）；
+        # ② 图标浏览页首次渲染要 ~22ms（ElaAwesome 字形首次实现 + delegate 首渲染）。
+        # 不预热时它们会落在页面构造 / 首次渲染上，实测表现为某页突然多 190ms、图标页首帧卡一下。
+        if not warmed:
+            QFont().defaultFamily()
+            warmed = True
         app.processEvents()
         _time.sleep(0.02)
         if step[0] < len(messages):
@@ -214,6 +223,27 @@ if __name__ == "__main__":
 
     window = ExampleWindow()
     window.show()
+
+    # 启动后逐页预热：每 tick 只建一页（内容惰性构建，见 ``ExamplePage._setupUI``），
+    # 避免长阻塞；用户已经打开过的页会跳过。定时器是 window 的子对象（随窗口销毁）。
+    _pages = list(window.findChildren(ExamplePage))
+    _cursor = [0]
+
+    def _warm_next() -> None:
+        while _cursor[0] < len(_pages):
+            page = _pages[_cursor[0]]
+            _cursor[0] += 1
+            if page.isVisible() or page._demo_built:
+                continue
+            page.buildDemoContent()
+            _warm_timer.start(40)
+            return
+
+    _warm_timer = QTimer(window)
+    _warm_timer.setSingleShot(True)
+    _warm_timer.timeout.connect(_warm_next)
+    _warm_timer.start(250)
+
     rc = app.exec()
     # 退出前显式销毁并冲刷删除队列：让各组件的清理钩子（断开全局主题信号等）
     # 在解释器退出前完成，避免进程退出时的 Qt 清理竞态崩溃

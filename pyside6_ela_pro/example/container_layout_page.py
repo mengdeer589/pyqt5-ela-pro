@@ -7,7 +7,7 @@
 """
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QVBoxLayout, QWidget
 from PySide6.QtGui import QFont
 from PySide6ElaWidgetTools import (
     ElaCheckBox,
@@ -398,7 +398,9 @@ class ContainerLayoutPage(ExamplePage):
             )
         )
         self._addInfoText("SiliconUI 风格抽屉，支持上下左右四个方向滑入", parent_layout)
-        default_font_family = QFont().defaultFamily()
+        # PySide6/Qt6：``QFont().defaultFamily()`` 首次调用要 190ms（会去解析系统默认字体，
+        # 触发字体引擎初始化）；应用字体的族名是零成本的（0.01ms）且就是同一个意图。
+        default_font_family = QApplication.font().family()
         for name, pos, size in [
             ("左侧抽屉", ElaDrawerPositionType.Left, 300),
             ("右侧抽屉", ElaDrawerPositionType.Right, 380),
