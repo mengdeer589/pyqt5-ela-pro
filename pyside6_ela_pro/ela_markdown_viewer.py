@@ -838,14 +838,27 @@ def _merge_md_variant(base: dict, patch: Optional[dict]) -> dict:
     return merged
 
 
+_DEFAULT_CODE_FONT_FAMILY: Optional[str] = None
+
+
 def _default_code_font_family() -> str:
-    """选择默认代码字体族。"""
-    families = set(QFontDatabase().families())
-    for name in _PREFERRED_CODE_FONTS:
-        if name in families:
-            return name
-    fixed_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-    return fixed_font.family() or _PREFERRED_CODE_FONTS[0]
+    """选择默认代码字体族（**进程级缓存**）。
+
+    ``QFontDatabase().families()`` 要枚举系统字体（慢机上更贵），而它是进程内不变的；
+    viewer 通常是「一页一个 / 一批」地建，每个都查一次纯属浪费。宿主用
+    ``setCodeFontFamily("")`` 恢复默认时也会命中这里的缓存。
+    """
+    global _DEFAULT_CODE_FONT_FAMILY
+    if _DEFAULT_CODE_FONT_FAMILY is None:
+        families = set(QFontDatabase().families())
+        for name in _PREFERRED_CODE_FONTS:
+            if name in families:
+                _DEFAULT_CODE_FONT_FAMILY = name
+                break
+        else:
+            fixed_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+            _DEFAULT_CODE_FONT_FAMILY = fixed_font.family() or _PREFERRED_CODE_FONTS[0]
+    return _DEFAULT_CODE_FONT_FAMILY
 
 
 def _decode_data_uri(url: QUrl) -> QByteArray:

@@ -76,3 +76,38 @@ def test_write_only_setters_do_not_raise(splash, setter, make_arg):
 def test_delete_later_cleans_up(splash):
     """显式销毁路径仍要能用（与 make() 的统一回收互不干扰）。"""
     splash.deleteLater()
+
+
+class TestWarmTextStack:
+    """Qt6 ???????????splash ?????????????? docs/performance.md??"""
+
+    def test_show_schedules_warm_once(self, splash, qapp, monkeypatch):
+        from _qthelpers import wait_until as _wait_until
+        from pyside6_ela_pro import splash_screen as splash_module
+
+        calls: list[int] = []
+        monkeypatch.setattr(splash_module, "_warmTextStack", lambda: calls.append(1))
+
+        splash.show()
+
+        _wait_until(qapp, lambda: len(calls) == 1, timeout_ms=1000)
+        assert len(calls) == 1
+
+    def test_warm_is_idempotent(self, monkeypatch):
+        """????????????????? 0.0x ms??"""
+        from pyside6_ela_pro import splash_screen as splash_module
+
+        counts = {"n": 0}
+
+        class _FakeFont:
+            def defaultFamily(self):
+                counts["n"] += 1
+                return "Fake"
+
+        monkeypatch.setattr(splash_module, "QFont", lambda: _FakeFont())
+        monkeypatch.setattr(splash_module, "_TEXT_STACK_WARMED", False)
+
+        splash_module._warmTextStack()
+        splash_module._warmTextStack()
+
+        assert counts["n"] == 1

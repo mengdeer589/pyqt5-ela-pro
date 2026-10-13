@@ -226,10 +226,29 @@ class _GLViewport(_ViewportMixin, QOpenGLWidget):
                 p.drawPixmap(QPointF(tx, ty), pm)
 
 
+def _warnLateNativeAttach(canvas) -> None:
+    """GL 视口是**原生子窗口**：挂到已显示的窗口上会让 Windows/Qt 重建顶层 HWND。
+
+    表现为主窗口「闪一下」（类名 ``QWindowIcon`` → ``QWindowOwnDCIcon``，实测触发点在
+    建好画布那一刻）。宿主要么在 ``window.show()`` 之前构建画布，要么用
+    ``ELABLUEPRINT_GL=off`` 走软件视口。
+    """
+    try:
+        window = canvas.window()
+        if window is not None and window.isVisible():
+            logger.warning(
+                "ElaBlueprintCanvas 的 GL 视口是原生子窗口，挂到已显示的窗口上会重建顶层 "
+                "HWND（窗口闪一下）：请在 window.show() 之前构建画布，或设 ELABLUEPRINT_GL=off"
+            )
+    except Exception:  # noqa: BLE001 —— 提醒不该影响创建
+        pass
+
+
 def create_viewport(canvas) -> QWidget:
     """按 GL 可用性为画布创建绘制视口（调用方负责铺满与 show）。"""
     if gl_available():
         try:
+            _warnLateNativeAttach(canvas)
             return _GLViewport(canvas)
         except Exception as exc:  # 防御：构造期异常同样回退
             logger.warning("GL 视口创建失败，回退软件渲染: %s", exc)

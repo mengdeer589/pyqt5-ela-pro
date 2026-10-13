@@ -336,6 +336,7 @@ python -m pyside6_ela_pro.example
 | [docs/markdown.md](docs/markdown.md) | `ElaMarkdownViewer` 渲染能力清单（排版 / 公式 / Mermaid / 导出） |
 | [docs/selection-assistant.md](docs/selection-assistant.md) | 划词助手与结果对话框（含取词安全闸门与剪贴板恢复策略） |
 | [docs/pyside6-migration.md](docs/pyside6-migration.md) | PyQt5 → PySide6 迁移经验：致命坑、API 差异速查、测试与环境（轮子 / uv）踩坑 |
+| [docs/performance.md](docs/performance.md) | 性能：成本模型（shiboken / Qt6 内核 / 重绘量）+ 宿主四条配方 + 组件构造成本表 |
 | [WHEEL_ISSUES.md](WHEEL_ISSUES.md) | 上游绑定轮 / PySide6 轮的诊断记录（混版、绑定生成器 bug、镜像） |
 | `pyside6_ela_pro/example/chat_guide_page.py` | 应用内聊天接入指南 + API 速查表 |
 

@@ -19,7 +19,16 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import Qt, QRect, QRectF, QPoint, QTimer, Signal
-from PySide6.QtGui import QPainter, QPainterPath, QPen, QPixmap, QPaintEvent, QMouseEvent
+from PySide6.QtGui import (
+    QFont,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QPaintEvent,
+    QMouseEvent,
+    QShowEvent,
+)
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QApplication
 
 from PySide6ElaWidgetTools import (
@@ -31,8 +40,31 @@ from PySide6ElaWidgetTools import (
     ElaProgressRing,
 )
 
+from ._internal import single_shot_on
 from ._motion import start_transition_timer
 from .widget_base import ElaThemeWidget
+
+_TEXT_STACK_WARMED = False
+
+
+def _warmTextStack() -> None:
+    """付掉 Qt6 的一次性字体解析成本（**幂等**）。
+
+    PySide6/Qt6 下首次 ``QFont().defaultFamily()`` 要 ~190ms（解析系统默认字体、初始化
+    字体引擎；Qt5 几乎为 0）。splash 的职责正是「遮住启动期工作」，所以在这里付掉它 ——
+    否则这笔成本会随机落在宿主第一个页面构造里，让那一页莫名多 190ms（实测落在某个无
+    关演示节里，那一节从 4ms 变成 194ms）。之后调用是 0.0x ms 级。
+
+    不用我们 splash 的宿主可以自己在启动阶段调一次 ``QFont().defaultFamily()``。
+    """
+    global _TEXT_STACK_WARMED
+    if _TEXT_STACK_WARMED:
+        return
+    _TEXT_STACK_WARMED = True
+    try:
+        QFont().defaultFamily()
+    except Exception:  # noqa: BLE001 —— 预热失败不该影响启动
+        pass
 
 
 class ElaSplashScreen(ElaThemeWidget):
@@ -199,12 +231,17 @@ class ElaSplashScreen(ElaThemeWidget):
         self.setWindowOpacity(1.0)
         super().show()
 
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        # 等 splash 画出来再付 Qt6 的一次性字体解析（见 ``_warmTextStack``）：
+        # 在 showEvent 里同步调会把 splash 自己的出现也推迟 ~190ms。
+        single_shot_on(self, 0, _warmTextStack)
+
     def close(self) -> None:
         """关闭启动画面并发射 ``closed`` 信号。"""
         self._fade_timer.stop()
         super().close()
         self.closed.emit()
-
     def finish(self, main_window: QWidget) -> None:
         """淡出关闭并显示主窗口。"""
         if self._fade_timer.isActive() or self._fade_settled:

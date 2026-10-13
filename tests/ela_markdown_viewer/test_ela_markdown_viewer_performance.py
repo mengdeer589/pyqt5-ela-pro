@@ -151,3 +151,28 @@ class TestCacheGovernance:
         v.setMarkdown("```python\na = 1\n```")
         assert not v._highlight_cache
         v.deleteLater()
+
+
+class TestCodeFontFamilyCache:
+    """``_default_code_font_family()`` ????????
+
+    ``QFontDatabase().families()`` ?????????? ~1.7ms??????????
+    ???????viewer ??????? / ?????????????????
+    """
+
+    def test_families_queried_once(self, monkeypatch):
+        calls = {"n": 0}
+
+        class _FakeFontDatabase:
+            def families(self):
+                calls["n"] += 1
+                return ["Consolas"]
+
+        monkeypatch.setattr(viewer_module, "QFontDatabase", lambda: _FakeFontDatabase())
+        monkeypatch.setattr(viewer_module, "_DEFAULT_CODE_FONT_FAMILY", None)
+
+        first = viewer_module._default_code_font_family()
+        second = viewer_module._default_code_font_family()
+
+        assert first and first == second
+        assert calls["n"] == 1

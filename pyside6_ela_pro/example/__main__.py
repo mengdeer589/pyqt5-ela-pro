@@ -26,7 +26,7 @@ from pyside6_ela_pro import ElaSplashScreen
 os.environ["QT_LOGGING_RULES"] = "*.debug=false;qt.qpa.fonts.warning=false"
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont, QStandardItem, QStandardItemModel
+from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import QApplication
 from PySide6ElaWidgetTools import (
     eApp,
@@ -204,15 +204,10 @@ if __name__ == "__main__":
 
     t_start = _time.monotonic()
     step = [0]
-    warmed = False
     while _time.monotonic() - t_start < 0.5:
-        # 一次性成本，趁 splash 展示（这里本来就是 0.5s 的空转）付掉：
-        # ① PySide6/Qt6 首次解析「系统默认字体族」要 ~190ms（Qt5 几乎为 0）；
-        # ② 图标浏览页首次渲染要 ~22ms（ElaAwesome 字形首次实现 + delegate 首渲染）。
-        # 不预热时它们会落在页面构造 / 首次渲染上，实测表现为某页突然多 190ms、图标页首帧卡一下。
-        if not warmed:
-            QFont().defaultFamily()
-            warmed = True
+        # splash 的职责就是遮住启动期工作：``ElaSplashScreen`` 会在自己出现后自动付掉
+        # Qt6 的一次性字体解析（~190ms，见 splash_screen._warmTextStack），这里只需要
+        # 驱动事件循环 + 更新进度文案。
         app.processEvents()
         _time.sleep(0.02)
         if step[0] < len(messages):
