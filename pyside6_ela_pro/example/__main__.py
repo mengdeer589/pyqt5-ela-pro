@@ -222,6 +222,13 @@ if __name__ == "__main__":
     splash.close()
 
     window = ExampleWindow()
+    # 少数页面的内容会往窗口挂**原生子窗口**（blueprint 的 GL 视口，见
+    # ``ExamplePage.PRE_SHOW_BUILD``）：必须在 show 之前建好 —— 给已显示的顶层窗口挂
+    # 原生子窗口时 Windows/Qt 会重建顶层 HWND，视觉上就是主窗口「闪一次」（实测在
+    # 后台预热里 T+1.8s，类名 Qt6xxQWindowIcon → Qt6xxQWindowOwnDCIcon）。
+    for _page in window.findChildren(ExamplePage):
+        if getattr(_page, "PRE_SHOW_BUILD", False):
+            _page.buildDemoContent()
     window.show()
 
     # 启动后逐页预热：每 tick 只建一页（内容惰性构建，见 ``ExamplePage._setupUI``），

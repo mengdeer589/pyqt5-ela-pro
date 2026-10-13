@@ -322,6 +322,7 @@ PyQt5 只打印告警，PySide6 直接崩，而且**崩点在下一个测试的�
 2. 一次性字体解析**趁 splash 付掉**；页面代码里禁用 `QFont().defaultFamily()`（要默认字体族用 `QApplication.font().family()`，0.01 ms）。
 3. 连续 resize（侧边栏动画 / 拖窗口边框）期间**把页面钉在旧尺寸** + 120 ms 防抖恢复 → 单帧 8.6 → 0.0 ms（只冻结布局或冻结重绘都不行：前者无效果，后者页面空白 255 ms）。
 4. 守卫适配：`tests/example/conftest.py` 的 `make` 自动补 `buildDemoContent()`；不 `show()` 的守卫显式调用。
+5. **带原生子窗口的页在 `show()` 之前建**：`BlueprintPage` 的 GL 视口（`QOpenGLWidget`）挂到**已显示**的顶层窗口上时，Windows/Qt 会重建顶层 HWND（类名 `QWindowIcon` → `QWindowOwnDCIcon`），表现为主窗口「闪一次」（实测在后台预热 T+1.8s）。页面用 `PRE_SHOW_BUILD = True` 声明，`__main__` 在 `window.show()` 前构建它们。
 
 ### 9.4 明确**不**做
 

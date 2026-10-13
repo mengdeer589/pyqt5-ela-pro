@@ -50,11 +50,15 @@ class ExamplePage(ElaThemeWidget):
 
     PAGE_TITLE = "[ela_ext] 示例页面"
 
+    #: 内容会往窗口挂**原生子窗口**（如 `_GLViewport = QOpenGLWidget`）的页面置 True：
+    #: 这类页必须在 `window.show()` 之前构建（见 `__main__`）—— 给已显示的顶层窗口挂
+    #: 原生子窗口会让 Windows/Qt 重建顶层 HWND，视觉上主窗口会「闪一次」。
+    PRE_SHOW_BUILD = False
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._demo_built = False
-        self._setupUI()
-        # 侧边栏收缩/展开是上游 4 条并发的 255ms 属性动画：每帧都会 resize 本页
+        self._setupUI()        # 侧边栏收缩/展开是上游 4 条并发的 255ms 属性动画：每帧都会 resize 本页
         # → 内容每帧重排。PySide6 下单次重排是 PyQt5 的 2~6 倍（shiboken 调用开销），
         # 慢机上表现为掉帧。做法：连续 resize 期间冻结内部布局，静止
         # ``_REFLOW_IDLE_MS`` 后一次性重排（与 chat 的 setResizeReflowDeferred 同思路）。

@@ -113,6 +113,11 @@ def _ensure_demo_types():
 class BlueprintPage(ExamplePage):
     """ElaBlueprintCanvas：UE5 风格节点图编辑器"""
 
+    #: 画布的视口是原生子窗口（``_GLViewport = QOpenGLWidget``）：必须在窗口 show
+    #: **之前**构建好，否则给已显示的顶层窗口挂原生子窗口会让 Windows/Qt 重建顶层
+    #: HWND（类名 ``QWindowIcon`` → ``QWindowOwnDCIcon``），用户看到主窗口「闪一次」。
+    PRE_SHOW_BUILD = True
+
     PAGE_TITLE = "ElaBlueprintCanvas 节点图编辑器"
 
     def __init__(self, parent=None):
