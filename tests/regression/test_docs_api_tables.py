@@ -99,6 +99,7 @@ SIGNATURE_ROWS = [
     ("svg_to_image", ("svg_data", "size", "color")),
     ("svg_icon_loader", ()),
     ("show_notify", ("title", "content", "timeout")),
+    ("setResizeReflowDeferred", ("widget", "on", "delayMs")),
 ]
 
 

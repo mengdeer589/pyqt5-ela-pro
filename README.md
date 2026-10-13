@@ -135,6 +135,7 @@ sys.exit(app.exec())
 | `motion.setMode(ElaMotionModeType.Reduced)` | 全局动效：状态过渡压到 ≤50ms、持续动效停止 |
 | `set_tooltip(widget, text, position, theme)` | 设置自定义工具提示 |
 | `remove_tooltip(widget)` | 移除自定义工具提示 |
+| `setResizeReflowDeferred(widget, on, delayMs)` | 连续 resize（侧栏动画 / 拖窗）期间钉住页面、停手后统一重排（实测单帧 8.6ms → 0.0ms） |
 | `svg_to_icon(svg_data, size, color)` | SVG **字符串**转 QIcon（首参是 SVG 源码，不是文件路径）；`color` 替换图里的 `<<<COLOR_CODE>>>` 占位符 |
 | `svg_to_pixmap(svg_data, size, color)` | 同上转 QPixmap（每次返回新对象） |
 | `svg_to_image(svg_data, size, color)` | 同上转 QImage（值类型，**可跨线程用** —— 前两个的最后一步要 GUI 线程） |

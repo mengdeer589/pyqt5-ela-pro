@@ -5,18 +5,20 @@
 内容（背景 / 网格 / 选中发光 / 边 / 临时线 / 框选）由本模块的私有
 视口子控件承载，视口与画布 1:1 重合：
 
-- GL 可用：``_GLViewport(QOpenGLWidget)``——``paintGL`` 中以
+- GL 视口（``ELABLUEPRINT_GL=on``）：``_GLViewport(QOpenGLWidget)``——``paintGL`` 中以
   ``QPainter`` 执行与软件路径**同一份**绘制代码
   （``ElaBlueprintCanvas._paint_contents``），自动走 GL paint engine；
-- GL 不可用（offscreen / minimal 测试环境、无 GL 驱动、
-  ``ELABLUEPRINT_GL=off``）：``_RasterViewport(QWidget)``，
-  行为与纯软件实现逐像素等价。
+- **默认软件渲染**（``ELABLUEPRINT_GL`` 未设或 ``off``，
+  以及 offscreen / minimal 测试环境、无 GL 驱动）：``_RasterViewport(QWidget)``，
+  行为与 GL 路径逐像素等价。默认不用 GL 的原因：GL 视口是**原生子窗口**，把它挂到
+  已显示的窗口上会让 Windows/Qt 重建顶层 HWND（窗口闪一下，见 ``create_viewport``
+  的警告与 ``docs/performance.md``）。
 
 GL 可用性由 ``gl_available()`` 运行时探测（模块级缓存，仅探测一次）：
 
 - 环境变量 ``ELABLUEPRINT_GL``（兼容读 ``UIKIT_BLUEPRINT_GL``）：
-  ``auto``（默认）/ ``on``（强制尝试，失败仍回退并记 WARNING）/
-  ``off``（强制软件渲染）；
+  ``on``（强制尝试，失败仍回退并记 WARNING）/ ``auto``（探测后决定）/
+  ``off`` 或**未设**（强制软件渲染）；
 - offscreen / minimal 平台直接判不可用（该组合下 GL 上下文无法创建）；
 - 其余平台试探创建 ``QOpenGLContext`` + ``QOffscreenSurface`` 并
   ``makeCurrent``，任何一步失败即回退。
@@ -64,9 +66,14 @@ def gl_available() -> bool:
 
 
 def _probe_gl() -> bool:
-    """实际探测：环境变量 → 平台名 → 试探创建 GL 上下文。"""
+    """实际探测：环境变量 → 平台名 → 试探创建 GL 上下文。
+
+    **默认软件渲染**（``ELABLUEPRINT_GL`` 未设）：GL 视口是原生子窗口，挂到已显示的
+    窗口上会让 Windows/Qt 重建顶层 HWND（窗口闪一下）；想要 GPU 加速请显式
+    ``ELABLUEPRINT_GL=on``，并在 ``window.show()`` **之前**构建画布。
+    """
     env = (
-        os.environ.get("ELABLUEPRINT_GL", os.environ.get("UIKIT_BLUEPRINT_GL", "auto"))
+        os.environ.get("ELABLUEPRINT_GL", os.environ.get("UIKIT_BLUEPRINT_GL", "off"))
         .strip()
         .lower()
     )
@@ -230,15 +237,15 @@ def _warnLateNativeAttach(canvas) -> None:
     """GL 视口是**原生子窗口**：挂到已显示的窗口上会让 Windows/Qt 重建顶层 HWND。
 
     表现为主窗口「闪一下」（类名 ``QWindowIcon`` → ``QWindowOwnDCIcon``，实测触发点在
-    建好画布那一刻）。宿主要么在 ``window.show()`` 之前构建画布，要么用
-    ``ELABLUEPRINT_GL=off`` 走软件视口。
+    建好画布那一刻）。请要么在 ``window.show()`` 之前构建画布，要么不要启用 GL
+    （默认就是软件视口；``ELABLUEPRINT_GL=on`` 才是显式选择 GPU）。
     """
     try:
         window = canvas.window()
         if window is not None and window.isVisible():
             logger.warning(
                 "ElaBlueprintCanvas 的 GL 视口是原生子窗口，挂到已显示的窗口上会重建顶层 "
-                "HWND（窗口闪一下）：请在 window.show() 之前构建画布，或设 ELABLUEPRINT_GL=off"
+                "HWND（窗口闪一下）：请在 window.show() 之前构建画布，或不设 ELABLUEPRINT_GL"
             )
     except Exception:  # noqa: BLE001 —— 提醒不该影响创建
         pass

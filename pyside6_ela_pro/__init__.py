@@ -41,6 +41,8 @@ from .tooltips import (
     remove_tooltip,
 )
 
+from .resize_reflow import setResizeReflowDeferred
+
 from .animation import fade_in, fade_out, shake_window
 
 from ._motion import (
@@ -367,6 +369,7 @@ __all__ = [
     "shake_window",
     "set_tooltip",
     "remove_tooltip",
+    "setResizeReflowDeferred",
     "svg_to_icon",
     "svg_to_image",
     "svg_to_pixmap",

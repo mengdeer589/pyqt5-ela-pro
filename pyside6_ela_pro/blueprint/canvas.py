@@ -15,9 +15,10 @@
 - 序列化：``to_dict`` / ``from_dict``（含节点位置与画布 zoom/offset）。
 
 节点为真实子控件（``ElaNodeWidget``，挂在内部绘制视口之下）；边、临时线、
-网格、选中发光由视口统一自绘——GL 可用时视口为 ``QOpenGLWidget``
-（GPU 加速），否则为普通 ``QWidget`` 软件回退（见 ``viewport.py``，
-可用 ``ELABLUEPRINT_GL=off`` 强制软件路径）。
+网格、选中发光由视口统一自绘——**默认软件视口**（``QWidget``），设
+``ELABLUEPRINT_GL=on`` 才用 ``QOpenGLWidget``（GPU 加速；它是原生子窗口，
+须在 ``window.show()`` 之前构建画布，否则顶层 HWND 会被重建、窗口闪一下，
+见 ``viewport.py`` 与 ``docs/performance.md``）。
 
 移植自 InstructionX_UIKit.blueprint.canvas（原库为 PySide6，
 类名 Ela* 前缀；主题令牌经 blueprint._tokens 适配 eTheme；原库无 LICENSE，

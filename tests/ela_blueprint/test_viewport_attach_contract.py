@@ -68,3 +68,18 @@ def test_no_warning_for_raster_viewport(monkeypatch, qapp, caplog, make):
         make(ElaBlueprintCanvas, None, window)
 
     assert _warnings(caplog) == []
+
+
+def test_default_is_raster(monkeypatch, make):
+    """GL 是**显式选择**：``ELABLUEPRINT_GL`` 未设时用软件视口。
+
+    （默认不用 GL 的原因：原生子窗口挂到已显示的窗口上会重建顶层 HWND，窗口闪一下。
+    见 ``docs/performance.md``。）
+    """
+    monkeypatch.delenv("ELABLUEPRINT_GL", raising=False)
+    monkeypatch.delenv("UIKIT_BLUEPRINT_GL", raising=False)
+    monkeypatch.setattr(viewport_module, "_GL_STATE", None)
+
+    canvas = make(ElaBlueprintCanvas)
+
+    assert isinstance(canvas._viewport, viewport_module._RasterViewport)
