@@ -109,6 +109,10 @@ class TestHighlightCacheAcrossThemes:
         for _ in range(5):
             qapp.processEvents()
 
+        # 词法器实例是进程级缓存的（_LEXER_CACHE），先清空才能让本用例的
+        # spy 真的装上；计数点选 get_tokens（真正的词法分析）而不是
+        # get_lexer_by_name（实例构造已被缓存，不再每次发生）。
+        monkeypatch.setattr(md_module, "_LEXER_CACHE", {})
         lexers = {"n": 0}
         real_load = md_module._load_pygments
 
@@ -119,8 +123,15 @@ class TestHighlightCacheAcrossThemes:
             get_lexer, token_module = pair
 
             def counting_lexer(lang, **kwargs):
-                lexers["n"] += 1
-                return get_lexer(lang, **kwargs)
+                lexer = get_lexer(lang, **kwargs)
+                real_tokens = lexer.get_tokens
+
+                def counting_tokens(code):
+                    lexers["n"] += 1
+                    return real_tokens(code)
+
+                lexer.get_tokens = counting_tokens
+                return lexer
 
             return counting_lexer, token_module
 

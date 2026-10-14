@@ -53,19 +53,30 @@ class TestChunkedRenderSourceMap:
         _settle(viewer, qapp)
         assert viewer.document().blockCount() > 1000
 
+    def test_render_does_not_build_map_eagerly(self, viewer, qapp):
+        """渲染路径不得提前建表（懒建）：51KB 文档建表实测 0.45s，而多数会话
+        从不引用回复。"""
+        viewer.setMarkdown(SMALL_DOC)
+        qapp.processEvents()
+        assert viewer._block_source_map is None
+        viewer.setMarkdown(_big_doc())
+        _settle(viewer, qapp)
+        assert viewer._block_source_map is None
+
     def test_no_stale_mapping_from_previous_document(self, viewer, qapp):
         """核心：先小文档（建表）→ 再大文档，映射不得残留。"""
         viewer.setMarkdown(SMALL_DOC)
         qapp.processEvents()
-        assert len(viewer._block_source_map) > 0, "前置条件：小文档应建表"
+        assert len(viewer._ensure_source_map()) > 0, "前置条件：小文档应建表"
 
         big = _big_doc()
         viewer.setMarkdown(big)
         _settle(viewer, qapp)
+        assert viewer._block_source_map is None, "新文档加载后旧映射没被作废"
 
         lines = big.split("\n")
         leaked = []
-        for number, rng in viewer._block_source_map.items():
+        for number, rng in viewer._ensure_source_map().items():
             if rng is None:
                 continue
             text = "\n".join(lines[rng[0] : rng[1]]).strip()
@@ -76,7 +87,7 @@ class TestChunkedRenderSourceMap:
     def test_mapping_is_actually_built_for_chunked_document(self, viewer, qapp):
         viewer.setMarkdown(_big_doc())
         _settle(viewer, qapp)
-        mapping = viewer._block_source_map
+        mapping = viewer._ensure_source_map()
         assert len(mapping) > 0, "分块渲染完成后仍没有源行映射"
         real = [rng for rng in mapping.values() if rng is not None]
         assert len(real) > 100, f"映射几乎全是 None（{len(real)}/{len(mapping)}）"
@@ -89,7 +100,7 @@ class TestChunkedRenderSourceMap:
         qapp.processEvents()
         widget.setMarkdown(_big_doc())
         _settle(widget, qapp)
-        assert len(widget._block_source_map) > 0
+        assert len(widget._ensure_source_map()) > 0
 
     def test_markdown_selection_returns_new_document_source(self, viewer, qapp):
         viewer.setMarkdown(SMALL_DOC)
@@ -123,10 +134,10 @@ class TestChunkedRenderSourceMap:
             assert f"列表项 {index:05d}" in selected, selected[:120]
 
     def test_begin_large_render_clears_map_immediately(self, viewer, qapp):
-        """清空必须发生在**渲染开始前**，否则中途查询仍能拿到旧映射。"""
+        """作废必须发生在**渲染开始前**，否则中途查询仍能拿到旧映射。"""
         viewer.setMarkdown(SMALL_DOC)
         qapp.processEvents()
-        assert len(viewer._block_source_map) > 0
+        assert len(viewer._ensure_source_map()) > 0
         viewer._begin_large_render()
-        assert viewer._block_source_map == {}, "分块渲染开始时旧映射没被清掉"
+        assert viewer._block_source_map is None, "分块渲染开始时旧映射没被作废"
         viewer._cancel_large_render()

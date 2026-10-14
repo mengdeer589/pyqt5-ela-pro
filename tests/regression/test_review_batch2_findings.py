@@ -123,40 +123,71 @@ class TestMarkdownInternalAnchors:
 
 
 class TestMarkdownCodeButtonInvalidation:
-    """不变量 (a)：销毁文档内容前必须先丢 ``_code_buttons_tables``。"""
+    """不变量：代码表被销毁后，引用要么被 ``is_deleted`` 过滤、要么访问前判存活。
+
+    旧实现靠 ``_flush_stream`` 开头的 ``_rebuild_code_buttons([])`` 兜底；现在
+    稳定段按钮按表身份增量复用（流式每次 flush 全量重建是卡顿根源），失效表
+    改由 ``_sync_code_buttons`` 过滤 + 几何访问（``_code_table_in_view``）判存活。
+    """
 
     @staticmethod
-    def _flush_stream_body() -> str:
+    def _method_body(name: str) -> str:
 
         src = inspect.getsource(M.ElaMarkdownViewer)
-        match = re.search(r"\n    def _flush_stream\(.*?(?=\n    def )", src, re.S)
+        match = re.search(rf"\n    def {name}\(.*?(?=\n    def )", src, re.S)
         assert match is not None
         return match.group(0)
 
-    def test_rebuild_precedes_destructive_edit(self):
-        body = self._flush_stream_body()
-        lines = body.splitlines()
-        rebuild = next(
-            i
-            for i, l in enumerate(lines)
-            if l.strip().startswith("self._rebuild_code_buttons")
-        )
-        destroy = next(
-            i
-            for i, l in enumerate(lines)
-            if l.strip().startswith("cursor.removeSelectedText")
-        )
-        assert rebuild < destroy, (
-            "_rebuild_code_buttons([]) 必须在 removeSelectedText() 之前，"
-            "否则 _code_buttons_tables 会持有已析构的 QTextTable"
+    def test_flush_does_not_wipe_button_refs(self):
+        body = self._method_body("_flush_stream")
+        assert "self._rebuild_code_buttons([])" not in body, (
+            "flush 不应全量清空按钮引用：稳定段的表对象未变，重建即流式卡顿根源"
         )
 
+    def test_sync_filters_destroyed_tables(self):
+        assert "is_deleted" in self._method_body("_sync_code_buttons"), (
+            "增量同步必须按 is_deleted 过滤已随文档析构的表"
+        )
+
+    def test_geometry_paths_guard_table_liveness(self):
+        assert "is_deleted" in self._method_body("_code_table_in_view"), (
+            "按钮定位 / 代码卡自绘的粗筛必须先判表存活"
+        )
+        assert "_code_table_in_view" in self._method_body("_position_code_buttons")
+        assert "_code_table_in_view" in self._method_body("_paint_code_card_chrome")
+
     def test_resync_is_immediate(self):
-        body = self._flush_stream_body()
-        lines = [l.strip() for l in body.splitlines()]
+        body = self._method_body("_flush_stream")
+        lines = [line.strip() for line in body.splitlines()]
         assert "self._sync_code_buttons()" in lines, (
             "flush 结束时应立即 _sync_code_buttons()，不能只靠 80ms 后的定时器"
         )
+
+    def test_stream_flush_with_code_block_keeps_tables_alive(self, qapp):
+        """流式 flush 销毁尾段代码表后，按钮 / 表引用不得残留已析构对象。"""
+
+        v = ElaMarkdownViewer()
+        v.resize(400, 300)
+        v.show()
+        for _ in range(8):
+            qapp.processEvents()
+        v.beginStream()
+        v.appendMarkdown("```python\nx = 1\n```\n\n正文")
+        v._stream_timer.stop()
+        v._flush_stream()
+        assert v._code_buttons_tables
+        first_button = v._code_buttons[0]
+        # 追加更多内容再 flush：稳定段已 commit 的代码表不应被重建
+        v.appendMarkdown("\n\n更多正文 `code`")
+        v._stream_timer.stop()
+        v._flush_stream()
+        assert v._code_buttons[0] is first_button, "稳定段的复制按钮被无谓重建"
+        for table in v._code_buttons_tables:
+            assert not M.is_deleted(table)
+        v.repaint()
+        v.grab()
+        v.deleteLater()
+        qapp.processEvents()
 
     def test_stream_replay_keeps_buttons_consistent(self, qapp):
 

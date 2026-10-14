@@ -149,7 +149,7 @@ class MyPage(QWidget):
 | `ElaSelectorBar` | 0.079 | 0 | |
 | `ElaBlueprintCanvas` | 0.149 | 1 | GL 时含原生子窗口（见配方 ③） |
 | `ElaField` | 0.418 | 8 | 组合壳 |
-| `ElaMarkdownViewer` | 0.732 | 6 | 构造便宜，**渲染**才贵（文档布局 / 高亮） |
+| `ElaMarkdownViewer` | 0.732 | 6 | 构造便宜，**渲染**才贵（文档布局 / 高亮）；>64KB 自动分块渐进渲染（`isRendering` / `renderingProgress`），不按视口懒渲染（滚动 / 搜索 / 导出依赖完整文档） |
 | `ElaChatView` | 1.497 | 11 | 一页一个即可 |
 | `ElaTerminalView` | 4.272 | 18 | 最重；别在启动期批量建 |
 

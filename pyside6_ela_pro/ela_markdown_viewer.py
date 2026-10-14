@@ -243,6 +243,10 @@ _TASK_LIST_RE = re.compile(r"^([ \t]*(?:[-+*]|\d+[.)])[ \t]+)\[([ xX])\][ \t]?")
 #: 只改「紧跟 ``(`` / ``[``」的形态，正文里字面量 ``![]`` 不受影响。
 _EMPTY_ALT_IMAGE_RE = re.compile(r"!\[\](?=[\(\[])")
 
+#: 图片语法探测（预处理后的源里出现才跑 ``_apply_images``：
+#: 无图的文档整趟跳过全块 × 片段遍历，分块渲染时每块一次）
+_IMAGE_SYNTAX_RE = re.compile(r"!\[|<img", re.IGNORECASE)
+
 #: 行内下标 ``H~2~O`` / 上标 ``x^2^``（内容不含空白/方括号；不匹配 ``~~删除线~~``）
 _SUB_RE = re.compile(r"(?<!~)~([^~\s\[\]]+)~(?!~)")
 _SUP_RE = re.compile(r"(?<!\^)\^([^\^\s\[\]]+)\^(?!\^)")
@@ -418,6 +422,9 @@ _INLINE_CODE_MARK = QTextFormat.UserProperty + 107
 _CODE_MARKER_VALUE = "elacode"
 #: 代码复制按钮尺寸（像素）
 _CODE_BUTTON_SIZE = 24
+#: 代码卡视口粗筛余量（像素）：帧矩形离视口在此距离内的表仍按可见处理
+#: （帧矩形与 cursorRect 反推的实际矩形有几像素出入，余量兜住边界）
+_CODE_VIEW_CULL_MARGIN = 64.0
 
 #: 优先使用的代码字体（Windows 常见等宽字体），均不可用时回退系统等宽字体
 _PREFERRED_CODE_FONTS = ("Consolas", "Cascadia Mono", "Courier New")
@@ -999,8 +1006,11 @@ def _source_line_text(line: str) -> str:
     return _normalize_text(line)
 
 
-def _match_source_lines(lines: list[str], start: int, block_text: str):
+def _match_source_lines(lines: list, start: int, block_text: str):
     """从 ``start`` 起搜索与块文本匹配的源行（支持跨行段落/合并引用）。
+
+    ``lines`` 是**预计算**的 ``_source_line_text`` 结果（不可匹配的行为空串），
+    由 :meth:`ElaMarkdownViewer._build_block_source_map` 一次生成、逐块复用。
 
     在窗口内逐行作为起点尝试消费；累计文本必须是目标的前缀才继续，
     否则换下一行起点（避免把无关行误吞进匹配）。
@@ -1013,13 +1023,13 @@ def _match_source_lines(lines: list[str], start: int, block_text: str):
     total = len(lines)
     index = start
     while index < total and index < start + 80:
-        if not _source_line_text(lines[index]):
+        if not lines[index]:
             index += 1
             continue
         accumulated = ""
         cursor = index
         while cursor < total and cursor < index + 40:
-            part = _source_line_text(lines[cursor])
+            part = lines[cursor]
             cursor += 1
             if not part:
                 continue
@@ -1032,25 +1042,44 @@ def _match_source_lines(lines: list[str], start: int, block_text: str):
     return None
 
 
-def _stable_cut(text: str, committed: int = 0, allow_sentence: bool = False) -> int:
-    """返回围栏 / 块级公式之外的稳定提交边界偏移（无则 0）。
+def _stable_cut(
+    text: str,
+    committed: int = 0,
+    allow_sentence: bool = False,
+    safe_from: int = 0,
+) -> tuple[int, int]:
+    """返回 ``(稳定提交边界偏移, 下次可复用的安全扫描起点)``（无边界时切点为 0）。
 
     稳定段只包含边界之前的内容；未闭合的围栏与公式块整体留在尾部，
     由流式刷新按当前结构渲染。``allow_sentence`` 用于超长段落：当没有
     空行边界且未稳定尾部过长时，退而在句末标点（或最近空白）处提交，
     避免每次刷新都重排整段超长文本。
+
+    ``safe_from`` 是调用方已知**位于围栏 / 公式块之外**的起点（默认 0），
+    本次只扫描它之后的文本：每次从第 0 行全量重扫会随流式长度线性变慢
+    （实测 25KB 流 0.2s / 10 秒窗口，整体 O(n²)）。返回值第二项可直接作为
+    下一次调用的 ``safe_from``；切点若落在未闭合围栏内（超长尾部兜底提交），
+    则回退到围栏之前 —— 否则下一轮会把围栏中段当普通文本，把围栏内的
+    空行误判成稳定边界。
     """
-    lines = text.split("\n")
+    length = len(text)
+    base = min(max(int(safe_from), 0), length)
+    line_start = text.rfind("\n", 0, base) + 1 if base else 0
+    lines = text[line_start:].split("\n")
+    n = len(lines)
     offsets = [0]
     for line in lines[:-1]:
         offsets.append(offsets[-1] + len(line) + 1)
-    n = len(lines)
+    first_line_is_doc_start = line_start == 0
     cut = 0
     sentence_cut = 0
+    #: 已知在围栏 / 公式块之外的最大偏移（供下一次增量扫描用）
+    outside_end = base
     i = 0
     while i < n:
-        stripped = lines[i].strip()
-        opened, _lang = _fence_open(lines[i])
+        line = lines[i]
+        stripped = line.strip()
+        opened, _lang = _fence_open(line)
         if opened:
             i += 1
             while i < n and not _fence_close(lines[i], opened):
@@ -1069,28 +1098,28 @@ def _stable_cut(text: str, committed: int = 0, allow_sentence: bool = False) -> 
                 i += 1
             i += 1
             continue
-        if lines[i] == "" and 0 < i < n - 1:
-            cut = offsets[i + 1]
-        elif allow_sentence and not lines[i].startswith(("    ", "\t")):
-            for match in _SENTENCE_RE.finditer(lines[i]):
-                sentence_cut = offsets[i] + match.end()
+        if line == "" and (i > 0 or not first_line_is_doc_start) and i < n - 1:
+            cut = line_start + offsets[i + 1]
+        elif allow_sentence and not line.startswith(("    ", "\t")):
+            for match in _SENTENCE_RE.finditer(line):
+                sentence_cut = line_start + offsets[i] + match.end()
+        outside_end = line_start + offsets[i] + len(line) + 1
         i += 1
 
     if cut > committed:
-        return cut
-    if not allow_sentence:
-        return cut
-    if sentence_cut > committed and sentence_cut - committed >= _STREAM_SENTENCE_MIN:
-        return sentence_cut
-    if len(text) - committed >= _STREAM_SENTENCE_MAX:
-        limit = min(committed + _STREAM_SENTENCE_MAX, len(text))
-        pos = max(
-            text.rfind(" ", committed, limit),
-            text.rfind("\n", committed, limit),
-        )
-        if pos > committed:
-            return pos + 1
-    return cut
+        return cut, cut
+    if allow_sentence:
+        if sentence_cut > committed and sentence_cut - committed >= _STREAM_SENTENCE_MIN:
+            return sentence_cut, sentence_cut
+        if length - committed >= _STREAM_SENTENCE_MAX:
+            limit = min(committed + _STREAM_SENTENCE_MAX, length)
+            pos = max(
+                text.rfind(" ", committed, limit),
+                text.rfind("\n", committed, limit),
+            )
+            if pos > committed:
+                return pos + 1, min(pos + 1, outside_end)
+    return cut, min(cut, outside_end)
 
 
 def _load_pygments():
@@ -1110,35 +1139,79 @@ def _load_pygments():
     return _PYGMENTS_STATE["module"]
 
 
+#: Pygments 词法器实例缓存（按语言）。``get_lexer_by_name`` 带
+#: ``stripnl/ensurenl`` 参数时每次调用约 0.1ms 且不命中 pygments 自带缓存，
+#: 每个代码块构造一次会随块数线性变慢。词法器跨调用无状态，可安全复用。
+_LEXER_CACHE: dict = {}
+_LEXER_MISS = object()
+
+
+#: Pygments token 类型 → 分类名的缓存（token 类型是进程级单例、可哈希）：
+#: 逐个 token 走 ``in`` 链时 4282 个代码块的文档要查 77 万次包含判断
+#: （实测 ≈ 0.2s），分类与调色板无关，可按类型缓存。
+_TOKEN_KIND_CACHE: dict = {}
+_TOKEN_KIND_MISS = object()
+#: 分类 → ``(调色板键, 是否斜体)``
+_TOKEN_KIND_STYLES = {
+    "comment": ("comment", True),
+    "type": ("type", False),
+    "constant": ("constant", False),
+    "keyword": ("keyword", True),
+    "function": ("function", False),
+    "class": ("class", False),
+    "decorator": ("decorator", False),
+    "builtin": ("builtin", False),
+    "attribute": ("attribute", False),
+    "tag": ("tag", False),
+    "string": ("string", False),
+    "number": ("number", False),
+    "operator": ("operator", False),
+}
+
+
+def _token_kind(token_type, token):
+    """Pygments token → 分类名（``None`` = 未覆盖）；结果按 token 类型缓存。"""
+    kind = _TOKEN_KIND_CACHE.get(token_type, _TOKEN_KIND_MISS)
+    if kind is _TOKEN_KIND_MISS:
+        if token_type in token.Comment:
+            kind = "comment"
+        elif token_type in token.Keyword.Type:
+            kind = "type"
+        elif token_type in token.Keyword.Constant:
+            kind = "constant"
+        elif token_type in token.Keyword:
+            kind = "keyword"
+        elif token_type in token.Name.Function:
+            kind = "function"
+        elif token_type in token.Name.Class:
+            kind = "class"
+        elif token_type in token.Name.Decorator:
+            kind = "decorator"
+        elif token_type in token.Name.Builtin:
+            kind = "builtin"
+        elif token_type in token.Name.Attribute:
+            kind = "attribute"
+        elif token_type in token.Name.Tag:
+            kind = "tag"
+        elif token_type in token.String:
+            kind = "string"
+        elif token_type in token.Number:
+            kind = "number"
+        elif token_type in token.Operator:
+            kind = "operator"
+        else:
+            kind = None
+        _TOKEN_KIND_CACHE[token_type] = kind
+    return kind
+
+
 def _token_style(token_type, token, palette):
     """Pygments token → ``(颜色, 斜体)``；未覆盖的 token 返回 ``None``。"""
-    if token_type in token.Comment:
-        return palette["comment"], True
-    if token_type in token.Keyword.Type:
-        return palette["type"], False
-    if token_type in token.Keyword.Constant:
-        return palette["constant"], False
-    if token_type in token.Keyword:
-        return palette["keyword"], True
-    if token_type in token.Name.Function:
-        return palette["function"], False
-    if token_type in token.Name.Class:
-        return palette["class"], False
-    if token_type in token.Name.Decorator:
-        return palette["decorator"], False
-    if token_type in token.Name.Builtin:
-        return palette["builtin"], False
-    if token_type in token.Name.Attribute:
-        return palette["attribute"], False
-    if token_type in token.Name.Tag:
-        return palette["tag"], False
-    if token_type in token.String:
-        return palette["string"], False
-    if token_type in token.Number:
-        return palette["number"], False
-    if token_type in token.Operator:
-        return palette["operator"], False
-    return None
+    kind = _token_kind(token_type, token)
+    if kind is None:
+        return None
+    key, italic = _TOKEN_KIND_STYLES[kind]
+    return palette[key], italic
 
 
 class _ElaTextBrowser(QTextBrowser):
@@ -1322,8 +1395,11 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._expanded_folds: set[int] = set()
         #: 围栏代码块的源行范围（与 ``_fenced_blocks`` 对应）：[(start, end)]
         self._fenced_source_lines: list[tuple[int, int]] = []
-        #: 文档块号 → 源行范围（引用回复用；``None`` 表示未映射）
-        self._block_source_map: dict[int, Optional[tuple[int, int]]] = {}
+        #: 文档块号 → 源行范围（引用回复用；``None`` 表示未映射）。
+        #: **懒建**：``None`` = 尚未构建，``markdownSelection()`` 首次使用时才
+        #: 调 ``_build_block_source_map()`` —— 它逐块做源行双指针匹配，实测
+        #: 51KB 文档 0.45s（占全量渲染 40%+），而「引用回复」多数会话根本不触发。
+        self._block_source_map: Optional[dict] = None
         #: 渲染降级记录：[(类型, 详情)]，全量渲染时重置
         self._render_issues: list[tuple[str, str]] = []
         #: 行号显示开关
@@ -1385,12 +1461,23 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._code_buttons: list[QToolButton] = []
         self._code_buttons_tables: list = []
         self._code_button_rects: list = []
+        #: 按钮控件集合（eventFilter 的归属判断 O(1)，不再对列表做线性 in）
+        self._code_button_widgets: set = set()
+        #: 当前显示的复制按钮下标（-1 = 无；显隐只动前后两个按钮）
+        self._shown_code_button = -1
+        #: 图片扫描水位：``_image_scan_watermark`` 之前的块已按
+        #: ``_image_scan_width`` 的视口宽度处理过（增量重排只扫新增块；
+        #: 宽度变化或文档整体替换后重置，见 _reset_image_scan）
+        self._image_scan_width = -1
+        self._image_scan_watermark = 0
 
         # 流式状态
         self._stream_active = False
         self._stream_source = ""
         self._stream_committed = 0
         self._stream_tail_pos = 0
+        #: ``_stable_cut`` 的增量扫描起点（已知在围栏 / 公式块之外，≤ 已提交位置）
+        self._stream_cut_from = 0
         self._stream_first_flush = True
         self._stream_capture_at_bottom = True
         self._stick_to_bottom = True
@@ -1857,9 +1944,10 @@ class ElaMarkdownViewer(ElaThemeWidget):
         if not first.isValid() or not last.isValid():
             return raw_selection
         ranges: list[tuple[int, int]] = []
+        mapping = self._ensure_source_map()
         block = first
         while block.isValid():
-            mapped = self._block_source_map.get(block.blockNumber())
+            mapped = mapping.get(block.blockNumber())
             if block.text().strip() or mapped is not None:
                 if mapped is None:
                     return raw_selection
@@ -1875,12 +1963,27 @@ class ElaMarkdownViewer(ElaThemeWidget):
         quote = "\n".join(lines[quote_start:quote_end]).strip("\n")
         return quote or raw_selection
 
+    def _ensure_source_map(self) -> dict:
+        """取源行映射；未构建时**按需**构建一次并缓存。
+
+        渲染入口一律把它置回 ``None``（作废），构建成本只由真正用到
+        ``markdownSelection()``（引用回复）的会话支付。
+        """
+        mapping = self._block_source_map
+        if mapping is None:
+            mapping = self._build_block_source_map()
+            self._block_source_map = mapping
+        return mapping
+
     def _build_block_source_map(self) -> dict:
         """构建 文档块号 → 源行范围 的近似映射（引用回复用）。
 
         代码块使用表格式上记录的源围栏范围；普通块用归一化文本双指针匹配。
+        源行归一化结果**预计算一次**（原先每个候选起点重复归一次，实测
+        51KB / 200 块文档归一化 10 万次 ≈ 0.4s）。
         """
         lines = self._source.split("\n")
+        normalized = [_source_line_text(line) for line in lines]
         code_ranges: dict = {}
         for table in self._iter_tables(self.document()):
             stored = table.format().property(_CODE_SOURCE_PROPERTY)
@@ -1911,7 +2014,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 if not text:
                     mapping[number] = None
                 else:
-                    matched = _match_source_lines(lines, source_index, text)
+                    matched = _match_source_lines(normalized, source_index, text)
                     if matched is not None:
                         mapping[number] = matched
                         source_index = matched[1]
@@ -2014,17 +2117,19 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._cancel_large_render()
         self._expanded_code_blocks.clear()
         self._expanded_folds.clear()
-        self._block_source_map = {}
+        self._block_source_map = None
         self._stream_active = True
         self._stream_source = ""
         self._stream_committed = 0
         self._stream_tail_pos = 0
+        self._stream_cut_from = 0
         self._stream_first_flush = True
         self._stream_capture_at_bottom = True
         self._source = ""
         # 清空文档会销毁旧代码表对象；按钮 / 表格引用必须同步失效，
         # 否则重绘或布局刷新会访问已删除的 C++ 对象（PyQt 静默 abort）
         self._rebuild_code_buttons([])
+        self._reset_image_scan()
         self._text_browser.document().clear()
         self._caret_visible = True
         # 持续动效：Reduced/Disabled 下不闪，但**光标必须留在可见态** ——
@@ -2160,13 +2265,11 @@ class ElaMarkdownViewer(ElaThemeWidget):
         # 同 beginStream：清空文档前先让旧代码表引用失效（分块渲染期间
         # 事件循环仍会重绘，访问已删除表格会 PyQt abort）
         self._rebuild_code_buttons([])
-        # **同 beginStream：必须清空源行映射**。``_build_block_source_map`` 只挂在
-        # ``_render()`` 上，而超过 ``_LARGE_RENDER_CHARS`` 的文档走的是本函数 ->
-        # ``_render_large_step`` -> ``_finish_large_render`` 这条路，三个都不碰它。
-        # 于是上一份文档的行号区间被原样套到新文档上：``markdownSelection()``
-        # （引用回复的源行）会返回**别的段落**的内容。实测「先正常渲染 4 段 ->
-        # 再 setMarkdown(>64KB)」后选第 2 块，返回的是上一份文档那一行的文字。
-        self._block_source_map = {}
+        # **同 beginStream：必须作废源行映射**。懒建后只置 ``None``（下次
+        # ``markdownSelection()`` 重建）；旧映射若留着，行号区间会被套到新
+        # 文档上，``markdownSelection()`` 会返回**别的段落**的内容。
+        self._block_source_map = None
+        self._reset_image_scan()
         self._text_browser.document().clear()
         self._large_render_timer.start(0)
 
@@ -2201,11 +2304,9 @@ class ElaMarkdownViewer(ElaThemeWidget):
     def _finish_large_render(self) -> None:
         self._large_render_chunks = []
         self._large_render_index = 0
-        # 补建源行映射：分块路径全程不调 _render()，所以这里必须自己建一次，
-        # 否则 >64KB 文档的引用回复一律退回纯文本（块已在屏上、源行却是空的）。
-        # 代价与 _render() 里那次相同（逐块双指针匹配），但只跑一次而不是
-        # 每次主题切换都跑。
-        self._block_source_map = self._build_block_source_map()
+        # 源行映射懒建（markdownSelection 首次使用时构建）：分块路径全程不调
+        # _render()，这里同样只作废，绝不提前付出逐块匹配的代价。
+        self._block_source_map = None
         self.renderingProgress.emit(100)
         self._sync_code_buttons()
         self._schedule_layout_refresh()
@@ -2247,22 +2348,22 @@ class ElaMarkdownViewer(ElaThemeWidget):
 
         browser.setUpdatesEnabled(False)
         try:
-            cut = max(
-                _stable_cut(
-                    self._stream_source,
-                    self._stream_committed,
-                    allow_sentence=True,
-                ),
+            cut, next_scan = _stable_cut(
+                self._stream_source,
                 self._stream_committed,
+                allow_sentence=True,
+                safe_from=self._stream_cut_from,
             )
+            self._stream_cut_from = next_scan
+            cut = max(cut, self._stream_committed)
 
             # 删除旧尾部
             if document.characterCount() > 1:
-                # 必须先丢弃 _code_buttons_tables：removeSelectedText 会连带销毁
-                # 尾段里的代码卡 QTextTable，而 _schedule_layout_refresh 是 80ms 后
-                # 才补 _sync_code_buttons —— 期间任何一次重绘都会让
-                # _paint_code_card_chrome 访问已析构的表对象（0xC0000409 静默 abort）。
-                self._rebuild_code_buttons([])
+                # 尾段里的代码卡 QTextTable 会随内容一起析构，但**不做全量清空**：
+                # 稳定段的表对象不受影响，按钮按表身份增量复用（见
+                # _sync_code_buttons）。失效表由那里的 is_deleted 过滤，
+                # _position_code_buttons / _paint_code_card_chrome 各自也判存活 ——
+                # 期间滚动信号触发的重绘 / 定位不会访问已析构对象。
                 cursor = QTextCursor(document)
                 position = max(
                     0, min(self._stream_tail_pos, document.characterCount() - 1)
@@ -2632,11 +2733,17 @@ class ElaMarkdownViewer(ElaThemeWidget):
             self._render_into(document, self._source)
         finally:
             browser.setUpdatesEnabled(True)
-        self._block_source_map = self._build_block_source_map()
+        # 源行映射懒建：渲染路径不付逐块双指针匹配的代价（实测 51KB 文档
+        # 0.45s、占全量渲染 40%+），markdownSelection() 首次使用时才构建
+        self._block_source_map = None
+        # _render_into 已按当前视口宽度处理过全部图片：记录扫描水位，
+        # 后续增量重排只扫新增块
+        self._mark_images_scanned()
         if self._stream_active:
             # 全量渲染后增量状态失效，从头重新提交
             self._stream_committed = 0
             self._stream_tail_pos = 0
+            self._stream_cut_from = 0
         if at_bottom:
             bar.setValue(bar.maximum())
         else:
@@ -2657,6 +2764,26 @@ class ElaMarkdownViewer(ElaThemeWidget):
         super().showEvent(event)
         self._ensure_rendered()
 
+    @staticmethod
+    def _replace_tokens_in_order(document: QTextDocument, entries, replace) -> None:
+        """按文档顺序替换占位符：把上一次命中处作为下一次的搜索起点。
+
+        占位符由预处理按文档顺序生成。逐次 ``document.find`` 都从**文档头**
+        全量扫描时，N 个占位符的总代价是 O(N × 文档长)（实测 400 个 ≈ 0.1s、
+        占全量渲染 20%）。
+
+        ``entries`` 为 ``[(token, payload)]``，``replace(found, payload)`` 负责
+        单次替换；替换后从 ``found.position()``（替换文本末尾）继续 —— 替换
+        内容是用户文本或私有区占位符，不会再包含后续 token。
+        """
+        search = QTextCursor(document)
+        for token, payload in entries:
+            found = document.find(token, search)
+            if found.isNull():
+                continue
+            replace(found, payload)
+            search.setPosition(found.position())
+
     def _render_into(
         self,
         document: QTextDocument,
@@ -2666,29 +2793,53 @@ class ElaMarkdownViewer(ElaThemeWidget):
         """完整渲染管线（主文档与流式片段临时文档共用）。
 
         ``resource_doc`` 是公式图片的资源注册文档，缺省为目标文档。
+
+        后处理分**两段编辑块**，把逐项 ``beginEditBlock`` 触发的重排从几十次
+        压到两次（实测 51KB / 200 代码块文档光 ``endEditBlock`` 就 0.27s）。
+        两段的分界是**帧树**：编辑块内 Qt 的帧树是陈旧的（实测
+        ``cursor.currentTable()`` 恒 ``None``、``rootFrame().childFrames()``
+        看不到新表），依赖它的排版 / 表格样式必须等第一段编辑块结束后再跑。
         """
-        processed, maths = extract_math(source, self._math_mark)
-        processed = self._preprocess(processed)
-        document.setMarkdown(processed)
-        self._insert_fenced_code(document)
-        self._apply_inline_code_formats(document)
-        self._replace_mark_tokens(document)
-        self._replace_footnote_refs(document)
-        self._apply_footnote_defs(document)
-        self._apply_heading_anchors(document)
-        self._replace_toc_token(document)
-        self._apply_folds(document)
-        self._style_callouts(document)
-        self._style_typography(document)
-        self._style_tables(document)
-        self._apply_fragment_colors(document)
-        self._style_task_markers(document)
-        if maths:
-            self._embed_math(document, maths, resource_doc or document)
-        self._apply_images(document, resource_doc)
-        self._embed_mermaid(
-            document, resource_doc, reset=document is self._text_browser.document()
-        )
+        edit = QTextCursor(document)
+        edit.beginEditBlock()
+        try:
+            processed, maths = extract_math(source, self._math_mark)
+            processed = self._preprocess(processed)
+            document.setMarkdown(processed)
+            self._insert_fenced_code(document)
+            self._apply_inline_code_formats(document)
+            self._replace_mark_tokens(document)
+            self._replace_footnote_refs(document)
+            self._apply_footnote_defs(document)
+            self._apply_heading_anchors(document)
+            self._replace_toc_token(document)
+            self._apply_folds(document)
+            self._style_callouts(document)
+        finally:
+            edit.endEditBlock()
+        # 第二段：排版 / 表格（读帧树）+ 其余纯模型阶段
+        edit = QTextCursor(document)
+        edit.beginEditBlock()
+        try:
+            self._style_typography(document)
+            self._style_tables(document)
+            self._apply_fragment_colors(document)
+            self._style_task_markers(document)
+            if maths:
+                self._embed_math(document, maths, resource_doc or document)
+            # 无图片语法时整趟跳过：``_apply_images`` 走全部块 × 片段的
+            # Python 遍历（分块渲染里每块一次、实测 524KB 文档 ≈ 0.5s），
+            # 而图片只可能来自 Markdown 图片语法 / ``<img>``。
+            # （Mermaid / 公式图片由各自阶段插入，不经这里。）
+            if _IMAGE_SYNTAX_RE.search(processed):
+                self._apply_images(document, resource_doc)
+            self._embed_mermaid(
+                document,
+                resource_doc,
+                reset=document is self._text_browser.document(),
+            )
+        finally:
+            edit.endEditBlock()
 
     @staticmethod
     def _collect_footnote_defs(lines: list[str]) -> tuple[list, set]:
@@ -3079,16 +3230,18 @@ class ElaMarkdownViewer(ElaThemeWidget):
         outer = QTextCursor(document)
         outer.beginEditBlock()
         try:
+            entries = []
             for index, (lang, code_text, closed) in enumerate(self._fenced_blocks):
                 token = f"{_CODE_TOKEN_PREFIX}{index}{_CODE_TOKEN_SUFFIX}"
-                found = document.find(token)
-                if found.isNull():
-                    continue
                 source_lines = (
                     self._fenced_source_lines[index]
                     if index < len(self._fenced_source_lines)
                     else None
                 )
+                entries.append((token, (index, lang, code_text, closed, source_lines)))
+
+            def replace(found: QTextCursor, data) -> None:
+                index, lang, code_text, closed, source_lines = data
                 self._insert_code_card(
                     found,
                     lang,
@@ -3097,6 +3250,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
                     fold_index=index,
                     source_lines=source_lines,
                 )
+
+            self._replace_tokens_in_order(document, entries, replace)
         finally:
             outer.endEditBlock()
 
@@ -3112,9 +3267,11 @@ class ElaMarkdownViewer(ElaThemeWidget):
         """把当前选中的占位符替换为代码卡片（Typora 风格：无头栏、单行）。
 
         语言标签不再占一行，改为存入表格式供复制按钮 tooltip 展示。
+
+        不自己开关编辑块：调用方（``_insert_fenced_code`` / ``_embed_mermaid``）
+        已在批处理编辑块内，逐卡 begin/end 纯属开销（实测 200 卡 ≈ 0.04s）。
         """
         document = cursor.document()
-        cursor.beginEditBlock()
         cursor.removeSelectedText()
         table = cursor.insertTable(
             1, 1, self._code_table_format(lang, code_text, source_lines)
@@ -3143,7 +3300,6 @@ class ElaMarkdownViewer(ElaThemeWidget):
         if fold_index is not None:
             self._insert_code_fold_link(cell_cursor, fold_index, lines, collapsed)
         self._style_code_cell_blocks(document, code_cell)
-        cursor.endEditBlock()
 
     def _insert_code_text(
         self, cell_cursor: QTextCursor, code_text: str, lang: str
@@ -3256,9 +3412,14 @@ class ElaMarkdownViewer(ElaThemeWidget):
         cached = self._highlight_cache.get(cache_key)
         if cached is not None:
             return cached
-        try:
-            lexer = get_lexer_by_name(lang, stripnl=False, ensurenl=False)
-        except Exception:
+        lexer = _LEXER_CACHE.get(lang, _LEXER_MISS)
+        if lexer is _LEXER_MISS:
+            try:
+                lexer = get_lexer_by_name(lang, stripnl=False, ensurenl=False)
+            except Exception:
+                lexer = None
+            _LEXER_CACHE[lang] = lexer
+        if lexer is None:
             return [(code, base)]
         palette = self._token_palette
         result = []
@@ -3299,30 +3460,34 @@ class ElaMarkdownViewer(ElaThemeWidget):
         """把 ``==高亮==`` 占位符替换为带主题背景色的文本。"""
         if not self._mark_texts:
             return
-        for index, content in enumerate(self._mark_texts):
-            token = f"{_MARK_TOKEN_PREFIX}{index}{_CODE_TOKEN_SUFFIX}"
-            found = document.find(token)
-            if found.isNull():
-                continue
-            found.beginEditBlock()
+        fmt = QTextCharFormat()
+        fmt.setBackground(QBrush(self._mark_bg))
+        entries = [
+            (f"{_MARK_TOKEN_PREFIX}{index}{_CODE_TOKEN_SUFFIX}", content)
+            for index, content in enumerate(self._mark_texts)
+        ]
+
+        def replace(found: QTextCursor, content: str) -> None:
             found.removeSelectedText()
-            fmt = QTextCharFormat()
-            fmt.setBackground(QBrush(self._mark_bg))
             found.insertText(content, fmt)
-            found.endEditBlock()
+
+        self._replace_tokens_in_order(document, entries, replace)
 
     def _replace_footnote_refs(self, document: QTextDocument) -> None:
         """把脚注引用占位符替换为上标编号链接（``[n](#fn-id)``）。
 
         每个脚注的首次引用处同时附加 ``fnref-id`` 锚点，供定义区编号回跳。
+        同一脚注可被引用多次，所以每个 id 用自己的搜索游标循环（id 数量少，
+        保序扫描的收益可忽略，这里只去掉逐次 begin/end 编辑块）。
         """
         if not self._footnote_defs:
             return
         anchored: set[str] = set()
         for index, (fid, _body) in enumerate(self._footnote_defs, start=1):
             token = f"{_FOOTNOTE_REF_PREFIX}{fid}{_CODE_TOKEN_SUFFIX}"
+            search = QTextCursor(document)
             while True:
-                found = document.find(token)
+                found = document.find(token, search)
                 if found.isNull():
                     break
                 fmt = QTextCharFormat()
@@ -3335,21 +3500,21 @@ class ElaMarkdownViewer(ElaThemeWidget):
                     QTextCharFormat.VerticalAlignment.AlignSuperScript
                 )
                 fmt.setForeground(self._link_color)
-                found.beginEditBlock()
                 found.removeSelectedText()
                 found.insertText(f"[{index}]", fmt)
-                found.endEditBlock()
+                search.setPosition(found.position())
 
     def _apply_footnote_defs(self, document: QTextDocument) -> None:
         """给文末脚注定义块设置锚点（``fn-id``）并着色编号。"""
         if not self._footnote_defs:
             return
-        for index, (fid, _body) in enumerate(self._footnote_defs, start=1):
-            token = f"{_FOOTNOTE_DEF_PREFIX}{index}{_CODE_TOKEN_SUFFIX}"
-            found = document.find(token)
-            if found.isNull():
-                continue
-            found.beginEditBlock()
+        entries = [
+            (f"{_FOOTNOTE_DEF_PREFIX}{index}{_CODE_TOKEN_SUFFIX}", (index, fid))
+            for index, (fid, _body) in enumerate(self._footnote_defs, start=1)
+        ]
+
+        def replace(found: QTextCursor, data) -> None:
+            index, fid = data
             found.removeSelectedText()
             if found.block().text().startswith(" "):
                 found.deleteChar()
@@ -3381,7 +3546,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 QTextCursor.MoveMode.KeepAnchor,
             )
             cursor.mergeCharFormat(anchor_fmt)
-            found.endEditBlock()
+
+        self._replace_tokens_in_order(document, entries, replace)
 
     @staticmethod
     def _slugify(text: str, used: dict) -> str:
@@ -3431,7 +3597,6 @@ class ElaMarkdownViewer(ElaThemeWidget):
             found.removeSelectedText()
             return
         cursor = QTextCursor(found)
-        cursor.beginEditBlock()
         cursor.removeSelectedText()
         for index, (level, text, slug) in enumerate(self._headings):
             if index > 0:
@@ -3445,16 +3610,17 @@ class ElaMarkdownViewer(ElaThemeWidget):
             link_fmt.setAnchorHref(f"#{slug}")
             link_fmt.setForeground(self._link_color)
             cursor.insertText(text or slug, link_fmt)
-        cursor.endEditBlock()
 
     def _apply_folds(self, document: QTextDocument) -> None:
         """把折叠占位符替换为可点击标签，并按展开状态隐藏/展示内容。"""
         if not self._fold_blocks:
             return
+        start_search = QTextCursor(document)
+        end_search = QTextCursor(document)
         for index, fold in enumerate(self._fold_blocks):
             start_token = f"{_FOLD_TOKEN_PREFIX}{index}{_CODE_TOKEN_SUFFIX}"
             end_token = f"{_FOLD_END_TOKEN_PREFIX}{index}{_CODE_TOKEN_SUFFIX}"
-            found = document.find(start_token)
+            found = document.find(start_token, start_search)
             if found.isNull():
                 continue
             expanded = index in self._expanded_folds
@@ -3465,14 +3631,15 @@ class ElaMarkdownViewer(ElaThemeWidget):
             fmt.setFontItalic(True)
             fmt.setAnchor(True)
             fmt.setAnchorHref(f"#elafold-{index}")
-            found.beginEditBlock()
             found.removeSelectedText()
             found.insertText(f"{marker} {label}", fmt)
-            found.endEditBlock()
+            start_search.setPosition(found.position())
             label_block = document.findBlock(max(found.position() - 1, 0))
             if not label_block.isValid():
                 continue
-            end_found = document.find(end_token)
+            end_found = document.find(end_token, end_search)
+            if not end_found.isNull():
+                end_search.setPosition(end_found.position())
             end_number = (
                 end_found.block().blockNumber()
                 if not end_found.isNull()
@@ -3529,11 +3696,12 @@ class ElaMarkdownViewer(ElaThemeWidget):
         if not self._callout_types:
             return
         tint = 0.14 if self._is_dark_theme else 0.08
-        for index, kind in enumerate(self._callout_types):
-            token = f"{_CALLOUT_TOKEN_PREFIX}{index}{_CODE_TOKEN_SUFFIX}"
-            found = document.find(token)
-            if found.isNull():
-                continue
+        entries = [
+            (f"{_CALLOUT_TOKEN_PREFIX}{index}{_CODE_TOKEN_SUFFIX}", kind)
+            for index, kind in enumerate(self._callout_types)
+        ]
+
+        def replace(found: QTextCursor, kind: str) -> None:
             label = _CALLOUT_LABELS.get(kind, kind)
             color = QColor(
                 _CALLOUT_COLORS.get(kind, _CALLOUT_COLORS["note"])[
@@ -3545,14 +3713,12 @@ class ElaMarkdownViewer(ElaThemeWidget):
             label_fmt.setFontWeight(QFont.Weight.DemiBold)
             label_fmt.setForeground(color)
 
-            found.beginEditBlock()
             found.removeSelectedText()
             first_number = found.blockNumber()
             on_empty_line = found.atBlockEnd()
             found.insertText(label, label_fmt)
             if not on_empty_line:
                 found.insertBlock(QTextBlockFormat(), QTextCharFormat())
-            found.endEditBlock()
 
             block = document.findBlockByNumber(first_number)
             while block.isValid():
@@ -3566,6 +3732,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
                 cursor.setPosition(block.position())
                 cursor.setBlockFormat(block_format)
                 block = block.next()
+
+        self._replace_tokens_in_order(document, entries, replace)
 
     def _apply_inline_code_formats(self, document: QTextDocument) -> None:
         """把行内代码占位符换回真实文本，并套用格式（等宽 + 高亮底 + 内边距）。
@@ -3581,15 +3749,16 @@ class ElaMarkdownViewer(ElaThemeWidget):
         if not self._inline_codes:
             return
         fmt = self._code_format()
-        for index, code_text in enumerate(self._inline_codes):
-            token = f"{_INLINE_CODE_TOKEN_PREFIX}{index}{_CODE_TOKEN_SUFFIX}"
-            found = document.find(token)
-            if found.isNull():
-                continue
-            found.beginEditBlock()
+        entries = [
+            (f"{_INLINE_CODE_TOKEN_PREFIX}{index}{_CODE_TOKEN_SUFFIX}", code_text)
+            for index, code_text in enumerate(self._inline_codes)
+        ]
+
+        def replace(found: QTextCursor, code_text: str) -> None:
             found.removeSelectedText()
             found.insertText(code_text, fmt)
-            found.endEditBlock()
+
+        self._replace_tokens_in_order(document, entries, replace)
 
     # -- 表格 / 排版 -------------------------------------------------------
 
@@ -3966,11 +4135,13 @@ class ElaMarkdownViewer(ElaThemeWidget):
         base_point_size = self._math_point_size()
         plain_format = QTextCharFormat()
         plain_format.setForeground(self._text_color)
+        search = QTextCursor(document)
         for index, (latex, display) in enumerate(maths):
             marker = self._math_mark.format(index)
-            found = document.find(marker)
+            found = document.find(marker, search)
             if found.isNull():
                 continue
+            search.setPosition(found.position())
             point_size = base_point_size * (1.55 if display else 1.3)
             report: dict = {}
             image = render_formula(
@@ -4679,14 +4850,22 @@ class ElaMarkdownViewer(ElaThemeWidget):
 
     # -- 图片 / 交互 / 布局 ------------------------------------------------
 
-    def _apply_images(self, document: QTextDocument, resource_doc=None) -> None:
-        """处理图片片段：本地加载注册、超宽缩放、远程按开关拦截。"""
+    def _apply_images(
+        self, document: QTextDocument, resource_doc=None, start_block: int = 0
+    ) -> None:
+        """处理图片片段：本地加载注册、超宽缩放、远程按开关拦截。
+
+        ``start_block`` 起（含）的块才参与处理 —— 宽度未变的增量重排只需扫
+        新增块；宽度变化时调用方传 0 全量重扫。
+        """
         base = document.baseUrl()
         target_doc = resource_doc or document
         max_width = max(self._text_browser.viewport().width() - 24, 120)
         placeholder_fmt = QTextCharFormat()
         placeholder_fmt.setForeground(self._muted_color)
-        block = document.begin()
+        block = document.findBlockByNumber(start_block)
+        if not block.isValid():
+            return
         while block.isValid():
             iterator = block.begin()
             while not iterator.atEnd():
@@ -4707,11 +4886,15 @@ class ElaMarkdownViewer(ElaThemeWidget):
                             )
                 iterator += 1
             block = block.next()
-        self._center_standalone_images(document)
+        self._center_standalone_images(document, start_block)
 
-    def _center_standalone_images(self, document: QTextDocument) -> None:
+    def _center_standalone_images(
+        self, document: QTextDocument, start_block: int = 0
+    ) -> None:
         """独占一行的图片居中（Typora 风格；行内公式图片不参与）。"""
-        block = document.begin()
+        block = document.findBlockByNumber(start_block)
+        if not block.isValid():
+            return
         while block.isValid():
             if block.text().strip() == "\ufffc":
                 has_image = False
@@ -4821,7 +5004,8 @@ class ElaMarkdownViewer(ElaThemeWidget):
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 (Qt 命名)
         """拦截右键菜单，并在鼠标移动时管理代码复制按钮显隐。"""
         viewport = self._text_browser.viewport()
-        if event.type() == QEvent.Type.ContextMenu and obj in (
+        event_type = event.type()
+        if event_type == QEvent.Type.ContextMenu and obj in (
             self._text_browser,
             viewport,
         ):
@@ -4831,7 +5015,7 @@ class ElaMarkdownViewer(ElaThemeWidget):
             self._show_context_menu(event.globalPos())
             return True
         if obj is viewport:
-            if event.type() == QEvent.Type.MouseMove:
+            if event_type == QEvent.Type.MouseMove:
                 pressed = bool(
                     event.buttons()
                     & (
@@ -4840,14 +5024,15 @@ class ElaMarkdownViewer(ElaThemeWidget):
                         | Qt.MouseButton.MiddleButton
                     )
                 )
-                self._update_code_button_hover(event.position().toPoint(), pressed=pressed)
-            elif event.type() == QEvent.Type.Leave:
+                self._update_code_button_hover(
+                    event.position().toPoint(), pressed=pressed
+                )
+            elif event_type == QEvent.Type.Leave:
                 # 移向复制按钮（viewport 子控件）也会触发 Leave：
                 # 按光标实际位置判定，避免按钮在点击前消失
                 self._on_viewport_leave()
-        elif obj in self._code_buttons:
-            if event.type() == QEvent.Type.Leave:
-                single_shot_on(self, 0, self._hover_from_cursor)
+        elif obj in self._code_button_widgets and event_type == QEvent.Type.Leave:
+            single_shot_on(self, 0, self._hover_from_cursor)
         return super().eventFilter(obj, event)
 
     def _on_viewport_leave(self, global_pos=None) -> None:
@@ -4970,12 +5155,24 @@ class ElaMarkdownViewer(ElaThemeWidget):
         if is_deleted(self) or is_deleted(self._text_browser):
             return
         if self._source:
-            self._apply_images(self.document())
+            # 宽度未变的常规重排只扫上次水位之后的新增块（流式追加时每次
+            # 全文档遍历是纯浪费）；宽度变了才全量重新缩放
+            width = self._text_browser.viewport().width()
+            start = 0 if width != self._image_scan_width else self._image_scan_watermark
+            self._apply_images(self.document(), start_block=start)
+            self._mark_images_scanned()
+        if self._large_render_chunks:
+            # 分块渲染期间**不同步按钮**：每次布局刷新都是一趟全表树遍历 +
+            # 全量定位，几千个代码块时是 O(n²)（实测 524KB / 4282 表 ≈ 1.9s）；
+            # 按钮统一在 _finish_large_render 里建一次。
+            self._sync_embedded_height()
+            return
         self._sync_code_buttons()
         self._sync_embedded_height()
 
     def _on_view_scrolled(self, _value: int) -> None:
-        self._sync_code_buttons()
+        # 滚动不改变文档结构：只需重摆按钮位置，不必重扫表格列表
+        self._position_code_buttons()
         if self._mermaid_jobs and not self._mermaid_priority_timer.isActive():
             self._mermaid_priority_timer.start()
 
@@ -4987,20 +5184,53 @@ class ElaMarkdownViewer(ElaThemeWidget):
         if not self._layout_timer.isActive():
             self._layout_timer.start(delay)
 
+    def _reset_image_scan(self) -> None:
+        """文档被整体替换 / 清空：作废图片扫描水位（下次重排全量重扫）。"""
+        self._image_scan_width = -1
+        self._image_scan_watermark = 0
+
+    def _mark_images_scanned(self) -> None:
+        """记录「当前文档全部图片已按当前视口宽度处理过」。"""
+        self._image_scan_width = self._text_browser.viewport().width()
+        self._image_scan_watermark = self._text_browser.document().blockCount()
+
     def _sync_code_buttons(self) -> None:
-        """同步代码复制按钮：代码块变化时重建，否则仅重新定位。"""
-        tables = [
-            table
-            for table in self._iter_tables(self.document())
-            if self._is_code_table(table)
-        ]
-        same = len(tables) == len(self._code_buttons_tables) and all(
-            a == b for a, b in zip(tables, self._code_buttons_tables)
-        )
-        if same:
+        """同步代码复制按钮：按表对象身份做**增量**，只为新增代码块建按钮。
+
+        原先列表一变就整体重建（流式每次 flush 销毁 + 重建几十个
+        ``FlatIconButton``，实测 10 秒约 2.3 万个），是流式卡顿的最大单笔
+        开销。稳定段里的代码表对象不会被替换，按钮可以直接复用。
+        """
+        try:
+            tables = [
+                table
+                for table in self._iter_tables(self.document())
+                if self._is_code_table(table)
+            ]
+        except RuntimeError:
+            # 文档正在销毁（窗口关闭路径）：丢弃本轮同步
+            return
+        # 上一轮的表可能已随文档改动析构（尾段替换 / clear）：逐个判存活，
+        # **失效表的按钮必须显式回收**（只从列表里摘掉的话控件仍留在视口里、
+        # eventFilter 也还挂着 —— 换文档 / 换主题时按钮数会虚长）
+        surviving: list = []
+        for table, button in zip(self._code_buttons_tables, self._code_buttons):
+            if is_deleted(table):
+                self._drop_code_button(button)
+            else:
+                surviving.append((table, button))
+        kept_tables = [table for table, _ in surviving]
+        if len(kept_tables) <= len(tables) and all(
+            a is b for a, b in zip(kept_tables, tables)
+        ):
+            # 存活表是新列表的前缀：复用按钮，只补尾部新增
+            self._code_buttons_tables = tables
+            self._code_buttons = [button for _, button in surviving]
+            for index in range(len(kept_tables), len(tables)):
+                self._code_buttons.append(self._create_code_button(index))
             self._position_code_buttons()
-        else:
-            self._rebuild_code_buttons(tables)
+            return
+        self._rebuild_code_buttons(tables)
 
     @staticmethod
     def _iter_tables(document: QTextDocument) -> list:
@@ -5019,30 +5249,42 @@ class ElaMarkdownViewer(ElaThemeWidget):
     def _rebuild_code_buttons(self, tables: list) -> None:
         """重建全部代码复制按钮（文档重渲染后表对象会失效）。"""
         for button in self._code_buttons:
-            button.hide()
-            button.deleteLater()
+            self._drop_code_button(button)
         self._code_buttons = []
         self._code_button_rects = []
+        self._shown_code_button = -1
         self._code_buttons_tables = list(tables)
-        viewport = self._text_browser.viewport()
         for index in range(len(tables)):
-            button = FlatIconButton(viewport)
-            button.setObjectName("ElaMarkdownCopyButton")
-            button.setFixedSize(_CODE_BUTTON_SIZE, _CODE_BUTTON_SIZE)
-            button.setIconSize(QSize(14, 14))
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setAutoRaise(True)
-            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            lang = tables[index].format().property(_CODE_LANG_PROPERTY) or ""
-            button.setToolTip(f"复制代码 · {lang}" if lang else "复制代码")
-            button.clicked.connect(
-                lambda _checked=False, i=index: self._copy_code_block(i)
-            )
-            button.installEventFilter(self)
-            button.hide()
-            self._apply_code_button_style(button)
-            self._code_buttons.append(button)
+            self._code_buttons.append(self._create_code_button(index))
         self._position_code_buttons()
+
+    def _create_code_button(self, index: int) -> QToolButton:
+        """创建单个复制按钮（``index`` 为代码表序号）。"""
+        viewport = self._text_browser.viewport()
+        button = FlatIconButton(viewport)
+        button.setObjectName("ElaMarkdownCopyButton")
+        button.setFixedSize(_CODE_BUTTON_SIZE, _CODE_BUTTON_SIZE)
+        button.setIconSize(QSize(14, 14))
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setAutoRaise(True)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        lang = (
+            self._code_buttons_tables[index].format().property(_CODE_LANG_PROPERTY)
+            or ""
+        )
+        button.setToolTip(f"复制代码 · {lang}" if lang else "复制代码")
+        button.clicked.connect(lambda _checked=False, i=index: self._copy_code_block(i))
+        button.installEventFilter(self)
+        button.hide()
+        self._apply_code_button_style(button)
+        self._code_button_widgets.add(button)
+        return button
+
+    def _drop_code_button(self, button: QToolButton) -> None:
+        """移除单个复制按钮（隐藏 + 延迟销毁 + 退出归属集合）。"""
+        button.hide()
+        button.deleteLater()
+        self._code_button_widgets.discard(button)
 
     def _apply_code_button_style(self, button: QToolButton) -> None:
         """按钮图标与悬浮 / 按下底色（随主题刷新；自绘，不用 QSS）。"""
@@ -5061,15 +5303,39 @@ class ElaMarkdownViewer(ElaThemeWidget):
             ElaIconType.IconName.Check, self._link_color
         )
 
+    def _code_table_in_view(
+        self, table, layout, offset: int, viewport_height: int
+    ) -> bool:
+        """代码表是否落在视口附近（文档坐标 vs 滚动偏移）。
+
+        先用便宜的帧矩形做粗筛，只有可见的表才走昂贵的 ``cursorRect`` 几何；
+        否则每一帧 / 每次滚动都要为全部代码块（含离屏）算一遍。
+        """
+        if is_deleted(table):
+            return False
+        frame = layout.frameBoundingRect(table)
+        if frame.isNull():
+            return False
+        return (
+            frame.bottom() >= offset - _CODE_VIEW_CULL_MARGIN
+            and frame.top() <= offset + viewport_height + _CODE_VIEW_CULL_MARGIN
+        )
+
     def _position_code_buttons(self) -> None:
-        """把按钮摆到各代码块右上角（随滚动/尺寸变化）。"""
+        """把按钮摆到各代码块右上角（随滚动/尺寸变化；只算可见的表）。"""
         viewport_height = self._text_browser.viewport().height()
+        offset = self._text_browser.verticalScrollBar().value()
+        layout = self.document().documentLayout()
         self._code_button_rects = []
         for button, table in zip(self._code_buttons, self._code_buttons_tables):
+            if not self._code_table_in_view(table, layout, offset, viewport_height):
+                self._code_button_rects.append(QRectF())
+                self._hide_code_button_widget(button)
+                continue
             rect = self._code_table_viewport_rect(table)
             self._code_button_rects.append(rect)
             if rect.isNull() or rect.top() < 0 or rect.top() > viewport_height:
-                button.hide()
+                self._hide_code_button_widget(button)
                 continue
             x = int(rect.right() - button.width() - 6)
             y = self._code_button_y(table, rect, button)
@@ -5078,6 +5344,16 @@ class ElaMarkdownViewer(ElaThemeWidget):
     def _code_button_y(self, table: QTextTable, rect: QRectF, button) -> int:
         """复制按钮的纵向位置（无头栏，固定在代码卡右上角）。"""
         return int(rect.top() + 6)
+
+    def _hide_code_button_widget(self, button) -> None:
+        """隐藏单个按钮并同步「当前显示」标记（按钮可能因离屏被隐）。"""
+        if button.isVisible():
+            button.hide()
+        if (
+            0 <= self._shown_code_button < len(self._code_buttons)
+            and self._code_buttons[self._shown_code_button] is button
+        ):
+            self._shown_code_button = -1
 
     def _code_table_viewport_rect(self, table: QTextTable) -> QRectF:
         """代码表在 viewport 坐标系中的矩形（用于按钮定位与悬浮判定）。
@@ -5139,11 +5415,19 @@ class ElaMarkdownViewer(ElaThemeWidget):
         return first, last
 
     def _paint_inline_code_backgrounds(self, browser, painter) -> None:
-        """行内代码圆角底 + 边框（在文档绘制之前调用，避免盖住文字）。"""
+        """行内代码圆角底 + 边框（在文档绘制之前调用，避免盖住文字）。
+
+        画笔（描边）+ 画刷（底色）在循环外设一次：全部标记共用同一对，
+        密集行内代码时省掉每标记两次状态切换。
+        """
         document = self.document()
         layout = document.documentLayout()
         offset = browser.verticalScrollBar().value()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        pen = QPen(self._inline_code_border)
+        pen.setWidthF(1.0)
+        painter.setPen(pen)
+        painter.setBrush(self._inline_code_bg)
         first, last = self._visible_blocks(browser)
         block = first
         while block.isValid():
@@ -5158,10 +5442,14 @@ class ElaMarkdownViewer(ElaThemeWidget):
     def _paint_block_inline_codes(self, browser, painter, block) -> None:
         """绘制单个块内全部行内代码标记的圆角底与边框。
 
-        坐标一律用 ``cursorRect``（段起点的真实视口位置）反推行原点，
+        坐标一律用 ``cursorRect``（**视觉行起点**的真实视口位置）反推行原点，
         ``cursorToX`` 只负责段内宽度——列表缩进 / 引用缩进 / 表格单元格
         局部坐标三种场景都成立（曾因 ``cursorRect + cursorToX`` 重复计入
         缩进而错位）。
+
+        ``cursorRect`` 是本路径最贵的一步（~0.1ms/次）：**每个视觉行只取一次**
+        （原先每个标记段一次 —— 行内代码密集时单帧几十次），画笔 / 画刷由
+        调用方在循环外设好（全部标记共用同一对），每个标记只画一次圆角矩形。
         """
         text_layout = block.layout()
         if text_layout is None:
@@ -5177,39 +5465,31 @@ class ElaMarkdownViewer(ElaThemeWidget):
         if not marks:
             return
         document = self.document()
+        cursor = QTextCursor(document)
         for index in range(text_layout.lineCount()):
             line = text_layout.lineAt(index)
             line_start = line.textStart()
             line_end = line_start + line.textLength()
+            cursor.setPosition(_clamp_pos(document, block_start + line_start))
+            line_rect = browser.cursorRect(cursor)
+            if not line_rect.isValid():
+                continue
+            origin_x = line_rect.left() - line.cursorToX(line_start)[0]
             for frag_pos, frag_len in marks:
                 segment_start = max(frag_pos, line_start)
                 segment_end = min(frag_pos + frag_len, line_end)
                 if segment_end <= segment_start:
                     continue
-                cursor = QTextCursor(document)
-                cursor.setPosition(_clamp_pos(document, block_start + segment_start))
-                start_rect = browser.cursorRect(cursor)
-                if not start_rect.isValid():
-                    continue
-                origin_x = start_rect.left() - line.cursorToX(segment_start)[0]
+                x1 = origin_x + line.cursorToX(segment_start)[0]
                 x2 = origin_x + line.cursorToX(segment_end)[0]
-                if x2 <= start_rect.left():
+                if x2 <= x1:
                     continue
                 background = QRectF(
-                    start_rect.left() - _INLINE_CODE_PADDING,
-                    start_rect.top() + 1.0,
-                    (x2 - start_rect.left()) + 2 * _INLINE_CODE_PADDING,
-                    max(1.0, start_rect.height() - 2.0),
+                    x1 - _INLINE_CODE_PADDING,
+                    line_rect.top() + 1.0,
+                    (x2 - x1) + 2 * _INLINE_CODE_PADDING,
+                    max(1.0, line_rect.height() - 2.0),
                 )
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(self._inline_code_bg)
-                painter.drawRoundedRect(
-                    background, _INLINE_CODE_RADIUS, _INLINE_CODE_RADIUS
-                )
-                pen = QPen(self._inline_code_border)
-                pen.setWidthF(1.0)
-                painter.setPen(pen)
-                painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawRoundedRect(
                     background, _INLINE_CODE_RADIUS, _INLINE_CODE_RADIUS
                 )
@@ -5269,10 +5549,18 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._paint_code_card_chrome(browser, painter)
 
     def _paint_code_card_chrome(self, browser, painter) -> None:
-        """代码软卡片：6px 圆角（无描边，Qt 表格无圆角 API，用四角遮罩补齐）。"""
+        """代码软卡片：6px 圆角（无描边，Qt 表格无圆角 API，用四角遮罩补齐）。
+
+        先按帧矩形做视口裁剪：只给可见的表算几何（离屏的代码块再多也不付
+        ``cursorRect`` 代价，否则重绘成本随全文档代码块数线性上升）。
+        """
         viewport_height = browser.viewport().height()
+        offset = browser.verticalScrollBar().value()
+        layout = self.document().documentLayout()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         for table in self._code_buttons_tables:
+            if not self._code_table_in_view(table, layout, offset, viewport_height):
+                continue
             rect = self._code_table_viewport_rect(table)
             if rect.isNull() or rect.bottom() < 0 or rect.top() > viewport_height:
                 continue
@@ -5305,21 +5593,34 @@ class ElaMarkdownViewer(ElaThemeWidget):
         self._hide_code_buttons()
 
     def _show_code_button(self, index: int) -> None:
-        viewport_height = self._text_browser.viewport().height()
-        for i, button in enumerate(self._code_buttons):
-            rect = (
-                self._code_button_rects[i]
-                if i < len(self._code_button_rects)
-                else QRectF()
-            )
-            visible = (
-                i == index and not rect.isNull() and 0 <= rect.top() <= viewport_height
-            )
-            button.setVisible(visible)
+        """显示指定代码块的复制按钮（只动前后两个按钮，O(1)）。"""
+        rect = (
+            self._code_button_rects[index]
+            if index < len(self._code_button_rects)
+            else QRectF()
+        )
+        visible = (
+            not rect.isNull()
+            and 0 <= rect.top() <= self._text_browser.viewport().height()
+        )
+        if index == self._shown_code_button:
+            if visible:
+                if not self._code_buttons[index].isVisible():
+                    # 被 _position_code_buttons 因离屏隐藏过：补显示
+                    self._code_buttons[index].setVisible(True)
+            else:
+                self._hide_code_buttons()
+            return
+        self._hide_code_buttons()
+        if visible and 0 <= index < len(self._code_buttons):
+            self._code_buttons[index].setVisible(True)
+            self._shown_code_button = index
 
     def _hide_code_buttons(self) -> None:
-        for button in self._code_buttons:
-            button.hide()
+        index = self._shown_code_button
+        self._shown_code_button = -1
+        if 0 <= index < len(self._code_buttons):
+            self._code_buttons[index].hide()
 
     def _hover_from_cursor(self) -> None:
         pos = self._text_browser.viewport().mapFromGlobal(QCursor.pos())
